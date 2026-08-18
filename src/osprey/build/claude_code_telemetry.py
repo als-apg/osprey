@@ -86,6 +86,22 @@ class TelemetryConfigError(ValueError):
     """
 
 
+class ObservabilityCredentialError(TelemetryConfigError):
+    """The observability backend's credentials are missing or unresolved.
+
+    The narrow case of a telemetry misconfiguration whose remedy is a
+    credential in the deployment's own secret store — never a model, a
+    provider, or an endpoint. Callers that resolve a provider spec catch
+    broad error types and phrase their own remedy from what they caught, so
+    without this distinction a missing observability password is reported as
+    a bad model or an unreadable provider, sending the operator to fix
+    something that was never wrong.
+
+    Subclasses :class:`TelemetryConfigError` (and through it ``ValueError``),
+    so every existing handler keeps catching it exactly as before.
+    """
+
+
 def _running_in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
 
@@ -240,17 +256,19 @@ def _openobserve_auth_header(
         a credential is deferred.
 
     Raises:
-        ValueError: If either credential is missing or blank — an
-            unauthenticated exporter to an auth-gated store would silently drop
-            every span, so refuse to emit one — or if either credential still
-            carries a literal ``${VAR}`` (an unresolved placeholder whose env
-            var is unset) and ``defer_unresolved`` is False.
+        ObservabilityCredentialError: If either credential is missing or blank
+            — an unauthenticated exporter to an auth-gated store would silently
+            drop every span, so refuse to emit one — or if either credential
+            still carries a literal ``${VAR}`` (an unresolved placeholder whose
+            env var is unset) and ``defer_unresolved`` is False. Both cases are
+            fixed in the deployment's secret store, which is why they carry
+            their own type rather than the general telemetry one.
     """
     oo = telemetry_cfg.get("openobserve") or {}
     user = oo.get("user")
     password = oo.get("password")
     if not user or not password:
-        raise TelemetryConfigError(
+        raise ObservabilityCredentialError(
             "claude_code.telemetry.backend is 'openobserve' but "
             "openobserve.user / openobserve.password are missing or blank; "
             "refusing to emit an unauthenticated OTLP exporter to an "
@@ -270,7 +288,7 @@ def _openobserve_auth_header(
                     stacklevel=2,
                 )
                 return None
-            raise TelemetryConfigError(
+            raise ObservabilityCredentialError(
                 f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
                 "The referenced environment variable is unset — refusing to "
                 "encode a literal placeholder into the OpenObserve auth header."
@@ -308,9 +326,11 @@ def _build_telemetry_env(
         are a subset of :data:`TELEMETRY_ENV_VARS`.
 
     Raises:
-        ValueError: On an unresolvable endpoint, ``protocol: grpc`` against an
-            auto-derived (HTTP-only) OpenObserve endpoint, a leaked ``${VAR}`` in
-            the endpoint, or an ``openobserve`` backend with missing/blank creds.
+        TelemetryConfigError: On an unresolvable endpoint, ``protocol: grpc``
+            against an auto-derived (HTTP-only) OpenObserve endpoint, or a
+            leaked ``${VAR}`` in the endpoint.
+        ObservabilityCredentialError: On an ``openobserve`` backend whose
+            credentials are missing, blank, or an unresolved ``${VAR}``.
     """
     if not telemetry_cfg or not telemetry_cfg.get("enabled"):
         return {}

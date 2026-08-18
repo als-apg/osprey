@@ -37,7 +37,7 @@ _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 _TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
 
 _GRID_SCAN_ARGS: dict[str, Any] = {
-    "detectors": ["BPM1"],
+    "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 _RUN_ID = "run-abc"
@@ -205,7 +205,7 @@ def test_the_running_items_progress_survives_the_strip(client: TestClient) -> No
             queue_get={"success": True, "items": [], "running_item": stamped_item("u2")},
         )
     )
-    document_plane.record_run_params(_RUN_ID, _GRID_SCAN_ARGS)
+    document_plane.record_expected_points(_RUN_ID, 3)
 
     running = client.get("/queue").json()["running_item"]
 

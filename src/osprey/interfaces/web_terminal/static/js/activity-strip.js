@@ -43,8 +43,8 @@ export const ACTIVITY_CLEAR_MS = 6000;
  * SUPPRESSION table: the panel id that self-signals a given activity kind.
  *
  *   artifact → 'artifacts'  (workspace gallery navigates on the focus SSE)
- *   run      → 'bluesky'    (the canonical scan panel shows its launched
- *                            banner in its Plans view; a config-renamed scan
+ *   run      → 'bluesky'    (the canonical bluesky panel shows its launched
+ *                            banner in its Plans view; a config-renamed panel
  *                            panel falls outside this table and still gets
  *                            strip entries)
  *   panel    → the frame's own target.panel (that panel is the signal)

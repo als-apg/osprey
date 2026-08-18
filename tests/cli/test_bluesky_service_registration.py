@@ -139,7 +139,6 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
         "osprey_labels": {
             "project_name": "p",
             "project_root": str(project_path),
-            "deployed_at": "x",
         },
         "osprey_version": "",
         "system": {"timezone": "UTC"},
@@ -183,10 +182,10 @@ def test_inject_bluesky_plan_dir_written_to_config(tmp_path: Path) -> None:
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/scan_plans"), project_path)
+    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/plans"), project_path)
 
     config = _read_config(project_path)
-    assert config["services"]["bluesky"]["plan_dir"] == "/opt/facility/scan_plans"
+    assert config["services"]["bluesky"]["plan_dir"] == "/opt/facility/plans"
 
 
 def test_inject_bluesky_no_plan_dir_omits_key(tmp_path: Path) -> None:
@@ -235,15 +234,15 @@ def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> No
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/scan_plans"), project_path)
+    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/plans"), project_path)
     config = _read_config(project_path)
     rendered = _render_copied_compose(project_path, config)
 
     bridge = rendered["services"]["bluesky-bridge"]
     assert bridge["environment"]["BLUESKY_PLAN_DIRS"] == "/app/project/plans"
-    assert "/opt/facility/scan_plans:/app/project/plans:ro" in bridge["volumes"]
+    assert "/opt/facility/plans:/app/project/plans:ro" in bridge["volumes"]
     # The host path never appears in the container's environment block.
-    assert "/opt/facility/scan_plans" not in bridge["environment"].values()
+    assert "/opt/facility/plans" not in bridge["environment"].values()
 
 
 def test_plan_dir_absent_omits_mount_and_env(tmp_path: Path) -> None:
@@ -303,7 +302,7 @@ def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Pa
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/scan_plans"), project_path)
+    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/plans"), project_path)
 
     template_text = (project_path / "services" / "bluesky" / "docker-compose.yml.j2").read_text()
     assert (
@@ -321,19 +320,19 @@ def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Pa
 
 
 def test_profile_without_bluesky_key_leaves_bluesky_none() -> None:
-    profile = _parse_profile({"name": "no-scan-here"})
+    profile = _parse_profile({"name": "no-plan-here"})
     assert profile.bluesky is None
 
 
 def test_profile_bluesky_key_parses_overrides() -> None:
     profile = _parse_profile(
         {
-            "name": "with-scan",
+            "name": "with-plan",
             "bluesky": {
                 "port": 8123,
                 "tiled_enabled": True,
                 "tiled_port": 8124,
-                "plan_dir": "/opt/facility/scan_plans",
+                "plan_dir": "/opt/facility/plans",
             },
         }
     )
@@ -341,11 +340,11 @@ def test_profile_bluesky_key_parses_overrides() -> None:
     assert profile.bluesky.port == 8123
     assert profile.bluesky.tiled_enabled is True
     assert profile.bluesky.tiled_port == 8124
-    assert profile.bluesky.plan_dir == "/opt/facility/scan_plans"
+    assert profile.bluesky.plan_dir == "/opt/facility/plans"
 
 
 def test_profile_bluesky_key_defaults_when_empty_mapping() -> None:
-    profile = _parse_profile({"name": "with-scan-defaults", "bluesky": {}})
+    profile = _parse_profile({"name": "with-plan-defaults", "bluesky": {}})
     assert profile.bluesky is not None
     assert profile.bluesky.port == 8090
     assert profile.bluesky.tiled_enabled is False

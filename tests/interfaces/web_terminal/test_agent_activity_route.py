@@ -49,7 +49,7 @@ def _make_client() -> TestClient:
             {"kind": "channel", "panel": "channels", "detail": "SR01C:BPM1:X"},
         ),
         (
-            {"tool": "run_scan", "target": {"kind": "run", "detail": "orm-42"}},
+            {"tool": "run_plan", "target": {"kind": "run", "detail": "orm-42"}},
             {"kind": "run", "detail": "orm-42"},
         ),
         (

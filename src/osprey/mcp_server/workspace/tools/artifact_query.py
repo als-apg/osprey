@@ -4,7 +4,7 @@ The read side of the artifact store: listing artifacts (optionally scoped to
 one category, tool or agent) and reading a stored artifact's full content.
 
 Everything the workspace server stores — plots, documents, screenshots,
-archiver datasets, scan results — is one record type in one store, the
+archiver datasets, run results — is one record type in one store, the
 ``ArtifactStore``. Datasets are not a separate namespace; they are artifacts
 with a ``category``, so ``category=`` is how a caller narrows to them.
 Mutations live in ``artifact_save`` (``artifact_save`` / ``artifact_delete`` /
@@ -32,7 +32,7 @@ async def artifact_list(
     """List the artifacts currently available in the OSPREY workspace.
 
     This is the primary way to see what OSPREY tools have produced — plots,
-    documents and screenshots alongside archiver datasets and scan results.
+    documents and screenshots alongside archiver datasets and run results.
     Each entry includes a compact summary, its ``category`` and its
     ``artifact_id``.
 

@@ -116,6 +116,68 @@ def test_timeout_skips_without_retry():
     assert factory.stop_calls == 1
 
 
+def test_builtin_connection_error_is_retried_like_a_transport_error():
+    """Testcontainers' port-publish race is transient and must get the retry.
+
+    ``DockerClient.get_exposed_port`` raises the BUILTIN ``ConnectionError``
+    ("Port mapping for container ... is not available") when the reaper races
+    its own port publish. That class is deliberately asserted here to be outside
+    the requests hierarchy: it is the whole reason a separate arm is needed, and
+    a future refactor that dropped it would send this race back to the
+    skip-immediately arm — where it produced an all-skipped module that looked
+    exactly like a host with no Docker.
+    """
+    assert not issubclass(ConnectionError, requests.exceptions.RequestException)
+
+    factory = RecordingFactory(
+        ConnectionError("Port mapping for container abc is not available"), None
+    )
+
+    container = start_or_skip(factory, label="racing-db", backoff=0)
+
+    assert container is factory.containers[1]
+    assert factory.call_count == 2
+    assert factory.containers[0].stop_calls == 1
+    assert factory.containers[1].stop_calls == 0
+
+
+def test_builtin_connection_error_twice_skips_after_two_attempts():
+    """The retry is bounded for the race exactly as it is for a transport error."""
+    factory = RecordingFactory(
+        ConnectionError("port mapping not available"),
+        ConnectionError("still not available"),
+    )
+
+    with pytest.raises(pytest.skip.Exception) as ei:
+        start_or_skip(factory, label="racing-db", backoff=0)
+
+    assert "racing-db" in ei.value.msg
+    assert "ConnectionError" in ei.value.msg
+    assert "still not available" in ei.value.msg
+    assert factory.call_count == 2
+    assert factory.stop_calls == 2
+
+
+def test_a_host_without_a_docker_engine_still_skips_on_the_first_attempt():
+    """No engine is not a race — it must not buy a second attempt.
+
+    ``docker.from_env()`` raises ``DockerException`` when no daemon answers, and
+    that is neither a ``RequestException`` nor a ``ConnectionError``, so it lands
+    in the skip-immediately arm. Asserted so widening the retry class never
+    quietly starts charging Docker-less contributors a backoff per fixture.
+    """
+    factory = RecordingFactory(
+        docker_errors.DockerException("Error while fetching server API version")
+    )
+
+    with pytest.raises(pytest.skip.Exception) as ei:
+        start_or_skip(factory, label="no-engine-db", backoff=0)
+
+    assert "DockerException" in ei.value.msg
+    assert factory.call_count == 1
+    assert factory.stop_calls == 1
+
+
 def test_image_not_found_skips_without_retry():
     """``ImageNotFound`` is a ``RequestException`` subclass and must not retry.
 

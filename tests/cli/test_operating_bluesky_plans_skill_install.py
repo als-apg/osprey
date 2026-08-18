@@ -1,4 +1,4 @@
-"""Tests for the operating-bluesky-scans skill and its 4-point framework wiring.
+"""Tests for the operating-bluesky-plans skill and its 4-point framework wiring.
 
 Mirrors ``test_writing_bluesky_plans_skill_install.py``'s registry/template/
 preset/manifest wiring pattern, plus a real ``TemplateManager.create_project``
@@ -17,7 +17,7 @@ both fail in the direction that matters:
 
 * ``test_no_stale_tool_names`` includes ``launch_run``. Neither that tool nor
   its route exists; prose naming it would send the agent at a dead surface.
-* ``TestOperatingBlueskyScansStopHonesty`` pins that the skill tells the truth
+* ``TestOperatingBlueskyPlansStopHonesty`` pins that the skill tells the truth
   about halting — that a plain ``queue_stop`` halts the queue only after the
   running item finishes, that ``stop_run`` aborts the plan already in motion,
   what that abort costs, and that a failed abort is never reported as a halt.
@@ -39,8 +39,8 @@ from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 PRESETS_DIR = Path(__file__).parent.parent.parent / "src" / "osprey" / "profiles" / "presets"
 
-SKILL_REL = "claude/skills/operating-bluesky-scans/SKILL.md"
-OUTPUT_REL = ".claude/skills/operating-bluesky-scans/SKILL.md"
+SKILL_REL = "claude/skills/operating-bluesky-plans/SKILL.md"
+OUTPUT_REL = ".claude/skills/operating-bluesky-plans/SKILL.md"
 
 
 def _prose(text: str) -> str:
@@ -55,7 +55,7 @@ def _prose(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[*`]", "", text)).lower()
 
 
-class TestOperatingBlueskyScansRegistry:
+class TestOperatingBlueskyPlansRegistry:
     """Wiring point 1: BuildArtifactCatalog registration."""
 
     @pytest.fixture()
@@ -63,47 +63,47 @@ class TestOperatingBlueskyScansRegistry:
         return BuildArtifactCatalog.default()
 
     def test_registered(self, registry):
-        art = registry.get("skills/operating-bluesky-scans")
+        art = registry.get("skills/operating-bluesky-plans")
         assert art is not None
         assert art.output_path == OUTPUT_REL
         assert art.template_path == SKILL_REL
 
 
-class TestOperatingBlueskyScansTemplateExists:
+class TestOperatingBlueskyPlansTemplateExists:
     """Wiring point 2: the skill bundle template file itself."""
 
     def test_skill_file_exists(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         assert path.exists(), f"SKILL.md not found at {path}"
 
 
-class TestOperatingBlueskyScansPresetWiring:
+class TestOperatingBlueskyPlansPresetWiring:
     """Wiring point 3: the preset's ``skills:`` directive."""
 
     def test_control_assistant_lists_the_skill(self):
         profile_text = (PRESETS_DIR / "control-assistant.yml").read_text(encoding="utf-8")
         profile = yaml.safe_load(profile_text)
-        assert "operating-bluesky-scans" in profile["skills"]
+        assert "operating-bluesky-plans" in profile["skills"]
 
 
-class TestOperatingBlueskyScansManifestWiring:
+class TestOperatingBlueskyPlansManifestWiring:
     """Wiring point 4: the regen-tracked-files fallback list."""
 
     def test_in_regen_tracked_files(self):
         assert OUTPUT_REL in manifest.REGEN_TRACKED_FILES
 
 
-class TestOperatingBlueskyScansSkillStructure:
+class TestOperatingBlueskyPlansSkillStructure:
     """Content assertions: the draft-first run surface and its choreography."""
 
     @pytest.fixture()
     def skill_text(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         return path.read_text(encoding="utf-8")
 
     def test_has_frontmatter(self, skill_text):
         assert skill_text.startswith("---")
-        assert "name: operating-bluesky-scans" in skill_text
+        assert "name: operating-bluesky-plans" in skill_text
 
     # --- the shared-draft tool surface ---
 
@@ -206,7 +206,7 @@ class TestOperatingBlueskyScansSkillStructure:
         assert not re.search(r"(?i)\bintent\b", skill_text), "purged run-state word 'intent' leaked"
 
 
-class TestOperatingBlueskyScansStopHonesty:
+class TestOperatingBlueskyPlansStopHonesty:
     """Safety pins: the skill must describe each halt as exactly what it is.
 
     There are two, and they are not interchangeable. ``queue_stop`` halts
@@ -225,7 +225,7 @@ class TestOperatingBlueskyScansStopHonesty:
 
     @pytest.fixture()
     def skill_text(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         return path.read_text(encoding="utf-8")
 
     def test_stop_is_after_the_running_item(self, skill_text):
@@ -245,11 +245,11 @@ class TestOperatingBlueskyScansStopHonesty:
         assert "aborts the plan that is running right now" in prose
 
     def test_the_abort_states_what_it_costs(self, skill_text):
-        """An abort is not a free halt: it discards the rest of the scan and
+        """An abort is not a free halt: it discards the rest of the plan and
         leaves the machine wherever it stopped. An agent that proposes one
         without saying that has mis-sold it."""
         prose = _prose(skill_text)
-        assert "the hardware is left wherever the scan had moved it" in prose
+        assert "the hardware is left wherever the plan had moved it" in prose
         assert "returns nothing to a starting position" in prose
 
     def test_a_failed_abort_is_never_reported_as_a_halt(self, skill_text):
@@ -274,7 +274,7 @@ class TestOperatingBlueskyScansStopHonesty:
     def test_the_retired_no_abort_wording_is_gone(self, skill_text):
         """Inverse drift: the prose written when nothing could abort must not
         survive alongside the tool that now can. Each phrase below asserted, in
-        agent-facing text, that no halt existed for a moving scan."""
+        agent-facing text, that no halt existed for a moving plan."""
         prose = _prose(skill_text)
         for retired in (
             "no osprey surface does",
@@ -288,7 +288,7 @@ class TestOperatingBlueskyScansStopHonesty:
             )
 
 
-class TestOperatingBlueskyScansFigureNarration:
+class TestOperatingBlueskyPlansFigureNarration:
     """Safety pins: how the skill tells an agent to read a run's figure.
 
     A figure is the one read whose payload can be misread into a claim about
@@ -298,7 +298,7 @@ class TestOperatingBlueskyScansFigureNarration:
 
     * a ``reason`` is the bridge's default view, which is real data -- prose
       that lets it read as a failure turns "this plan draws no view of its own"
-      into "the scan went wrong";
+      into "the plan went wrong";
     * a decimated series is thinned, not short, and a ``null`` is a gap rather
       than a zero or a count of missed readings;
     * a ``heatmap_summary``'s largest cells are the strongest readings, NOT an
@@ -308,7 +308,7 @@ class TestOperatingBlueskyScansFigureNarration:
 
     @pytest.fixture()
     def skill_text(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         return path.read_text(encoding="utf-8")
 
     def test_documents_the_figure_read(self, skill_text):
@@ -361,27 +361,27 @@ class TestOperatingBlueskyScansFigureNarration:
         assert "never state a cell value the summary does not contain" in prose
 
 
-class TestOperatingBlueskyScansInstall:
+class TestOperatingBlueskyPlansInstall:
     """End-to-end: the skill must actually land on disk via the standard build path."""
 
     def test_control_assistant_build_installs_the_skill(self, tmp_path):
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="operating-bluesky-scans-install-test",
+            project_name="operating-bluesky-plans-install-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
         )
 
-        installed = project_dir / ".claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        installed = project_dir / ".claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         assert installed.exists(), f"Skill not installed at {installed}"
 
         template_text = (
-            TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+            TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         ).read_text(encoding="utf-8")
         assert installed.read_text(encoding="utf-8") == template_text
 
     def test_resolve_manifest_outputs_includes_the_skill(self):
-        mf = {"artifacts": {"skills": ["operating-bluesky-scans"]}}
+        mf = {"artifacts": {"skills": ["operating-bluesky-plans"]}}
         outputs = manifest.resolve_manifest_outputs(mf)
         assert OUTPUT_REL in outputs

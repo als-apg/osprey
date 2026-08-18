@@ -247,6 +247,17 @@ def test_a_resource_labelled_for_this_checkout_is_removed(repo, no_down):
     ]
 
 
+def _flowed(message: str) -> str:
+    """``message`` with every run of whitespace collapsed to one space.
+
+    The refusal wraps its prose itself, because the renderer prints cause lines
+    exactly as given. So a multi-word phrase in it is split at whatever column
+    the wrap fell on, and only a flowed view can assert on the words rather than
+    on the line breaks.
+    """
+    return " ".join(message.split())
+
+
 def test_a_same_named_resource_from_another_checkout_refuses(repo):
     fake = FakeRuntime(volumes={"als-exemplar_dispatch_workspace": theirs()})
 
@@ -385,7 +396,7 @@ def test_the_refusal_points_at_a_recorded_path_that_really_is_there(repo, tmp_pa
         plan_reset(repo, probe=make_probe(fake))
 
     message = str(excinfo.value)
-    assert f"Run `osprey reset` from {other}" in message
+    assert f"osprey reset --repo {other}" in message
     assert "no such directory on this host now" not in message
 
 
@@ -403,10 +414,15 @@ def test_the_refusal_does_not_claim_a_different_checkout_only_a_different_path(r
     with pytest.raises(ForeignCheckoutError) as excinfo:
         plan_reset(repo, probe=make_probe(fake))
 
-    message = str(excinfo.value)
-    assert "created from a DIFFERENT repo path" in message
-    assert "RENAMED" in message and "MOVED" in message
-    assert "these are your own resources" in message
+    # Flowed, because the refusal wraps its own prose to a terminal width: a
+    # phrase assertion against the raw text is an assertion about where the
+    # wrap happened to fall.
+    message = _flowed(str(excinfo.value))
+    assert "created from a different copy of this repo" in message
+    assert "renamed or moved" in message
+    assert "these are your own resources under its old path" in message
+    # The claim it must never make, however the sentence is reworded.
+    assert "belong to a different checkout" not in message
 
 
 def test_the_refusal_is_precise_about_what_it_scanned(repo):
@@ -416,7 +432,7 @@ def test_the_refusal_is_precise_about_what_it_scanned(repo):
     with pytest.raises(ForeignCheckoutError) as excinfo:
         plan_reset(repo, probe=make_probe(fake))
 
-    assert "container(s)/volume(s)" in str(excinfo.value)
+    assert "container(s) and volume(s) are named" in str(excinfo.value)
     assert not [argv for argv in fake.calls if argv[1:3] == ["image", "inspect"]]
 
 

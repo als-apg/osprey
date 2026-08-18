@@ -350,9 +350,11 @@ class TemplateManager:
             shutil.copytree(machine_data_src, machine_data_dst, dirs_exist_ok=True)
             logger.debug("Copied machine data to %s", machine_data_dst)
 
-        # 6a'. Install the web-terminal persona baseline. base.md is
-        # framework-layer, not bundle-layer: seeding requires it for ANY
-        # project that seeds a user, so every bundle gets it. Per-user
+        # 6a'. Install the web-terminal context baseline. This base.md is the
+        # framework FALLBACK: seeding hard-requires one for any project that
+        # seeds a user, so every bundle gets a generic copy — and a profile
+        # that ships its own `web-terminal-context/base.md` overrides it when
+        # the convention copies apply after this render. Per-user
         # extra.md/skills stay user-authored under the same tree.
         context_src = self.template_root / "claude_code" / "web-terminal-context"
         context_dst = project_dir / "docker" / "web-terminal-context"
@@ -455,10 +457,23 @@ class TemplateManager:
         ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
         ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
 
-        # Load template manifest and resolve allowed outputs
-        manifest_data = manifest.load_template_manifest(self.template_root, data_bundle)
+        # Resolve allowed outputs from THIS render's effective artifact selection —
+        # `artifacts` above, already the caller's own selection where it supplied
+        # one and the data bundle's otherwise. Re-loading the bundle manifest here
+        # would discard the caller's: a persona render inherits its host's data
+        # bundle, so the bundle manifest is the HOST's selection, and a persona
+        # that drops an artifact by name would still have it allowed. Skills are
+        # where that shows, being the one family copied on the strength of this set
+        # alone (hooks and rules gate inside their own templates, agents are
+        # filtered just below), so the leak was silent everywhere else.
+        #
+        # `is not None`, not truthiness: an empty selection is the deliberate
+        # "this render selects nothing" of the fallback above, and must resolve to
+        # the four config artifacts rather than fall back to a wider list.
         allowed_outputs = (
-            manifest.resolve_manifest_outputs(manifest_data) if manifest_data else None
+            manifest.resolve_manifest_outputs({"artifacts": artifacts})
+            if artifacts is not None
+            else None
         )
 
         # Filter agents to manifest (only generate agents the template declares)

@@ -517,9 +517,9 @@ class TestMigrateClaudeCodeConfig:
         assert changes == []
 
     def test_disable_servers_becomes_enabled_false(self):
-        servers, _agents, changes = migrate_claude_code_config({"disable_servers": ["scan"]})
-        assert servers == {"scan": {"enabled": False}}
-        assert any("disable_servers: scan" in c for c in changes)
+        servers, _agents, changes = migrate_claude_code_config({"disable_servers": ["bluesky"]})
+        assert servers == {"bluesky": {"enabled": False}}
+        assert any("disable_servers: bluesky" in c for c in changes)
 
     def test_extra_servers_merged_and_copied(self):
         spec = {"command": "run"}

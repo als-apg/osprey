@@ -463,6 +463,52 @@ def _worker_artifact_files() -> list[str]:
     return [line for line in proc.stdout.split() if line.endswith(".md")]
 
 
+def _worker_mcp_surface() -> str:
+    """Report whether the worker container actually has the workspace MCP server.
+
+    An empty artifact list has two causes that deserve opposite responses: the
+    ``osprey_workspace`` server never reached the container (a real provisioning
+    defect), or it was provisioned and the agent simply never called the save
+    tool (model behaviour, which is why this module is marked flaky). An empty
+    list alone cannot tell them apart, so probe the container and let the failure
+    report the cause it actually hit rather than asserting the likelier guess.
+    """
+    proc = subprocess.run(
+        [
+            "docker",
+            "exec",
+            WORKER_CONTAINER,
+            "sh",
+            "-c",
+            f"find /app/{PROJECT_NAME} -maxdepth 2 -name .mcp.json -print -exec cat {{}} +",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout).strip() or "(no output)"
+        return f"CAUSE UNDETERMINED: could not probe {WORKER_CONTAINER}: {err}"
+    found = proc.stdout.strip()
+    if not found:
+        return (
+            f"CAUSE = provisioning: no .mcp.json anywhere under /app/{PROJECT_NAME}, so "
+            "mcp__osprey_workspace__artifact_save never existed and the agent's Write "
+            "fallback was denied by the allowlist."
+        )
+    if "osprey_workspace" not in found:
+        return (
+            "CAUSE = provisioning: .mcp.json exists but declares no osprey_workspace "
+            f"server:\n{found}"
+        )
+    return (
+        "CAUSE = agent behaviour: the workspace MCP server IS provisioned (.mcp.json "
+        "declares osprey_workspace), so the save tool existed and the run completed "
+        "without calling it. That is a model flake, not a harness defect -- which is "
+        "what this module's flaky(reruns=1) covers."
+    )
+
+
 def _runs_by_trigger() -> dict[str, dict]:
     """Snapshot the dispatcher run feed keyed by trigger_name (latest wins).
 
@@ -540,8 +586,7 @@ def test_full_stack_dispatch(deployed_stack: Path) -> None:
     artifacts = _worker_artifact_files()
     assert artifacts, (
         "save-report completed but no .md artifact was persisted to the worker "
-        "workspace — the osprey_workspace MCP server is likely not provisioned "
-        "in-container (missing .mcp.json), so the agent could not actually save"
+        f"workspace.\n{_worker_mcp_surface()}"
     )
 
     # The denylisted trigger is rejected at the worker /dispatch endpoint BEFORE

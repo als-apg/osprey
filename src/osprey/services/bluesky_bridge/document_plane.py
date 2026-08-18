@@ -5,7 +5,7 @@ No plan runs inside this process. The RunEngine lives in the
 ``bluesky.callbacks.zmq`` ``Publisher`` to it; this module runs the other end —
 the ``Proxy`` that Publisher connects to, plus a ``RemoteDispatcher`` that
 turns the republished stream back into rows in the existing ``live_rows``
-buffer. That is how ``GET /runs/{id}/data`` keeps serving live data for a scan
+buffer. That is how ``GET /runs/{id}/data`` keeps serving live data for a plan
 the bridge is not executing.
 
 **The proxy is the binding element.** The bridge binds both sockets and the
@@ -36,12 +36,20 @@ document also invalidates any settled figure cached under that id
 without re-reading the source to check.
 
 **Progress is computed here, not in the worker.** ``rows_seen`` comes from the
-live buffer's true event count; ``expected_points`` comes from the plan
-parameters captured at enqueue time (:func:`record_run_params`), with the
-start document's own ``num_points`` as a fallback for plans that declare it.
-When neither is available the progress record reports ``rows_seen`` with a
-``None`` fraction — an honest "still going, total unknown" rather than a
-fabricated denominator.
+live buffer's true event count; the denominator is the point count the run
+declares in its own metadata, read off its start document as that document
+lands. A run that declares nothing has no denominator: the progress record
+reports ``rows_seen`` with a ``None`` fraction — an honest "still going, total
+unknown" rather than a fabricated one.
+
+Nothing is inferred from the parameters an item was enqueued with, so an item
+that is queued but has not started yet has no denominator at all. That gap is
+the deliberate price of the contract: inferring a count from parameter shapes
+meant deciding what a plan *does* from what its fields are *called*, which is
+right until a plan names a field the way the rules did not expect and the
+operator watches a confidently wrong progress bar. The run is the only party
+that knows its own extent, so the run declares it and this plane reports what
+was declared.
 """
 
 from __future__ import annotations
@@ -108,17 +116,10 @@ _STOP_JOIN_TIMEOUT = 5.0
 # oldest is evicted rather than growing the map without limit.
 _MAX_TRACKED_RUNS = 50
 
-# Enqueued expected-point counts retained at once. Higher than the tracked-run
-# cap because it is written at enqueue time and read for as long as the run
-# stays visible in queue history.
+# Declared point counts retained at once. Higher than the tracked-run cap
+# because a run is dropped from routing the moment it stops, while its progress
+# stays readable for as long as it is visible in queue history.
 _MAX_EXPECTED_POINTS = 200
-
-# Parameter keys that can carry a per-sweep point count, most specific first.
-_POINT_COUNT_KEYS = ("num_points", "num", "points")
-
-# Parameter keys naming devices that are read at every point rather than swept
-# over, so their length never multiplies the point count.
-_READ_ONLY_DEVICE_KEYS = frozenset({"detectors", "dets", "readables"})
 
 _expected_lock = Lock()
 _expected_points: OrderedDict[str, int] = OrderedDict()
@@ -127,88 +128,12 @@ _expected_points: OrderedDict[str, int] = OrderedDict()
 # --------------------------------------------------------------------- progress
 
 
-def expected_points_from_params(params: Mapping[str, Any] | None) -> int | None:
-    """Best-effort event count for a plan invocation's parameters.
-
-    Structural, not plan-specific: the catalog is open (facilities and the
-    agent both add plans), so this reads the *shape* of a validated parameter
-    mapping rather than switching on a plan name it would have to be taught
-    about. Two shapes are recognized:
-
-    - a list of per-axis mappings under ``axes``, each carrying its own point
-      count — the rectangular grid shape (``prod`` of the counts);
-    - a scalar point count at the top level, multiplied by the length of the
-      one swept-device list if there is exactly one (a device list named
-      ``detectors``/``dets``/``readables`` is read at every point, never swept,
-      so it does not count).
-
-    Anything else returns ``None``, and ``None`` propagates all the way to the
-    panel as "no fraction" — this number drives a progress bar and nothing
-    else, so a wrong guess is worse than an absent one.
-
-    Args:
-        params: The plan's validated parameters, as the JSON-able mapping the
-            queue item carries.
-
-    Returns:
-        The expected number of events, or ``None`` when the shape is not
-        recognized or the counts are not positive integers.
-    """
-    if not isinstance(params, Mapping):
-        return None
-
-    axes = params.get("axes")
-    if isinstance(axes, list) and axes and all(isinstance(axis, Mapping) for axis in axes):
-        total = 1
-        for axis in axes:
-            count = _point_count(axis)
-            if count is None:
-                return None
-            total *= count
-        return total
-
-    count = _point_count(params)
-    if count is None:
-        return None
-    swept = _swept_device_lists(params)
-    if len(swept) > 1:
-        return None
-    return count * len(swept[0]) if swept else count
-
-
-def _point_count(params: Mapping[str, Any]) -> int | None:
-    """The first positive integer point count named by :data:`_POINT_COUNT_KEYS`."""
-    for key in _POINT_COUNT_KEYS:
-        value = params.get(key)
-        # bool is an int subclass; `snake_axes: true` is not a point count.
-        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-            return value
-    return None
-
-
-def _swept_device_lists(params: Mapping[str, Any]) -> list[list[Any]]:
-    """Every non-detector list of device names in *params*.
-
-    A plan that sweeps one device list serially (``orm`` sweeps each corrector
-    over the same current range) produces ``count`` events per device. Two such
-    lists are ambiguous — swept in sequence, or nested? — so the caller answers
-    "don't know" rather than picking one.
-    """
-    return [
-        value
-        for key, value in params.items()
-        if key not in _READ_ONLY_DEVICE_KEYS
-        and isinstance(value, list)
-        and value
-        and all(isinstance(item, str) for item in value)
-    ]
-
-
 def record_expected_points(run_id: str, expected: int | None) -> None:
-    """Remember how many events *run_id* is expected to produce.
+    """Remember how many events *run_id* declared it will produce.
 
     ``None`` clears any previous entry rather than storing a placeholder, so
-    "unknown" and "known to be N" stay distinguishable.
+    "unknown" and "known to be N" stay distinguishable — and so a run starting
+    under a reused run id never inherits its predecessor's total.
     """
     with _expected_lock:
         if expected is None:
@@ -220,23 +145,8 @@ def record_expected_points(run_id: str, expected: int | None) -> None:
             _expected_points.popitem(last=False)
 
 
-def record_run_params(run_id: str, params: Mapping[str, Any] | None) -> int | None:
-    """Derive and store *run_id*'s expected point count from its plan parameters.
-
-    The enqueue path's one-call seam: the parameters an item was enqueued with
-    are the only place the count can be known before the run starts, which is
-    exactly when a queued item first needs a progress denominator.
-
-    Returns:
-        What was recorded — ``None`` when the parameter shape yielded nothing.
-    """
-    expected = expected_points_from_params(params)
-    record_expected_points(run_id, expected)
-    return expected
-
-
 def get_expected_points(run_id: str) -> int | None:
-    """The recorded expected point count for *run_id*, if any."""
+    """The point count *run_id* declared, if it declared one."""
     with _expected_lock:
         return _expected_points.get(run_id)
 
@@ -246,11 +156,12 @@ def progress(run_id: str) -> dict[str, Any] | None:
 
     Returns:
         ``{"rows_seen": int, "expected_points": int | None, "fraction": float |
-        None, "complete": bool}``. ``fraction`` is clamped to 1.0 — a plan that
-        emits more events than predicted reads as finished, never as 140%
-        done — and is ``None`` whenever the expected count is unknown.
-        ``complete`` is driven solely by the run's stop document, so a run that
-        hit its expected count but never stopped is honestly still incomplete.
+        None, "complete": bool}``. ``fraction`` is clamped to 1.0 — a run that
+        emits more events than it declared reads as finished, never as 140%
+        done — and is ``None`` whenever no count was declared, which includes
+        every item that has not started yet. ``complete`` is driven solely by
+        the run's stop document, so a run that reached its declared count but
+        never stopped is honestly still incomplete.
     """
     buffer = live_rows.get(run_id)
     expected = get_expected_points(run_id)
@@ -271,7 +182,7 @@ def progress(run_id: str) -> dict[str, Any] | None:
 
 
 def _clear() -> None:
-    """Drop every recorded expected-point count (test isolation only)."""
+    """Drop every recorded point count (test isolation only)."""
     with _expected_lock:
         _expected_points.clear()
 
@@ -328,14 +239,16 @@ class RunDocumentRouter:
                 RUN_ID_META_KEY,
             )
 
-        # A plan that declares its own point count (bluesky's standard scans
-        # do) is a better denominator than nothing, but never overrides what
-        # the enqueue path recorded: those parameters are what the operator
-        # actually asked for.
-        if get_expected_points(key) is None:
-            declared = doc.get("num_points")
-            if isinstance(declared, int) and not isinstance(declared, bool) and declared > 0:
-                record_expected_points(key, declared)
+        # The run's own declaration is the only progress denominator there is.
+        # Recorded unconditionally — including as "none declared", which clears
+        # any earlier total — because a run id can be reused, and the previous
+        # occupant's extent says nothing about this one's.
+        declared = doc.get("num_points")
+        if not (isinstance(declared, int) and not isinstance(declared, bool) and declared > 0):
+            # A flag is not a count (`bool` is an `int` subclass), and neither
+            # is a non-positive one.
+            declared = None
+        record_expected_points(key, declared)
 
         # Which plan produced the run travels with its rows: a reader holding
         # only a run id cannot otherwise tell what the columns mean. Read here,

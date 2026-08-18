@@ -9,7 +9,7 @@ wiring is consistent across every site. Two facts are specific to this panel:
   one place that relation is stated (see
   ``tests/registry/test_web_panel_namespaces.py``);
 * the id ``system-health`` was chosen to avoid the already-occupied ``health``
-  id (the Bluesky scan-stack tab). The collision guard asserts no ``_inject_*``
+  id (the Bluesky plan-stack tab). The collision guard asserts no ``_inject_*``
   build step registers a ``system-health`` panel, and that the Bluesky ``health``
   entry is left untouched.
 """

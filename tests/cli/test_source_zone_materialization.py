@@ -257,21 +257,59 @@ def test_per_user_context_directories_are_seeded_from_the_roster(
     assert _new(runner, target, preset).exit_code == 0
 
     context_dir = target / "web-terminal-context"
-    assert sorted(p.name for p in context_dir.iterdir()) == sorted(expected)
+    assert sorted(p.name for p in context_dir.iterdir()) == sorted([*expected, "base.md"])
     for user in expected:
         assert (context_dir / user).is_dir()
 
 
 def test_seeded_context_directories_carry_no_content(runner: CliRunner, tmp_path: Path) -> None:
-    """Slots, not literals. Anything written here would become context the
-    agent reads, and would freeze at materialization time — the build derives
-    what to copy from the roster it resolves then."""
+    """Per-user slots, not literals: what goes in them is the facility's. The
+    one seeded entry that does carry content is the shared ``base.md``
+    baseline — that IS content the deployment ships, and materializing it is
+    what makes the text every seeded user starts from visible in the repo."""
     target = tmp_path / "my-facility"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     for user_dir in (target / "web-terminal-context").iterdir():
+        if user_dir.is_file():
+            continue
         assert [p.name for p in user_dir.iterdir()] == [".gitkeep"]
+
+
+def test_context_baseline_is_materialized_from_the_bundle(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The control-assistant bundle ships its own baseline text (it describes
+    that family's personas), and the profile starts from a byte-identical
+    copy — visible and editable where the operator works."""
+    from osprey.cli.templates.manager import TemplateManager
+
+    target = tmp_path / "my-facility"
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    materialized = target / "web-terminal-context" / "base.md"
+    bundle = (
+        TemplateManager().template_root
+        / "apps"
+        / "control_assistant"
+        / "web-terminal-context"
+        / "base.md"
+    )
+    assert materialized.read_bytes() == bundle.read_bytes()
+
+
+def test_context_baseline_falls_back_to_the_framework_text() -> None:
+    """A bundle with no baseline of its own seeds the framework's generic
+    fallback — the same file every build installs, so the materialized slot
+    starts byte-identical to what the build would have used anyway."""
+    from osprey.cli.profile_cmd import _context_baseline_source
+    from osprey.cli.templates.manager import TemplateManager
+
+    manager = TemplateManager()
+    source = _context_baseline_source(manager, "hello_world")
+    assert source == (manager.template_root / "claude_code" / "web-terminal-context" / "base.md")
+    assert source.is_file()
 
 
 def test_profile_without_a_web_terminal_module_seeds_no_context(

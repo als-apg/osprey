@@ -1,4 +1,4 @@
-"""Loads scan plans from a layered directory catalog plus the legacy facility
+"""Loads plans from a layered directory catalog plus the legacy facility
 plan-injection contract, and merges both into one trust-resolved plan set.
 
 Two kinds of plan source, both scanned into the same fail-closed registry:
@@ -75,7 +75,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .figure import REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, Figure
+from .figure import REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, Figure, RowWindow
+from .plan_fields import MOVABLE_ROLE, channel_roles
 from .plan_metadata import parse_plan_metadata
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body
@@ -118,8 +119,9 @@ class _EmptyParams(BaseModel):
 
 class PlanLoaderError(ValueError):
     """A directory-layer plan file fails its load contract (missing/uncallable
-    ``build_plan``, malformed ``PARAMS``). Always caught and quarantined by
-    the scanner — never escapes this module."""
+    ``build_plan``, malformed ``PARAMS``, a declared write with no movable
+    channel field). Always caught and quarantined by the scanner — never
+    escapes this module."""
 
 
 @dataclass
@@ -341,8 +343,8 @@ def _resolve_render(
     module: Any,
     path: Path,
     provenance: Provenance,
-) -> Callable[[list[dict[str, Any]], Any], Figure] | None:
-    """Resolve a plan file's optional module-level ``render(rows, params)``.
+) -> Callable[[RowWindow, Any], Figure] | None:
+    """Resolve a plan file's optional module-level ``render(window, params)``.
 
     Never raises, and never causes a quarantine: a plan whose ``render`` is
     unusable is still a perfectly good plan to *launch*, and refusing to
@@ -404,6 +406,7 @@ def _resolve_render(
             render,
         )
         return None
+
     return render  # type: ignore[no-any-return]
 
 
@@ -415,8 +418,9 @@ def _load_plan_file(
     """Load, validate, and register one directory-layer plan file.
 
     Never raises: any failure (syntax error, missing/invalid `PLAN_METADATA`,
-    missing `build_plan`, malformed `PARAMS`) is logged as a warning and the
-    file is quarantined — skipped, without aborting the rest of the scan.
+    missing `build_plan`, malformed `PARAMS`, an undeclared write — see the load
+    gate below) is logged as a warning and the file is quarantined — skipped,
+    without aborting the rest of the scan.
 
     Catches `SystemExit` alongside `Exception` (it isn't an `Exception`
     subclass) so a plan file that calls `sys.exit()` at import time is
@@ -440,6 +444,20 @@ def _load_plan_file(
     provenance (not on "no metadata"/"no record" alone) matters: built-ins and
     the shipped exemplars carry no validation record either, and a broader
     gate would wrongly quarantine them too.
+
+    Every tier passes one further contract check, the LOAD GATE: a plan whose
+    metadata declares ``writes: true`` must name at least one movable channel
+    field in its ``PARAMS`` (read via `plan_fields.channel_roles`). A plan that
+    claims to change machine state without declaring what it moves is
+    unenforceable downstream — the enqueue pre-check, the pre-flight preview and
+    the permission entries all describe a write in terms of those declared
+    fields, and with none of them there is nothing to check, show, or arm.
+    Catching it at load time makes it an authoring error the author sees once,
+    rather than a silently under-described write at every launch. The reverse
+    (declared movable fields with ``writes: false``) is deliberately NOT gated:
+    that direction fails safe, and a plan may legitimately take a channel name
+    it only reads back. Plans are stored with their introspected roles on
+    `PlanSpec.roles`, so no request-time consumer re-walks the schema.
 
     An optional module-level ``render`` is resolved onto the spec by
     `_resolve_render`, which is total: no ``render`` attribute, an unusable
@@ -473,6 +491,13 @@ def _load_plan_file(
             raise PlanLoaderError(
                 f"{path}: PARAMS must be a pydantic BaseModel subclass, got {params_attr!r}"
             )
+        roles = tuple(channel_roles(params_schema))
+        if meta.writes and not any(role == MOVABLE_ROLE for _, role in roles):
+            raise PlanLoaderError(
+                f"{path}: PLAN_METADATA declares writes: true but no movable channel "
+                f"field in PARAMS — a plan that changes machine state must declare "
+                f"which channels it moves"
+            )
         spec = PlanSpec(
             name=meta.name,
             plan=build_plan,
@@ -481,6 +506,7 @@ def _load_plan_file(
             metadata=meta,
             provenance=provenance,
             render=_resolve_render(module, path, provenance),
+            roles=roles,
         )
     except (Exception, SystemExit) as exc:
         logger.warning("plan_loader: quarantining %s (%s): %s", path, provenance, exc)

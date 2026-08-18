@@ -57,7 +57,10 @@ dependencies = [
     "nbconvert>=7.0.0",
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
-    "openai>=2.45.0",
+    # Capped below 3.x: the 3.0 major is a client rewrite (new httpx2 stack).
+    # Adopting it should be a reviewed change, not something a lock refresh
+    # picks up on its own from an open-ended floor.
+    "openai>=2.53.0,<3",
     "anthropic",
     "google-generativeai",
     "ollama>=0.6.2",
@@ -78,10 +81,10 @@ dependencies = [
     "python-dateutil>=2.9.0",
     "matplotlib>=3.11.1",  # Required for Python capability visualization (core use case)
     # Networking and protocols
-    "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
+    "aiohttp>=3.14.3",  # Required by litellm (ConnectionTimeoutError needs >=3.10)
     "websocket-client>=1.7.0",
     "urllib3>=2.7.0",
-    "certifi>=2025.4.26",
+    "certifi>=2026.7.22",
     "charset-normalizer>=3.4.9",
     "idna>=3.18",
     "MarkupSafe>=3.0.2",
@@ -93,7 +96,7 @@ dependencies = [
     "scipy>=1.17.1",
     "seaborn",
     "scikit-learn",
-    "plotly>=5.0.0",
+    "plotly>=6.9.0",
     "bokeh>=3.9.1",  # Interactive dashboards (data-visualizer agent)
     "playwright>=1.61.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
@@ -105,7 +108,7 @@ dependencies = [
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
     # transitive dependency — the sidecar imports it directly.
-    "authlib>=1.6.5",
+    "authlib>=1.7.2",
     # Signed session cookies for the auth sidecar (login session id + unlocked-user set).
     "itsdangerous>=2.2.0",
     # Form parsing for the auth sidecar's login POST. Starlette requires this for
@@ -132,7 +135,7 @@ dependencies = [
     # Lattice physics (Accelerator Toolbox for lattice dashboard + shared ring).
     # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
     # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
-    "accelerator-toolbox[plot]>=0.7.1",
+    "accelerator-toolbox[plot]>=0.8.0",
     # LUMEModel physics-backend contract for the VA (osprey.services.virtual_accelerator).
     # Exact-pinned: young/fast-moving API (8 releases between 0.3.2 and 0.5.0) and the
     # adapter code is written against the 0.5.0 contract specifically. Core, not optional —
@@ -152,6 +155,13 @@ dependencies = [
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
     "tiled[client]>=0.2.14",
+    # Bluesky's own client view of a Tiled catalog: `BlueskyRun` /
+    # `BlueskyEventStream`, which know how a run's documents are laid out in the
+    # catalog so the bridge's read path does not have to. Exact-pinned, like the
+    # queue-server client below and for the same reason: it is a compatibility
+    # pairing, not a floor — 2.0.9 is the release that matches the shipped
+    # `ghcr.io/bluesky/tiled` server image and the `tiled` client floor above.
+    "bluesky-tiled-plugins==2.0.9",
     # Queue-server client the bridge's `QueueBackend` speaks to the RE manager
     # with. Exact-pinned (not floor-pinned like the rest of the stack): the
     # 0.0.x API still moves between patch releases, and the adapter is the only
@@ -198,9 +208,9 @@ dev = [
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
     # disagree about what "formatted" means.
-    "ruff>=0.16.1,<0.17",
-    "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
-    "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
+    "ruff>=0.16.2,<0.17",
+    "testcontainers[postgres]>=4.15.0",  # Real PostgreSQL for integration tests
+    "testcontainers[mongodb]>=4.15.0",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
@@ -235,7 +245,10 @@ archiver-mongodb = [
 gchat = [
     "google-cloud-pubsub>=2.18",
     "google-api-python-client>=2.100",
-    "google-auth>=2.23",
+    "google-auth>=2.56.3",
+    # Held below 3.13: google-cloud-storage 3.13+ requires google-api-core
+    # >=2.27, which google-generativeai caps below. The floor cannot move
+    # until that legacy SDK is replaced by google-genai.
     "google-cloud-storage>=2.10",
     # Some deployment hosts only permit egress through a Squid proxy. httplib2
     # (used by google-api-python-client) only honors HTTP(S)_PROXY env vars

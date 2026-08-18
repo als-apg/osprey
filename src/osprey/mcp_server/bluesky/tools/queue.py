@@ -419,9 +419,9 @@ async def queue_add(draft_revision: int) -> str:
     refused precisely at the point where adding would mean executing.
 
     A revision is consumable exactly once. Queuing the same plan twice — a
-    repeat scan, a retry — needs a draft edit (set_draft) to mint a new
+    repeat plan, a retry — needs a draft edit (set_draft) to mint a new
     revision first; re-adding the spent one is refused, by design, so a
-    duplicated call cannot silently double-queue a scan.
+    duplicated call cannot silently double-queue a plan.
 
     Args:
         draft_revision: The draft revision to queue, as returned by get_draft

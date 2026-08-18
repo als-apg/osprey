@@ -55,7 +55,7 @@ def provider_api_key_entries() -> list[dict[str, str]]:
 _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
     "EVENT_DISPATCHER_TOKEN": "authenticates callers to the event-dispatcher API",
     "DISPATCH_WORKER_TOKEN": "authenticates the dispatch worker back to the dispatcher",
-    "BLUESKY_LAUNCH_TOKEN": "arms the Bluesky bridge's scan-launch endpoint",
+    "BLUESKY_LAUNCH_TOKEN": "arms the Bluesky bridge's plan-launch endpoint",
     "BLUESKY_TILED_API_KEY": "the key the bridge presents to the co-deployed Tiled catalog",
     "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",

@@ -181,12 +181,12 @@ Bundled Services & Tutorials
       Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
       serves real EPICS Channel Access with live storage-ring physics.
 
-   .. grid-item-card:: Bluesky Scans
+   .. grid-item-card:: Bluesky Plans
       :link: bluesky/index
       :link-type: doc
 
-      Run measurement scans through a durable queue — compose with the Osprey
-      agent, review, start and stop in the BLUESKY panel, and add scan plans
+      Run measurement plans through a durable queue — compose with the Osprey
+      agent, review, start and stop in the BLUESKY panel, and add plans
       of your own.
 
 .. seealso::

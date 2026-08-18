@@ -152,13 +152,20 @@ def _database_row(db_path: Path | None) -> CheckResult:
     ``error`` when a path is configured but the file is missing or empty (the
     data bundle should have materialized it); ``warning`` when no path is
     configured at all; ``ok`` otherwise, with the file size as ``value``.
+
+    Every message names *the active pipeline's* ``database.path`` file, because
+    that one file is all this row stats. A deployment can hold more than one
+    channel database — the middle-layer DuckDB that ``channel_finder_channels``
+    reports on separately is a different file, under a different key — so a row
+    saying "the channel database" would be vouching for artifacts it never
+    looked at.
     """
     if db_path is None:
         return CheckResult(
             "channel_finder_database",
             CATEGORY,
             Status.WARNING,
-            "No channel database path configured",
+            "No database.path configured for the active pipeline",
             details="Set the pipeline's database.path in config.yml.",
         )
 
@@ -169,7 +176,7 @@ def _database_row(db_path: Path | None) -> CheckResult:
             "channel_finder_database",
             CATEGORY,
             Status.ERROR,
-            f"Channel database missing at {db_path}",
+            f"Active pipeline's channel database file missing at {db_path}",
             details="The data bundle materializes this file — rebuild it, or fix database.path.",
         )
 
@@ -178,21 +185,25 @@ def _database_row(db_path: Path | None) -> CheckResult:
             "channel_finder_database",
             CATEGORY,
             Status.ERROR,
-            f"Channel database is empty ({db_path})",
-            details="The file exists but has zero bytes — rebuild the channel database.",
+            f"Active pipeline's channel database file is empty ({db_path})",
+            details="The file exists but has zero bytes — rebuild it, or fix database.path.",
         )
 
     return CheckResult(
         "channel_finder_database",
         CATEGORY,
         Status.OK,
-        "Channel database present",
+        "Active pipeline's channel database file present",
         value=_humanize_size(size),
     )
 
 
 def _freshness_row(db_path: Path) -> CheckResult:
-    """Report the database file's modification age (always informational)."""
+    """Report the ``database.path`` file's modification age (informational).
+
+    Named as narrowly as :func:`_database_row`, and for the same reason: this
+    is the age of one file, not of every channel database the deployment holds.
+    """
     try:
         mtime = db_path.stat().st_mtime
     except OSError:
@@ -200,13 +211,13 @@ def _freshness_row(db_path: Path) -> CheckResult:
             "channel_finder_freshness",
             CATEGORY,
             Status.OK,
-            "Database build age is unavailable",
+            "Build age of the active pipeline's channel database file is unavailable",
         )
     return CheckResult(
         "channel_finder_freshness",
         CATEGORY,
         Status.OK,
-        "Channel database build age",
+        "Active pipeline's channel database file build age",
         value=f"built {_humanize_age(datetime.fromtimestamp(mtime))}",
     )
 

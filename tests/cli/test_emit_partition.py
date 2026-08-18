@@ -30,8 +30,8 @@ from osprey.cli.build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY, CONNECTOR_
 _FIELDS = frozenset(f.name for f in dataclasses.fields(BuildProfile))
 
 
-def _emit(preset: str, overrides: tuple[Path, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, overrides, (), "Emitted")
+def _emit(preset: str, overrides: tuple[Path, ...] = (), set_pairs: tuple[str, ...] = ()) -> str:
+    return emit_standalone_profile_yaml(preset, overrides, set_pairs, "Emitted")
 
 
 def _yaml_key(field: str) -> str:
@@ -200,6 +200,41 @@ def test_data_emits_active_when_the_resolved_profile_carries_it(tmp_path: Path) 
     assert yaml.safe_load(text)["data"] == "data"
     # The template must not tag along behind the active key.
     assert "\n# data: data" not in text
+
+
+def test_hello_world_extension_surface_is_pinned() -> None:
+    """The commented blocks a fresh `osprey init --preset hello-world` leaves
+    behind ARE the onboarding curriculum: each one is a feature the tutorial
+    invites the reader to turn on by uncommenting it. hello-world is minimal
+    precisely so that surface stays wide, and nothing else in the suite would
+    notice it narrowing — the partition tests above only require each COMMENTED
+    member to be *either* active or templated, which a key going active
+    satisfies just as well. So a preset gaining a key, or a template being
+    dropped, would quietly delete a lesson. Pin the set exactly, by name, so
+    both a shrink and an unexpected growth fail here and get looked at.
+
+    The count is 13, not 14: a *bare* emission templates 14, but `osprey init`
+    injects `data=data` into `set_pairs` (``profile_cmd``), which makes `data`
+    an active key. What ships to the reader is the materialized profile, so
+    that is what is pinned — do not "correct" this to the bare-emission 14.
+    """
+    _, templated = _active_and_commented(_emit("hello-world", set_pairs=("data=data",)))
+
+    assert templated == {
+        "channel_finder_mode",
+        "tier",
+        "default_panel",
+        "deploy",
+        "mcp_servers",
+        "artifact_server",
+        "dispatch",
+        "bluesky",
+        "virtual_accelerator",
+        "va_archiver",
+        "bluesky_panels",
+        "nextcloud_bridge",
+        "gchat_bridge",
+    }
 
 
 @pytest.mark.parametrize("preset", list_presets())

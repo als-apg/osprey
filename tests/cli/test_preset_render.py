@@ -2,9 +2,9 @@
 
 The preset's ``control_system.type`` defaults to ``virtual_accelerator`` (the
 VA soft-IOC ships and is deployed unconditionally as part of the turn-key
-Bluesky stack, so a fresh tutorial project's scan plans drive it end to end
+Bluesky stack, so a fresh tutorial project's plans drive it end to end
 out of the box). ``mock`` is the documented fallback for environments with no
-containers to depend on — its non-tracking readbacks make scans browse-only —
+containers to depend on — its non-tracking readbacks make plans browse-only —
 and is reachable via ``osprey set connector=mock``.
 
 Covers three angles:
@@ -100,7 +100,7 @@ class TestControlAssistantRenderedConfig:
         (``bluesky:``, ``virtual_accelerator:``, ``bluesky_panels:``), all of
         which are unconditional on ``control_system.type`` — the connector-type
         flip must not drop or gate any of them. Mirrors
-        ``TestControlAssistantTurnkeyScanServices`` in test_build_profile.py,
+        ``TestControlAssistantTurnkeyPlanServices`` in test_build_profile.py,
         which asserted the same membership before this preset defaulted to the
         VA."""
         deployed = rendered_preset_config["deployed_services"]

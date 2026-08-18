@@ -35,7 +35,7 @@ _CTX = {
     "enable_hierarchical": False,
     "enable_middle_layer": False,
     "system": {"timezone": "UTC"},
-    "osprey_labels": {"project_name": "demo", "project_root": "/tmp/demo", "deployed_at": "now"},
+    "osprey_labels": {"project_name": "demo", "project_root": "/tmp/demo"},
 }
 
 _PROJECT = "project/config.yml.j2"

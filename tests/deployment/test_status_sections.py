@@ -27,6 +27,7 @@ this deployment's containers or at nothing at all.
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 from pathlib import Path
@@ -385,6 +386,189 @@ def test_a_credential_that_is_nowhere_is_reported_missing(lifecycle_repo, runtim
     text = report(lifecycle_repo)
 
     assert "not found in this shell" in text
+
+
+def _config_with_telemetry(block: str) -> str:
+    """The rendered config, plus a ``claude_code.telemetry`` block under it.
+
+    Resolving the provider also resolves telemetry, so what a broken telemetry
+    block does to the *provider* line is a property of the status report and
+    testable from the config alone — no stub in front of the resolver, which is
+    the piece whose behaviour is under test.
+    """
+    return _RENDERED_CONFIG + block
+
+
+def test_a_missing_observability_credential_is_not_blamed_on_the_provider(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """The provider is fine; the observability backend has no password.
+
+    Telemetry resolves as part of the provider spec, so a missing observability
+    credential surfaces as a failure to read the provider. Reported that way, an
+    operator goes and audits a provider configuration that was never wrong.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry(
+            "  telemetry:\n"
+            "    enabled: true\n"
+            "    backend: openobserve\n"
+            "    openobserve:\n"
+            '      user: ""\n'
+            "      password: not-a-real-password\n"
+        ),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "telemetry" in text
+    assert "credentials are missing or unresolved" in text
+    assert "openobserve.user" in text
+    assert ".env" in text
+    # The old framing sent the operator to the wrong subsystem.
+    assert "could not be read from the build" not in text
+    # A status report is read on a shared terminal and pasted into tickets.
+    assert "not-a-real-password" not in text
+
+
+def test_an_unresolved_observability_credential_reports_names_not_the_raw_error(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """The credential's own text never reaches the report.
+
+    The resolver phrases its refusal with the offending value in it, which is
+    exactly what must not be printed. The trouble line is written from the
+    setting names and the file that holds them instead.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry(
+            "  telemetry:\n"
+            "    enabled: true\n"
+            "    backend: openobserve\n"
+            "    openobserve:\n"
+            "      user: observability-user\n"
+            "      password: ${OSPREY_STATUS_TEST_UNSET_PASSWORD}\n"
+        ),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "credentials are missing or unresolved" in text
+    assert "OSPREY_STATUS_TEST_UNSET_PASSWORD" not in text
+    assert "refusing to encode" not in text
+
+
+def test_a_telemetry_endpoint_failure_still_reads_as_a_provider_problem(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """Only the credential case is re-framed.
+
+    An enabled telemetry block with no reachable endpoint is not a secret-store
+    problem, and the credential remedy would be the wrong advice. It stays on
+    the general handler, which names the provider and quotes the resolver.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: nowhere\n"),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "could not be read from the build" in text
+    assert "credentials are missing or unresolved" not in text
+
+
+#: A telemetry block whose credentials actually resolve, so the provider spec
+#: comes back with a populated env block — including the OTLP headers, which is
+#: where the observability store's authorization header ends up.
+_WORKING_TELEMETRY = (
+    "  telemetry:\n"
+    "    enabled: true\n"
+    "    backend: openobserve\n"
+    "    openobserve:\n"
+    "      user: observability-user\n"
+    "      password: not-a-real-password\n"
+)
+
+
+def _telemetry_report(repo: Path, monkeypatch) -> str:
+    """``osprey status`` for a repo whose agent has working telemetry configured."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+    monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_HOST", raising=False)
+    render_build(repo, config=_config_with_telemetry(_WORKING_TELEMETRY))
+    return report(repo)
+
+
+def test_the_observability_authorization_header_is_never_printed(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """The env block is printed key AND value, and one of those values is a credential.
+
+    ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the observability
+    store — base64 of ``user:password``, decodable by anyone who reads the
+    terminal. Neither the credentials nor the encoding of them may appear.
+    """
+    text = _telemetry_report(lifecycle_repo, monkeypatch)
+
+    token = base64.b64encode(b"observability-user:not-a-real-password").decode()
+    assert token not in text
+    assert "not-a-real-password" not in text
+    assert "Basic " not in text
+
+
+def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, runtime, monkeypatch):
+    """Masking the value must not delete the row.
+
+    Whether the exporter is authenticated at all is a fact an operator came to
+    this section for; only the credential itself is withheld.
+    """
+    text = _telemetry_report(lifecycle_repo, monkeypatch)
+
+    assert "OTEL_EXPORTER_OTLP_HEADERS" in text
+    assert "value not shown" in text
+
+
+def test_the_rest_of_the_telemetry_block_still_shows_its_values(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """Only the credential-bearing variable is masked, not the block around it.
+
+    Ten of the eleven telemetry variables are ordinary configuration, and a mask
+    broad enough to cover them would leave the section unable to answer where
+    the agent ships its metrics — which is what the section is for.
+    """
+    text = _telemetry_report(lifecycle_repo, monkeypatch)
+
+    assert ":5080/api/default" in text
+    assert "value not shown" not in text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
+
+
+@pytest.mark.parametrize(
+    ("name", "masked"),
+    [
+        ("OTEL_EXPORTER_OTLP_HEADERS", True),
+        ("SOME_SERVICE_TOKEN", True),
+        ("WEBHOOK_SIGNING_SECRET", True),
+        ("OTEL_EXPORTER_OTLP_ENDPOINT", False),
+        ("ANTHROPIC_MODEL", False),
+    ],
+)
+def test_the_mask_is_a_rule_and_not_one_remembered_variable(name, masked):
+    """A variable named after a credential is withheld even if nobody listed it.
+
+    The leak this closes was one variable, but a mask spelled as one literal
+    comparison would let the next secret added to the env block out unnoticed
+    while looking like a finished fix.
+    """
+    shown = status_display._display_env_value(name, "the-value")
+
+    assert (shown != "the-value") is masked
 
 
 def test_the_artifact_check_mirrors_the_arguments_the_build_renders_with(

@@ -17,14 +17,27 @@
 # stale the moment a facility adds a plan, and would buy nothing the catalog
 # does not already bound.
 #
-# WHAT IS ACTUALLY LOCKED DOWN: functions. `allowed_functions: []` selects
+# WHAT IS ACTUALLY LOCKED DOWN: functions. `allowed_functions: []` would select
 # nothing, and because `root` acts as the preliminary filter for every group,
-# an empty list there denies function execution globally. That closes
+# an empty list there would deny function execution globally. That would close
 # queueserver's `function_execute` API — arbitrary callables run in the worker
-# namespace, outside the plan path and outside every check named above. The
-# bridge never calls it. If some future task genuinely needs a worker-side
-# function, this is the line to change, deliberately and with review; do not
-# widen it as a debugging shortcut.
+# namespace, outside the plan path and outside every check named above. If some
+# future task genuinely needs another worker-side function, this is the line to
+# change, deliberately and with review; do not widen it as a debugging
+# shortcut.
+#
+# ONE DELIBERATE EXCEPTION: `preview_plan`, the pre-flight trajectory summary.
+# It is read-only — it iterates the plan's already-built message stream and
+# collects `{channel, target}` moves into a capped, JSON-serializable list; it
+# never issues a `Msg` of its own and never touches hardware. It runs before a
+# plan is queued, purely so the approval prompt can show what the plan intends
+# to move. Naming it here, in both groups, is what makes it reachable through
+# `function_execute` at all — everything else that API can reach stays closed.
+# The read-only claim rests on `preview_plan` itself yielding nothing; a plan
+# that wrote to hardware outside the yielded `Msg` stream during "preview"
+# would still be caught by the connector's per-put reference monitor and the
+# bridge's arming + limits facade, the same backstop every other write goes
+# through.
 #
 # Script upload (the session-plan path) is a separate API and is NOT gated by
 # these function rules.
@@ -41,7 +54,8 @@ user_groups:
       - null # Allow all devices the startup script built.
     forbidden_devices:
       - ":^_:?.*"
-    allowed_functions: [] # Deny every function, globally. See the note above.
+    allowed_functions:
+      - "preview_plan" # The one deliberate exception. See the note above.
     forbidden_functions:
       - null
 
@@ -56,6 +70,7 @@ user_groups:
       - ":?.*:depth=5"
     forbidden_devices:
       - null
-    allowed_functions: []
+    allowed_functions:
+      - "preview_plan" # Must match root — root is the preliminary filter.
     forbidden_functions:
       - null

@@ -52,6 +52,8 @@ if TYPE_CHECKING:
     # Annotation only — both modules are imported lazily inside the command
     # body to keep `osprey --help` off the build-profile import chain (the
     # lazy-import budget test in tests/cli/test_main.py pins this).
+    from osprey.deployment.reset import ForeignCheckoutError
+
     from .deploy_scaffold import ScaffoldedFile
     from .profile_cmd import _MaterializedProfile
 
@@ -1130,7 +1132,13 @@ def init(
         if reset:
             # Imported here, not at module scope: this command is lazy-loaded,
             # and `reset` pulls in the whole deployment stack.
-            from osprey.deployment.reset import ResetOutcome, reset_for_reinit
+            from osprey.deployment.reset import (
+                ForeignCheckoutError,
+                ResetOutcome,
+                reset_for_reinit,
+            )
+
+            from .foreign_refusal import render_foreign_refusal
 
             # The condensed form, not `reset_deployment`: the full destruction
             # plan is the text a standalone `osprey reset` asks an operator to
@@ -1138,9 +1146,18 @@ def init(
             # reset reports what it removed and what it kept as steps of this
             # phase, and a reset with nothing to do closes the phase saying so
             # instead of printing an empty plan.
-            with reporter.phase(f"Discarding the previous {target.name}") as phase:
-                if reset_for_reinit(target) is ResetOutcome.NOTHING_TO_DO:
-                    phase.done("nothing from a previous run to remove")
+            try:
+                with reporter.phase(f"Discarding the previous {target.name}") as phase:
+                    if reset_for_reinit(target) is ResetOutcome.NOTHING_TO_DO:
+                        phase.done("nothing from a previous run to remove")
+            except ForeignCheckoutError as e:
+                # `osprey reset` has always caught this and rendered it; this
+                # path never did, so the same deliberate guard reached click as
+                # a traceback here and as a refusal there. A traceback is the
+                # loudest way the CLI can say "this is a bug in OSPREY", which
+                # is the opposite of what happened: nothing was touched, on
+                # purpose, and the operator has two ways forward.
+                _abort_foreign_reset(target, e, render_foreign_refusal)
 
             # `reset` removes only what carries this checkout's repo-id label,
             # so a deployment predating that label survives it — correctly, since
@@ -1191,6 +1208,42 @@ def _surviving_project_resources(target: Path) -> list[str]:
         ]
     except Exception:  # noqa: BLE001 — see docstring: never mask the real failure
         return []
+
+
+def _abort_foreign_reset(
+    target: Path,
+    error: ForeignCheckoutError,
+    render: Callable[..., None],
+) -> None:
+    """Stop a ``--reset`` that met another checkout's resources, and say why.
+
+    The refusal itself belongs to ``reset`` and is rendered by its shared
+    renderer, unchanged. What this verb adds is the second way out: whoever ran
+    ``osprey reset`` asked to destroy something and has one option, to go and do
+    it where it lives, but whoever ran ``osprey init`` asked to CREATE something
+    and has another. Deploying this copy under a name of its own leaves the
+    other deployment alone and is the option a second checkout usually wants, so
+    it is named rather than left for the operator to think of.
+
+    ``mark=False``: the phase this left through has printed its own ✗ already,
+    and a second one reads as a second failure.
+    """
+    render(
+        error,
+        "--reset",
+        extra_remedy=(
+            f"deploy this copy under a name of its own, which leaves that one alone: "
+            f"`osprey init {target.name}-2 ...`"
+        ),
+        mark=False,
+    )
+    # Not a repeat of the refusal's own "nothing was stopped or removed": that
+    # is about the OTHER deployment's containers, and this is about this one.
+    # The scaffold above did get written, so saying nothing at all here would
+    # leave an operator guessing what is now on disk.
+    output.report("")
+    output.report(f"{target.name}/ was created. Nothing was built and nothing was started.")
+    raise click.Abort()
 
 
 def _abort_incomplete_reset(target: Path, survivors: list[str]) -> None:

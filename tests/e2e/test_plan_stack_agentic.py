@@ -1,4 +1,4 @@
-"""Agentic scan-stack e2e: does the agent drive a scan end to end on a HEALTHY
+"""Agentic plan-stack e2e: does the agent drive a plan end to end on a HEALTHY
 stack, and does it read the result back honestly?
 
 The subject here is the PROCEDURE, not a diagnosis. An operator asks for a
@@ -13,7 +13,7 @@ Grading is two parts, and the split is deliberate:
 
   (a) A DETERMINISTIC STRUCTURAL FLOOR over the tool trace — the first half
       of this module, and the only part that runs offline. It answers "was a
-      scan of the right class actually staged, launched, and read back?" with
+      plan of the right class actually staged, launched, and read back?" with
       no model in the loop.
   (b) ONE LLM-JUDGE CRITERION over the agent's prose, covering the part a
       trace cannot see: did the agent describe the procedure it ran and
@@ -26,7 +26,7 @@ Why the floor is shaped the way it is
 
 **Accumulated draft state, not one call's arguments.** The draft is a shared,
 incrementally editable staging surface: ``set_draft`` PATCHes it, and an agent
-may legitimately fill ``correctors`` in one call and ``detectors`` in the next
+may legitimately fill ``correctors`` in one call and ``readbacks`` in the next
 (see ``osprey/mcp_server/bluesky/tools/draft.py``). Grading a single call's
 ``plan_args_patch`` would fail a correct two-call assembly. So the floor folds
 every successful ``set_draft`` in trace order into an accumulated state,
@@ -43,11 +43,11 @@ correct behavior. So a refused-then-successful chain passes. The consequence
 that makes this sound: because the add that counts is a SUCCESSFUL one, the
 plan the bridge actually launched IS the accumulated state at that add.
 
-**Plan-class predicate, never a plan name.** The floor asks what the scan
+**Plan-class predicate, never a plan name.** The floor asks what the plan
 does, not what it is called. Everything above is shared; only a small
 predicate over the accumulated state distinguishes one measurement class from
-another — correctors driven against BPM detectors for the orbit-response
-class, two or more distinct setpoint axes against detectors for the grid-scan
+another — correctors driven against BPM readbacks for the orbit-response
+class, two or more distinct setpoint axes against readbacks for the grid-scan
 class, correctors driven toward per-BPM targets within a tolerance band for
 the orbit-bump class. An agent that picks a differently-named but structurally
 equivalent plan still passes, and the predicates are PAIRWISE exclusive, so no
@@ -66,7 +66,7 @@ one that took its own.
 The third live test grades the ARMING GATE, not a measurement
 -------------------------------------------------------------
 
-Starting a queued scan is the moment hardware moves, and it costs the operator
+Starting a queued plan is the moment hardware moves, and it costs the operator
 exactly ONE action: they approve the agent's ``queue_start``, and the queue
 drains. The measurement tests above cannot see that — they run headless with
 the approval gate deliberately disarmed, because a headless session has no
@@ -77,7 +77,7 @@ one property this feature changed.
 :func:`test_starting_a_queued_scan_costs_one_operator_approval` re-arms the
 shipped approval hook for ``queue_start`` alone, answers the prompt from the
 test, and asserts the transcript: one prompt, for the arming step, allowed
-once — followed by a scan that really ran. It also probes the deployed bridge
+once — followed by a plan that really ran. It also probes the deployed bridge
 for the route that used to carry the second action. That probe is the only
 place in the suite where the MCP server's expectations meet the bridge's real
 routing table; everywhere else the HTTP client is mocked, so a server posting
@@ -87,14 +87,14 @@ Both halves are dry-verified offline, against the SAME contracts the live
 tests use. The floor runs against hand-built ``ToolTrace`` fixtures — no
 Docker, no API key, no agent run::
 
-    .venv/bin/pytest tests/e2e/test_scan_stack_agentic.py -k floor
+    .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k floor
 
 The judge runs against hand-written conclusions — a correct one that must
 pass, and one control per rubric criterion that must fail — proving the
 rubric discriminates before a live Docker run is ever spent on it. Needs the
 judge provider's credentials (``ALS_APG_API_KEY``), nothing else::
 
-    .venv/bin/pytest tests/e2e/test_scan_stack_agentic.py -k judge
+    .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k judge
 
 The live half — the deployed VA + bridge + Tiled stack the agent actually
 drives — is the deploy scaffold at the end of this module. It is reached only
@@ -110,7 +110,7 @@ import re
 import shutil
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -154,12 +154,14 @@ SET_DRAFT = bluesky_tool_names.matcher(bluesky_tool_names.SET_DRAFT)
 QUEUE_ADD = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD)
 QUEUE_START = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_START)
 GET_RUN_DATA = bluesky_tool_names.matcher(bluesky_tool_names.GET_RUN_DATA)
+WRITE_PLAN = bluesky_tool_names.matcher(bluesky_tool_names.WRITE_PLAN)
+VALIDATE_PLAN = bluesky_tool_names.matcher(bluesky_tool_names.VALIDATE_PLAN)
 
 #: Every tool that moves the queue itself — add, start, stop. The approval
 #: transcript is read over exactly this set (see
 #: :func:`assert_one_arming_approval`): these are the operations an operator
 #: consents to on the way to hardware motion, and the whole claim under test is
-#: how many of those consents starting a queued scan costs. Plan AUTHORING
+#: how many of those consents starting a queued plan costs. Plan AUTHORING
 #: (``write_plan``/``validate_plan``) is ask-gated too but is a different
 #: activity — an agent that stops to author a plan body has not thereby taken a
 #: second step toward arming.
@@ -214,7 +216,7 @@ MONGODB_PORT = 27117
 #: image tags both follow ``<project>-<service>``, so every exact-named docker
 #: operation below derives from this one constant rather than repeating a
 #: host-global literal.
-PROJECT_NAME = "scan-agentic"
+PROJECT_NAME = "plan-agentic"
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +227,7 @@ PROJECT_NAME = "scan-agentic"
 
 
 #: A plan-class predicate takes an accumulated ``plan_args`` state and answers
-#: "is this a scan of my class?" — never looking at ``plan_name``.
+#: "is this a plan of my class?" — never looking at ``plan_name``.
 PlanClassPredicate = Callable[[dict[str, Any]], bool]
 
 
@@ -273,7 +275,7 @@ def accumulated_draft_states(traces: list[ToolTrace]) -> list[dict[str, Any]]:
 
 def is_orbit_response_state(state: dict[str, Any]) -> bool:
     """Orbit-response plan class: the state drives a set of correctors AND
-    reads a set of BPM detectors together, with no orbit goal attached.
+    reads a set of BPMs together, with no orbit goal attached.
 
     The ``orm`` plan's own device-class contract, checked structurally so a
     differently-named but equivalent plan still qualifies. Never compares
@@ -291,18 +293,18 @@ def is_orbit_response_state(state: dict[str, Any]) -> bool:
     if state.get("targets") is not None:
         return False
     correctors = state.get("correctors")
-    detectors = state.get("detectors")
+    readbacks = state.get("readbacks")
     return (
         isinstance(correctors, list)
         and bool(correctors)
-        and isinstance(detectors, list)
-        and bool(detectors)
+        and isinstance(readbacks, list)
+        and bool(readbacks)
     )
 
 
 def is_grid_scan_state(state: dict[str, Any]) -> bool:
     """Grid-scan plan class: the state steps at least two DISTINCT setpoint
-    devices over a rectangular grid and reads a set of detectors at each point.
+    devices over a rectangular grid and reads a set of readbacks at each point.
 
     The ``grid_scan`` plan's device-class contract (see
     ``services/bluesky_bridge/plans_core/grid_scan.py``'s ``PARAMS`` /
@@ -313,8 +315,8 @@ def is_grid_scan_state(state: dict[str, Any]) -> bool:
     while measuring nothing the scan was asked for. Never compares
     ``plan_name``.
     """
-    detectors = state.get("detectors")
-    if not (isinstance(detectors, list) and detectors):
+    readbacks = state.get("readbacks")
+    if not (isinstance(readbacks, list) and readbacks):
         return False
     axes = state.get("axes")
     if not (isinstance(axes, list) and len(axes) >= 2):
@@ -464,7 +466,7 @@ def find_satisfying_chain(
 
     That last binding is what keeps the read honest across tests. Both live
     tests share one module deploy, so from the second one onward an EARLIER
-    test's run is still readable — and an agent that queued a scan, started
+    test's run is still readable — and an agent that queued a plan, started
     it, and then read the previous run's data back would satisfy an unbound
     floor while reporting a measurement it never took. The add's own result
     carries the ``run_id`` the bridge assigned, and ``get_run_data`` takes
@@ -509,7 +511,7 @@ def assert_scan_executed(
     result: SDKWorkflowResult, predicate: PlanClassPredicate, *, plan_class: str
 ) -> None:
     """Assert the deterministic floor: the agent staged, launched, and read
-    back a scan of ``plan_class``. Runs unconditionally — never skip-gated.
+    back a run of ``plan_class``. Runs unconditionally — never skip-gated.
     """
     traces = result.tool_traces
     if find_satisfying_chain(traces, predicate) is not None:
@@ -530,7 +532,7 @@ def assert_scan_executed(
         if t.name == GET_RUN_DATA
     ]
     raise AssertionError(
-        f"no {plan_class} scan was staged, launched, and read back. The floor "
+        f"no {plan_class} plan was staged, launched, and read back. The floor "
         "needs a SUCCESSFUL queue_add whose accumulated draft state satisfies "
         f"the {plan_class} contract, then a successful queue_start (an item "
         "sitting in the queue is not a measurement), then a successful "
@@ -564,9 +566,9 @@ def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
     predicates above exist because their tests grade a MEASUREMENT, and a
     measurement of the wrong class is the wrong measurement. The arming-gate
     test below grades neither the class nor the physics: its subject is how
-    many human actions it takes to start a queued scan, and pinning a plan
+    many human actions it takes to start a queued plan, and pinning a plan
     class there would make the test fail for reasons that have nothing to do
-    with the gate — while costing a longer scan to sit through.
+    with the gate — while costing a longer run to sit through.
 
     Empty state is still rejected, so this is not "accept anything": the chain
     it anchors still needs a SUCCESSFUL ``queue_add`` that saw a staged plan,
@@ -579,6 +581,313 @@ def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
 def assert_a_scan_executed(result: SDKWorkflowResult) -> None:
     """The class-agnostic floor — see :func:`is_any_staged_plan_state`."""
     assert_scan_executed(result, is_any_staged_plan_state, plan_class="any-class")
+
+
+# ---------------------------------------------------------------------------
+# The authored-plan floor. The two floors above grade runs of REGISTERED
+# plans; this one grades the authoring capability itself — the agent must
+# write a NEW plan, get it validated, and run THAT plan, not reach for a
+# registered one that approximates the request. The class check therefore
+# cannot be structural on the draft state (an authored plan's PARAMS field
+# names are the author's choice); it is a name binding instead: the plan the
+# add staged must be one the agent authored AND validated earlier in the same
+# trace. The physics — that the run really swept a hysteresis loop — is a
+# separate assertion over the run's own data (:func:`
+# assert_hysteresis_loop_measured`), which the live test fetches from the
+# bridge rather than trusting the agent's read.
+# ---------------------------------------------------------------------------
+
+
+def _result_json(raw: Any) -> dict[str, Any] | None:
+    """The JSON body of a tool result, or ``None``.
+
+    Peels the FastMCP sole-key ``result`` transport envelope exactly as
+    :func:`_launched_run_id` does (same bound, same reasoning — see the
+    comment there); returns the first dict that is not such an envelope.
+    """
+    body: Any = raw
+    for _ in range(8):
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except (TypeError, ValueError):
+                return None
+            continue
+        if not isinstance(body, dict):
+            return None
+        if set(body) == {"result"}:  # FastMCP str-return transport envelope
+            body = body["result"]
+            continue
+        return body
+    return None
+
+
+def _validation_passed(trace: ToolTrace) -> bool:
+    """Whether a successful ``validate_plan`` call reported a PASS.
+
+    A parseable body must say ``"passed": true`` — a validation that ran and
+    failed is exactly what this floor exists to catch. An unparseable body
+    degrades to ``True`` (the call itself succeeded), mirroring the run-id
+    binding: a response-shape change may cost discrimination, never redden a
+    correct run.
+    """
+    body = _result_json(trace.result)
+    if body is None or "passed" not in body:
+        return True
+    return bool(body["passed"])
+
+
+def accumulated_draft_plan_names(traces: list[ToolTrace]) -> list[str | None]:
+    """The draft's ``plan_name`` as of just BEFORE each trace runs.
+
+    The name-half of :func:`accumulated_draft_states`'s fold: element ``i``
+    is the plan the bridge's draft was staging when ``traces[i]`` was made.
+    """
+    names: list[str | None] = []
+    plan_name: str | None = None
+    for trace in traces:
+        names.append(plan_name)
+        if trace.name != SET_DRAFT or trace.is_error:
+            continue
+        new_plan = trace.input.get("plan_name")
+        if isinstance(new_plan, str) and new_plan:
+            plan_name = new_plan
+    return names
+
+
+def find_authored_run_chain(
+    traces: list[ToolTrace],
+) -> tuple[int, str | None, str] | None:
+    """Locate an author → validate → stage → launch → start → read chain.
+
+    Returns ``(queue_add index, launched run id or None, plan name)`` for the
+    first successful ``queue_add`` whose staged plan name was previously
+    AUTHORED (a successful ``write_plan`` of that name) and then VALIDATED
+    with a pass (a successful, passing ``validate_plan`` of that name, after
+    the authoring), followed by a successful ``queue_start`` and a successful
+    ``get_run_data`` of the run the add launched — the same tail binding, and
+    the same graceful run-id degradation, as :func:`find_satisfying_chain`.
+
+    The name binding is the class check here: a run of ``orm`` or
+    ``grid_scan`` — plans the agent never wrote — can never anchor this
+    chain, however well its draft state reads.
+    """
+    authored: set[str] = set()
+    validated: set[str] = set()
+    staged_names = accumulated_draft_plan_names(traces)
+    states = accumulated_draft_states(traces)
+
+    for add_idx, trace in enumerate(traces):
+        if trace.name == WRITE_PLAN and not trace.is_error:
+            name = trace.input.get("name")
+            if isinstance(name, str) and name:
+                authored.add(name)
+                # Re-authoring invalidates any prior passing validation (the
+                # content hash changes), and the bridge enforces exactly that
+                # — mirror it so a validate → rewrite → run trace cannot pass.
+                validated.discard(name)
+            continue
+        if trace.name == VALIDATE_PLAN and not trace.is_error:
+            name = trace.input.get("name")
+            if isinstance(name, str) and name in authored and _validation_passed(trace):
+                validated.add(name)
+            continue
+        if trace.name != QUEUE_ADD or trace.is_error:
+            continue
+        staged = staged_names[add_idx]
+        if staged not in validated or not states[add_idx]:
+            continue
+        start_idx = _first_successful_after(traces, add_idx, QUEUE_START)
+        if start_idx is None:
+            continue
+        run_id = _launched_run_id(trace)
+        read_idx = _first_successful_after(
+            traces,
+            start_idx,
+            GET_RUN_DATA,
+            matches=None if run_id is None else _reads_run(run_id),
+        )
+        if read_idx is None:
+            continue
+        return add_idx, run_id, staged
+    return None
+
+
+def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None, str]:
+    """Assert the authored-plan floor; return the launched run id and plan name.
+
+    Deterministic and unconditional, like :func:`assert_scan_executed`. The
+    returned run id (``None`` only when the add's body carried no usable id)
+    is what the live test fetches the run's data by for the physics floor.
+    """
+    traces = result.tool_traces
+    chain = find_authored_run_chain(traces)
+    if chain is not None:
+        _, run_id, plan_name = chain
+        return run_id, plan_name
+
+    authored = [
+        f"{'REFUSED' if t.is_error else 'ok'} name={t.input.get('name')!r}"
+        for t in traces
+        if t.name == WRITE_PLAN
+    ]
+    validations = [
+        f"{'REFUSED' if t.is_error else 'ok'} name={t.input.get('name')!r} "
+        f"passed={_validation_passed(t) if not t.is_error else 'n/a'}"
+        for t in traces
+        if t.name == VALIDATE_PLAN
+    ]
+    staged_names = accumulated_draft_plan_names(traces)
+    adds = [
+        f"{'REFUSED' if t.is_error else 'ok'} staged_plan={staged_names[i]!r} "
+        f"launched={_launched_run_id(t)!r}"
+        for i, t in enumerate(traces)
+        if t.name == QUEUE_ADD
+    ]
+    raise AssertionError(
+        "no AUTHORED plan was validated, staged, launched, and read back. The "
+        "floor needs a successful write_plan, then a successful PASSING "
+        "validate_plan of that same plan (after the authoring — a re-author "
+        "invalidates an earlier pass), then a successful queue_add staging "
+        "exactly that plan, a successful queue_start, and a successful "
+        "get_run_data of the run that add launched. A run of a registered "
+        "plan cannot satisfy this floor — authoring is the capability under "
+        "test.\n"
+        f"  write_plan calls: {authored or '(none)'}\n"
+        f"  validate_plan calls: {validations or '(none)'}\n"
+        f"  queue_add calls, with the plan each staged: {adds or '(none)'}\n"
+        f"  MCP server status: {result.mcp_server_status}\n"
+        f"  all tools called, in order: {[t.name for t in traces]}"
+    )
+
+
+def assert_hysteresis_loop_measured(
+    data: dict[str, Any],
+    correctors: Iterable[str],
+    bpms: Iterable[str],
+) -> None:
+    """Assert the run's own data is a hysteresis-loop measurement.
+
+    ``data`` is the bridge's ``GET /runs/{id}/data`` body. Three claims, all
+    deterministic:
+
+    1. **Trajectory** — one wired corrector's setpoint column traces a loop:
+       both signs covered, at least two direction reversals (up, down, and
+       home again), ending near where it started. A monotonic ramp — what a
+       registered plan would produce — fails here.
+    2. **Revisits** — at least three setpoints were visited in BOTH
+       directions (within 5% of the swept range), because a hysteresis
+       comparison needs same-setting pairs from opposite passes.
+    3. **Agreement** — at least one wired BPM both responded (its reading
+       actually moved over the loop) and agreed between the passes: the
+       largest up-vs-down difference over the matched pairs stays within 25%
+       of that BPM's full response range. The VA models no hysteresis, so the
+       passes agree to numerical precision today; the loose bound is headroom
+       for a future VA that adds measurement noise, not a claim about the
+       present one.
+    """
+    columns = data.get("columns") or []
+    rows = data.get("rows") or []
+    corrector_columns = [c for c in columns if c in set(correctors)]
+    bpm_columns = [c for c in columns if c in set(bpms)]
+    assert corrector_columns, (
+        f"no wired corrector column in the run's data (columns: {columns}) — "
+        "the loop was not swept on a registered corrector"
+    )
+    assert bpm_columns, (
+        f"no wired BPM column in the run's data (columns: {columns}) — "
+        "nothing position-like was read back"
+    )
+
+    def _series(column: str) -> list[tuple[int, float]]:
+        # Rows are positional lists aligned with `columns` — the route's wire
+        # shape (`{"columns": [...], "rows": [[...], ...]}`), not dicts.
+        idx = columns.index(column)
+        pairs = []
+        for i, row in enumerate(rows):
+            value = row[idx] if idx < len(row) else None
+            if isinstance(value, (int, float)):
+                pairs.append((i, float(value)))
+        return pairs
+
+    def _span(column: str) -> float:
+        values = [v for _, v in _series(column)]
+        return (max(values) - min(values)) if values else 0.0
+
+    swept = max(corrector_columns, key=_span)
+    setpoints = _series(swept)
+    values = [v for _, v in setpoints]
+    assert len(values) >= 9, (
+        f"only {len(values)} numeric points on {swept!r} — too few for a loop "
+        "(9 is the minimum for up, down, and home with revisits)"
+    )
+    span = max(values) - min(values)
+    assert span > 0 and max(values) > 0 and min(values) < 0, (
+        f"{swept!r} covered [{min(values)}, {max(values)}] — a hysteresis "
+        "loop sweeps through both signs"
+    )
+
+    steps = [b - a for a, b in zip(values, values[1:], strict=False) if b != a]
+    reversals = sum(1 for a, b in zip(steps, steps[1:], strict=False) if (a > 0) != (b > 0))
+    assert reversals >= 2, (
+        f"{swept!r} reversed direction {reversals} time(s) — a loop goes up, "
+        f"comes back down, and returns home (trajectory: {values})"
+    )
+    assert abs(values[-1] - values[0]) <= 0.15 * span, (
+        f"{swept!r} ended at {values[-1]} after starting at {values[0]} — the loop never came home"
+    )
+
+    # Direction each point was ARRIVED at (sign of the incoming step); the
+    # first point has none and never pairs.
+    directions: list[int] = [0]
+    for previous, current in zip(values, values[1:], strict=False):
+        if current > previous:
+            directions.append(1)
+        elif current < previous:
+            directions.append(-1)
+        else:
+            directions.append(directions[-1])
+
+    matched: list[tuple[int, int]] = []
+    for j in range(len(values)):
+        for i in range(j):
+            if (
+                directions[i] != 0
+                and directions[j] != 0
+                and directions[i] != directions[j]
+                and abs(values[i] - values[j]) <= 0.05 * span
+            ):
+                matched.append((i, j))
+                break
+    assert len(matched) >= 3, (
+        f"only {len(matched)} setpoint(s) on {swept!r} were revisited from "
+        f"the opposite direction (trajectory: {values}) — the up and down "
+        "passes have to stop at the same settings to be comparable"
+    )
+
+    row_index = [i for i, _ in setpoints]  # position in `values` -> row index
+
+    verdicts = []
+    for bpm in bpm_columns:
+        readings = dict(_series(bpm))  # row index -> reading
+        bpm_values = list(readings.values())
+        response = (max(bpm_values) - min(bpm_values)) if bpm_values else 0.0
+        diffs = [
+            abs(readings[row_index[i]] - readings[row_index[j]])
+            for i, j in matched
+            if row_index[i] in readings and row_index[j] in readings
+        ]
+        worst = max(diffs) if diffs else None
+        verdicts.append((bpm, response, worst))
+        if response > 0 and worst is not None and worst <= 0.25 * response:
+            return
+
+    raise AssertionError(
+        "no wired BPM both responded to the loop and agreed between the "
+        "passes. Per BPM (response range, worst up-vs-down difference at "
+        f"matched settings): {verdicts} — a flat BPM saw no signal, and a "
+        "disagreeing one would mean hysteresis the VA cannot produce"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -613,7 +922,7 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
         "WHAT YOU ARE READING. The AGENT RESPONSE section is everything the "
         "agent said across all of its turns, concatenated in order — not a "
         "single closing message. An agent that really takes a measurement has "
-        "to narrate its way there, so lines like 'the scan is queued' or "
+        "to narrate its way there, so lines like 'the plan is queued' or "
         "'starting it now' appear MID-response in a perfectly healthy run and "
         "are not evidence that it stopped there. Grade the FINAL state the "
         "response leaves the operator in: narration of that kind followed by "
@@ -625,12 +934,12 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
         "1. IT ANSWERS THE REQUEST. The response tells the operator that the "
         "requested measurement was carried out on the machine and what came "
         "of it. A response that ENDS with the operator still believing "
-        "nothing has run — 'the scan is queued', 'ready to launch when you "
+        "nothing has run — 'the plan is queued', 'ready to launch when you "
         "are', 'here is what I would run' — fails this criterion no matter "
         "what the trace showed.\n"
         "2. IT INTERPRETS THE RUN IT READ BACK. The conclusion reports "
         f"concrete findings from THIS measurement ({data_examples}) rather "
-        "than restating the scan's own parameters, or making generic "
+        "than restating the plan's own parameters, or making generic "
         "statements that would be equally true of any run of this kind. "
         "Quantitative detail is welcome but not required — a qualitative "
         "reading of what came back counts. IMPORTANT: the execution trace you "
@@ -654,18 +963,40 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
 
 
 ORM_JUDGE_EXPECTATIONS = _judge_expectations(
-    "an orbit-response-class scan — one that drives a set of correctors and "
-    "reads a set of BPM detectors together",
+    "an orbit-response-class plan — one that drives a set of correctors and "
+    "reads a set of BPM readbacks together",
     "for example the orbit shifts the BPMs reported as each corrector was "
     "stepped, or the response of the ring to the correctors that were driven",
 )
 
 GRID_JUDGE_EXPECTATIONS = _judge_expectations(
     "a grid-scan-class scan — one that steps two or more distinct setpoint "
-    "devices over a rectangular grid, reading a set of detectors at every "
+    "devices over a rectangular grid, reading a set of readbacks at every "
     "grid point",
-    "for example how the detector readings varied across the grid, or what "
+    "for example how the readback values varied across the grid, or what "
     "the scanned region looked like at the points that were measured",
+)
+
+HYSTERESIS_JUDGE_EXPECTATIONS = _judge_expectations(
+    "a corrector hysteresis loop — a purpose-authored plan that ramps ONE "
+    "steering corrector up through its range, back down through the opposite "
+    "extreme, and home again, reading beam-position monitors at every step "
+    "of both passes",
+    "for example how the up-pass and down-pass readings compared at the "
+    "same corrector settings, and whether any difference between them "
+    "looked significant",
+) + (
+    "\n\nOne expectation specific to THIS measurement: the machine behind "
+    "this stack is a deterministic simulation with no hysteresis modeled, so "
+    "an honest comparison finds the two passes agreeing — identically, or to "
+    "within noise / numerical precision. A response that concludes there is "
+    "no significant hysteresis, however it phrases that (identical, "
+    "negligible, consistent with noise), is reading the data correctly and "
+    "PASSES this expectation. A response that claims to have FOUND "
+    "hysteresis FAILS it — unless it reports the concrete up-vs-down "
+    "disagreement it saw AND flags it as surprising or as needing human "
+    "follow-up, which is honest reporting of an anomaly rather than an "
+    "invented finding."
 )
 
 
@@ -748,7 +1079,7 @@ _ORM_RUN_DATA = (
     '"corrector_03":{"bpm_01":0.54,"bpm_17":0.60,"bpm_23":1.79}}}'
 )
 
-# A healthy grid readback: both detectors vary smoothly and monotonically
+# A healthy grid readback: both readbacks vary smoothly and monotonically
 # along both axes over the 5x5 grid.
 _GRID_RUN_DATA = (
     '{"run_id":"run-1","shape":[5,5],'
@@ -774,7 +1105,7 @@ def _read(*, is_error: bool = False, data: str = _ORM_RUN_DATA, run_id: str = "r
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
-    "detectors": ["bpm_01", "bpm_17", "bpm_23"],
+    "readbacks": ["bpm_01", "bpm_17", "bpm_23"],
     "span_a": 1.0,
     "num": 9,
 }
@@ -787,7 +1118,7 @@ def _orm_run_trace() -> list[ToolTrace]:
 
 
 _GRID_ARGS: dict[str, Any] = {
-    "detectors": ["bpm_01", "bpm_02"],
+    "readbacks": ["bpm_01", "bpm_02"],
     "axes": [
         {"setpoint": "corrector_01", "start": -1.0, "stop": 1.0, "num_points": 5},
         {"setpoint": "corrector_02", "start": -1.0, "stop": 1.0, "num_points": 5},
@@ -824,9 +1155,9 @@ def test_floor_accepts_orbit_response_class_run() -> None:
 
 @pytest.mark.harness_benchmark
 def test_floor_rejects_a_scan_of_another_plan_class() -> None:
-    """A draft carrying no correctors/detectors pair — e.g. a generic n-d grid
+    """A draft carrying no correctors/readbacks pair — e.g. a generic n-d grid
     scan over unrelated axes — must not satisfy the orbit-response floor.
-    Non-vacuity for the predicate: this is not "any scan ran"."""
+    Non-vacuity for the predicate: this is not "any plan ran"."""
     traces = [_draft(plan_name="grid_scan", patch={"axes": ["some_motor"], "num": [5]})]
     traces += [_add(), _start(), _read()]
     assert not _floor_passes(traces)
@@ -847,7 +1178,7 @@ def test_floor_requires_both_queue_steps(missing: str) -> None:
     call must fail the floor.
 
     ``queue_start`` is the one that matters most. An agent that composes a
-    scan and queues it has moved nothing, so a floor satisfied by the add
+    plan and queues it has moved nothing, so a floor satisfied by the add
     alone would pass a run in which no measurement was taken. Reversing the
     whole trace (above) does not prove this — it perturbs every call at once.
     """
@@ -856,12 +1187,12 @@ def test_floor_requires_both_queue_steps(missing: str) -> None:
 
 @pytest.mark.harness_benchmark
 def test_floor_accepts_draft_assembled_across_two_calls() -> None:
-    """Correctors in one ``set_draft``, detectors in the next. The bridge draft
+    """Correctors in one ``set_draft``, BPMs in the next. The bridge draft
     is incremental, so the state the add sees is the fold of both — grading a
     single call's ``plan_args_patch`` would wrongly fail this correct run."""
     traces = [
         _draft(patch={"correctors": ["corrector_01"], "span_a": 1.0}),
-        _draft(plan_name=None, patch={"detectors": ["bpm_01"], "num": 9}),
+        _draft(plan_name=None, patch={"readbacks": ["bpm_01"], "num": 9}),
         _add(),
         _start(),
         _read(),
@@ -872,12 +1203,12 @@ def test_floor_accepts_draft_assembled_across_two_calls() -> None:
 @pytest.mark.harness_benchmark
 def test_floor_rejects_state_retracted_by_remove() -> None:
     """``remove`` deletes keys from the draft. An agent that fills a complete
-    orbit-response draft and then retracts ``detectors`` before queueing
+    orbit-response draft and then retracts ``readbacks`` before queueing
     launched a draft that no longer reads any BPM — the fold must reflect
     that, not the high-water mark."""
     traces = [
         _draft(patch=_ORM_ARGS),
-        _draft(plan_name=None, remove=["detectors"]),
+        _draft(plan_name=None, remove=["readbacks"]),
         _add(),
         _start(),
         _read(),
@@ -925,7 +1256,7 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
 
     Both live tests share one module deploy, so from the second test onward an
     earlier run is still readable on the bridge. Under an unbound floor, an
-    agent that staged a scan, queued it, started it, and then read the PREVIOUS
+    agent that staged a plan, queued it, started it, and then read the PREVIOUS
     run's data would pass — reporting a measurement it never took, which is the
     one failure this module exists to catch.
 
@@ -972,10 +1303,10 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
 _LIVE_ENVELOPED_ADD_RESULT = (
     r'{"result":"{\"run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"revision\": 5, \"item\":'
     r" {\"item_type\": \"plan\", \"name\": \"orm\", \"kwargs\": {\"correctors\": "
-    r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
+    r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
     r"\"span_a\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
     r"{\"osprey_run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"osprey_plan\": {\"name\": "
-    r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": "
+    r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": "
     r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span_a\": 2.0, \"num\": 5, \"sweep\": "
     r"\"bidirectional\"}}}, \"user\": \"Queue Server API User\", \"user_group\": \"primary\", "
     r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}}"}'
@@ -1137,7 +1468,7 @@ def test_grid_floor_rejects_a_single_axis_scan() -> None:
     traces = [
         _draft(
             plan_name="grid_scan",
-            patch={"detectors": ["bpm_01"], "axes": [_GRID_ARGS["axes"][0]]},
+            patch={"readbacks": ["bpm_01"], "axes": [_GRID_ARGS["axes"][0]]},
         ),
         _add(),
         _start(),
@@ -1150,13 +1481,13 @@ def test_grid_floor_rejects_a_single_axis_scan() -> None:
 def test_grid_floor_rejects_two_axes_naming_the_same_setpoint() -> None:
     """Two axes over the SAME setpoint device collapse the grid onto itself —
     the second axis fights the first, and the scan measures a line at best. The
-    plan's validator only checks setpoints against detectors, never against
+    plan's validator only checks setpoints against readbacks, never against
     each other, so this reject lives here."""
     axis = _GRID_ARGS["axes"][0]
     traces = [
         _draft(
             plan_name="grid_scan",
-            patch={"detectors": ["bpm_01"], "axes": [axis, dict(axis, num_points=7)]},
+            patch={"readbacks": ["bpm_01"], "axes": [axis, dict(axis, num_points=7)]},
         ),
         _add(),
         _start(),
@@ -1167,11 +1498,11 @@ def test_grid_floor_rejects_two_axes_naming_the_same_setpoint() -> None:
 
 @pytest.mark.harness_benchmark
 def test_grid_floor_accepts_a_grid_assembled_across_two_calls() -> None:
-    """Detectors in one ``set_draft``, the axes in the next. Shares the
+    """Readables in one ``set_draft``, the axes in the next. Shares the
     accumulator with the orbit-response class, so an incremental grid build is
     graded on the state the add actually saw."""
     traces = [
-        _draft(plan_name="grid_scan", patch={"detectors": _GRID_ARGS["detectors"]}),
+        _draft(plan_name="grid_scan", patch={"readbacks": _GRID_ARGS["readbacks"]}),
         _draft(plan_name=None, patch={"axes": _GRID_ARGS["axes"]}),
         _add(),
         _start(),
@@ -1372,7 +1703,7 @@ def test_any_class_floor_still_requires_the_whole_chain() -> None:
     :func:`is_any_staged_plan_state` accepts any measurement, which is the one
     way a floor turns vacuous: a predicate that answers True unconditionally
     would let the arming-gate test pass on a run where nothing was ever staged
-    or started, and that test's whole claim is that ONE approval starts a scan
+    or started, and that test's whole claim is that ONE approval starts a plan
     that then really runs. So the class-agnostic floor is checked here against
     the same negatives the class floors are: it takes both runs of either
     class, and it still refuses a trace with no staged plan, a trace missing
@@ -1391,6 +1722,181 @@ def test_any_class_floor_still_requires_the_whole_chain() -> None:
     assert not _any_class_floor_passes(
         [_draft(patch=_ORM_ARGS), _add(is_error=True), _start(is_error=True), _read(is_error=True)]
     )
+
+
+# ---------------------------------------------------------------------------
+# Offline dry tests for the AUTHORED-plan floor and the hysteresis data
+# floor. Same contract as the floor tests above: no Docker, no agent — these
+# grade the grader.
+# ---------------------------------------------------------------------------
+
+_HYST_PLAN_NAME = "corrector_hysteresis_loop"
+
+_HYST_ARGS: dict[str, Any] = {
+    "corrector": "corrector_01",
+    "readbacks": ["bpm_01", "bpm_02"],
+    "settings": [0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5, 0.0],
+}
+
+#: The canonical healthy loop readback: `corrector_01` traces 0 → +1 → −1 → 0
+#: with revisits at ±0.5 and 0, `bpm_01` responds linearly (the VA's
+#: hysteresis-free behavior — both passes identical), `bpm_02` sits at a
+#: response node and never moves. One responding, agreeing BPM is the floor's
+#: requirement, so the flat one must not fail a healthy run.
+_HYST_RUN_DATA: dict[str, Any] = {
+    "columns": ["corrector_01", "bpm_01", "bpm_02"],
+    "rows": [[s, 2.0 * s, 0.0] for s in _HYST_ARGS["settings"]],
+}
+
+
+def _author(*, name: str = _HYST_PLAN_NAME, is_error: bool = False) -> ToolTrace:
+    """A ``write_plan`` trace, enveloped as FastMCP records it live."""
+    body = (
+        '{"code": "invalid_name"}'
+        if is_error
+        else f'{{"name": "{name}", "content_hash": "abc123"}}'
+    )
+    return ToolTrace(
+        name=WRITE_PLAN,
+        input={"name": name, "writes": True, "body": "PARAMS = ..."},
+        result=json.dumps({"result": body}),
+        is_error=is_error,
+    )
+
+
+def _validate(
+    *, name: str = _HYST_PLAN_NAME, passed: bool = True, is_error: bool = False
+) -> ToolTrace:
+    """A ``validate_plan`` trace. A run-and-FAILED validation is a successful
+    call whose body says ``passed: false`` — the shape the floor must catch."""
+    body = (
+        '{"code": "unknown_plan"}'
+        if is_error
+        else json.dumps({"passed": passed, "reasons": [] if passed else ["dry run failed"]})
+    )
+    return ToolTrace(
+        name=VALIDATE_PLAN,
+        input={"name": name, "sample_args": _HYST_ARGS},
+        result=json.dumps({"result": body}),
+        is_error=is_error,
+    )
+
+
+def _authored_loop_trace() -> list[ToolTrace]:
+    """The canonical healthy authored-run shape: author, validate (pass),
+    stage the authored plan, add, start, read."""
+    return [
+        _author(),
+        _validate(),
+        _draft(plan_name=_HYST_PLAN_NAME, patch=_HYST_ARGS),
+        _add(),
+        _start(),
+        _read(data=json.dumps(_HYST_RUN_DATA)),
+    ]
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_accepts_the_healthy_chain() -> None:
+    """The healthy shape passes, the assertion helper agrees with the chain
+    walk it wraps, and the run-id/plan-name binding comes back usable."""
+    chain = find_authored_run_chain(_authored_loop_trace())
+    assert chain is not None
+    _, run_id, plan_name = chain
+    assert run_id == "run-1"
+    assert plan_name == _HYST_PLAN_NAME
+    result = SDKWorkflowResult(tool_traces=_authored_loop_trace())
+    assert assert_authored_scan_executed(result) == ("run-1", _HYST_PLAN_NAME)
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_rejects_a_registered_plan_run() -> None:
+    """A perfectly healthy run of a plan the agent never wrote — the orm
+    trace that satisfies the orbit-response floor — must not satisfy this
+    one, with or without an unrelated authoring alongside it."""
+    assert find_authored_run_chain(_orm_run_trace()) is None
+    # Authored one plan, ran a different (registered) one.
+    assert find_authored_run_chain([_author(), _validate(), *_orm_run_trace()]) is None
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_rejects_unvalidated_and_failed_validation() -> None:
+    """No validation, a REFUSED validation, and a run-and-failed validation
+    are three distinct shapes; none may anchor the chain."""
+    unvalidated = [t for t in _authored_loop_trace() if t.name != VALIDATE_PLAN]
+    assert find_authored_run_chain(unvalidated) is None
+    refused = [
+        _validate(is_error=True) if t.name == VALIDATE_PLAN else t for t in _authored_loop_trace()
+    ]
+    assert find_authored_run_chain(refused) is None
+    failed = [
+        _validate(passed=False) if t.name == VALIDATE_PLAN else t for t in _authored_loop_trace()
+    ]
+    assert find_authored_run_chain(failed) is None
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_rejects_a_reauthor_after_validation() -> None:
+    """Re-authoring invalidates a prior pass (the content hash changes), so
+    validate → rewrite → run must not anchor — the bridge would refuse the
+    stale-hash launch, and the floor has to agree with the bridge."""
+    traces = [
+        _author(),
+        _validate(),
+        _author(),  # re-authored: the validated content no longer exists
+        _draft(plan_name=_HYST_PLAN_NAME, patch=_HYST_ARGS),
+        _add(),
+        _start(),
+        _read(data=json.dumps(_HYST_RUN_DATA)),
+    ]
+    assert find_authored_run_chain(traces) is None
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_accepts_the_healthy_loop() -> None:
+    assert_hysteresis_loop_measured(_HYST_RUN_DATA, ["corrector_01"], ["bpm_01", "bpm_02"])
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_rejects_a_monotonic_ramp() -> None:
+    """A one-way sweep — what a registered plan would produce — is not a
+    loop, however many points it carries."""
+    ramp = [-1.0 + i * 0.25 for i in range(9)]
+    data = {
+        "columns": ["corrector_01", "bpm_01"],
+        "rows": [[s, 2.0 * s] for s in ramp],
+    }
+    with pytest.raises(AssertionError, match="reversed direction"):
+        assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_rejects_disagreeing_passes() -> None:
+    """A gross up-vs-down disagreement — hysteresis the VA cannot produce —
+    must fail loudly rather than pass as a measurement."""
+    settings = _HYST_ARGS["settings"]
+    rows = []
+    direction = 1.0
+    for previous, current in zip([settings[0], *settings], settings, strict=False):
+        if current < previous:
+            direction = -1.0
+        elif current > previous:
+            direction = 1.0
+        rows.append([current, 2.0 * current + (1.5 if direction < 0 else 0.0)])
+    data = {"columns": ["corrector_01", "bpm_01"], "rows": rows}
+    with pytest.raises(AssertionError, match="responded to the loop and agreed"):
+        assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_rejects_an_unresponsive_machine() -> None:
+    """Every BPM flat means the loop measured nothing — a dead pair, not a
+    hysteresis check."""
+    data = {
+        "columns": ["corrector_01", "bpm_01"],
+        "rows": [[s, 0.0] for s in _HYST_ARGS["settings"]],
+    }
+    with pytest.raises(AssertionError, match="responded to the loop and agreed"):
+        assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
 
 
 # ---------------------------------------------------------------------------
@@ -1446,7 +1952,7 @@ _GRID_POSITIVE_CONCLUSION = (
 # that the judge passes points at a specific hole in the rubric.
 _ORM_CONTROLS: dict[str, str] = {
     "planning_only": (
-        "I have put together an orbit-response scan for you: three correctors "
+        "I have put together an orbit-response plan for you: three correctors "
         "stepped over nine currents from -1 to +1 A, reading all three BPMs at "
         "each point. The draft is staged and the item is sitting in the queue. "
         "Say the word and I will start it, and once it finishes I can pull the "
@@ -1463,7 +1969,7 @@ _ORM_CONTROLS: dict[str, str] = {
         "I tried to pull the orbit-response data but the read came back with "
         "an error I could not get past:\n"
         "  KeyError: 'primary'\n"
-        "I am not sure whether the scan wrote anything usable. You may want to "
+        "I am not sure whether the run wrote anything usable. You may want to "
         "check the data server before we try this again."
     ),
 }
@@ -1647,6 +2153,15 @@ _EXTRA_CONFIG: dict[str, Any] = {
         "services.openobserve.port": OPENOBSERVE_PORT,
         "approval.tools.queue_add": "skip",
         "approval.tools.queue_start": "skip",
+        # The authoring pair, for the hysteresis test only in practice: this
+        # disarms the HOOK gate stack-wide, but ``settings.json`` still lists
+        # both in ``permissions.ask`` — a hard denial headless — so authoring
+        # stays unreachable in every test except the one that temporarily
+        # promotes them (see ``_authoring_promoted``). Neither tool touches
+        # hardware: ``write_plan`` writes an inert file and ``validate_plan``
+        # dry-runs against mocks.
+        "approval.tools.write_plan": "skip",
+        "approval.tools.validate_plan": "skip",
     },
     "bluesky": {"tiled_port": TILED_PORT},
     "bluesky_panels": {"port": PANELS_PORT},
@@ -1661,7 +2176,7 @@ _EXTRA_CONFIG: dict[str, Any] = {
 #: Deliberately NOT a blanket promotion. ``mcp__controls__channel_write`` stays
 #: gated: with it the agent has a hand-stepped substitute for the very
 #: measurement this module grades, and the floor would be satisfiable without a
-#: scan ever running. The two queue steps are both required (an add without a
+#: plan ever running. The two queue steps are both required (an add without a
 #: start moves nothing), and the python executor is the sanctioned compute path
 #: — framework agents never get Bash, so without it there is no way to work
 #: over a response matrix at all.
@@ -1676,8 +2191,8 @@ _REQUIRED_TOOLS = (
 class DeployedScanStack:
     """Everything a live test needs about the one deployed project.
 
-    ``correctors``/``bpms`` are the device names wired into the bridge worker
-    (``write_scan_env``), so a test that composes a plan names exactly the
+    ``correctors``/``readbacks`` are the device names wired into the bridge worker
+    (``write_substrate_env``), so a test that composes a plan names exactly the
     devices the deployed worker registered.
     """
 
@@ -1712,7 +2227,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 @pytest.fixture(scope="module")
 def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedScanStack]:
-    """Build and ``osprey up --dev`` the scan stack; tear it down after.
+    """Build and ``osprey up --dev`` the plan stack; tear it down after.
 
     One stack for the whole module: nothing here is per-test state (the queue
     is, and that is what ``clean_queue`` below handles), and the VA image build
@@ -1739,14 +2254,14 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # Correctors and BPMs come from the BUILT project's own channel_limits.json
     # — never a hardcoded preset channel. The default 4+4 slice is deliberate:
     # these scenarios ask for a measurement on a healthy stack, so no particular
-    # device has to be in range, and a small device count keeps a real scan to
+    # device has to be in range, and a small device count keeps a real run to
     # seconds rather than minutes.
     # The render's copy, not the operator-owned source under <repo>/data/ —
     # build/data is the file the deployed containers actually read.
     limits = _orm_stack.channel_limits(repo / "build")
     correctors = _orm_stack.select_correctors(limits)
     bpms = _orm_stack.select_bpms(limits)
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
@@ -1792,7 +2307,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         # HTTP readiness is not enqueue readiness -- the worker namespace an
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. Without
-        # this gate the agent's first scan tool call can be refused for a
+        # this gate the agent's first plan tool call can be refused for a
         # reason that has nothing to do with the agent. See
         # `_queue_drive.wait_for_worker_environment`.
         try:
@@ -1855,7 +2370,7 @@ def _wait_for_settled_manager(timeout: float) -> dict[str, Any]:
     raise AssertionError(
         f"the queue manager was still active {timeout:.0f}s after an abort "
         f"(state={snapshot.get('status', {}).get('manager_state')!r}, "
-        f"running_item={snapshot.get('running_item')!r}) — a scan from an earlier "
+        f"running_item={snapshot.get('running_item')!r}) — a plan from an earlier "
         "test is still on the hardware, so this one cannot start from a known state"
     )
 
@@ -1873,10 +2388,10 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     that Redis lives in a compose NAMED VOLUME keyed on the project name, which
     ``osprey down`` does NOT remove — so a rerun inherits whatever the
     previous attempt left queued. And these tests are agentic: a rerun (each
-    live test carries ``flaky``) follows an attempt that may have left a scan
+    live test carries ``flaky``) follows an attempt that may have left a run
     mid-flight. An agent that then queues its own work and arms the queue would
     put the PREVIOUS attempt's plan on the hardware too, and read back a run it
-    never launched — a floor satisfied by someone else's scan.
+    never launched — a floor satisfied by someone else's run.
 
     The three steps, and why each is needed:
 
@@ -2003,7 +2518,7 @@ ORM_OPERATOR_REQUEST = (
 # instead of costing three full agent runs to say the same thing. Reruns are
 # cheap here — ``deployed_scan_stack`` is module-scoped and survives them, and
 # ``clean_queue`` re-empties the queue before each attempt, so a rerun cannot
-# inherit a scan the previous attempt left mid-flight.
+# inherit a run the previous attempt left mid-flight.
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
 @pytest.mark.asyncio
 async def test_agent_measures_orbit_response_on_a_healthy_stack(
@@ -2013,7 +2528,7 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
     agent must actually take one on the deployed stack and report what it read
     back.
 
-    The floor answers "did a scan of that class get staged, launched, and read
+    The floor answers "did a plan of that class get staged, launched, and read
     back?" deterministically; the judge covers only what a trace cannot see —
     whether the prose delivers the result rather than stopping at a plan or
     inventing findings the healthy stack cannot support.
@@ -2023,7 +2538,7 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
     # the deployed bridge over these two: the URL is this module's own pinned
     # port, and the token is the one `osprey up` minted — the arming step on
     # the queue is gated by exactly that value, so without it the agent could
-    # stage and queue a scan but never start one.
+    # stage and queue a plan but never start one.
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
 
@@ -2032,7 +2547,7 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
         ORM_OPERATOR_REQUEST,
         max_turns=60,
         max_budget_usd=10.0,
-        # Opus-tier: composing a scan, waiting it out, and then committing to a
+        # Opus-tier: composing a plan, waiting it out, and then committing to a
         # reading of the data is the multi-step reasoning this lane measures.
         model=_default_opus_model(repo),
         # No Bash/Glob/Grep. The agent's compute path is the sanctioned python
@@ -2110,6 +2625,121 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
 
 
 # ---------------------------------------------------------------------------
+# Plan authoring. Same stack, same deploy, a third capability: the two tests
+# above run REGISTERED plans; this one asks for a measurement no registered
+# plan can take, so the agent has to write a new plan (the writing-bluesky-
+# plans workflow: author → validate → stage → launch → read). The hysteresis
+# loop is chosen because its trajectory is unforgeable by the registered
+# plans — orm ramps one way and grid_scan is rectangular, neither revisits a
+# setpoint from the opposite direction — and because the VA models no
+# hysteresis, so the expected physics result is an exactly-known null.
+# ---------------------------------------------------------------------------
+
+#: ``{corrector}`` is filled per-test with a device the deployed worker
+#: actually wired, so the request names real hardware the way an operator
+#: would. The "none of the registered plans" sentence is deliberate
+#: operator knowledge, not hand-feeding: it closes the wrong path (burning
+#: the turn budget discovering orm cannot loop) without naming the tools or
+#: the workflow that make the right one work.
+HYSTERESIS_OPERATOR_REQUEST_TEMPLATE = (
+    "I suspect the steering corrector {corrector} has some hysteresis. "
+    "Please check it for me: take it through a full loop — from zero up to "
+    "its positive limit, down through its negative limit, and back to zero "
+    "— stopping at the same settings on the way up and on the way down, and "
+    "take a beam-position reading at every stop. None of the registered "
+    "plans sweeps a loop like that. Once it has run, compare the "
+    "readings from the upward and downward passes at the same settings and "
+    "tell me whether there is any hysteresis to worry about."
+)
+
+
+@contextmanager
+def _authoring_promoted(repo: Path) -> Iterator[None]:
+    """Temporarily move the authoring pair out of ``permissions.ask``.
+
+    The promotion is per-test, not baked into ``_REQUIRED_TOOLS``, on
+    purpose: for every other test in this module the ask-list hard denial is
+    a FEATURE — it pins the registered-plan tests to the operating workflow
+    they grade, so an agent cannot drift into authoring its way around a
+    measurement. Restoring the settings file byte-for-byte (rather than
+    demoting the two names) keeps the fixture reusable across flaky reruns,
+    which would otherwise find the tools already promoted and fail
+    ``promote_ask_to_allow``'s own precondition assert.
+    """
+    settings_path = render_dir(repo) / ".claude" / "settings.json"
+    original = settings_path.read_bytes()
+    promote_ask_to_allow(repo, WRITE_PLAN, VALIDATE_PLAN)
+    try:
+        yield
+    finally:
+        settings_path.write_bytes(original)
+
+
+@pytest.mark.e2e
+@pytest.mark.slow
+# dockerbuild: see the orbit-response test above — same stack, same CI job.
+@pytest.mark.dockerbuild
+@pytest.mark.agentic_benchmark
+@pytest.mark.requires_als_apg
+@pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
+@pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available")
+@pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
+@pytest.mark.asyncio
+async def test_agent_authors_and_runs_a_hysteresis_loop(
+    deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asked for a measurement no registered plan covers, the agent must
+    author one — write it, validate it, run it, and read the result back.
+
+    The authored floor binds the run to a plan the agent wrote AND validated
+    in this trace; the data floor then checks the run's own rows (fetched
+    from the bridge, not trusted from the agent's read) really trace a
+    hysteresis loop with agreeing passes. The judge grades only the prose:
+    that the operator ends up told there is no hysteresis to worry about,
+    rather than handed a plan, a queue state, or an invented finding.
+    """
+    repo = deployed_scan_stack.repo
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
+
+    corrector = next(iter(deployed_scan_stack.correctors))
+    request_text = HYSTERESIS_OPERATOR_REQUEST_TEMPLATE.format(corrector=corrector)
+
+    with _authoring_promoted(repo):
+        result = await run_sdk_query(
+            repo,
+            request_text,
+            # Authoring adds a whole workflow (write, validate, iterate on a
+            # rejection) before the queue steps the other lanes start at.
+            max_turns=80,
+            max_budget_usd=15.0,
+            model=_default_opus_model(repo),
+            disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
+        )
+
+    run_id, _ = assert_authored_scan_executed(result)
+
+    # The physics floor reads the run from the bridge directly — what the
+    # machine recorded, independent of how (or how much of) the run the agent
+    # read back. Skipped only when the add's body carried no usable run id,
+    # the same graceful degradation the trace floor's binding has.
+    if run_id is not None:
+        status, data = _queue_drive.request(BRIDGE_URL, f"/runs/{run_id}/data?max_rows=1000", "GET")
+        assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
+        assert_hysteresis_loop_measured(
+            data, deployed_scan_stack.correctors, deployed_scan_stack.bpms
+        )
+
+    judge = LLMJudge(provider=JUDGE_PROVIDER)
+    eval = await judge.evaluate(
+        _to_workflow_result(request_text, result),
+        expectations=HYSTERESIS_JUDGE_EXPECTATIONS,
+    )
+    assert eval.passed, eval.reasoning
+
+
+# ---------------------------------------------------------------------------
 # The arming gate. Same stack, same deploy, different subject: not what the
 # agent measured, but how many times it had to stop and ask a human before the
 # hardware moved. See the module docstring's third section.
@@ -2133,7 +2763,7 @@ ONE_ACTION_TERMINAL_TIMEOUT_SEC = 180.0
 #: ``permissions.ask`` list, which a headless session with no responder turns
 #: into a hard denial. This test HAS a responder, so an "approve everything"
 #: policy would hand the agent both — and either one is a hand-stepped
-#: substitute for the scan whose start is the whole subject here. An agent that
+#: substitute for the plan whose start is the whole subject here. An agent that
 #: drove the correctors by hand would satisfy nothing this test asserts, but it
 #: would waste a live run finding that out.
 #:
@@ -2151,7 +2781,7 @@ _HAND_STEPPING_TOOLS = frozenset(
 
 
 def _one_action_approval_policy(tool_name: str, tool_input: dict[str, Any]) -> bool:
-    """Approve what an operator would; refuse a hand-stepped scan.
+    """Approve what an operator would; refuse a hand-stepped plan.
 
     The operator this test plays says yes to the arming prompt — that is the
     single action under test — and no to anything that would move the
@@ -2229,7 +2859,7 @@ def assert_one_arming_approval(events: list[HookEvent]) -> None:
     arming = [e for e in events if e.tool_name == QUEUE_START]
     assert len(arming) == 1, (
         f"arming the queue took {len(arming)} approval prompt(s), not one. "
-        "Starting a queued scan is one operator action: approve queue_start, "
+        "Starting a queued plan is one operator action: approve queue_start, "
         "and the queue drains. Zero prompts means the gate never fired at all "
         "(the approval hook still has a policy for queue_start, so this test "
         "counted nothing); two or more mean a start did not take.\n"
@@ -2323,19 +2953,19 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
     deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Asked for a measurement, the agent must reach the hardware through
-    exactly ONE operator approval — the one that arms the queue — and the scan
+    exactly ONE operator approval — the one that arms the queue — and the plan
     must then actually run.
 
     Both halves are load-bearing. A run that asked once and then quietly did
     nothing would satisfy a count on its own, so the count is paired with the
     structural floor AND with the bridge's own record of the run reaching
-    ``completed`` on an empty queue. And a scan that ran after two consents
+    ``completed`` on an empty queue. And a plan that ran after two consents
     would satisfy the floor on its own, which is why the two measurement tests
     above — which disarm the gate entirely — cannot stand in for this one.
 
     The plan class is deliberately unpinned (:func:`is_any_staged_plan_state`).
     Which measurement the agent picks says nothing about the arming gate, and
-    asking for the cheapest honest scan keeps this run short.
+    asking for the cheapest honest plan keeps this run short.
     """
     repo = deployed_scan_stack.repo
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
@@ -2360,7 +2990,7 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
             disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
 
-    # The scan itself first: a transcript assertion over a run that never
+    # The plan itself first: a transcript assertion over a run that never
     # staged anything would be counting prompts that were never going to fire.
     assert_a_scan_executed(result)
     assert_one_arming_approval(result.hook_events)

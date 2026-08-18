@@ -1,4 +1,4 @@
-"""Unit tests for the scan MCP read/allow-listed tools.
+"""Unit tests for the bluesky MCP read/allow-listed tools.
 
 The HTTP boundary (``_http_get_json`` / ``_http_post_json``, imported from
 ``osprey.mcp_server.bluesky.server_context``) is patched here so these run with
@@ -75,8 +75,6 @@ async def test_list_plans_passes_through_metadata_and_provenance():
             "metadata": {
                 "name": "sniff",
                 "description": "A directory-layer test plan.",
-                "category": "accelerator",
-                "required_devices": ["sniffer"],
                 "writes": False,
             },
             "provenance": "facility",

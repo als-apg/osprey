@@ -11,7 +11,86 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- Build profiles can now author the shared web-terminal context baseline at
+  `web-terminal-context/base.md`, overriding the framework's copy. `osprey
+  init` materializes it from the preset (the control assistant ships its own
+  text), so the context every seeded user starts from is visible and editable
+  in the deployment repo instead of hidden in the installed package.
+
+### Fixed
+
+- `osprey init --reset` no longer crashes with a Python traceback when the
+  containers it would remove belong to another copy of this repo. `osprey
+  reset` has always caught that refusal and rendered it; this path never did,
+  so the same deliberate guard looked like a bug in OSPREY depending on which
+  verb you typed. It is a refusal now, and it says what is on disk afterwards.
+- The same-name-different-checkout refusal leads with its conclusion. It used
+  to open with the count and the identity hashes, print one line per resource,
+  and only then explain that a worktree or a second clone shares its parent
+  directory's name. On a real deployment that put the explanation and the way
+  out about thirty lines below the top, where nobody reads them. Now the
+  finding, the other copy's path and the remedy come first, each path is listed
+  once instead of once per resource, and the per-resource evidence prints under
+  `--verbose`. No claim changed: it still says only what the labels prove.
+- `osprey init --reset` also offers the way out that destroys nothing. `reset`
+  can only suggest going and wiping the other deployment; whoever ran `init`
+  asked to create something, so deploying this copy under its own name is
+  named too.
+- A deploy whose web terminals are unreachable now says so on the terminal. The
+  warning naming the Docker Desktop remedy was emitted with `logger.warning`,
+  which the altitude gate drops while a lifecycle verb owns the terminal, and
+  the root logger carries no other handler. So on the one path that mattered,
+  a self-heal bounce that did not help, the run printed "bounced the web
+  stack ..." and then went straight to the endpoint table, which reads as
+  success. It is promoted through `warn_fact` now.
+
+### Added
+
+- `osprey up` and `osprey restart` warn in Preflight when Docker Desktop's
+  "Enable host networking" is off and the deployment has web terminals. The
+  post-up probe already caught this, but only after every image was built and
+  every container was up, which on a first deploy is a quarter of an hour after
+  the operator could have fixed it. Read from Docker Desktop's own settings
+  (its backend API, falling back to the persisted settings store), so the
+  warning names the cause instead of listing suspects. A setting that cannot be
+  read stays silent and leaves the post-up probe to speak.
+- The post-up reachability warning now separates a forwarder that is switched
+  off from a port registration the running forwarder missed. A definite "off"
+  skips the self-heal restart, which cannot help, and states the cause; an
+  unreadable setting keeps bouncing first and then names the setting as
+  something to check.
+
 ### Changed
+
+- Osprey now calls a bluesky plan a plan, not a scan. A plan is any bluesky
+  generator — a scan is only one kind — so the word is gone from the operator
+  panels, the live activity labels, the agent's tool descriptions and the docs.
+  The `operating-bluesky-scans` skill is now `operating-bluesky-plans`: rebuild
+  your project to pick up the new name, or the old skill file lingers in
+  `.claude/skills/`. The "Run your first scan" how-to is now "Run your first
+  plan" at a new URL.
+
+- The bluesky bridge's plan-device env vars are now named for what a control
+  room calls them: `BLUESKY_EPICS_MOTORS` is `BLUESKY_EPICS_SETPOINTS` and
+  `BLUESKY_EPICS_DETECTORS` is `BLUESKY_EPICS_READBACKS`. Their values and format
+  are unchanged. `osprey up` writes the new names; a project whose `.env` still
+  holds the old ones will find them ignored, so remove those two lines (or run
+  `osprey reset` then `osprey up`, which rewrites the block) to get plan devices
+  back.
+
+- The two shipped plans now name their read side `readbacks` instead of
+  `detectors`, in the plan form, the queue summary, the approval prompt and the
+  validation errors. A saved draft or a plan written against the old field name
+  needs that one key renamed. Facility-authored plans are unaffected: a plan of
+  your own may still call its read side `detectors`, `dets`, or `readables`.
+
+- The `hello-world` preset is now the onboarding path. Its `profile.yml` leaves
+  most keys unset on purpose, so each one arrives in your copy as a commented
+  block you can turn on later, and its tutorial runs the agent in the web
+  terminal (`osprey init` → `osprey build` → `osprey web`) instead of a terminal
+  chat session.
 
 - Lifecycle output now carries the CLI's theme. Phase openers anchor in the
   theme's primary color with a blank line before each phase, finished phases
@@ -145,9 +224,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   a chat-first simple layout without them, both default to the light theme,
   and each browser tab is titled after its role.
 
+- Dependency floors raised — `accelerator-toolbox`, `aiohttp`, `authlib`,
+  `certifi`, `google-auth`, `openai`, `plotly`, `ruff`, `testcontainers`;
+  `uv.lock` regenerated to match. `openai` is now capped below 3.x: the 3.0
+  major is a client rewrite, so adopting it should be a deliberate change
+  rather than something a lock refresh picks up on its own.
+
 ### Added
 
-- A third shipped scan plan, `orbit_bump_sweep`, drives a closed local orbit
+- A third shipped plan, `orbit_bump_sweep`, drives a closed local orbit
   bump. The bump is stated in orbit space — the BPMs the beam should move at
   and by how much, plus the BPMs it must not move at all — and the plan solves
   for the kicks of the three or four correctors you name, so there is no
@@ -161,20 +246,34 @@ Compatibility is documented in release notes, not encoded in the version string.
   probe, each step, each trim pass — and stops the run when it falls below a
   minimum you set. Every corrector is returned to its pre-scan value on any
   exit. The run brings its own figure: the orbit shift across the BPMs at each
-  step, the residual against the tolerance band, the corrector offsets, and the
-  detectors' response where the run was given detectors.
+  step, the residual against the tolerance band, the corrector offsets, and
+  the response of any extra monitor channels the run was asked to record.
 
-- An optional `qmd` search sidecar indexes the deployment's markdown corpora —
-  the facility-knowledge bundle, and a markdown mirror of the ARIEL logbook
-  where that is enabled — and answers hybrid keyword-plus-semantic queries. It
-  ships off: `services.qmd` is commented out in the `control-assistant` and
-  `ariel-standalone` templates, and its image is built locally rather than
-  pulled, so turning it on means uncommenting that block, adding `qmd` to
-  `deployed_services`, and building the image first. The endpoint carries no
-  authentication and publishes on the project-wide `deployment.bind_address`,
-  which defaults to loopback and should stay there. Budget about 1.25 GB of
-  disk per 135,000 logbook entries, and expect the first index build to take
-  around 40 minutes at that size.
+- The `control-assistant` preset now stands up a third web terminal beside
+  Alice and Bob: a standalone ARIEL logbook assistant, on its own card at
+  `/u/ariel/`. It shares the deployment's Postgres and logbook, and runs no
+  control-system tools at all — no channel access, no Python sandbox, no scan
+  queue. Existing deployments are unaffected until they adopt the new preset.
+
+- A persona can name the landing-page section its terminals appear under, with
+  `landing_group` in the `modules.web_terminals.personas` catalog. The roster
+  then splits: people stay in the default section, and each declared group gets
+  its own below, drawn as a panel — which is how the landing page shows a
+  standalone service as something other than another login. The `users` landing
+  group also takes a `label` now, so both halves can be named. Nothing else
+  about a terminal changes; a deployment that sets neither renders as before.
+
+- A `qmd` search sidecar indexes the deployment's markdown corpora — the
+  facility-knowledge bundle, and a markdown mirror of the ARIEL logbook — and
+  answers hybrid keyword-plus-semantic queries. It is self-contained: its
+  language models are baked into the image (built locally on the first
+  `osprey up`, about 2.1 GB), so it needs no Ollama on the host. The
+  `control-assistant` and `ariel-standalone` templates deploy it by default;
+  comment out `services.qmd` and its `deployed_services` entry to opt out. The
+  endpoint carries no authentication and publishes on the project-wide
+  `deployment.bind_address`, which defaults to loopback and should stay there.
+  Budget about 1.25 GB of disk per 135,000 logbook entries, and expect the
+  first index build to take around 40 minutes at that size.
 
 - Facility-knowledge search is ranked when that sidecar is configured. The
   KNOWLEDGE panel and the facility-knowledge `search` tool return hits in
@@ -184,26 +283,30 @@ Compatibility is documented in release notes, not encoded in the version string.
   `facility_knowledge.search` is off by default: it costs roughly four times
   the query latency, and these surfaces are interactive.
 
-- ARIEL gains a `qmd` search mode and a matching `qmd_search` tool for the
-  OSPREY agent, answering over a markdown mirror of the logbook written by the
-  new `qmd_export` enhancement module. Both are off by default, and both are
-  needed — the mirror with no search mode is never queried, and the search mode
-  with no mirror has nothing to read. Configure them under
-  `ariel.search_modules.qmd` and `ariel.enhancement_modules.qmd_export`; the
-  search knobs must sit under `settings:`, as keys written beside `enabled` are
-  ignored. `rerank` is on here, where ranking quality is worth the latency.
+- ARIEL gains a `hybrid` search mode and a matching `hybrid_search` tool for
+  the OSPREY agent, answering over a markdown mirror of the logbook written by
+  the new `qmd_export` enhancement module. The templates enable both by
+  default, and both are needed — the mirror with no search mode is never
+  queried, and the search mode with no mirror has nothing to read. Configure
+  them under `ariel.search_modules.hybrid` and
+  `ariel.enhancement_modules.qmd_export`; the search knobs must sit under
+  `settings:`, as keys written beside `enabled` are ignored. `rerank` is on
+  here, where ranking quality is worth the latency. Entries created through
+  the ARIEL web interface or the agent's `entry_create` tool are mirrored
+  inline at creation time, so they become hybrid-searchable without waiting
+  for the next enhancement run.
 
   Filtering in this mode is best-effort: results are ranked first and the date,
   author and source filters applied afterwards, so a selective filter can
   return fewer entries than asked for even when more exist. Use `keyword_search`
   or `sql_query` when a filter has to be exhaustive.
 
-- `osprey ariel qmd-resync` re-exports logbook entries the markdown mirror never
-  saw — those written by paths that bypass the enhancement modules, such as
-  creating an entry in the ARIEL web interface. `ingest` and `watch` run this
-  pass themselves, so a routine deployment never needs it by hand. `--rebuild`
-  clears the mirror and re-exports everything, which is what to reach for after
-  `osprey ariel purge`.
+- `osprey ariel qmd-resync` re-exports logbook entries the markdown mirror
+  never saw — those written by paths that bypass the enhancement modules and
+  the inline mirror write. `ingest` and `watch` run this pass themselves, so a
+  routine deployment never needs it by hand. `--rebuild` clears the mirror and
+  re-exports everything, which is what to reach for after `osprey ariel
+  purge`.
 
 - `close_panel` takes a panel's tile off the operator's screen and leaves it on
   the rail, so it is one click from coming back. There was previously no way to
@@ -618,6 +721,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   list of valid `bluesky:` keys, rather than dropping the key silently.
 
 ### Fixed
+
+- A web-terminal persona that drops a skill by name now really builds without
+  it. Persona builds decided which skill files to write from the host
+  deployment's artifact list rather than the persona's own, so a persona could
+  add a skill but never remove one, and the terminal shipped skills whose tool
+  servers it does not run. Hooks, rules and subagents were already correct.
 
 - The `orm` scan plan now kicks each corrector either side of where it found it
   and puts it back there. It previously drove absolute currents either side of

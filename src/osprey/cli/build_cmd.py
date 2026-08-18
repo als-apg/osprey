@@ -1351,6 +1351,14 @@ def _render_project(
             "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
         )
     try:
+        # Reachability: with defer_unresolved_telemetry_creds=True, an
+        # unresolved "${VAR}" in an openobserve credential (user/password) no
+        # longer raises here — _openobserve_auth_header
+        # (claude_code_telemetry.py) warns and omits the auth header instead.
+        # Only the missing/blank-credential arm of that same check still
+        # raises ObservabilityCredentialError into this ValueError catch.
+        # Pinned by test_deferred_var_credential_warns_not_raises_through_resolve
+        # in tests/cli/test_telemetry_env.py.
         load_provider_spec(render_dir, defer_unresolved_telemetry_creds=True)
     except ValueError as e:
         raise BuildProfileError(str(e)) from e

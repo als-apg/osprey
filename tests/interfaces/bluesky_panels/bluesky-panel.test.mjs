@@ -467,8 +467,8 @@ describe('itemRunId', () => {
 
 describe('itemParamSummary', () => {
   test('kwargs ARE the plan params — no params envelope is opened', () => {
-    expect(itemParamSummary(item({ kwargs: { detectors: ['a', 'b'], num: 5 } }))).toBe(
-      'detectors=[2], num=5'
+    expect(itemParamSummary(item({ kwargs: { readbacks: ['a', 'b'], num: 5 } }))).toBe(
+      'readbacks=[2], num=5'
     );
     expect(itemParamSummary(item({ kwargs: { params: { num: 5 } } }))).toBe('params={…}');
   });
@@ -497,7 +497,7 @@ describe('describeProgress', () => {
 
   test('an unknown denominator renders indeterminate with the point count', () => {
     // The common case for an agent-authored session plan: the estimator only
-    // recognizes the shipped plan shapes, so `fraction` is null while the scan
+    // recognizes the shipped plan shapes, so `fraction` is null while the plan
     // is running perfectly well.
     const view = describeProgress({ rows_seen: 7, expected_points: null, fraction: null, complete: false });
     expect(view.mode).toBe('indeterminate');
@@ -981,7 +981,7 @@ describe('createResultsView', () => {
   test('a settled run re-draws its figure on a theme change, with no poll tick', async () => {
     // The reason `lastFigure` is retained at all: a settled run has STOPPED
     // polling, so nothing else will ever redraw it. Without this, flipping to
-    // light mode would leave a finished scan in the dark palette until the
+    // light mode would leave a finished run in the dark palette until the
     // operator picked another run.
     const fetchMock = stubFetch({
       '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed' } },
@@ -1077,7 +1077,7 @@ describe('createResultsView', () => {
 
   test('a transient figure failure leaves the last good figure on screen', async () => {
     // Mirrors what the table already does with its last good rows. A 502 is
-    // the bridge restarting mid-scan — the figure it served a second ago is
+    // the bridge restarting mid-run — the figure it served a second ago is
     // still the best thing the operator can be shown.
     vi.useFakeTimers();
     /** @type {Record<string, {status: number, body: any}>} */
@@ -1104,7 +1104,7 @@ describe('createResultsView', () => {
   test('an empty figure never replaces a good one', async () => {
     // `source_unavailable` is served as a 200 with no panels: the store could
     // not be read THIS tick, which says nothing about the figure drawn last
-    // tick. Blanking here would flicker a settled scan away and back.
+    // tick. Blanking here would flicker a settled run away and back.
     vi.useFakeTimers();
     /** @type {Record<string, {status: number, body: any}>} */
     const routes = {
@@ -1620,12 +1620,12 @@ describe('abortControl', () => {
     const control = abortControl(stateWith({ runningItem: item() }));
     expect(control.running).toBe(true);
     expect(control.note).toContain('Discards the rest of the running plan');
-    expect(control.note).toContain('Hardware is left wherever the scan stopped');
+    expect(control.note).toContain('Hardware is left wherever the plan stopped');
   });
 
   test('an unreadable manager summary says the abort is still sent', () => {
     // The panel's knowledge is one poll stale at best. "Could not read" is
-    // exactly when a scan may be under way, so the wording must not imply the
+    // exactly when a plan may be under way, so the wording must not imply the
     // control is inert.
     const control = abortControl(
       stateWith({ status: { available: false, reason: 'manager_unreachable' } })
@@ -1659,7 +1659,7 @@ describe('abort button label and class', () => {
 describe('abortSuccessMessage', () => {
   test('leads with the consequence, not a congratulation', () => {
     const message = abortSuccessMessage({ aborted: true, abort_pending: false });
-    expect(message).toContain('Hardware is left wherever the scan stopped');
+    expect(message).toContain('Hardware is left wherever the plan stopped');
     expect(abortOutcomeTone()).toBe('warn');
   });
 
@@ -1748,7 +1748,7 @@ describe('bundle wiring', () => {
   test('the figure renders ABOVE the data table, and the table ships collapsed', () => {
     // Source order is the whole fix. A run's figure is the plan's own answer
     // to what the run means; the table is the raw material behind it. With the
-    // table first, every scan opened onto a wall of numbers and the operator
+    // table first, every run opened onto a wall of numbers and the operator
     // had to scroll to see the result they asked for.
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     const figure = html.indexOf('id="figure-card"');

@@ -68,8 +68,8 @@ skills:
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
-  - writing-bluesky-plans  # Write, check and queue a scan plan (needs the Bluesky server)
-  - operating-bluesky-scans  # Stage, queue and watch a scan (needs the Bluesky server)
+  - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
+  - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -91,7 +91,7 @@ web_panels:
   # instead, so the read-only login is built without them.
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
-# These three blocks give you a working scan setup with no real hardware: a
+# These three blocks give you a working plan setup with no real hardware: a
 # Bluesky bridge with a Tiled data catalog, a simulated accelerator that speaks
 # EPICS, and the web panels for both. Delete this section (and the bluesky
 # panel above) if you do not want it.
@@ -139,13 +139,13 @@ va_archiver:
 config:
   # Which control system to talk to. "virtual_accelerator" is the built-in
   # simulator and works out of the box; "epics" is real hardware; "mock" needs
-  # no containers but cannot complete a scan. `osprey set connector=epics`.
+  # no containers but cannot complete a plan. `osprey set connector=epics`.
   control_system.type: virtual_accelerator
   # Use the archive declared by `va_archiver:` above. Declaring the block does
   # not turn it on; without this line you would deploy a store and not read it.
   archiver.type: mongodb_archiver
   # Both servers are off by default in OSPREY. Turn them on so the agent can
-  # write and launch scan plans, and run read-only health checks.
+  # write and launch plans, and run read-only health checks.
   claude_code.servers.bluesky.enabled: true
   claude_code.servers.health.enabled: true
   # system.timezone: America/Los_Angeles
@@ -184,10 +184,20 @@ config:
     lattice_base_port: 9491       # first per-user lattice-dashboard port
     channel_finder_base_port: 9591  # first per-user channel-finder panel port
     default_persona: readonly   # used for any user below with no persona
+    # How the landing page is laid out. Omit this whole block and you get one
+    # section holding every entry below, headed "Terminals".
+    landing:
+      groups:
+        # `users` renders the roster. It also SPLITS it: any entry whose
+        # persona declares a `landing_group` (see `ariel` below) moves into a
+        # section of its own, drawn as an accent-edged panel underneath it.
+        # So the page reads people first, services after.
+        - type: users
+          label: Users
     users:
       # One web terminal per entry. `index` pins that user's ports, `persona`
       # picks their permissions from the list below, and `display_name` becomes
-      # the browser tab title, which is how you tell the two terminals apart.
+      # the browser tab title, which is how you tell the terminals apart.
       - name: alice
         index: 0
         persona: readwrite
@@ -196,6 +206,13 @@ config:
         index: 1
         persona: readonly
         display_name: "Read-Only View (Bob)"
+      # Not a person: a second product running beside them. Same machinery as
+      # any other entry — its own container, ports and volumes — but what is
+      # behind the card is the ARIEL logbook assistant, not a control terminal.
+      - name: ariel
+        index: 2
+        persona: ariel
+        display_name: "ARIEL Logbook Research"
     personas:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
@@ -207,6 +224,14 @@ config:
         project: control-assistant-readwrite
         project_path: build/control-assistant-readwrite
         build_profile: control-assistant-readwrite
+      ariel:
+        project: control-assistant-ariel
+        project_path: build/control-assistant-ariel
+        build_profile: control-assistant-ariel
+        # Puts this persona's users under their own landing-page heading
+        # instead of in with the people. Presentation only — it changes
+        # nothing about the container, its ports, or what it can do.
+        landing_group: Standalone deployments
 
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that

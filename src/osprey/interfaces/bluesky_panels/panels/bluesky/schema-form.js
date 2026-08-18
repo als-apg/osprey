@@ -24,7 +24,7 @@
  * resolved here so builders only ever see a concrete node.
  *
  * Layout is two-dimensional: ``renderSchemaForm``'s ``opts.layout`` accepts
- * rows of field names (``[['correctors','detectors'], ['span_a','num']]``) so
+ * rows of field names (``[['correctors','readbacks'], ['span_a','num']]``) so
  * a plan can place fields side by side; unlisted fields are auto-flowed
  * (scalars packed into shared rows, wide editors on their own row).
  *
@@ -1098,7 +1098,7 @@ function withFieldRegistry(collect, fieldRegistry, formEl) {
  * defaults apply.
  *
  * ``opts.layout`` — rows of field names — pins fields into side-by-side
- * columns (``[['correctors','detectors'], ['span_a','num']]``). Names not in
+ * columns (``[['correctors','readbacks'], ['span_a','num']]``). Names not in
  * the schema are ignored; schema fields not in the layout are auto-flowed
  * after it (scalars packed up to three per row, wide editors full-width).
  *

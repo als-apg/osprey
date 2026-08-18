@@ -71,7 +71,7 @@ when the tag is not on the commit being built, or when the checkout is shallow
 Open `CHANGELOG.md`, read the `## [Unreleased]` section, and answer three
 questions before doing anything else:
 
-1. **What is this release about?** Pick a short theme (e.g., "scan-plan
+1. **What is this release about?** Pick a short theme (e.g., "plan
    authoring & branch-protection enforcement"). It goes into the release
    title, the README "Latest Release" line, and the GitHub Release body.
 2. **What is the version number?** Apply the CalVer rules above. Patch bump

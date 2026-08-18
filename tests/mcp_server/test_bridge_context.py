@@ -1,4 +1,4 @@
-"""Tests for the scan MCP server context and HTTP boundary.
+"""Tests for the bluesky MCP server context and HTTP boundary.
 
 Covers: BridgeContext env resolution, config.yml fallback, singleton
 init/reset, and the ``_http_get_json``/``_http_post_json`` unreachable-bridge

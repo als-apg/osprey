@@ -1275,7 +1275,7 @@ code {
 }
 /* Unknown denominator: the bar sweeps instead of sitting at a number it does
    not know. Never rendered as 0% — a plan with no predicted point count is
-   running normally, and a zeroed bar reads as a stalled scan. */
+   running normally, and a zeroed bar reads as a stalled plan. */
 .progress.indeterminate .progress-fill {
   animation: progress-sweep 1.4s ease-in-out infinite;
   transform-origin: left center;

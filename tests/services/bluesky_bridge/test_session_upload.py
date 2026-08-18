@@ -43,21 +43,22 @@ from osprey.services.bluesky_bridge.validation_record import ValidationRecordSto
 
 PLAN_SOURCE = """PLAN_METADATA = {
     "name": "sample_scan",
-    "description": "Step a motor and read it back \\N{DEGREE SIGN} 'quoted' \\\\ backslash.",
-    "category": "accelerator",
-    "required_devices": ["motor"],
+    "description": "Step one channel and read it back \\N{DEGREE SIGN} 'quoted' \\\\ backslash.",
     "writes": True,
 }
 
 from pydantic import BaseModel
 
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+
 
 class PARAMS(BaseModel):
+    channel: MovableChannel
     steps: int
 
 
 def build_plan(devices, params):
-    yield ("move", devices["motor"], params.steps)
+    yield ("move", devices[params.channel], params.steps)
 """
 
 OTHER_PLAN_SOURCE = """PLAN_METADATA = {"name": "other_scan"}
@@ -128,7 +129,7 @@ def test_installed_plan_validates_kwargs_and_resolves_worker_devices() -> None:
     namespace = worker_namespace(motor=motor)
     run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
 
-    assert list(namespace["sample_scan"](steps=3)) == [("move", motor, 3)]
+    assert list(namespace["sample_scan"](channel="motor", steps=3)) == [("move", motor, 3)]
 
 
 def test_installed_plan_rejects_kwargs_its_schema_refuses() -> None:
@@ -140,7 +141,7 @@ def test_installed_plan_rejects_kwargs_its_schema_refuses() -> None:
     # Queueserver surfaces this as a failed item: a **kwargs-only generator
     # validates on first iteration, not at call time.
     with pytest.raises(ValidationError):
-        list(namespace["sample_scan"](steps="not-a-number"))
+        list(namespace["sample_scan"](channel="motor", steps="not-a-number"))
 
 
 def test_missing_device_names_what_the_worker_actually_has() -> None:
@@ -157,6 +158,78 @@ def test_missing_device_names_what_the_worker_actually_has() -> None:
         list(namespace["sample_scan"]())
 
 
+def test_a_session_plan_receives_only_the_channels_its_params_declare() -> None:
+    """The declared contract bounds a session plan exactly as it does a catalog one.
+
+    ``channel`` is declared movable, so it resolves; every other device this
+    worker holds is absent from the mapping ``build_plan`` is handed, whether or
+    not the plan file goes looking for it.
+    """
+    source = (
+        "from pydantic import BaseModel\n\n"
+        "from osprey.services.bluesky_bridge.plan_fields import MovableChannel\n\n\n"
+        "class PARAMS(BaseModel):\n"
+        "    channel: MovableChannel\n\n\n"
+        "def build_plan(devices, params):\n"
+        "    return iter([('offered', sorted(devices))])\n"
+    )
+    namespace = worker_namespace(motor=FakeDevice("motor"), other_motor=FakeDevice("other_motor"))
+    run_upload_script(namespace, "sample_scan", source)
+
+    assert list(namespace["sample_scan"](channel="motor")) == [("offered", ["motor"])]
+
+
+def test_a_channel_named_by_an_undeclared_field_is_not_resolvable() -> None:
+    """A bare ``str`` field naming a device does not make that device reachable.
+
+    The worker holds ``motor``, so this is not a missing device — it is a
+    device the plan never declared, and the refusal says exactly that while
+    still naming what the worker has.
+    """
+    source = (
+        "from pydantic import BaseModel\n\n\n"
+        "class PARAMS(BaseModel):\n"
+        "    knob: str\n\n\n"
+        "def build_plan(devices, params):\n"
+        "    return iter([('move', devices[params.knob])])\n"
+    )
+    namespace = worker_namespace(motor=FakeDevice("motor"))
+    run_upload_script(namespace, "sample_scan", source)
+
+    with pytest.raises(KeyError) as excinfo:
+        list(namespace["sample_scan"](knob="motor"))
+
+    message = str(excinfo.value)
+    assert "do not declare as a movable or readable channel" in message
+    assert "motor" in message
+
+
+def test_a_plan_file_with_no_params_declares_nothing_and_resolves_nothing() -> None:
+    """No ``PARAMS`` is no declaration, and no declaration is no devices.
+
+    Fail-closed by construction: a plan that names no channels cannot reach the
+    worker's devices by hard-coding one of their names.
+    """
+    source = "def build_plan(devices, params):\n    return iter([('offered', sorted(devices))])\n"
+    namespace = worker_namespace(motor=FakeDevice("motor"))
+    run_upload_script(namespace, "sample_scan", source)
+
+    assert list(namespace["sample_scan"]()) == [("offered", [])]
+
+
+def test_the_session_wrapper_adds_nothing_to_the_plans_message_stream() -> None:
+    """The wrapper narrows devices; it stamps no metadata of its own.
+
+    Run identity is stamped on the enqueue path, as the queue item's metadata,
+    so what this wrapper yields is exactly what ``build_plan`` yielded.
+    """
+    motor = FakeDevice("motor")
+    namespace = worker_namespace(motor=motor)
+    run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
+
+    assert list(namespace["sample_scan"](channel="motor", steps=1)) == [("move", motor, 1)]
+
+
 def test_two_session_plans_keep_their_own_schemas_and_bodies() -> None:
     namespace = worker_namespace(motor=FakeDevice("motor"))
     run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
@@ -164,7 +237,7 @@ def test_two_session_plans_keep_their_own_schemas_and_bodies() -> None:
 
     # Both plan files define module-level `PARAMS`/`build_plan`; executing them
     # into the shared namespace would leave each wrapper on the other's schema.
-    assert list(namespace["sample_scan"](steps=2))[0][0] == "move"
+    assert list(namespace["sample_scan"](channel="motor", steps=2))[0][0] == "move"
     assert list(namespace["other_scan"](label="x")) == [("label", "x")]
     assert "PARAMS" not in namespace and "build_plan" not in namespace
 
@@ -197,10 +270,10 @@ def test_real_bridge_devices_are_collected_like_the_stand_ins() -> None:
     changed, every namespace test above would still pass while the real worker
     resolved no devices at all.
     """
-    from osprey.services.bluesky_bridge.devices.mock import MockMotor
+    from osprey.services.bluesky_bridge.devices.mock import MockSettable
     from osprey.services.bluesky_bridge.session_upload import collect_devices
 
-    motor = MockMotor("m1")
+    motor = MockSettable("m1")
     namespace = worker_namespace(m1=motor, stub=FakeDevice("stub"))
 
     assert collect_devices(namespace) == {"m1": motor, "stub": namespace["stub"]}
@@ -337,7 +410,7 @@ async def test_upload_validated_pushes_the_current_bytes(
     motor = FakeDevice("motor")
     namespace = worker_namespace(motor=motor)
     exec(backend.uploads[0], namespace, namespace)  # noqa: S102
-    assert list(namespace["sample_scan"](steps=4)) == [("move", motor, 4)]
+    assert list(namespace["sample_scan"](channel="motor", steps=4)) == [("move", motor, 4)]
 
 
 async def test_upload_refused_without_a_passing_record(

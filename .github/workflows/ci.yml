@@ -1179,7 +1179,7 @@ jobs:
           # stacks never contend for a host port.
           uv run pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
-            --ignore=tests/e2e/test_scan_stack_agentic.py \
+            --ignore=tests/e2e/test_plan_stack_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
             --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
             --ignore=tests/e2e/test_bluesky_deploy.py \
@@ -1342,14 +1342,13 @@ jobs:
         uv run osprey skills install osprey-build-interview
         ls -la
 
-    - name: osprey up (graceful no-op for hello-world)
+    - name: osprey up (deploys openobserve for hello-world)
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
-        # hello-world declares no deployed_services, so `up` should exit 0
-        # with a "no services configured" notice rather than crashing on
-        # TemplateNotFound.
+        # hello-world declares deployed_services: [openobserve], so this
+        # verifies a single-service deploy succeeding end-to-end.
         uv run osprey up -d --dev
 
     # Runs BEFORE the teardown below: the cleanup step deletes the very
@@ -1976,7 +1975,7 @@ jobs:
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
-        uv run pytest tests/e2e/test_scan_stack_agentic.py -v --tb=short \
+        uv run pytest tests/e2e/test_plan_stack_agentic.py -v --tb=short \
           --junitxml=junit-scan-agentic-e2e.xml
 
     - name: Fail the lane on any skipped test

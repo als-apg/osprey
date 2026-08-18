@@ -18,8 +18,9 @@ host, brought up with a single ``osprey up``.
    - The three ideas behind the multi-user stack: one container per user,
      personas as capability tiers, and one nginx front door
    - The ``modules.web_terminals`` config block that switches it on
-   - Standing the two-persona stack up from the ``control-assistant`` preset,
-     and watching the write boundary refuse — and approve — a real write
+   - Standing the preset's full stack up — two control-room tiers plus a
+     standalone ARIEL terminal — and watching the write boundary refuse — and
+     approve — a real write
    - Day-to-day operations: adding, reseeding, and removing users
    - How to require a login — passwords OSPREY manages, or your facility's
      single sign-on
@@ -60,8 +61,10 @@ How it works
        B[Browser] -->|:9080| N[nginx landing page]
        N -->|/u/alice/| A[alice's terminal container]
        N -->|/u/bob/| Bo[bob's terminal container]
+       N -->|/u/ariel/| Ar[ARIEL logbook container]
        A --- S[(shared services:<br/>databases · telemetry)]
        Bo --- S
+       Ar --- S
 
 Three ideas carry the whole design:
 
@@ -80,6 +83,15 @@ a property of a project, the tiers are genuinely different agents — not one
 agent with a UI toggle. The ``control-assistant`` preset ships two: a
 *read-only* tier and a *read-write* tier — the same agent and tool surface,
 differing on exactly one config key (``control_system.writes_enabled``).
+
+It also ships a third persona that is not a tier of that agent at all.
+``ariel`` is the standalone logbook research assistant: no control-system tool
+servers, no Python sandbox, no plan queue — a different product, reached from
+its own card. Nothing special makes that possible. A persona is already a
+whole project, so it can differ in what it *is* as easily as in what it may
+write. It shares this deployment's PostgreSQL and logbook, so the operators
+and the research terminal read one logbook together.
+
 ``osprey build`` renders one persona project per delta in ``personas/``, and
 ``osprey up`` builds each one's container image locally, so no registry or CI is
 involved.
@@ -114,6 +126,10 @@ The config block
              lattice_base_port: 9491
              channel_finder_base_port: 9591
              default_persona: readonly
+             landing:
+               groups:
+               - type: users
+                 label: Users
              users:
              - name: alice
                index: 0
@@ -123,6 +139,10 @@ The config block
                index: 1
                persona: readonly
                display_name: "Read-Only View (Bob)"
+             - name: ariel
+               index: 2
+               persona: ariel
+               display_name: "ARIEL Logbook Research"
              personas:
                readonly:
                  project: control-assistant-readonly
@@ -132,6 +152,11 @@ The config block
                  project: control-assistant-readwrite
                  project_path: build/control-assistant-readwrite
                  build_profile: personas/readwrite.yml
+               ariel:
+                 project: control-assistant-ariel
+                 project_path: build/control-assistant-ariel
+                 build_profile: personas/ariel.yml
+                 landing_group: Standalone deployments
 
       Each ``build_profile`` names that persona's **delta** in the deployment
       repository — the file ``osprey init`` writes under ``personas/`` and
@@ -149,10 +174,17 @@ The config block
       becomes that user's browser tab title. Each user's host ports are
       ``base + index`` in every port family — one family per companion panel
       (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
-      terminal itself — so alice (index 0) serves her terminal on ``9091`` and
-      bob (index 1) on ``9092``. A panel whose ``*_base_port`` you don't set
-      falls back to its built-in default, so the block above lists them only
-      to make the layout visible.
+      terminal itself — so alice (index 0) serves her terminal on ``9091``,
+      bob (index 1) on ``9092``, and ariel (index 2) on ``9093``. A panel
+      whose ``*_base_port`` you don't set falls back to its built-in default,
+      so the block above lists them only to make the layout visible.
+
+      A persona may also name a landing-page section with ``landing_group``.
+      Its users are lifted out of the roster's default section into one of
+      that name, drawn as a panel — which is how the page shows a standalone
+      service as something other than another login. The ``users`` group takes
+      a ``label`` for the same reason: so both halves can be named. Neither
+      changes anything about a container.
 
       .. tip::
 
@@ -172,6 +204,13 @@ The config block
       build overwrites it. Rebuilding also seeds an empty
       ``web-terminal-context/<user>/`` slot for each new operator, which is
       where their per-user context goes.
+
+      Beside those slots sits ``web-terminal-context/base.md`` — the shared
+      baseline every seeded user's ``CLAUDE.md`` starts from. ``osprey init``
+      materializes it from the preset so the text is visible and editable in
+      your repo; edit it there and rebuild, and every terminal picks up the
+      change. A profile without one falls back to a generic framework
+      baseline.
 
       .. list-table::
          :header-rows: 1
@@ -205,8 +244,8 @@ The config block
       ``osprey status`` and ``osprey down`` work exactly as they
       do for any other OSPREY service stack.
 
-Run the two-persona stack
-=========================
+Run the multi-user stack
+========================
 
 From a fresh checkout, create a deployment repository from the bundled preset,
 then build and bring the stack up from inside it:
@@ -224,9 +263,10 @@ then build and bring the stack up from inside it:
 That is the entire setup: the preset ships the ``modules.web_terminals`` block
 above, so no extra flags or configuration are needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
-— the virtual accelerator, the scan services, and the supporting
-PostgreSQL/OpenObserve containers — so the two personas open onto a working
-control room, not an empty shell.
+— the virtual accelerator, the bluesky services, and the supporting
+PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
+working machine, and the ARIEL terminal onto a live logbook, not an empty
+shell.
 
 .. note::
 
@@ -247,13 +287,14 @@ control room, not an empty shell.
 What ``osprey build`` and ``osprey up`` do for the web tier
 -----------------------------------------------------------
 
-#. **The build renders the two persona projects.** ``osprey build`` renders one
+#. **The build renders the persona projects.** ``osprey build`` renders one
    project per **delta** in ``personas/``, into the build zone beside the main
-   render (``build/control-assistant-readonly`` and
-   ``build/control-assistant-readwrite``). Because each delta merges over
-   ``profile.yml``, both personas share its data tree, secrets and artifacts,
-   and inherit the choices recorded there (provider, model): edit the profile
-   once and both terminals pick the change up from the file rather than from a
+   render (``build/control-assistant-readonly``,
+   ``build/control-assistant-readwrite`` and ``build/control-assistant-ariel``).
+   Because each delta merges over
+   ``profile.yml``, every persona shares its data tree, secrets and artifacts,
+   and inherits the choices recorded there (provider, model): edit the profile
+   once and every terminal picks the change up from the file rather than from a
    replayed command line. A start renders none of this — ``build/`` is the
    whole account of what will run — so a persona project missing at start time
    is reported as a stale or partial build, with a rebuild as the remedy.
@@ -265,8 +306,9 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 
 #. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
    serves the landing page on ``http://127.0.0.1:9080``, and one Web Terminal
-   container comes up per user — ``ca-web-alice`` on host port ``9091`` and
-   ``ca-web-bob`` on ``9092`` — each reached through the landing page. (The
+   container comes up per user — ``ca-web-alice`` on host port ``9091``,
+   ``ca-web-bob`` on ``9092`` and ``ca-web-ariel`` on ``9093`` — each reached
+   through the landing page. (The
    ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
    site.)
 
@@ -293,19 +335,24 @@ Open ``http://127.0.0.1:9080``. The landing page groups the users into cards,
 each labelled with the persona it resolves to:
 
 .. figure:: /_static/resources/multi_user_landing.png
-   :alt: The multi-user landing page — two user cards under a Terminals heading,
-         each badged with the persona its session resolves to
+   :alt: The multi-user landing page — alice's and bob's cards under a Users
+         heading, and the ARIEL terminal in a Standalone deployments panel
+         beneath them
    :align: center
    :width: 100%
 
    The grouped landing page: alice resolves to the readwrite persona, bob to
-   readonly. Click a card to open that user's session.
+   readonly, and the ariel card opens the standalone logbook terminal. Click
+   a card to open that session.
 
-Both entries name their persona explicitly — alice the readwrite tier, bob the
-readonly one. (A bare roster entry would fall back to the preset's
-``default_persona``, readonly, so an implicit user always lands on the safe
-side.) Clicking a card opens that user's terminal at ``/u/<name>/``, proxied
-by nginx to the user's own container.
+The two operator cards name their persona explicitly — alice the readwrite
+tier, bob the readonly one. (A bare roster entry would fall back to the
+preset's ``default_persona``, readonly, so an implicit user always lands on
+the safe side.) The ariel card sits apart, in the accent-edged panel its
+persona's ``landing_group`` names — and carries no persona badge, because the
+badge answers *which tier is this user on?* and here the card and its persona
+are the same word. Clicking any card opens that session at ``/u/<name>/``,
+proxied by nginx to its own container.
 
 Two sessions, two write postures
 --------------------------------
@@ -336,6 +383,10 @@ them:
      - Read-only. Channel reads, the channel finder, the archiver, and logbook
        search all work — but every write surface refuses: channel writes,
        read-write Python execution, all of it, from the single switch.
+
+This compares the two control-system tiers. The standalone ariel terminal is
+outside the comparison: it has no control system behind it at all, so there is
+no write posture to contrast.
 
 The posture is a property of the **session**, not a statement about the
 person: which teammates get a write-capable tier is your roster's call, and

@@ -40,8 +40,8 @@ from fastapi.testclient import TestClient
 from osprey.services.bluesky_bridge.app import app, set_queue_backend
 
 _SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-_MOTORS_ENV = "BLUESKY_EPICS_MOTORS"
-_DETECTORS_ENV = "BLUESKY_EPICS_DETECTORS"
+_SETPOINTS_ENV = "BLUESKY_EPICS_SETPOINTS"
+_READBACKS_ENV = "BLUESKY_EPICS_READBACKS"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
@@ -69,8 +69,8 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     """
     for var in (
         _SUBSTRATE_ENV,
-        _MOTORS_ENV,
-        _DETECTORS_ENV,
+        _SETPOINTS_ENV,
+        _READBACKS_ENV,
         _TILED_URI_ENV,
         _TILED_API_KEY_ENV,
     ):
@@ -114,7 +114,7 @@ def _patch_config(
 
 def _valid_limits_db(tmp_path: Path) -> Path:
     db = tmp_path / "channel_limits.json"
-    db.write_text(json.dumps({"TEST:MOTOR:01:SP": {"min_value": 0.0, "max_value": 10.0}}))
+    db.write_text(json.dumps({"TEST:COR:01:SP": {"min_value": 0.0, "max_value": 10.0}}))
     return db
 
 
@@ -149,7 +149,7 @@ def test_guard_runs_with_no_bluesky_env_set_at_all(
     fixture clears every one of those variables, so this test failing means the
     guard has been re-gated on something.
     """
-    for var in (_SUBSTRATE_ENV, _MOTORS_ENV, _DETECTORS_ENV, _TILED_URI_ENV):
+    for var in (_SUBSTRATE_ENV, _SETPOINTS_ENV, _READBACKS_ENV, _TILED_URI_ENV):
         assert var not in os.environ
 
     missing = tmp_path / "does_not_exist.json"
@@ -208,7 +208,7 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     data_dir = container_dir / "data"
     data_dir.mkdir()
     (data_dir / "channel_limits.json").write_text(
-        json.dumps({"TEST:MOTOR:01:SP": {"min_value": 0.0, "max_value": 10.0}})
+        json.dumps({"TEST:COR:01:SP": {"min_value": 0.0, "max_value": 10.0}})
     )
     monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
 

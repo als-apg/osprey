@@ -98,7 +98,8 @@ What ``osprey init`` writes
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
      personas/       one delta per web-terminal persona (persona presets only)
-     web-terminal-context/  one seeded directory per operator on the roster
+     web-terminal-context/  the shared base.md baseline, plus one seeded
+                     directory per operator on the roster
      ci-extra.yml    the facility's own CI jobs; never regenerated
      .gitignore      keeps build/, var/ and .env out of version control
      build/          rendered by `osprey build`; disposable
@@ -151,7 +152,7 @@ name *is* the declaration, and where each one lands is fixed.
      - a script, usually ``.py``
    * - ``web-terminal-context/``
      - ``docker/web-terminal-context/``
-     - a directory named for one operator
+     - a directory named for one operator, plus one shared ``base.md``
    * - ``mcp_servers/``
      - ``_mcp_servers/``
      - a directory per server
@@ -368,9 +369,10 @@ Personas
 ========
 
 Some presets give each operator their own web terminal, and each terminal runs
-with a persona — a capability posture, such as read-only versus write-capable.
-For those presets (``control-assistant``), ``osprey init`` writes one
-file per persona:
+with a persona — usually a capability posture, such as read-only versus
+write-capable, though a persona can just as well be a different product
+sharing the deployment. For those presets (``control-assistant``),
+``osprey init`` writes one file per persona:
 
 .. code-block:: text
 
@@ -380,6 +382,7 @@ file per persona:
      personas/
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
+       ariel.yml          # the standalone ARIEL logbook terminal
 
 Each file holds only that persona's **differences** — for the read-only persona,
 chiefly ``control_system.writes_enabled: false``. Sitting in ``personas/`` beside
@@ -397,8 +400,9 @@ result with:
 
 ``profile.yml`` points at these files by path — its web-terminal catalog carries
 ``build_profile: personas/<name>.yml`` for each one — so keep the names in step
-if you rename one. That is also what ``osprey up`` reads: it renders any
-persona project that does not exist yet from the named delta. A bundled preset
+if you rename one. ``osprey up`` reads the same catalog but renders nothing: a
+persona project missing from ``build/`` stops the start and points at
+``osprey build`` as the remedy. A bundled preset
 name in that field is rejected, because a persona built from a preset of its own
 would not share this profile's data tree, secrets or artifacts.
 
@@ -450,7 +454,7 @@ that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
    write-capable sibling only on ``control_system.writes_enabled``, leaving
    the tool surface identical (see :doc:`multi-user`).
 
-To keep the scan server **on** while hiding an individual plan, set
+To keep the bluesky server **on** while hiding an individual plan, set
 ``bluesky.excluded_plans`` instead:
 
 .. code-block:: yaml
@@ -460,7 +464,7 @@ To keep the scan server **on** while hiding an individual plan, set
 
 The named plan is then invisible to the agent and non-runnable. The same
 block's ``plan_dir`` key does the opposite — it installs a directory of your
-facility's own scan plans; see :doc:`bluesky/write-plans`.
+facility's own plans; see :doc:`bluesky/write-plans`.
 
 
 .. _profile-secrets:

@@ -71,7 +71,15 @@ services:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
-      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
@@ -195,8 +203,8 @@ services:
       # harmless: no substrate means an empty device namespace, i.e.
       # browse-only.
       BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
-      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 {% endif %}
 {% if services.bluesky.tiled_enabled | default(false) %}
       # Tiled persistence: the bridge READS the durable catalog here to serve
@@ -342,7 +350,15 @@ services:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
-      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     # No `ports:` — deliberately. Publishing the control socket would put a
     # second route to plan execution next to the bridge's launch-token gate,
@@ -399,8 +415,8 @@ services:
       # its substrate. The `:-` empty defaults keep an unset substrate
       # harmless — the module then yields an empty namespace (browse-only).
       BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
-      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 {% if services.bluesky.plan_dir %}
       # Same in-container path as the bridge's mount target below: the
       # startup module builds the plan namespace with the same plan_loader,
@@ -447,7 +463,7 @@ services:
 {% if (control_system | default({})).writes_enabled | default(false) %}
       # The per-put reference monitor moved into this container with the
       # RunEngine, so the limits DB has to come with it: without the file the
-      # empty-DB failsafe blocks every write and no scan can move anything.
+      # empty-DB failsafe blocks every write and no plan can move anything.
       # Same /app/project root as config.yml so a relative
       # control_system.limits_checking.database_path resolves identically on
       # both sides.

@@ -194,6 +194,7 @@ async def get_status(config_dict: dict) -> dict:
                 "search_modules": {
                     "keyword": config.is_search_module_enabled("keyword"),
                     "semantic": config.is_search_module_enabled("semantic"),
+                    "hybrid": config.is_search_module_enabled("hybrid"),
                 },
             }
 

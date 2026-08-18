@@ -3,7 +3,7 @@
 ``_SERVICE_TOKEN_VARS`` entries are *network-caller authentication*: a token
 proves the caller of a service's own HTTP boundary is the co-deployed agent
 rather than anything else that can reach a shared loopback port. That is an
-authentication concern, not a hardware-safety one. Whether a scan or a write is
+authentication concern, not a hardware-safety one. Whether a plan or a write is
 permitted is decided at the connector — ``writes_enabled`` plus the per-put
 channel limits — which every write path must clear: the agent's own
 ``write_channel`` calls and the bluesky bridge's plan execution alike end at the
@@ -28,6 +28,7 @@ sections say — including when they are absent entirely.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 
 import pytest
@@ -356,17 +357,23 @@ def test_existing_env_value_is_never_overwritten(
     assert env.get("BLUESKY_TILED_API_KEY")
 
 
-def test_explicitly_empty_value_is_left_empty_not_minted(
+def test_an_explicitly_empty_dotenv_value_is_minted_over(
     captured_argv, _clean_token_env, monkeypatch, tmp_path
 ):
-    """``TOKEN=`` is a deliberate value: the operator is choosing a fail-closed bridge.
+    """``TOKEN=`` in ``.env`` is a blank, not a decision — the mint fills it.
 
-    Minting over it would override that choice. On a loopback deploy the
-    service simply fails closed on its own; only a deployment the build
-    rendered as reachable off-host refuses (covered in
-    ``test_bluesky_token_mint.py``).
+    This replaces the opposite expectation. A minted service token has no
+    meaningful empty state: an empty ``BLUESKY_LAUNCH_TOKEN`` does not choose a
+    fail-closed bridge, it starts one with no authentication and says nothing
+    about it, on the default loopback deploy where no other guard is watching.
+    The narrow carve-out — an empty value exported in a shell whose ``.env``
+    never mentions the var — is pinned separately below.
     """
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=\n", encoding="utf-8")
+    # The deploy loads that .env over the process environment before it mints,
+    # so this is the state the predicate actually sees. Set it through
+    # monkeypatch so the minted value does not outlive the test.
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
     config = _config(
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
@@ -376,5 +383,218 @@ def test_explicitly_empty_value_is_left_empty_not_minted(
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     env = _parse_env(tmp_path)
-    assert env["BLUESKY_LAUNCH_TOKEN"] == ""
+    minted = env["BLUESKY_LAUNCH_TOKEN"]
+    assert minted, "an empty launch token was left empty on a loopback deploy"
     assert env.get("BLUESKY_TILED_API_KEY")
+    assert minted != env["BLUESKY_TILED_API_KEY"]
+    # The appended line is what the deploy resolves: parse order is last-wins,
+    # the same rule compose applies to a repeated key in an --env-file.
+    assert (tmp_path / ".env").read_text().index(f"BLUESKY_LAUNCH_TOKEN={minted}") > 0
+    # And the stale empty copy the .env load left in this process is replaced,
+    # so compose resolves the minted value rather than being shadowed by it.
+    assert os.environ["BLUESKY_LAUNCH_TOKEN"] == minted
+
+
+def test_an_exported_empty_value_is_left_alone_because_a_mint_cannot_reach_it(
+    captured_argv, _clean_token_env, monkeypatch, tmp_path
+):
+    """The bound on the exception above: an export the ``.env`` cannot outrank.
+
+    The ``.env`` here does not carry the var at all, so the empty value is the
+    shell's own rather than that file's mirrored back. An export wins over
+    ``--env-file`` for compose's interpolation, so a mint appended to ``.env``
+    would be a token reported and never delivered. Nothing is written, and a
+    deployment the build rendered as reachable off-host refuses instead (covered
+    in ``test_bluesky_token_mint.py``).
+    """
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
+    config = _config(
+        control_system={"writes_enabled": True},
+        execution={"execution_method": "local"},
+    )
+    _patch_prepare_compose_files(monkeypatch, config)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    env = _parse_env(tmp_path)
+    assert "BLUESKY_LAUNCH_TOKEN" not in env
+    # The var beside it still mints — the carve-out is per var, not per deploy.
+    assert env.get("BLUESKY_TILED_API_KEY")
+
+
+# ---------------------------------------------------------------------------
+# The shared half of the chain: what this function's own read can and cannot see
+# ---------------------------------------------------------------------------
+# The deployment's environment is a two-file chain at the repo root —
+# ``.env.shared`` (committed defaults) below ``.env`` (host-local secrets). This
+# function reads exactly one of those files: ``parse_dotenv_file(env_path)``
+# names the LOCAL one, and ``_effective_value`` consults ``os.environ`` ahead of
+# it. So the shared half reaches the mint by a single indirect route — the CLI
+# entry point loads the whole chain over ``os.environ`` before any deploy code
+# runs, and the mint reads that mirror rather than the file.
+#
+# Both halves of that are pinned below, as observed rather than as wished for:
+# what the function makes of a shared-only value on its own, and what it makes
+# of the same value once the entry-point load has happened. The pair is the
+# measurement — the second test is what says the mint's answer depends on a step
+# some other component took.
+
+#: Obviously-fake stand-ins. Every value in this section is a fixture, never a
+#: credential recipe, and none of them is ever asserted against a minted value
+#: except to show the two differ.
+SHARED_HALF_TOKEN = "shared-half-fixture-token-not-a-secret"
+
+
+def _write_shared_half(tmp_path, text: str):
+    """Lay down the chain's committed-defaults file beside the local one."""
+    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+
+    path = tmp_path / ENV_SHARED_FILENAME
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _load_the_entry_point_chain(monkeypatch, repo):
+    """Run the load ``osprey <verb>`` performs before it reaches any deploy code.
+
+    ``osprey.cli.main`` calls this first thing, cwd-rooted, with override
+    semantics — so by the time the mint runs, ``os.environ`` carries the merged
+    chain. Reproduced here verbatim rather than simulated with ``setenv``,
+    because the thing being measured IS that this step is what makes the shared
+    half visible.
+    """
+    import osprey.utils.config as config
+
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.chdir(repo)
+    config.load_project_dotenv()
+
+
+def test_a_token_only_the_shared_half_carries_is_minted_over(_clean_token_env, tmp_path):
+    """``.env.shared`` alone is invisible to the mint, so the var reads as absent.
+
+    Pinned as it behaves, not as it ought to: the function's file read names the
+    local ``.env``, and a value the operator committed to the shared half is not
+    one this predicate can see. It therefore mints — and the minted line lands
+    in ``.env``, which outranks ``.env.shared`` everywhere in the chain, so the
+    operator's committed value stops being the one the deployment resolves.
+
+    The shared file itself is left untouched, which is the only part of this a
+    reader would have guessed.
+    """
+    _write_shared_half(tmp_path, f"BLUESKY_LAUNCH_TOKEN={SHARED_HALF_TOKEN}\n")
+    env_path = tmp_path / ".env"
+
+    container_lifecycle._ensure_service_tokens(_config(), expose_network=False, env_path=env_path)
+
+    local = _parse_dotenv(env_path)
+    assert local["BLUESKY_LAUNCH_TOKEN"], "the shared-only value did not even reach the predicate"
+    assert local["BLUESKY_LAUNCH_TOKEN"] != SHARED_HALF_TOKEN
+    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+
+    assert _parse_dotenv(tmp_path / ENV_SHARED_FILENAME)["BLUESKY_LAUNCH_TOKEN"] == (
+        SHARED_HALF_TOKEN
+    )
+
+
+def test_the_shared_half_is_honoured_once_the_entry_point_chain_load_has_run(
+    _clean_token_env, monkeypatch, tmp_path
+):
+    """The route that makes the shared half visible: the process-env mirror.
+
+    Same fixture as the test above, with the one step a real ``osprey up``
+    takes first. The chain load puts the shared value in ``os.environ``,
+    ``_effective_value`` reads that ahead of the ``.env`` mapping, and the var
+    is left alone. Nothing else changed — so if this ever disagrees with the
+    test above again, the delivery of the environment moved, not the mint.
+    """
+    _write_shared_half(tmp_path, f"BLUESKY_LAUNCH_TOKEN={SHARED_HALF_TOKEN}\n")
+    env_path = tmp_path / ".env"
+
+    _load_the_entry_point_chain(monkeypatch, tmp_path)
+    container_lifecycle._ensure_service_tokens(_config(), expose_network=False, env_path=env_path)
+
+    local = _parse_dotenv(env_path)
+    assert "BLUESKY_LAUNCH_TOKEN" not in local
+    assert os.environ["BLUESKY_LAUNCH_TOKEN"] == SHARED_HALF_TOKEN
+    # Per var, as everywhere else here: the one the shared half does not carry
+    # still mints.
+    assert local.get("BLUESKY_TILED_API_KEY")
+
+
+class TestEffectiveValueWithAllThreeSourcesDisagreeing:
+    """The conflict configuration: shell, ``.env`` and ``.env.shared`` differ.
+
+    ``_effective_value`` is a two-argument function — process env, then the
+    mapping the caller passes — and its docstring makes a claim about a THIRD
+    thing, the deploy path it sits on: that the ``.env`` has already been loaded
+    over the process env, so a shell export is only visible when the file does
+    not carry the key. The first test below pins the function's own mechanics;
+    the second pins the composed behaviour the docstring describes, with all
+    three sources set to different values so no two of them can be confused.
+    """
+
+    VAR = "BLUESKY_LAUNCH_TOKEN"
+
+    def _effective_value(self):
+        from osprey.deployment.service_tokens import _effective_value
+
+        return _effective_value
+
+    def test_the_process_env_outranks_the_mapping_the_caller_passes(
+        self, _clean_token_env, monkeypatch
+    ):
+        """The mechanic, in isolation: ``os.environ`` first, mapping second, ``""``.
+
+        Called with a mapping the process env contradicts, which on the deploy
+        path never happens by accident — the loader put the file's value there.
+        """
+        effective_value = self._effective_value()
+        monkeypatch.setenv(self.VAR, "value-from-the-shell")
+
+        assert effective_value(self.VAR, {self.VAR: "value-from-the-local-file"}) == (
+            "value-from-the-shell"
+        )
+        monkeypatch.delenv(self.VAR)
+        assert effective_value(self.VAR, {self.VAR: "value-from-the-local-file"}) == (
+            "value-from-the-local-file"
+        )
+        assert effective_value(self.VAR, {}) == ""
+
+    def test_on_the_deploy_path_the_local_file_wins_and_the_shell_loses(
+        self, _clean_token_env, monkeypatch, tmp_path
+    ):
+        """The composed answer, with every source of the chain disagreeing.
+
+        Order observed: ``.env`` beats ``.env.shared`` beats the shell export.
+        The shell losing is not ``_effective_value``'s doing — it reads the
+        process env first — but the entry-point load overwrote that export with
+        the chain's value, which is exactly what the docstring says: the derived
+        file, not the ambient shell, decides a present key's value.
+        """
+        effective_value = self._effective_value()
+        _write_shared_half(tmp_path, f"{self.VAR}=value-from-the-shared-file\n")
+        (tmp_path / ".env").write_text(f"{self.VAR}=value-from-the-local-file\n", encoding="utf-8")
+        monkeypatch.setenv(self.VAR, "value-from-the-shell")
+
+        _load_the_entry_point_chain(monkeypatch, tmp_path)
+        on_disk = _parse_dotenv(tmp_path / ".env")
+
+        assert effective_value(self.VAR, on_disk) == "value-from-the-local-file"
+
+    def test_a_key_only_the_shared_file_sets_outranks_the_shell_too(
+        self, _clean_token_env, monkeypatch, tmp_path
+    ):
+        """The middle rank, which the two-file case cannot show on its own.
+
+        With no local line for the key, the winner is the committed default
+        rather than the operator's export — the chain load overrides both files
+        over the process env, and the shared half is a member of that chain.
+        """
+        effective_value = self._effective_value()
+        _write_shared_half(tmp_path, f"{self.VAR}=value-from-the-shared-file\n")
+        monkeypatch.setenv(self.VAR, "value-from-the-shell")
+
+        _load_the_entry_point_chain(monkeypatch, tmp_path)
+
+        assert effective_value(self.VAR, {}) == "value-from-the-shared-file"

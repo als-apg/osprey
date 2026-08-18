@@ -1,11 +1,11 @@
-"""Authoring metadata for scan plans: the ``PlanMetadata`` model and its parser.
+"""Authoring metadata for plans: the ``PlanMetadata`` model and its parser.
 
 A plan module (built-in, preset, or facility-supplied) declares a module-level
 ``PLAN_METADATA`` dict describing itself to operators and to the agent's
 discovery surface (`GET /plans`). This module defines the required shape of
-that dict and a fail-closed parser: a malformed or incomplete block is a typed
-`PlanMetadataError` naming the offending field(s), never a silently
-default-filled object. Provenance (trust tier) is deliberately *not* part of
+that dict and a fail-closed parser: a malformed, incomplete, or over-declared
+block is a typed `PlanMetadataError` naming the offending field(s) or unknown
+key(s), never a silently default-filled or silently trimmed object. Provenance (trust tier) is deliberately *not* part of
 this model -- it is assigned by the loader based on which layer a file came
 from, not self-declared by the plan author.
 
@@ -17,42 +17,44 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 
 class PlanMetadataError(ValueError):
     """Raised when a plan module's ``PLAN_METADATA`` is missing, malformed, or invalid.
 
     A single exception type for every failure mode (absent attribute, wrong
-    container type, missing/mistyped field) so callers only need to catch one
-    thing; the message names the offending field(s) and the module/file the
-    metadata came from.
+    container type, missing/mistyped field, unknown key) so callers only need
+    to catch one thing; the message names the offending field(s) or key(s) and
+    the module/file the metadata came from.
     """
 
 
 class PlanMetadata(BaseModel):
-    """Authoring-declared metadata for one scan plan, surfaced via `GET /plans`.
+    """Authoring-declared metadata for one plan, surfaced via `GET /plans`.
 
-    Every field is required: a plan lacking one is an authoring error to be
-    rejected at load time, not a gap to paper over with a default. JSON-
-    serializable via `model_dump()` for direct inclusion in `PlanSpec.to_dict()`.
+    Exactly three fields, all required: a plan lacking one is an authoring
+    error to be rejected at load time, not a gap to paper over with a default.
+    Unknown keys are rejected too (``extra="forbid"``) -- a plan that declares
+    anything outside this contract, including keys from an earlier shape, is
+    quarantined loudly rather than parsed clean with the surplus dropped.
+    Which channels a plan touches is *not* declared here: it is read off the
+    role-typed fields of the plan's parameter model. JSON-serializable via
+    `model_dump()` for direct inclusion in `PlanSpec.to_dict()`.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str
-    category: str
-    required_devices: list[str]
-    """The `PARAMS` fields whose string values are device names.
-
-    Each entry names the field *immediately* enclosing those strings, which for
-    a nested shape is the inner key rather than the outer one: `grid_scan`
-    carries its devices as ``axes[].setpoint`` and so declares ``"setpoints"``.
-    Read by `queue.py`'s add-time device pre-check, which resolves exactly
-    these fields against the worker's device list; an entry it cannot match to
-    a field is left unchecked rather than guessed at.
-    """
-
     writes: bool
+    """Whether the plan moves anything, as declared by its author.
+
+    True means the plan changes machine state through its movable fields;
+    false means it only reads. The load gate cross-checks this declaration
+    against the plan's role-typed fields, so a mismatch is caught at load
+    time rather than at execution.
+    """
 
 
 def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadata:
@@ -61,15 +63,25 @@ def parse_plan_metadata_dict(raw: dict[str, Any], *, source: str) -> PlanMetadat
     Wraps pydantic's `ValidationError` into `PlanMetadataError`, naming the
     failing field(s) and ``source`` (a path/module label for operator
     debugging), so every caller sees one exception type regardless of whether
-    a field is missing or wrong-typed.
+    a field is missing, wrong-typed, or outside the contract. Unknown keys are
+    reported in their own clause, so a plan carrying a key this model no longer
+    accepts says exactly which key to delete.
     """
     try:
         return PlanMetadata.model_validate(raw)
     except ValidationError as exc:
-        fields = ", ".join(".".join(str(part) for part in error["loc"]) for error in exc.errors())
-        raise PlanMetadataError(
-            f"{source}: PLAN_METADATA is invalid for field(s): {fields}"
-        ) from exc
+        invalid: list[str] = []
+        unknown: list[str] = []
+        for error in exc.errors():
+            field = ".".join(str(part) for part in error["loc"])
+            bucket = unknown if error["type"] == "extra_forbidden" else invalid
+            bucket.append(field)
+        message = f"{source}: PLAN_METADATA is invalid"
+        if invalid:
+            message += f" for field(s): {', '.join(invalid)}"
+        if unknown:
+            message += f"; unknown key(s): {', '.join(unknown)}"
+        raise PlanMetadataError(message) from exc
 
 
 def parse_plan_metadata(module: Any, *, source: str | None = None) -> PlanMetadata:

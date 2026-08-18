@@ -43,6 +43,18 @@ def _report_fact(message: str) -> None:
     output.report_fact(logger, message)
 
 
+def _warn_fact(summary: str, detail: str | None = None, remedy: str | None = None) -> None:
+    """Warn under this module's logger, in the run's own column.
+
+    The promotion contract lives in :func:`osprey.cli.output.warn_fact`; this
+    binds it to the deploy logger so call sites pass the copy alone. Promotion is
+    not optional for a warning raised during a lifecycle verb: the altitude gate
+    drops raw WARNING records while a reporter owns the terminal, so
+    ``logger.warning`` here would reach nobody.
+    """
+    output.warn_fact(logger, summary, detail, remedy)
+
+
 # ---------------------------------------------------------------------------
 # osprey up — the four-zone start verb
 # ---------------------------------------------------------------------------
@@ -362,14 +374,71 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
     )
 
 
-def _preflight(repo_root: Path, reporter: PhaseReporter, *, nothing_done: str) -> None:
-    """Check the two things a start verb needs before it starts anything.
+def _warn_if_host_networking_is_off(config: dict) -> None:
+    """Say up front when Docker Desktop cannot forward the web terminals' port.
 
-    Reported as one phase because it is one question to the operator — can this
-    deployment start at all? — answered by two facts: a ``build/`` to start, and
-    the secret store every compose invocation is pointed at. Both refusals name
-    the same remedies they always did; the phase only adds a ✗ line naming the
+    :func:`~osprey.deployment.web_terminals.postup_hooks.warn_if_web_stack_unreachable`
+    stays the authority on whether the web tier is actually reachable, because it
+    tests the thing itself rather than a setting. The one thing it cannot be is
+    early: it runs after the images are built and the containers are up, which on
+    a first deploy is a quarter of an hour after the operator could have fixed
+    this with one checkbox. So this is the same finding, stated before any of that
+    work is done.
+
+    Only a definite "off" earns a word here. A setting that reads as on, a host
+    that cannot be asked, a deployment with no web terminals: all silent, and
+    left to the post-up probe. A preflight that warned on suspicion would fire on
+    every deployment whose web tier is perfectly fine, and an operator who is
+    warned about nothing stops reading warnings.
+
+    Advisory, like the probe it front-runs. The backend services do not care
+    about this setting, so refusing a deploy over it would be deciding for an
+    operator that they wanted the web terminals more than they wanted their
+    services running.
+
+    :param config: The as-built deploy config, already loaded by the caller.
+    """
+    from osprey.deployment.docker_desktop import (
+        HOST_NETWORKING_REMEDY,
+        host_networking_enabled,
+        on_docker_desktop,
+    )
+
+    # The same reading of "this deployment has web terminals" the post-up probe
+    # uses: a rendered nginx port is what the module's presence amounts to here.
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    nginx_port = web_terminals.get("nginx_port")
+    if not isinstance(nginx_port, int):
+        return
+    if not on_docker_desktop(config):
+        return
+    if host_networking_enabled() is not False:
+        return
+
+    _warn_fact(
+        "Docker Desktop will not be able to reach the web terminals",
+        f"host networking is turned off in Docker Desktop, so the web terminal on port "
+        f"{nginx_port} binds inside the Docker Linux VM and stays unreachable from this "
+        "machine. The containers will start and report themselves healthy either way, "
+        "and http://127.0.0.1:"
+        f"{nginx_port}/ will not load in a browser. Everything else in this deployment "
+        "publishes its ports normally and is unaffected.",
+        f"{HOST_NETWORKING_REMEDY}, and run this again",
+    )
+
+
+def _preflight(repo_root: Path, reporter: PhaseReporter, *, nothing_done: str) -> None:
+    """Check what a start verb needs before it starts anything.
+
+    Reported as one phase because it is one question to the operator: can this
+    deployment start at all? Two facts answer it, a ``build/`` to start and the
+    secret store every compose invocation is pointed at, and both refusals name
+    the same remedies they always did. The phase only adds a ✗ line naming the
     step that stopped.
+
+    One thing here refuses nothing and is reported anyway:
+    :func:`_warn_if_host_networking_is_off`. It belongs to this phase rather than
+    to the start because its whole value is arriving before the images are built.
 
     Args:
         repo_root: The deployment repo.
@@ -394,9 +463,12 @@ def _preflight(repo_root: Path, reporter: PhaseReporter, *, nothing_done: str) -
                 "run `osprey build` to render it",
                 mark=False,
             )
-        ensure_repo_env(
-            repo_root, load_project_config(str(config_path), wrap_errors=True), mark=False
-        )
+        config = load_project_config(str(config_path), wrap_errors=True)
+        ensure_repo_env(repo_root, config, mark=False)
+        # Last, so a refusal above still leaves through the phase rather than
+        # being preceded by a warning about a deployment that is not going to
+        # start at all.
+        _warn_if_host_networking_is_off(config)
         phase.done("build/ and .env are in place")
 
 

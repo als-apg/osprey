@@ -2,7 +2,7 @@
 Run Your First Scan
 ===================
 
-Ask the agent for a scan in plain words, watch the form fill itself in, press
+Ask the agent for a plan in plain words, watch the form fill itself in, press
 two buttons, and watch the points land — all against the Virtual Accelerator,
 a simulated machine, so nothing real can move.
 
@@ -13,17 +13,17 @@ a simulated machine, so nothing real can move.
    - Asking for a grid scan the way an operator would say it
    - Reviewing and adjusting the plan in the **PLAN** panel
    - Why running takes two clicks — **Add to queue**, then **Start queue**
-   - Where the results appear, and how to stop a scan at any moment
+   - Where the results appear, and how to stop a plan at any moment
 
    **Prerequisites:** the Control Assistant tutorial project
-   (:doc:`/getting-started/control-assistant`). It ships the whole scan stack
+   (:doc:`/getting-started/control-assistant`). It ships the whole plan stack
    ready to go, with the Virtual Accelerator as its default machine — there is
    nothing to configure first.
 
 Step 1: Ask
 ===========
 
-Open the Web Terminal (``osprey web``) and ask for the scan the way you would
+Open the Web Terminal (``osprey web``) and ask for the plan the way you would
 say it out loud — in setpoints and monitors, not in software terms:
 
 .. code-block:: text
@@ -54,16 +54,16 @@ Step 3: Add it to the queue
 ===========================
 
 Click **Add to queue**, then confirm. This puts *exactly the plan on your
-screen* into the scan queue — if anyone changed the draft in the meantime,
+screen* into the plan queue — if anyone changed the draft in the meantime,
 the panel refuses and shows you the current version to review instead.
 
-Nothing is running yet. The scan just got in line — and the panel offers an
+Nothing is running yet. The plan just got in line — and the panel offers an
 **Open BLUESKY** button that takes you straight to it.
 
 Step 4: Start the queue
 =======================
 
-Click that button, or switch to the **BLUESKY** tab. Your scan is listed under **Queue**. Click
+Click that button, or switch to the **BLUESKY** tab. Your plan is listed under **Queue**. Click
 **Start queue** — *this* is the moment things move, and it runs everything in
 the queue, in order, not only your item. Glance at the list before you click.
 
@@ -79,12 +79,12 @@ Step 5: Watch the results
 
 Stay on the **BLUESKY** tab. The lower half follows the selected run, and the
 run's **figure** leads it — one plot per panel, with real axis labels and
-units, filling in as the scan goes. A 5 × 5 grid settles fast on the Virtual
+units, filling in as the run goes. A 5 × 5 grid settles fast on the Virtual
 Accelerator — all 25 points should land within a few seconds.
 
 The raw numbers are underneath, behind a **Data table** disclosure that names
 the run's row count and stays closed until you open it. These tables run to
-thousands of rows on a real scan, which is why they are not in your way by
+thousands of rows on a real run, which is why they are not in your way by
 default. What the table shows is a preview — a bounded window, labelled with
 how much of the run it is holding back. **Export CSV**, on the same row, is how
 you get the whole run: one click opens your browser's save dialog, and the file
@@ -92,7 +92,7 @@ that lands carries every row the run recorded, at full precision.
 
 What you are watching is ``grid_scan``'s own view of the scan. A two-axis grid
 draws one **heatmap per monitor** — the fast axis across, the slow axis up, one
-cell per grid position — and a cell the scan has not reached yet is left empty
+cell per grid position — and a cell the run has not reached yet is left empty
 rather than filled with a zero. Sweep a single axis instead and the same plan
 draws lines: one panel per monitor, against that axis. The ``orm`` plan brings
 its own view too: a trace per corrector while the sweep runs, then the fitted
@@ -102,16 +102,16 @@ displaced where you asked for it and back on the reference where the bump
 closes — with the residual against its tolerance band under it.
 
 A short note above the plots says where the data came from and whether it is
-still arriving — *live data · still filling in* while the scan runs. A run you
+still arriving — *live data · still filling in* while the plan runs. A run you
 come back to later, read from durable storage, shows *stored data* instead.
 
 A plan does not have to bring a view. For one that does not, the panel draws
 the **default view** instead: every numeric column the run recorded, plotted
-against the scan's own axis, with the note line adding a few words about why
+against the run's own axis, with the note line adding a few words about why
 you are seeing it. None of that is an error — the default view is real data,
 and for many measurements it is exactly the right picture.
 
-Ask the agent *"how does that scan look?"* and it reads the same figure you
+Ask the agent *"how does that run look?"* and it reads the same figure you
 have on screen, so you are both describing one picture rather than two.
 
 If you need to stop
@@ -120,14 +120,15 @@ If you need to stop
 Two buttons on the BLUESKY tab, and they always work — no permission, no
 token, no switch can disable them:
 
-- **Stop after current item** — gentle. The running scan finishes, then the
+- **Stop after current item** — gentle. The running plan finishes, then the
   queue stops.
 - **Abort running plan** — immediate. It takes a second, confirming click,
-  because its cost is real: the rest of the scan is discarded, and the data
+  because its cost is real: the rest of the plan is discarded, and the data
   already taken is kept. Whether the hardware comes back is the plan's own
   business — ``orm`` and ``orbit_bump_sweep`` put their correctors back on
   every exit path, an abort included, while a plan that makes no such promise
-  leaves the machine **wherever the scan left it**.
+  leaves the machine **wherever the plan left it** — nothing is driven back
+  to a starting position.
 
 .. dropdown:: What happened behind the scenes
    :color: info
@@ -143,7 +144,7 @@ token, no switch can disable them:
      restarts of everything around it.
    - **Start queue** is checked against a **launch token** the deployment
      holds. Whether the agent holds one too is the deployment's choice: where
-     it grants the token, asking the agent to start a scan starts the scan —
+     it grants the token, asking the agent to start a plan starts the plan —
      your approval of that one tool call is the decision. Where it does not,
      the agent's start is refused and it tells you so; you start it from the
      queue panel yourself. For the agent, starting is additionally switched
@@ -155,14 +156,14 @@ token, no switch can disable them:
 
    **A banner says this deployment is browse-only.**
       Your project is pointed at the ``mock`` control system, which cannot
-      execute scans — plans can be composed and validated, but the queue
+      execute plans — plans can be composed and validated, but the queue
       refuses to hold them. The banner names the exact command that switches
       to the Virtual Accelerator; see
       :doc:`/how-to/use-virtual-accelerator`.
 
    **Start queue is refused.**
       The refusal in the panel says why, in a sentence. The common causes: the
-      deployment is not armed (no launch token), the queue still holds a scan
+      deployment is not armed (no launch token), the queue still holds a plan
       someone stopped earlier (remove it first — see :doc:`queue`), or the
       queue server is still starting up (wait a moment and try again).
 

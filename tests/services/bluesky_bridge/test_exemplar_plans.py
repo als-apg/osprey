@@ -94,8 +94,8 @@ def test_orbit_bump_sweep_registers_as_shipped_with_valid_metadata() -> None:
 def orm_devices() -> dict:
     return asyncio.run(
         build_devices(
-            motor_names=["hcm1", "hcm2"],
-            detector_names=["bpm1", "bpm2"],
+            settable_names=["hcm1", "hcm2"],
+            readable_names=["bpm1", "bpm2"],
         )
     )
 
@@ -106,7 +106,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
         "orm",
         {
             "correctors": ["hcm1", "hcm2"],
-            "detectors": ["bpm1", "bpm2"],
+            "readbacks": ["bpm1", "bpm2"],
             "span_a": 2.0,
             "num": 3,
         },
@@ -122,7 +122,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
     for row in buf["rows"]:
         assert all(value is not None for value in row)
 
-    # Each corrector restored to its pre-scan working point after its own
+    # Each corrector restored to its pre-plan working point after its own
     # sweep. These mock motors start at 0 A, so here that value is 0 A.
     assert asyncio.run(orm_devices["hcm1"].readback.get_value()) == 0.0
     assert asyncio.run(orm_devices["hcm2"].readback.get_value()) == 0.0
@@ -132,8 +132,8 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
 def gs_devices() -> dict:
     return asyncio.run(
         build_devices(
-            motor_names=["motor1", "motor2"],
-            detector_names=["det1"],
+            settable_names=["motor1", "motor2"],
+            readable_names=["det1"],
         )
     )
 
@@ -143,7 +143,7 @@ def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) ->
     run_uid = run_plan(
         "grid_scan",
         {
-            "detectors": ["det1"],
+            "readbacks": ["det1"],
             "axes": [
                 {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
                 {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},

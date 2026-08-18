@@ -1,6 +1,6 @@
 """Denial-contract tests for ControlSystemConnector.write_channel_checked.
 
-Task 3.1: write_channel_checked is the correctness primitive a scan device
+Task 3.1: write_channel_checked is the correctness primitive a plan device
 setter wraps. It awaits the connector-agnostic write_channel and collapses its
 four documented outcomes into a single raise-or-return contract:
 

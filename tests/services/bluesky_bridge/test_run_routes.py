@@ -67,7 +67,7 @@ def _item(run_id: str, *, name: str = "grid_scan", result: dict | None = None) -
     item: dict[str, Any] = {
         "item_type": "plan",
         "name": name,
-        "kwargs": {"detectors": ["BPM1"]},
+        "kwargs": {"readbacks": ["BPM1"]},
         "item_uid": f"uid-{run_id}",
         "meta": {"osprey_run_id": run_id},
     }
@@ -171,7 +171,7 @@ def test_get_run_returns_the_record_for_a_known_run(bridge) -> None:
     assert body["id"] == "done"
     assert body["status"] == "completed"
     assert body["plan_name"] == "grid_scan"
-    assert body["plan_args"] == {"detectors": ["BPM1"]}
+    assert body["plan_args"] == {"readbacks": ["BPM1"]}
     assert body["run_uid"] == "re-1"
 
 
@@ -183,9 +183,7 @@ def test_get_run_404s_a_run_the_manager_has_never_heard_of(bridge) -> None:
 
 
 def test_get_run_carries_progress_once_the_document_plane_has_rows(bridge) -> None:
-    document_plane.record_run_params(
-        "running", {"axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 2}]}
-    )
+    document_plane.record_expected_points("running", 2)
     recorder = live_rows.LiveRowRecorder(key="running")
     recorder("start", {"uid": "re-uid"})
     recorder("event", {"data": {"BPM1": 1.0}})

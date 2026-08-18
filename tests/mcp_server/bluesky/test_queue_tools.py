@@ -103,7 +103,7 @@ _BROWSE_ONLY = {
     "can_execute": False,
     "reason": "browse_only_connector",
     "detail": (
-        "This deployment uses the mock connector, which cannot move hardware, so scan "
+        "This deployment uses the mock connector, which cannot move hardware, so "
         "plans can be composed and validated but not executed. To execute plans, run "
         "`osprey set connector=virtual_accelerator` and redeploy."
     ),
@@ -363,7 +363,7 @@ async def test_queue_add_stale_revision_relays_the_fresh_baseline(tmp_path, monk
 
 
 async def test_queue_add_already_launched_revision_points_at_a_draft_edit(tmp_path, monkeypatch):
-    """The repeat-scan case: a consumed revision needs a NEW one, not a retry."""
+    """The repeat-run case: a consumed revision needs a NEW one, not a retry."""
     _armed(tmp_path, monkeypatch)
     body = _refusal("draft_revision_already_launched", "revision 7 was already queued", revision=7)
     with patch(f"{_MOD}._http_post_json", return_value=(409, body)):

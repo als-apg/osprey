@@ -14,6 +14,7 @@ content hash) -> stage into the shared draft -> ``queue_add`` ->
 were retired when plans moved into the queue server.
 """
 
+import ast
 import re
 from pathlib import Path
 
@@ -27,16 +28,31 @@ from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 PRESETS_DIR = Path(__file__).parent.parent.parent / "src" / "osprey" / "profiles" / "presets"
+AUTHORING_TOOLS = (
+    Path(__file__).parent.parent.parent / "src" / "osprey" / "mcp_server" / "bluesky" / "tools"
+)
 
 
 def _prose(text: str) -> str:
     """Lowercased skill text with markdown decoration and line wrapping removed.
 
-    Same helper as in ``test_operating_bluesky_scans_skill_install.py``: the
+    Same helper as in ``test_operating_bluesky_plans_skill_install.py``: the
     sentence-level pins assert what the prose SAYS, so a cosmetic re-wrap or an
     emphasis change must not fail them, while a weakened sentence still does.
     """
     return re.sub(r"\s+", " ", re.sub(r"[*`]", "", text)).lower()
+
+
+def _metadata_section(text: str) -> str:
+    """Just the ``PLAN_METADATA`` item of the plan-file-format list.
+
+    The retired metadata keys are pinned absent from THIS span rather than
+    from the whole skill, so unrelated prose elsewhere (a figure's "one value
+    per named category") cannot make the pin either fail or rot.
+    """
+    start = text.index("**`PLAN_METADATA`**")
+    end = text.index("2. **`PARAMS`**", start)
+    return text[start:end]
 
 
 class TestWritingBlueskyPlansRegistry:
@@ -92,9 +108,65 @@ class TestWritingBlueskyPlansSkillStructure:
     # --- plan-file format ---
 
     def test_documents_plan_metadata(self, skill_text):
+        """``PLAN_METADATA`` is exactly three keys, and the section says so.
+
+        The retired ``category``/``required_devices`` keys are asserted absent
+        from that section rather than from the whole file: an author who reads
+        them there writes them, and the loader now refuses the block outright
+        (unknown keys forbidden), so the plan would never register.
+        """
         assert "PLAN_METADATA" in skill_text
-        for field in ("name", "description", "category", "required_devices", "writes"):
-            assert field in skill_text
+        section = _metadata_section(skill_text)
+        for field in ("name", "description", "writes"):
+            assert field in section, f"PLAN_METADATA section never names {field!r}"
+        for retired in ("category", "required_devices"):
+            assert retired not in section, (
+                f"PLAN_METADATA section still offers the retired key {retired!r}"
+            )
+
+    def test_documents_the_role_typed_channel_declaration(self, skill_text):
+        """Channels are declared on ``PARAMS`` fields, with all four helpers.
+
+        The list pair and the nested-model pair are not interchangeable — an
+        author with a nested shape (``grid_scan``'s axes) needs the singles —
+        so the skill has to name all four and the module they come from.
+        """
+        for helper in (
+            "MovableChannels",
+            "ReadableChannels",
+            "MovableChannel",
+            "ReadableChannel",
+        ):
+            assert helper in skill_text, f"Missing role-typed field helper: {helper}"
+        assert "osprey.services.bluesky_bridge.plan_fields" in skill_text
+        prose = _prose(skill_text)
+        assert "movable" in prose and "readable" in prose
+
+    def test_documents_the_run_metadata_stamp(self, skill_text):
+        """A self-opened run stamps its own metadata; a stock-plan wrapper does not.
+
+        Both halves matter: an unstamped self-opened run fails the dry-run
+        gate, and a second stamp over a stock plan's would overwrite a more
+        accurate one.
+        """
+        assert "scan_metadata(" in skill_text
+        for kwarg in ("movable=", "readable=", "points="):
+            assert kwarg in skill_text, f"scan_metadata call never shows {kwarg}"
+        prose = _prose(skill_text)
+        assert "a plan that delegates to a stock bluesky plan needs no stamp at all" in prose
+
+    def test_documents_both_gates_a_writing_plan_must_clear(self, skill_text):
+        """The two refusals an author actually hits, with their own remedies.
+
+        Quoted close enough to be recognizable when one lands: the load-gate
+        quarantine (writes without a movable field) and the dry-run point-count
+        rejection.
+        """
+        prose = _prose(skill_text)
+        assert "declares writes: true but no movable channel field in params" in prose
+        assert "dry-run gate:" in prose
+        assert "opened a run that declares no point count" in prose
+        assert "declares that it moves channels but opened no run" in prose
 
     def test_documents_params_and_build_plan(self, skill_text):
         assert "PARAMS" in skill_text
@@ -144,6 +216,27 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "write_plan" in skill_text
         assert "validate_plan" in skill_text
 
+    def test_documents_the_current_write_plan_call(self, skill_text):
+        """The call is four arguments, and channels are not among them.
+
+        Pinned against the real tool signature rather than a literal, so a
+        parameter added to or dropped from ``write_plan`` fails here instead of
+        leaving the skill teaching a call the bridge would refuse. Read with
+        ``ast`` rather than by import: the signature is a property of the
+        source, and this test has no business starting an MCP server.
+        """
+        source = (AUTHORING_TOOLS / "authoring.py").read_text(encoding="utf-8")
+        (defn,) = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "write_plan"
+        ]
+        params = [arg.arg for arg in defn.args.args]
+        assert params == ["name", "writes", "body", "description"], (
+            "write_plan's signature moved; the skill's documented call must move with it"
+        )
+        assert 'write_plan(name, writes, body, description="")' in skill_text
+
     def test_documents_run_tools(self, skill_text):
         for tool in ("set_draft", "queue_add", "queue_start", "list_plans"):
             assert tool in skill_text, f"Missing tool reference: {tool}"
@@ -188,7 +281,7 @@ class TestWritingBlueskyPlansSkillStructure:
         """``render`` is optional, but the three things an author gets wrong
         about it are not: its signature, that it must never raise, and that its
         labels come from the run rather than from a facility."""
-        assert "render(rows, params)" in skill_text
+        assert "render(window, params)" in skill_text
         prose = _prose(skill_text)
         assert "render() must never raise" in prose
         assert "render_failed" in skill_text
@@ -233,12 +326,12 @@ class TestWritingBlueskyPlansSkillStructure:
 
     def test_explicitly_rules_out_bba_and_tune_scan(self, skill_text):
         """BBA/tune-scan must appear only as a named anti-pattern, never as a
-        plan option to author (memory: shipped scan plans are `orm` (ORM) +
+        plan option to author (memory: shipped plans are `orm` (ORM) +
         n-d `grid_scan` ONLY; bba/tune_scan "always creeps in")."""
         assert "propose a bba or tune-scan plan" in _prose(skill_text)
         assert "tune-scan" in skill_text
         assert "out of scope" in skill_text.lower()
-        assert "only accelerator scan patterns" in _prose(skill_text)
+        assert "only accelerator plan patterns" in _prose(skill_text)
 
 
 class TestWritingBlueskyPlansInstall:

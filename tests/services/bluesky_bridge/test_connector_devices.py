@@ -171,6 +171,43 @@ async def test_connector_readable_describe_shape() -> None:
     assert described == {"bpm1": {"source": "connector:BPM:1", "dtype": "number", "shape": []}}
 
 
+def test_connector_settable_hints_declare_the_device_field() -> None:
+    """The movable declares its one data key as the hinted field."""
+    device = ConnectorSettable(FakeConnector(readbacks={"SP": 0.0}), "SP", name="motor")
+
+    assert device.hints == {"fields": ["motor"]}
+
+
+def test_connector_readable_hints_declare_the_device_field() -> None:
+    """The readable declares its one data key as the hinted field."""
+    device = ConnectorReadable(FakeConnector(readbacks={"BPM:1": 1.0}), "BPM:1", name="bpm1")
+
+    assert device.hints == {"fields": ["bpm1"]}
+
+
+@pytest.mark.parametrize("cls", [ConnectorSettable, ConnectorReadable])
+def test_hints_is_a_property_override(cls: type) -> None:
+    """Instance assignment raises on the read-only base property, so it must be
+    a property on the subclass itself — not an attribute set in ``__init__``."""
+    assert isinstance(inspect.getattr_static(cls, "hints"), property)
+
+
+async def test_hints_do_not_disturb_read_and_describe() -> None:
+    """Declaring hints must leave the read/describe contract untouched."""
+    fake = FakeConnector(readbacks={"SP": 7.0, "BPM:1": 42.0})
+    settable = ConnectorSettable(fake, "SP", name="motor")
+    readable = ConnectorReadable(fake, "BPM:1", name="bpm1")
+
+    assert (await settable.read())["motor"]["value"] == 7.0
+    assert await settable.describe() == {
+        "motor": {"source": "connector:SP", "dtype": "number", "shape": []}
+    }
+    assert (await readable.read())["bpm1"]["value"] == 42.0
+    assert await readable.describe() == {
+        "bpm1": {"source": "connector:BPM:1", "dtype": "number", "shape": []}
+    }
+
+
 async def test_build_devices_returns_expected_names_and_types() -> None:
     """``build_devices`` builds one device per spec, keyed by name, of the right type."""
     fake = FakeConnector(readbacks={"HCM1:SP": 0.0, "BPM1:I": 0.0})
@@ -194,7 +231,7 @@ async def test_build_devices_with_no_specs_returns_empty_mapping() -> None:
 
 async def test_build_devices_without_connector_raises_at_build_time() -> None:
     """A missing connector fails here, at the misconfiguration site — not as an
-    ``AttributeError`` deep inside a device's ``set()``/``read()`` at scan time."""
+    ``AttributeError`` deep inside a device's ``set()``/``read()`` at run time."""
     with pytest.raises(ValueError, match="requires a connector"):
         await build_devices(settables=[SettableSpec(name="hcm1", setpoint_pv="HCM1:SP")])
 

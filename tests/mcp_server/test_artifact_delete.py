@@ -3,7 +3,7 @@
 The artifact store partitions entries by ``ArtifactEntry.category``, and the
 read path honours it (``list_entries(category_filter=...)``). These tests pin
 the same partition onto the destructive path, so "clear the gallery" cannot
-silently unlink archiver datasets, scan results and data files that the
+silently unlink archiver datasets, run results and data files that the
 ``artifact_list`` / ``artifact_read`` views present as a separate namespace.
 
 Covers:
@@ -147,7 +147,7 @@ class TestArtifactDeleteAllScope:
     @pytest.mark.asyncio
     async def test_category_scope_spares_the_data_namespace(self, store, delete_all_tool):
         dataset = _dataset(store)
-        scan = _dataset(store, tool="scan_run", category="code_output")
+        run = _dataset(store, tool="get_run_data", category="code_output")
         plot = store.save_object("<h1>plot</h1>", title="Plot", category="visualization")
 
         payload = json.loads(await delete_all_tool("visualization"))
@@ -157,7 +157,7 @@ class TestArtifactDeleteAllScope:
         assert payload["deleted_count"] == 1
         assert payload["artifact_ids"] == [plot.id]
         assert "visualization" in payload["message"]
-        assert {e.id for e in store.list_entries()} == {dataset.id, scan.id}
+        assert {e.id for e in store.list_entries()} == {dataset.id, run.id}
 
     @pytest.mark.asyncio
     async def test_everything_scope_reports_the_full_blast_radius(self, store, delete_all_tool):

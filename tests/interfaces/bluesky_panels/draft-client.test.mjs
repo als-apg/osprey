@@ -1842,13 +1842,13 @@ describe('buildDraftReplaceBody', () => {
   test('a same-plan replace CLEARS a key the form left blank', () => {
     const body = buildDraftReplaceBody({
       planName: 'orm',
-      // The operator emptied `correctors` and `detectors`; the collector omits
+      // The operator emptied `correctors` and `readbacks`; the collector omits
       // both, so only `num` survives the read.
       planArgs: { num: 5 },
-      draftArgKeys: ['correctors', 'detectors', 'num'],
+      draftArgKeys: ['correctors', 'readbacks', 'num'],
       clientId: 'tab-1',
     });
-    expect(body.remove).toEqual(['correctors', 'detectors']);
+    expect(body.remove).toEqual(['correctors', 'readbacks']);
     // Never expressed as a null value — a removal is a removal.
     expect(body.plan_args_patch).toEqual({ num: 5 });
   });

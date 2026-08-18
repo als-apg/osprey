@@ -147,9 +147,10 @@ def _artifact_name(copy: ConventionCopy) -> str:
     if canonical is not None:
         return canonical
     # What is left is the classes outside the ownership system — MCP servers
-    # and per-user context — and both are whole-directory copies, so the only
-    # thing separating name from destination is the source directory's own
-    # spelling (``mcp_servers/`` for ``_mcp_servers/``).
+    # and per-user context (directories per user, plus the base.md baseline as
+    # the one file copy) — so the only thing separating name from destination
+    # is the source directory's own spelling (``mcp_servers/`` for
+    # ``_mcp_servers/``).
     convention = convention_for(copy.category)
     assert convention is not None  # planned copies always come from the table
     rel = PurePosixPath(copy.destination).relative_to(convention.destination).as_posix()
@@ -164,8 +165,12 @@ def ownership_canonical(copy: ConventionCopy) -> str | None:
     is owned, because that is the tree a later render could rewrite or prune.
     ``services/`` directories are owned for the same reason. Everything else
     is outside the ownership system: MCP servers register through
-    ``claude_code.servers``, per-user context is roster-derived, and mirror
-    files landing outside ``.claude/`` have no render that could contest them.
+    ``claude_code.servers``, per-user context (its ``base.md`` baseline
+    included) is re-copied from the profile on every build after the framework
+    installs its fallback, and mirror files landing outside ``.claude/`` are
+    likewise final once the copy loop has run — no post-build render rewrites
+    or prunes anything outside ``.claude/``, so there is nothing there for
+    ownership to defend.
 
     This function answers only *whether* a copy is owned; how the name is
     spelled is :func:`~osprey.cli.profile_conventions.ownership_name`, the

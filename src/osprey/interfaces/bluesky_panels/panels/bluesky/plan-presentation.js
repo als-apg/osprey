@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Per-plan presentation for the shipped scan plans: how their parameter form is
+ * Per-plan presentation for the shipped plans: how their parameter form is
  * laid out, and what the live readout above the footer says.
  *
  * Both tables are keyed by plan name and both are OPTIONAL. A plan with no
@@ -27,20 +27,20 @@
  */
 const PLAN_LAYOUTS = {
   orm: [
-    ['correctors', 'detectors'],
+    ['correctors', 'readbacks'],
     ['span_a', 'num'],
     ['sweep'],
   ],
-  grid_scan: [['axes'], ['detectors', 'snake_axes']],
+  grid_scan: [['axes'], ['readbacks', 'snake_axes']],
   orbit_bump_sweep: [
     ['correctors'],
     ['targets'],
-    ['closure_bpms', 'bpms'],
+    ['closure_readbacks', 'readbacks'],
     ['mode', 'sweep', 'num'],
     ['tolerance', 'probe_amplitude', 'settle_s'],
-    ['beam_current_device', 'min_beam_current'],
+    ['beam_current_readback', 'min_beam_current'],
     ['best_effort', 'max_trim_iterations', 'baseline_reads'],
-    ['detectors'],
+    ['monitors'],
   ],
 };
 
@@ -53,7 +53,7 @@ const PLAN_LAYOUTS = {
 const PLAN_SUMMARIES = {
   orm(args) {
     const c = Array.isArray(args.correctors) ? args.correctors.length : 0;
-    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
+    const d = Array.isArray(args.readbacks) ? args.readbacks.length : 0;
     const n = typeof args.num === 'number' ? args.num : 0;
     const span = typeof args.span_a === 'number' ? args.span_a : null;
     /** @type {string[]} */
@@ -71,7 +71,7 @@ const PLAN_SUMMARIES = {
   },
   grid_scan(args) {
     const axes = Array.isArray(args.axes) ? args.axes : [];
-    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
+    const d = Array.isArray(args.readbacks) ? args.readbacks.length : 0;
     /** @type {string[]} */
     const parts = [];
     if (axes.length) {
@@ -84,7 +84,7 @@ const PLAN_SUMMARIES = {
         parts.push(`${nums.join(' × ')} = ${total} grid points`);
       }
     }
-    if (d) parts.push(`${d} detector${d === 1 ? '' : 's'}`);
+    if (d) parts.push(`${d} readable${d === 1 ? '' : 's'}`);
     return parts.join(' · ');
   },
   orbit_bump_sweep(args) {

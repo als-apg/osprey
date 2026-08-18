@@ -1,4 +1,4 @@
-"""Deploy-time provisioning for the bluesky scan stack.
+"""Deploy-time provisioning for the bluesky plan stack.
 
 Covers the three things ``osprey up`` has to put in place before
 ``compose up`` mounts them, all in ``container_lifecycle``:
@@ -46,8 +46,8 @@ def env_path(tmp_path, monkeypatch):
         "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY",
         "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY",
         "BLUESKY_EPICS_SUBSTRATE",
-        "BLUESKY_EPICS_MOTORS",
-        "BLUESKY_EPICS_DETECTORS",
+        "BLUESKY_EPICS_SETPOINTS",
+        "BLUESKY_EPICS_READBACKS",
     ):
         monkeypatch.delenv(var, raising=False)
     return tmp_path / ".env"
@@ -160,7 +160,7 @@ class TestSubstrateEnvFilePermissions:
 
         _ensure_bluesky_substrate_env(config, env_path=env_path)
 
-        assert "BLUESKY_EPICS_MOTORS" in _dotenv(env_path)
+        assert "BLUESKY_EPICS_SETPOINTS" in _dotenv(env_path)
         assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
 
 

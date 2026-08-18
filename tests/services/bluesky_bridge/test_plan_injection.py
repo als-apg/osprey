@@ -224,8 +224,6 @@ def test_get_plans_serves_directory_layer_metadata_via_http(
         "PLAN_METADATA = {\n"
         '    "name": "sniff",\n'
         '    "description": "A directory-layer test plan.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": ["sniffer"],\n'
         '    "writes": False,\n'
         "}\n\n\n"
         "def build_plan(devices, params):\n"
@@ -242,8 +240,6 @@ def test_get_plans_serves_directory_layer_metadata_via_http(
     assert sniff["metadata"] == {
         "name": "sniff",
         "description": "A directory-layer test plan.",
-        "category": "accelerator",
-        "required_devices": ["sniffer"],
         "writes": False,
     }
 

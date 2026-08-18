@@ -206,7 +206,7 @@ describe('serviceIdOf — service-placeholder id extraction', () => {
   test('strips the iframe: prefix from a service placeholder id', async () => {
     const { serviceIdOf } = await import(SYNC);
     expect(serviceIdOf('iframe:ariel')).toBe('ariel');
-    expect(serviceIdOf('iframe:bluesky-scan')).toBe('bluesky-scan');
+    expect(serviceIdOf('iframe:bluesky')).toBe('bluesky');
   });
 
   test('returns null for the native (non-placeholder) panels and nullish ids', async () => {

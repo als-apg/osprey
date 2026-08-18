@@ -48,7 +48,7 @@ def _clear_fn():
 
 
 @pytest.fixture(autouse=True)
-def _reset_scan_context(tmp_path, monkeypatch):
+def _reset_server_context(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
     yield
@@ -343,8 +343,7 @@ _FAIL_RESP = {"passed": False, "reasons": ["import of 'os' is not allowed"], "up
 
 _WRITE_ARGS = {
     "name": "tiny",
-    "category": "accelerator",
-    "required_devices": ["correctors"],
+    "description": "A tiny test plan.",
     "writes": False,
     "body": "def build_plan(devices, params):\n    yield\n",
 }

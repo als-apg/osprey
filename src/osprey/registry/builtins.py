@@ -129,7 +129,7 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     description="Embedding similarity search using vector cosine distance",
                 ),
                 ArielSearchModuleRegistration(
-                    name="qmd",
+                    name="hybrid",
                     module_path="osprey.services.ariel_search.search.qmd",
                     description="Hybrid keyword and semantic search via the qmd sidecar",
                 ),

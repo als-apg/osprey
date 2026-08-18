@@ -1099,6 +1099,30 @@ class TestUsersEnv:
         assert result.exit_code == 0
         assert "STALE" not in (repo_root / "out.env").read_text(encoding="utf-8")
 
+    def test_the_observability_account_name_crosses_but_its_password_does_not(
+        self, cli_runner, tmp_path, monkeypatch
+    ):
+        """The render and a deploy share one builder, so what the deploy copies
+        this verb copies too — no rule of its own on either side. Pinned on the
+        pair that must not travel together: the store's account name is not a
+        secret and reaches the terminals, while its admin password is a single
+        credential for a store holding every transcript and never does."""
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
+        (repo_root / ".env").write_text(
+            "CBORG_API_KEY=llm-secret\n"
+            "ZO_ROOT_USER_EMAIL=store-account@example.org\n"
+            "ZO_ROOT_USER_PASSWORD=store-admin-secret\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(repo_root)
+
+        result = cli_runner.invoke(users, ["env"])
+
+        assert result.exit_code == 0
+        assert "ZO_ROOT_USER_EMAIL=store-account@example.org" in result.stdout.splitlines()
+        assert "ZO_ROOT_USER_PASSWORD" not in result.stdout
+        assert "store-admin-secret" not in result.stdout
+
     def test_a_missing_secrets_file_aborts(self, cli_runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         monkeypatch.chdir(repo_root)

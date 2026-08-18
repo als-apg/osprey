@@ -84,14 +84,16 @@ async def get_run(run_id: str) -> str:
         never as "unknown"), ``"error"`` (present if and only if status is
         "error", explaining what the manager reported), and ``"progress"``
         (``{"rows_seen", "expected_points", "fraction", "complete"}``, ABSENT
-        when nothing is known — never a fabricated 0%; ``"fraction"`` is null
-        whenever the total point count cannot be derived, which is common for
-        agent-authored plans, so report it as "N points so far" rather than a
-        percentage).
+        until the run actually starts, because the denominator is the point
+        count the run declares in its own opening metadata and there is nothing
+        to read before then — read an absent ``"progress"`` as "not started
+        yet", never as a fabricated 0%. Once present, ``"fraction"`` is null
+        whenever the run declared no point count, so report it as "N points so
+        far" rather than a percentage).
 
         "stopped" means a human stopped it, by any route. An item that left the
         queue without a cleanly recorded finish reads as "error" by design, so
-        an unrecognized ending is never mistaken for a successful scan.
+        an unrecognized ending is never mistaken for a successful run.
 
     Refusals:
         - unknown_run: this run id is not in the manager's queue or its
@@ -115,13 +117,18 @@ async def list_plans() -> str:
     """List the plans registered on the bridge.
 
     Each plan entry carries ``metadata`` (the plan's authoring-declared
-    ``PLAN_METADATA`` — description/category/required_devices/writes — or
-    ``null`` for a built-in that doesn't author one) and ``provenance`` (its
-    trust tier: ``shipped``/``preset``/``facility``/``session``/
-    ``unreviewed``, ascending ephemerality). Use these to prefer a
-    higher-provenance plan and to check ``required_devices``/``writes``
-    before staging a plan into the draft (set_draft) for a future
-    ``queue_add``.
+    ``PLAN_METADATA`` — name, description and ``writes`` — or ``null`` for a
+    built-in that doesn't author one) and ``provenance`` (its trust tier:
+    ``shipped``/``preset``/``facility``/``session``/``unreviewed``, ascending
+    ephemerality). Prefer a higher-provenance plan.
+
+    What a plan touches is in its ``schema``, not its metadata. Every parameter
+    that carries channel names declares its own role there — whether the plan
+    drives that channel to a value or only records it — so the schema is where
+    you read which channels a plan moves and which it reads. Match those roles
+    against what was actually asked for (a request to measure something should
+    not land on a plan that drives channels) before staging a plan into the
+    draft (set_draft) for a future ``queue_add``.
 
     Returns:
         JSON ``{"status": "success", "plans": [...]}``, each entry shaped
@@ -142,18 +149,20 @@ async def list_plans() -> str:
 async def list_devices() -> str:
     """List the device names this deployment's plans accept.
 
-    Plan parameters carry devices as strings (a plan's ``required_devices``
-    metadata names which fields those are), and this is the set those strings
+    Plan parameters carry devices as strings, and this is the set those strings
     must come from — a name that is not here is not a device the worker has,
-    and the run fails on its first step rather than at queue time. Read this
-    before staging any device name into the draft; never invent or guess one.
+    and the run fails on its first step rather than at queue time. A plan's
+    ``schema`` says which of its parameters carry device names, and whether the
+    plan drives each one or only records it, so put a name in the parameter
+    whose declared role matches how it is meant to be used. Read this before
+    staging any device name into the draft; never invent or guess one.
 
     Returns:
         JSON ``{"status": "success", "devices": [...]}``, each entry
         ``{"name"}`` plus whichever of ``is_movable``/``is_readable``/
         ``is_flyable`` the worker reported — ``is_movable`` marks a device that
         can be driven as a setpoint, ``is_readable`` one that can be read as a
-        detector. A missing flag means the worker did not say, not "no".
+        readback. A missing flag means the worker did not say, not "no".
         An empty list means this deployment's worker built no devices at all.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, "/devices")
@@ -212,13 +221,55 @@ async def get_run_data(
             the earliest ``max_rows`` rows.
 
     Returns:
-        JSON ``{"run_uid", "columns", "rows", "row_count", "truncated"[,
-        "partial"]}``. ``partial: true`` means the run is still in progress
-        and more rows will arrive; an empty/never-started buffer returns
-        ``{"columns": [], "rows": []}``. ``run_uid`` is always present as a key
-        but is null when the rows came from the live buffer, and populated when
-        they came from durable storage — a null there says which path served
-        the read, not that anything is missing.
+        JSON ``{"run_uid", "columns", "rows", "row_count", "truncated",
+        "analysis"[, "partial"]}``. ``partial: true`` means the run is still in
+        progress and more rows will arrive; an empty/never-started buffer
+        returns ``{"columns": [], "rows": []}``. ``run_uid`` is always present
+        as a key but is null when the rows came from the live buffer, and
+        populated when they came from durable storage — a null there says which
+        path served the read, not that anything is missing.
+
+        ``analysis`` is the run's peak statistics, computed over the WHOLE run
+        rather than this window, and is always present with the same six keys
+        either way: ``{"available", "reason", "x_channel", "x_column",
+        "points", "channels"}``. Read ``available`` first.
+
+        - ``available: true`` — ``x_channel`` is the channel the plan declared
+          it drives (the independent variable) and ``x_column`` the data column
+          it resolved to; ``points`` is how many rows were read. Each entry of
+          ``channels`` is ``{"channel", "column", "points", "center", "width",
+          "center_of_mass", "reason"}``, where that ``points`` is the number of
+          x/y pairs actually used, which is lower than the run's when readings
+          dropped out. ``center`` is the midpoint between the outermost
+          half-maximum crossings, ``width`` the distance between them, and
+          ``center_of_mass`` the readings' weighted mean position — all three
+          in the x channel's own units. A null ``center``/``width`` on an
+          analyzed channel (``reason`` null) is an ANSWER, not a skip: it says
+          the readings never cross their own half-maximum, as a monotonic or
+          flat channel does not. A null ``center_of_mass`` likewise means it
+          came back non-finite.
+        - ``available: false`` — ``reason`` says why, ``channels`` is empty and
+          ``x_channel``/``x_column`` are null. ``run_in_progress`` (statistics
+          are computed once the run settles; read again later),
+          ``plan_identity_unavailable`` (the run cannot be tied back to a known
+          plan), ``no_declared_movable`` / ``no_declared_readable`` (the plan
+          declares no channel in that role, or the recorded parameters supplied
+          none), ``multiple_movable_channels`` (the plan drove several
+          channels, so the run has no single independent variable — expected
+          for a response matrix, not a failure), ``movable_column_missing``
+          (the declared channel never reached the run's data),
+          ``insufficient_points`` (fewer than three rows),
+          ``statistics_unavailable``.
+        - A per-channel ``reason`` is null for an analyzed channel, or one of
+          ``channel_column_missing`` (no column for it in the run's data),
+          ``channel_is_the_x_axis`` (declared both driven and recorded — it is
+          the axis, not a peak in it), ``insufficient_points`` (fewer than
+          three usable pairs), ``statistics_unavailable`` (the fit raised for
+          this channel alone; the others still report).
+
+        An unavailable analysis is never an error and never a reason to call
+        this again unchanged: report the reason in plain terms. Every value is
+        a plain JSON number or null — never state a statistic that is null.
 
         Readable for runs get_run no longer knows about: a run rotated out of
         the manager's history still has its data, so a 404 from get_run is
@@ -273,8 +324,12 @@ async def get_run_figure(run_id: str) -> str:
 
         ``reason`` is null when the plan drew this figure itself. Any other
         value means the bridge drew its DEFAULT VIEW instead — every numeric
-        column the run recorded, against the scan's own x axis. A default view
-        is real data honestly plotted, NOT an error and not an empty result:
+        column the run recorded, drawn against the one channel the plan
+        declared it drives when there is exactly one, and against row order
+        otherwise (a plan sweeping several channels, or stepping a grid, has no
+        single independent variable, so the panel's ``x_label`` says which it
+        is). A default view is real data honestly plotted, NOT an error and not
+        an empty result:
         narrate it as "the default view" and give the reason in plain terms.
 
         - ``"no_render"``: this plan declares no view of its own, so the
@@ -292,6 +347,12 @@ async def get_run_figure(run_id: str) -> str:
           nothing". Try again, and get_run_data as the second opinion.
         - Anything else: still a default view. Report the reason verbatim
           rather than guessing at it.
+
+        A figure carries no numbers about the run itself. Peak center, width
+        and center of mass live on get_run_data's ``analysis`` block, computed
+        over the whole run once it settles — read them there rather than
+        estimating any of them off the plotted points, and report a null one as
+        the answer that block gives rather than measuring it off the picture.
 
         Each panel carries ``title``, ``x_label``/``y_label`` (plus optional
         ``x_units``/``y_units``), ``annotations`` — sentences naming what the
@@ -633,7 +694,7 @@ def _project_figure(figure: Figure) -> dict:
                     continue
                 # A series with no points costs nothing and is kept: a run that
                 # has not produced rows yet has an empty series, and dropping
-                # it would read as "this detector was left out".
+                # it would read as "this readback was left out".
                 kept.append(_restride_series(series, max(budget_for_series, 1)))
             if omitted:
                 notes[panel_index].append(

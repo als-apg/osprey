@@ -2,7 +2,7 @@
 
 The ``control-assistant`` preset hosts its own multi-user web tier — nginx,
 the landing page, and one terminal container per roster user — alongside the
-full scan stack. Two persona presets extend it to carve out capability tiers
+full plan stack. Two persona presets extend it to carve out capability tiers
 that differ on exactly three axes — enforcement
 (``control_system.writes_enabled``), surface (``web.ui_mode``), and the
 write-oriented panel declarations (EVENTS + BLUESKY, readwrite-only):
@@ -195,12 +195,17 @@ class TestControlAssistantWebTier:
         assert rendered["system"]["facility_name"] == "Seed Facility"
 
     def test_rendered_web_terminals_shape(self, tmp_path: Path) -> None:
-        """The rendered ``modules.web_terminals`` subtree matches the two-persona
+        """The rendered ``modules.web_terminals`` subtree matches the shipped
         tutorial shape: local image source, readonly default, a
-        readonly/readwrite catalog whose ``project`` equals its ``project_path``
-        basename, and a roster mapping alice→readwrite and bob→readonly, both
-        explicit, each carrying the tab-title ``display_name`` that visibly
-        marks which terminal is write-armed.
+        readonly/readwrite/ariel catalog whose ``project`` equals its
+        ``project_path`` basename, and a roster mapping alice→readwrite,
+        bob→readonly and ariel→ariel, all explicit, each carrying the tab-title
+        ``display_name`` that visibly marks which terminal is which.
+
+        The third entry is not a person: it is the standalone ARIEL logbook
+        deployment the stack ships beside the two operator tiers, and its
+        catalog entry carries the ``landing_group`` that files its card under
+        its own landing-page heading.
 
         Deliberately pins the preset's OWN ``config:`` layer, BEFORE the catalog
         rewrite every build performs — which is why the ``build_profile`` values
@@ -232,17 +237,33 @@ class TestControlAssistantWebTier:
             "persona": "readonly",
             "display_name": "Read-Only View (Bob)",
         }
+        assert wt["users"][2] == {
+            "name": "ariel",
+            "index": 2,
+            "persona": "ariel",
+            "display_name": "ARIEL Logbook Research",
+        }
 
         personas = wt["personas"]
-        assert set(personas) == {"readonly", "readwrite"}
+        assert set(personas) == {"readonly", "readwrite", "ariel"}
         for name, profile in (
             ("readonly", "control-assistant-readonly"),
             ("readwrite", "control-assistant-readwrite"),
+            ("ariel", "control-assistant-ariel"),
         ):
             entry = personas[name]
             # Name invariant: project == basename(project_path).
             assert entry["project"] == os.path.basename(entry["project_path"])
             assert entry["build_profile"] == profile
+
+        # Only the standalone tier declares a landing section of its own; the
+        # two operator tiers stay in the roster's default section.
+        assert personas["ariel"]["landing_group"] == "Standalone deployments"
+        assert "landing_group" not in personas["readonly"]
+        assert "landing_group" not in personas["readwrite"]
+
+        # And the roster's own section is titled for the people in it.
+        assert wt["landing"]["groups"] == [{"type": "users", "label": "Users"}]
 
     def test_port_families_clear_tutorial_service_ports(self, tmp_path: Path) -> None:
         """Every per-user port family sits above the tutorial's own published
@@ -403,7 +424,7 @@ class TestControlAssistantPersonas:
 
     def test_personas_are_attached(self) -> None:
         """Both personas set ``deploy_services: false`` — they build terminal
-        images only, and the scan/VA/dispatch injector blocks inherited from
+        images only, and the bluesky/VA/dispatch injector blocks inherited from
         the base are gated on this flag and skip cleanly. The hosting base
         keeps the default self-contained posture."""
         assert resolve_preset("control-assistant").deploy_services is True
@@ -426,10 +447,11 @@ class TestControlAssistantPersonas:
 class TestWebTerminalContextShipped:
     """Every built project — not just the ``control_assistant`` bundle —
     carries the ``docker/web-terminal-context/base.md`` that seeding
-    requires. base.md is framework-layer: any project that seeds a web
-    terminal user needs it, so it ships from the framework template root
-    rather than from one bundle. Without it, ``osprey up`` brings up the whole
-    stack and then aborts at the seed step.
+    requires. The framework ships a generic FALLBACK from its template root:
+    ``modules.web_terminals.enabled`` is a config key any profile can turn
+    on, so any bundle may end up seeding a user, and without a baseline
+    ``osprey up`` brings up the whole stack and then aborts at the seed step.
+    A profile's own ``web-terminal-context/base.md`` overrides the fallback.
 
     The path is PROJECT-relative (``seeding._CONTEXT_RELPATH``), and in a
     deployment repo the rendered project is the ``build/`` zone — which is why

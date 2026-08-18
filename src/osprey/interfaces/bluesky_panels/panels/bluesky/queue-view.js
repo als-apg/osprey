@@ -323,7 +323,7 @@ export function createQueueView({ root, api, onSelectRun }) {
     const progress = describeProgress(item.progress);
     runningProgressLabel.textContent = progress.label;
     // An unknown denominator renders as an indeterminate bar, never as 0% — a
-    // scan with no predicted point count (the common case for an
+    // plan with no predicted point count (the common case for an
     // agent-authored session plan) is running fine, and showing it at zero
     // reads as stalled.
     const indeterminate = progress.mode === 'indeterminate';

@@ -14,7 +14,7 @@
 name: Profile (readwrite)
 
 # Attached project: the persona builds per-user terminal images only and
-# connects to the shared web tier + scan services the hosting control-assistant
+# connects to the shared web tier + plan services the hosting control-assistant
 # project deploys on the same host. No services are scaffolded (empty
 # `deployed_services`, no services/) — the bluesky/VA/panels/dispatch injector
 # blocks inherited from the base are all gated on this flag and skip cleanly.

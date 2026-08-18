@@ -189,13 +189,13 @@ async def test_add_item_threads_the_run_id_through_item_metadata() -> None:
 
 async def test_add_item_stamps_the_plan_kwargs_as_enqueued() -> None:
     manager = FakeManager()
-    item = {"item_type": "plan", "name": "grid_scan", "kwargs": {"num": 5, "detectors": ["det"]}}
+    item = {"item_type": "plan", "name": "grid_scan", "kwargs": {"num": 5, "readbacks": ["det"]}}
     await QueueBackend(manager).add_item(item, run_id="run-7")
 
     (kwargs,) = manager.kwargs_for("item_add")
     assert kwargs["item"]["meta"][qb.PLAN_META_KEY] == {
         "name": "grid_scan",
-        "kwargs": {"num": 5, "detectors": ["det"]},
+        "kwargs": {"num": 5, "readbacks": ["det"]},
     }
 
 

@@ -1,7 +1,10 @@
 """Framework-guard tests for projects with empty deployed_services.
 
-The hello-world preset (and any future "agent-only" preset) declares no
-deployed_services. Two failure modes have to stay fixed:
+An "attached" project (built with ``deploy_services: false``, connecting to
+another project's already-deployed services stack) is what declares no
+deployed_services — the hello-world preset's own default build deploys one
+service (openobserve). Two failure modes have to stay fixed for the empty
+case:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
    into the project, because the renderer references it unconditionally.
@@ -219,7 +222,7 @@ def _dispatcher_context(**service_overrides: object) -> dict:
         "services": {"event_dispatcher": dict(service_overrides)},
         "deployment": {},
         "system": {"timezone": "UTC"},
-        "osprey_labels": {"project_name": "p", "project_root": "/r", "deployed_at": "now"},
+        "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_version": "",
     }
 
@@ -1033,6 +1036,39 @@ def test_worker_carries_the_env_digest_label(network: str | None) -> None:
     assert _worker_service(rendered)["labels"]["osprey.env.digest"] == "${OSPREY_ENV_DIGEST:-}"
 
 
+def test_render_carries_no_deploy_timestamp() -> None:
+    """No label records when the render happened, and none is offered to one.
+
+    The counterpart to the digest label above, and its opposite: a digest is a
+    function of the deployment's inputs, so it belongs in the document; a wall
+    clock is not, so it does not. A timestamp here would change every rendered
+    compose document on every build — and, because compose recreates a
+    container whose definition moved, would churn the whole stack for a value
+    nothing reads. Container creation time is already reported natively by the
+    runtime.
+
+    Both halves are asserted: the rendered document, and the injected context
+    behind it. Checking only the render would pass on a context that still
+    carried the value for the next template author to reach for.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    rendered = _render_worker_template(env_present=True)
+    assert "osprey.deployed.at" not in rendered
+    assert "deployed_at" not in rendered
+
+    injected = _inject_project_metadata(
+        {
+            "project_name": _WORKER_PROJECT_NAME,
+            "project_root": f"/r/{_WORKER_PROJECT_NAME}",
+            "services": {"dispatch_worker": {}},
+            "system": {"timezone": "UTC"},
+            "deployed_services": [],
+        }
+    )
+    assert "deployed_at" not in injected["osprey_labels"]
+
+
 def test_worker_env_file_lists_the_whole_chain_in_precedence_order() -> None:
     """Both chain files are delivered, lowest precedence first.
 
@@ -1116,7 +1152,7 @@ def _render_bluesky_template(
         "deployment": {},
         "system": {"timezone": "UTC"},
         "deployed_services": deployed,
-        "osprey_labels": {"project_name": "p", "project_root": "/r", "deployed_at": "now"},
+        "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_version": "",
     }
     # Task 3.2: control_system is omitted by default (matching every
@@ -1253,6 +1289,38 @@ def test_bluesky_template_omits_channel_limits_mount_when_writes_disabled() -> N
     assert "channel_limits.json" not in rendered_default
 
 
+def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> None:
+    """The staged ``user_group_permissions.yaml`` must name exactly one
+    allowed function, ``preview_plan`` — the read-only pre-flight trajectory
+    summary — in every user group it defines. Everything else `function_execute`
+    could otherwise reach (arbitrary worker-namespace callables, outside the
+    plan path and the connector's reference monitor) must stay denied; this is
+    the one deliberate, documented exception carved out of that deny-all gate.
+
+    The file is shipped verbatim (not Jinja-rendered) and bind-mounted
+    read-only at ``/app/qserver/user_group_permissions.yaml`` (see the
+    compose template's mount comment), so ``_copy_service_templates`` staging
+    it into ``services/bluesky/`` is what "rendered" means here — the same
+    staging ``test_nextcloud_bridge_template_is_bundled_into_a_declaring_project``
+    checks for presence.
+    """
+    _write_config(tmp_path, deployed_services=["bluesky"])
+    assert _copy_service_templates(tmp_path) == 1
+
+    permissions_path = tmp_path / "services" / "bluesky" / "user_group_permissions.yaml"
+    assert permissions_path.is_file()
+    permissions = yaml.safe_load(permissions_path.read_text(encoding="utf-8"))
+
+    user_groups = permissions["user_groups"]
+    assert "root" in user_groups, "'root' is queueserver's required preliminary filter"
+    for group, entry in user_groups.items():
+        allowed_functions = entry["allowed_functions"]
+        assert allowed_functions == ["preview_plan"], (
+            f"'{group}' group must allow exactly one function, 'preview_plan' "
+            f"(the read-only pre-flight trajectory summary) — got {allowed_functions!r}"
+        )
+
+
 def _render_bluesky_tiled(*, tiled_enabled: bool, va_deployed: bool = False) -> str:
     return _render_bluesky_template(
         va_deployed=va_deployed,
@@ -1277,7 +1345,7 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     the relative path "storage/data.duckdb" against /app and failed
     server-side ("The directory storage does not exist."), which
     ``_FaultIsolatedTiledWriter`` caught and silently latched
-    ``tiled_degraded=True`` — the scan still completed, so nothing crashed
+    ``tiled_degraded=True`` — the plan still completed, so nothing crashed
     and persistence just silently didn't happen. The client-visible symptom
     (a 409 on the run's metadata POST) points at TiledWriter's write logic,
     not at the storage URI — the real cause is visible only server-side.
@@ -1379,10 +1447,10 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 4.3 / FR11: turn-key scan-stack deploy config
+# Task 4.3 / FR11: turn-key plan-stack deploy config
 #
 # A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
-# control_system.type=virtual_accelerator and the scan MCP server enabled
+# control_system.type=virtual_accelerator and the bluesky MCP server enabled
 # (BLUESKY_LAUNCH_TOKEN is minted unconditionally for the deployed bluesky
 # service, so no execution-method override is needed to arm the agent).
 # tests/e2e/_orm_stack.py is the single source of this
@@ -1392,7 +1460,7 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
+def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FR11's turn-key deploy config, end to end without Docker:
@@ -1405,7 +1473,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
       - ``execution.execution_method: subprocess`` (the one execution backend
         OSPREY ships — the deploy config sets no override, so this is the
         rendered default, and no code path reads it for safety semantics),
-      - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
+      - the ``bluesky`` MCP server enabled in the rendered ``.mcp.json`` (it is
         ``default_enabled=False`` in the framework registry — a project must
         opt in, and this deploy config does).
     """
@@ -1428,10 +1496,10 @@ def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
 
-    # -- scan MCP server enabled in the rendered .mcp.json -------------------
+    # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
     mcp_config = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
     assert "bluesky" in mcp_config["mcpServers"], (
-        "the scan MCP server must be enabled (claude_code.servers.bluesky.enabled: "
+        "the bluesky MCP server must be enabled (claude_code.servers.bluesky.enabled: "
         f"true) so list_plans/queue_add are reachable: {mcp_config['mcpServers'].keys()}"
     )
 
@@ -1938,7 +2006,6 @@ def _render_postgres_template(project_name: str) -> str:
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
     )
@@ -1998,7 +2065,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
         services={"postgresql": {"port_host": 5432, "image": "registry.local/pg:custom"}},
         deployment={},
         system={"timezone": "UTC"},
-        osprey_labels={"project_name": "p", "project_root": "/r/p", "deployed_at": "now"},
+        osprey_labels={"project_name": "p", "project_root": "/r/p"},
         osprey_version="",
     )
     svc = yaml.safe_load(rendered)["services"]["postgresql"]
@@ -2039,7 +2106,6 @@ def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: obj
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
     )
@@ -2403,7 +2469,6 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "osprey_labels": {
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         "osprey_version": "",
         "osprey_env_present": False,
@@ -3512,7 +3577,6 @@ def _render_nextcloud_bridge_template(
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
         osprey_env_present=env_present,
@@ -4181,7 +4245,6 @@ def _render_gchat_bridge_template(
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
         osprey_env_present=env_present,
@@ -5322,6 +5385,35 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
 #: The label line the dispatcher gained, exactly as it must render.
 _DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
 
+#: The deploy-timestamp label the templates no longer carry, as the committed
+#: side still renders it while this removal is uncommitted. Normalized away on
+#: both sides for the same reason the digest label is: the comparison below is
+#: "these two renders differ only by the deltas named here", and a delta that
+#: is being REMOVED has to be nameable too or the check cannot survive its own
+#: commit. Once committed neither side emits it and both replacements are
+#: no-ops; that the label is gone for good is pinned directly by
+#: :func:`test_render_carries_no_deploy_timestamp`.
+_DEPLOYED_AT_LABEL_LINE = '      osprey.deployed.at: ""\n'
+
+#: The config-digest label and the comment that carries its reasoning, as the
+#: committed side does not render them yet while this addition is uncommitted.
+#: The mirror image of :data:`_DEPLOYED_AT_LABEL_LINE` — one delta is a removal
+#: and this one an addition, and both have to be nameable for the comparison
+#: below to survive its own commit. Includes the comment because the delta IS
+#: the whole block: stripping the label alone would leave the comment as an
+#: unexplained difference and fail for the wrong reason.
+_CONFIG_DIGEST_BLOCK = (
+    "      # Content fingerprint of the rendered config this deploy built\n"
+    "      # (runtime_helper's as_built_config_digest, carried in by\n"
+    "      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for\n"
+    "      # the other file a container reads its settings from: this service mounts\n"
+    "      # the rendered config.yml, so `osprey set` changes a file the compose\n"
+    "      # document never mentions and compose would leave the container running on\n"
+    "      # the settings it parsed at startup. Empty when the invocation did not set\n"
+    "      # the variable (a hand-run `docker compose up`).\n"
+    '      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"\n'
+)
+
 
 def _head_dispatcher_render() -> str:
     """Render the dispatcher template as of ``HEAD`` in the same Environment.
@@ -5364,21 +5456,28 @@ def _head_dispatcher_render() -> str:
 
 
 def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_label() -> None:
-    """One enumerated delta, byte for byte, and nothing else.
+    """The enumerated deltas, byte for byte, and nothing else.
 
     Asserted on raw text rather than parsed YAML: the macros' whole whitespace
     contract is that a default render moves no byte, and a parsed comparison
-    would pass on a render that gained or lost a blank line. The label is
-    removed from BOTH sides so the check keeps its meaning once the template is
-    committed — what it pins is "the digest label is the only difference",
-    which stays true either way.
+    would pass on a render that gained or lost a blank line. The enumerated
+    labels are removed from BOTH sides so the check keeps its meaning once the
+    templates are committed — what it pins is "these labels are the only
+    differences", which stays true either way.
     """
+
+    def _normalized(text: str) -> str:
+        return (
+            text.replace(_DIGEST_LABEL_LINE, "", 1)
+            .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
+            .replace(_CONFIG_DIGEST_BLOCK, "", 1)
+        )
+
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
-    assert rendered.replace(_DIGEST_LABEL_LINE, "", 1) == _head_dispatcher_render().replace(
-        _DIGEST_LABEL_LINE, "", 1
-    )
+    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 1, "the config digest renders exactly once"
+    assert _normalized(rendered) == _normalized(_head_dispatcher_render())
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])

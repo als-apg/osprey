@@ -1,13 +1,14 @@
 """Coverage for `PlanSpec.render`: the optional, typed
-``render(rows, params) -> Figure`` a plan may declare, and the loader rule that
-decides whether it is honored.
+``render(window, params) -> Figure`` a plan may declare, and the loader rule
+that decides whether it is honored.
 
 Two halves, because the field has two contracts:
 
 - **Runtime** — `plan_loader._resolve_render`'s resolution rule. It is total:
   every failure mode (no ``render``, a non-callable one, an attribute access
-  that raises, an untrusted tier) yields ``render=None`` and the plan still
-  registers. A drawing concern must never cost an operator a launchable plan.
+  that raises, an untrusted tier, a render still written against the old row
+  list) yields ``render=None`` and the plan still registers. A drawing concern
+  must never cost an operator a launchable plan.
 - **Static** — the field is typed against the plan's *own* ``SchemaT``, so a
   ``render()`` that takes ``dict[str, Any]`` instead of its PARAMS is a mypy
   error rather than a surprise at the first poll tick. Nothing at runtime can
@@ -40,6 +41,7 @@ from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.figure import (
     REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS,
     Figure,
+    RowWindow,
 )
 from osprey.services.bluesky_bridge.plan_types import PlanSpec, Provenance
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
@@ -91,8 +93,6 @@ def _plan_source(name: str, *, tail: str = "") -> str:
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
         '    "description": "A render-contract test plan.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": [],\n'
         '    "writes": False,\n'
         "}\n\n\n"
         "def build_plan(devices, params):\n"
@@ -101,9 +101,13 @@ def _plan_source(name: str, *, tail: str = "") -> str:
     )
 
 
-_GOOD_RENDER = '\n\ndef render(rows, params):\n    return Figure(partial=False, source="live")\n'
+_GOOD_RENDER = '\n\ndef render(window, params):\n    return Figure(partial=False, source="live")\n'
 
 _NON_CALLABLE_RENDER = "\n\nrender = 42\n"
+
+_VAR_POSITIONAL_RENDER = (
+    '\n\ndef render(*args, **kwargs):\n    return Figure(partial=False, source="live")\n'
+)
 
 _RAISING_RENDER = (
     "\n\n"
@@ -132,6 +136,11 @@ def _spec(registry: dict[str, tuple[Provenance, str, PlanSpec]], name: str) -> P
     return registry[name][2]
 
 
+def _empty_window() -> RowWindow:
+    """A window over a run that has produced nothing — complete, and vacuously so."""
+    return RowWindow(rows=[], columns=[], rows_complete=True, total_seen=0)
+
+
 # ==========================================================================
 # The field itself
 # ==========================================================================
@@ -154,7 +163,7 @@ def test_to_dict_does_not_serialize_render() -> None:
         name="demo",
         plan=lambda devices, params: None,
         schema=_DemoParams,
-        render=lambda rows, params: Figure(partial=False, source="live"),
+        render=lambda window, params: Figure(partial=False, source="live"),
     )
     assert set(spec.to_dict()) == {
         "name",
@@ -180,7 +189,7 @@ def test_trusted_tier_render_is_resolved_onto_the_spec(
     spec = _spec(_load_one(path, provenance), "drawable")
 
     assert spec.render is not None
-    figure = spec.render([], _DemoParams())
+    figure = spec.render(_empty_window(), _DemoParams())
     assert isinstance(figure, Figure)
     assert figure.source == "live"
 
@@ -231,6 +240,16 @@ def test_render_attribute_that_raises_warns_and_still_registers_the_plan(
     assert "could not read render" in caplog.text
     assert "render attribute exploded" in caplog.text
     assert "quarantining" not in caplog.text
+
+
+def test_a_var_positional_render_is_honored(tmp_path: Path) -> None:
+    """``*args`` accepts whatever it is handed; any callable render is stored."""
+    path = _write_plan(tmp_path, "splat", tail=_VAR_POSITIONAL_RENDER)
+
+    spec = _spec(_load_one(path, "shipped"), "splat")
+
+    assert spec.render is not None
+    assert spec.render(_empty_window(), _DemoParams()).source == "live"
 
 
 # ==========================================================================
@@ -304,7 +323,7 @@ def test_legacy_module_render_survives_provenance_normalization(tmp_path: Path) 
         "from osprey.services.bluesky_bridge.plan_types import PlanSpec\n\n\n"
         "class Params(BaseModel):\n"
         "    amplitude: float = 1.0\n\n\n"
-        "def render(rows, params):\n"
+        "def render(window, params):\n"
         '    return Figure(partial=True, source="tiled")\n\n\n'
         "PLANS = {\n"
         '    "legacy": PlanSpec(\n'
@@ -324,7 +343,7 @@ def test_legacy_module_render_survives_provenance_normalization(tmp_path: Path) 
     spec = loaded.plans["legacy"]
     assert spec.provenance == "facility"
     assert spec.render is not None
-    assert spec.render([], spec.schema()).source == "tiled"
+    assert spec.render(_empty_window(), spec.schema()).source == "tiled"
 
 
 # ==========================================================================
@@ -335,7 +354,7 @@ _SNIPPET_PREAMBLE = (
     "from __future__ import annotations\n\n"
     "from typing import Any\n\n"
     "from pydantic import BaseModel\n\n"
-    "from osprey.services.bluesky_bridge.figure import Figure\n"
+    "from osprey.services.bluesky_bridge.figure import Figure, RowWindow\n"
     "from osprey.services.bluesky_bridge.plan_types import PlanSpec\n\n\n"
     "class DemoParams(BaseModel):\n"
     "    amplitude: float = 1.0\n\n\n"
@@ -344,15 +363,20 @@ _SNIPPET_PREAMBLE = (
 )
 
 _WELL_TYPED_SNIPPET = (
-    _SNIPPET_PREAMBLE + "def render(rows: list[dict[str, Any]], params: DemoParams) -> Figure:\n"
+    _SNIPPET_PREAMBLE + "def render(window: RowWindow, params: DemoParams) -> Figure:\n"
     '    return Figure(partial=False, source="live")\n\n\n'
     "SPEC = PlanSpec(name='demo', plan=build_plan, schema=DemoParams, render=render)\n"
     "reveal_type(SPEC)  # noqa: F821\n"
 )
 
 _MIS_TYPED_SNIPPET = (
-    _SNIPPET_PREAMBLE
-    + "def render(rows: list[dict[str, Any]], params: dict[str, Any]) -> Figure:\n"
+    _SNIPPET_PREAMBLE + "def render(window: RowWindow, params: dict[str, Any]) -> Figure:\n"
+    '    return Figure(partial=False, source="live")\n\n\n'
+    "SPEC = PlanSpec(name='demo', plan=build_plan, schema=DemoParams, render=render)\n"
+)
+
+_ROW_LIST_SNIPPET = (
+    _SNIPPET_PREAMBLE + "def render(rows: list[dict[str, Any]], params: DemoParams) -> Figure:\n"
     '    return Figure(partial=False, source="live")\n\n\n'
     "SPEC = PlanSpec(name='demo', plan=build_plan, schema=DemoParams, render=render)\n"
 )
@@ -369,6 +393,7 @@ def mypy_output(tmp_path_factory: pytest.TempPathFactory) -> str:
     snippet_dir = tmp_path_factory.mktemp("render_typing")
     (snippet_dir / "well_typed.py").write_text(_WELL_TYPED_SNIPPET)
     (snippet_dir / "mis_typed.py").write_text(_MIS_TYPED_SNIPPET)
+    (snippet_dir / "row_list.py").write_text(_ROW_LIST_SNIPPET)
 
     env = dict(os.environ)
     env["MYPYPATH"] = str(_SRC_ROOT)
@@ -427,4 +452,20 @@ def test_a_render_taking_dict_instead_of_its_params_fails_mypy(mypy_output: str)
     assert offending, (
         "a render() annotated dict[str, Any] instead of its PARAMS type-checked "
         f"clean — the field's SchemaT parameterization is not biting:\n{mypy_output}"
+    )
+
+
+def test_a_render_taking_a_row_list_instead_of_a_window_fails_mypy(mypy_output: str) -> None:
+    """The static half of the row-list refusal. `plan_loader._resolve_render`
+    catches this at load time by inspecting the signature, but that costs the
+    operator the figure; mypy catches it while the plan is still being written,
+    which is where a plan author would rather hear it."""
+    offending = [
+        line
+        for line in mypy_output.splitlines()
+        if "row_list.py" in line and "error:" in line and 'Argument "render"' in line
+    ]
+    assert offending, (
+        "a render() still taking list[dict[str, Any]] type-checked clean against "
+        f"PlanSpec.render — the RowWindow cutover is not pinned statically:\n{mypy_output}"
     )

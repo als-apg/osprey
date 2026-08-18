@@ -31,6 +31,7 @@ from osprey.services.bluesky_bridge.figure import (  # noqa: E402
     Figure,
     HeatmapMark,
     LinesMark,
+    RowWindow,
 )
 from osprey.services.bluesky_bridge.plans_core import grid_scan  # noqa: E402
 from osprey.services.bluesky_bridge.plans_core.grid_scan import (  # noqa: E402
@@ -70,14 +71,14 @@ def _traverse(axes: list[GridAxis], snake: bool, flip: bool = False) -> Iterator
             yield (index, *tail)
 
 
-def _detector_value(indices: tuple[int, ...]) -> float:
+def _readable_value(indices: tuple[int, ...]) -> float:
     """A value unique to one grid point, so a mis-keyed cell is unmistakable."""
     return sum(index * 100**position for position, index in enumerate(reversed(indices))) + 0.5
 
 
 def _rows(
     axes: list[GridAxis],
-    detectors: dict[str, str],
+    readbacks: dict[str, str],
     *,
     snake: bool = False,
     jitter: float = 1e-9,
@@ -91,7 +92,7 @@ def _rows(
 
     Args:
         axes: The grid, outermost first.
-        detectors: Detector device name -> the event column it is recorded in
+        readbacks: Readable device name -> the event column it is recorded in
             (ophyd-async names a hinted child ``"<device>-<signal>"``).
         snake: Whether the inner axes reverse direction each outer step.
         jitter: How far each readback sits from its commanded position.
@@ -105,10 +106,24 @@ def _rows(
         for axis, index in zip(axes, indices, strict=True):
             offset = jitter if sign % 2 == 0 else -jitter
             row[axis_columns.get(axis.setpoint, axis.setpoint)] = _nominal(axis, index) + offset
-        for column in detectors.values():
-            row[column] = _detector_value(indices)
+        for column in readbacks.values():
+            row[column] = _readable_value(indices)
         rows.append(row)
     return rows
+
+
+def _window(rows: list[dict[str, Any]]) -> RowWindow:
+    """The complete-run `RowWindow` a figure source would hand `render`.
+
+    `grid_scan` places every cell by value rather than by row position, so it
+    never reads `rows_complete` -- the window here is always a whole run.
+    """
+    return RowWindow(
+        rows=rows,
+        columns=list(rows[0]) if rows else [],
+        rows_complete=True,
+        total_seen=len(rows),
+    )
 
 
 def _sole_panel(figure: Figure):
@@ -117,16 +132,16 @@ def _sole_panel(figure: Figure):
 
 
 # =========================================================================
-# One axis: detector-vs-setpoint lines
+# One axis: readable-vs-setpoint lines
 # =========================================================================
 
 
-def test_one_axis_draws_one_line_panel_per_detector_against_the_readback() -> None:
+def test_one_axis_draws_one_line_panel_per_readable_against_the_readback() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
-    params = PARAMS(detectors=["det1", "det2"], axes=axes)
+    params = PARAMS(readbacks=["det1", "det2"], axes=axes)
     rows = _rows(axes, {"det1": "det1", "det2": "det2"})
 
-    figure = render(rows, params)
+    figure = render(_window(rows), params)
 
     assert [panel.title for panel in figure.panels] == ["det1 vs motor1", "det2 vs motor1"]
     panel = figure.panels[0]
@@ -147,24 +162,24 @@ def test_one_axis_draws_one_line_panel_per_detector_against_the_readback() -> No
 
 def test_one_axis_orders_points_by_x_whatever_order_the_rows_arrived_in() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = list(reversed(_rows(axes, {"det1": "det1"})))
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, LinesMark)
     xs = [point.x for point in mark.series[0].points]
     assert xs == sorted(xs)
 
 
-def test_one_axis_keeps_a_missing_detector_reading_as_a_gap_not_a_zero() -> None:
+def test_one_axis_keeps_a_missing_readable_reading_as_a_gap_not_a_zero() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[1]["det1"] = None
     rows[2]["det1"] = float("nan")  # how Tiled spells the same absence
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, LinesMark)
     assert [point.y for point in mark.series[0].points] == [0.5, None, None]
@@ -172,12 +187,12 @@ def test_one_axis_keeps_a_missing_detector_reading_as_a_gap_not_a_zero() -> None
 
 def test_one_axis_drops_rows_with_no_usable_axis_reading_and_counts_them() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[1]["motor1"] = None
     rows[3]["motor1"] = float("nan")
 
-    panel = _sole_panel(render(rows, params))
+    panel = _sole_panel(render(_window(rows), params))
     mark = panel.mark
 
     assert isinstance(mark, LinesMark)
@@ -190,10 +205,10 @@ def test_one_axis_drops_rows_with_no_usable_axis_reading_and_counts_them() -> No
 def test_one_axis_thins_a_long_sweep_and_says_so() -> None:
     total = DEFAULT_MAX_POINTS * 2
     axes = [_axis("motor1", 0.0, 1.0, total)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
 
-    panel = _sole_panel(render(rows, params))
+    panel = _sole_panel(render(_window(rows), params))
     mark = panel.mark
 
     assert isinstance(mark, LinesMark)
@@ -210,8 +225,8 @@ def test_snake_axes_is_a_no_op_for_a_single_axis() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
     rows = _rows(axes, {"det1": "det1"})
 
-    straight = render(rows, PARAMS(detectors=["det1"], axes=axes, snake_axes=False))
-    snaked = render(rows, PARAMS(detectors=["det1"], axes=axes, snake_axes=True))
+    straight = render(_window(rows), PARAMS(readbacks=["det1"], axes=axes, snake_axes=False))
+    snaked = render(_window(rows), PARAMS(readbacks=["det1"], axes=axes, snake_axes=True))
 
     assert straight.model_dump() == snaked.model_dump()
 
@@ -224,10 +239,10 @@ def test_snake_axes_is_a_no_op_for_a_single_axis() -> None:
 @pytest.mark.parametrize("snake", [False, True])
 def test_two_axis_heatmap_cells_match_their_source_rows(snake: bool) -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", -1.0, 1.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=snake)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=snake)
     rows = _rows(axes, {"det1": "det1-value"}, snake=snake)
 
-    panel = _sole_panel(render(rows, params))
+    panel = _sole_panel(render(_window(rows), params))
     mark = panel.mark
     assert isinstance(mark, HeatmapMark)
 
@@ -249,12 +264,12 @@ def test_two_axis_heatmap_is_the_same_picture_snaked_or_not() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", -1.0, 1.0, 5)]
 
     straight = render(
-        _rows(axes, {"det1": "det1"}, snake=False),
-        PARAMS(detectors=["det1"], axes=axes, snake_axes=False),
+        _window(_rows(axes, {"det1": "det1"}, snake=False)),
+        PARAMS(readbacks=["det1"], axes=axes, snake_axes=False),
     )
     snaked = render(
-        _rows(axes, {"det1": "det1"}, snake=True),
-        PARAMS(detectors=["det1"], axes=axes, snake_axes=True),
+        _window(_rows(axes, {"det1": "det1"}, snake=True)),
+        PARAMS(readbacks=["det1"], axes=axes, snake_axes=True),
     )
 
     assert straight.model_dump() == snaked.model_dump()
@@ -262,9 +277,9 @@ def test_two_axis_heatmap_is_the_same_picture_snaked_or_not() -> None:
 
 def test_two_axis_heatmap_labels_the_commanded_grid_positions() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", -1.0, 1.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
 
-    panel = _sole_panel(render(_rows(axes, {"det1": "det1"}), params))
+    panel = _sole_panel(render(_window(_rows(axes, {"det1": "det1"})), params))
     mark = panel.mark
 
     assert isinstance(mark, HeatmapMark)
@@ -283,10 +298,10 @@ def test_two_axis_heatmap_does_not_fan_out_when_readbacks_miss_their_setpoints()
     "columns" -- one row of the image per reading.
     """
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", -1.0, 1.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=True)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=True)
     rows = _rows(axes, {"det1": "det1"}, snake=True, jitter=5e-9)
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, HeatmapMark)
     assert mark.source_points == 15
@@ -295,10 +310,10 @@ def test_two_axis_heatmap_does_not_fan_out_when_readbacks_miss_their_setpoints()
 
 def test_two_axis_unmeasured_cells_stay_empty_on_a_partial_run() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", 0.0, 1.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})[:4]  # the run is still on its second pass
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, HeatmapMark)
     assert mark.source_points == 4
@@ -309,11 +324,11 @@ def test_two_axis_unmeasured_cells_stay_empty_on_a_partial_run() -> None:
 
 def test_two_axis_drops_a_row_caught_between_grid_points_and_counts_it() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", 0.0, 2.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[4]["motor2"] = 0.5  # a device caught mid-move, halfway between points
 
-    panel = _sole_panel(render(rows, params))
+    panel = _sole_panel(render(_window(rows), params))
     mark = panel.mark
 
     assert isinstance(mark, HeatmapMark)
@@ -327,11 +342,11 @@ def test_two_axis_drops_a_row_caught_between_grid_points_and_counts_it() -> None
 def test_two_axis_keeps_the_axis_span_tolerance_proportional() -> None:
     """A wide axis tolerates a proportionally wider readback error."""
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1e6, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"}, jitter=0.0)
     rows[0]["motor2"] = 0.4  # 4e-7 of the span: noise on a metre-scale stage
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, HeatmapMark)
     assert mark.values[0][0] == 0.5
@@ -339,25 +354,25 @@ def test_two_axis_keeps_the_axis_span_tolerance_proportional() -> None:
 
 def test_two_axis_records_the_later_row_when_a_cell_is_measured_twice() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     revisit = dict(rows[0])
     revisit["det1"] = 42.0
     rows.append(revisit)
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, HeatmapMark)
     assert mark.values[0][0] == 42.0
     assert mark.source_points == 4
 
 
-def test_two_axis_draws_one_heatmap_per_detector() -> None:
+def test_two_axis_draws_one_heatmap_per_readable() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1", "det2"], axes=axes)
+    params = PARAMS(readbacks=["det1", "det2"], axes=axes)
     rows = _rows(axes, {"det1": "det1", "det2": "det2-value"})
 
-    figure = render(rows, params)
+    figure = render(_window(rows), params)
 
     assert [panel.mark.value_label for panel in figure.panels] == ["det1", "det2"]  # type: ignore[union-attr]
 
@@ -373,10 +388,10 @@ def test_three_axes_draw_one_line_per_outer_combination() -> None:
         _axis("motor2", 0.0, 2.0, 3),
         _axis("motor3", 0.0, 3.0, 4),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=True)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=True)
     rows = _rows(axes, {"det1": "det1"}, snake=True)
 
-    panel = _sole_panel(render(rows, params))
+    panel = _sole_panel(render(_window(rows), params))
     mark = panel.mark
     assert isinstance(mark, LinesMark)
 
@@ -410,10 +425,10 @@ def test_three_axes_cap_the_lines_and_count_what_is_not_drawn() -> None:
         _axis("motor2", 0.0, 4.0, 5),
         _axis("motor3", 0.0, 1.0, 2),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
 
-    panel = _sole_panel(render(rows, params))
+    panel = _sole_panel(render(_window(rows), params))
     mark = panel.mark
 
     assert isinstance(mark, LinesMark)
@@ -433,10 +448,10 @@ def test_four_axes_still_group_by_every_outer_axis() -> None:
         _axis("motor3", 0.0, 1.0, 2),
         _axis("motor4", 0.0, 1.0, 2),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=True)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=True)
     rows = _rows(axes, {"det1": "det1"}, snake=True)
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, LinesMark)
     assert len(mark.series) == 8
@@ -449,12 +464,12 @@ def test_three_axes_drop_rows_whose_outer_readbacks_are_off_grid() -> None:
         _axis("motor2", 0.0, 1.0, 2),
         _axis("motor3", 0.0, 1.0, 2),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[0]["motor2"] = 0.5
     rows[1]["motor3"] = None
 
-    panel = _sole_panel(render(rows, params))
+    panel = _sole_panel(render(_window(rows), params))
     mark = panel.mark
 
     assert isinstance(mark, LinesMark)
@@ -469,36 +484,71 @@ def test_three_axes_drop_rows_whose_outer_readbacks_are_off_grid() -> None:
 # =========================================================================
 
 
+@pytest.mark.parametrize("axis_count", [1, 2, 3])
+def test_the_same_rows_draw_the_same_figure_whether_the_window_is_complete(
+    axis_count: int,
+) -> None:
+    """``rows_complete`` changes nothing about a grid figure, at every dimensionality.
+
+    The render's contract is that it places rows by the axis values they carry
+    and never by where they sit in the sequence, which is why it is the one
+    render that leaves ``rows_complete`` unread — the orm render does read it
+    (`orm.py`), so "unread" is a real choice and not an accident of nobody
+    needing it. Every window this suite builds elsewhere is a complete one, so
+    without this the claim is stated in a docstring and pinned nowhere, and the
+    live figure route serves grid scans exactly the incomplete windows
+    (``rows_complete=False``, `app.py`) that would go untested.
+
+    Asserted on the wire form so the comparison covers every field a panel
+    carries — marks, labels, annotations, decimation truth — rather than the
+    few any single assertion would name.
+    """
+    axes = [_axis(f"motor{n + 1}", 0.0, 2.0, 3) for n in range(axis_count)]
+    params = PARAMS(readbacks=["det1"], axes=axes)
+    rows = _rows(axes, {"det1": "det1"})
+    partial = rows[: len(rows) // 2]
+
+    complete_window = RowWindow(
+        rows=partial, columns=list(partial[0]), rows_complete=True, total_seen=len(partial)
+    )
+    incomplete_window = complete_window._replace(rows_complete=False, total_seen=len(rows))
+
+    assert (
+        render(incomplete_window, params).model_dump()
+        == render(complete_window, params).model_dump()
+    )
+
+
 def test_columns_resolve_through_the_ophyd_async_child_suffix() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(
         axes,
         {"det1": "det1-value"},
         axis_columns={"motor1": "motor1-readback"},
     )
 
-    mark = _sole_panel(render(rows, params)).mark
+    mark = _sole_panel(render(_window(rows), params)).mark
 
     assert isinstance(mark, LinesMark)
     assert [point.y for point in mark.series[0].points] == [0.5, 1.5]
 
 
-def test_a_detector_that_never_reported_costs_only_its_own_panel() -> None:
+def test_a_readable_that_never_reported_costs_only_its_own_panel() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1", "det_offline"], axes=axes)
+    params = PARAMS(readbacks=["det1", "det_offline"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
 
-    figure = render(rows, params)
+    figure = render(_window(rows), params)
 
     assert [panel.title for panel in figure.panels] == ["det1 vs motor1"]
 
 
 def test_an_axis_column_that_is_absent_leaves_the_figure_empty() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
 
-    figure = render([{"det1": 1.0}, {"det1": 2.0}], params)
+    figure = render(_window([{"det1": 1.0}, {"det1": 2.0}]), params)
 
     assert figure.panels == []
 
@@ -518,7 +568,7 @@ def test_render_never_raises_on_malformed_rows(rows: list[dict[str, Any]]) -> No
         [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)],
         [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2), _axis("motor3", 0.0, 1.0, 2)],
     ):
-        figure = render(rows, PARAMS(detectors=["det1"], axes=axes))
+        figure = render(_window(rows), PARAMS(readbacks=["det1"], axes=axes))
         assert isinstance(figure, Figure)
 
 
@@ -532,7 +582,9 @@ def test_an_unforeseen_failure_costs_the_panels_not_the_response(
     axes = [_axis("motor1", 0.0, 1.0, 2)]
 
     with caplog.at_level(logging.WARNING):
-        figure = render(_rows(axes, {"det1": "det1"}), PARAMS(detectors=["det1"], axes=axes))
+        figure = render(
+            _window(_rows(axes, {"det1": "det1"})), PARAMS(readbacks=["det1"], axes=axes)
+        )
 
     assert figure.panels == []
     assert figure.partial is True
@@ -541,9 +593,9 @@ def test_an_unforeseen_failure_costs_the_panels_not_the_response(
 
 def test_the_figure_round_trips_through_its_own_wire_form() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", 0.0, 2.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
 
-    figure = render(_rows(axes, {"det1": "det1"}), params)
+    figure = render(_window(_rows(axes, {"det1": "det1"})), params)
     revalidated = Figure.model_validate(figure.model_dump())
 
     assert revalidated.model_dump() == figure.model_dump()

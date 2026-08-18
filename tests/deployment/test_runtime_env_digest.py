@@ -1,11 +1,16 @@
-"""Tests for the ``OSPREY_ENV_DIGEST`` fingerprint ``runtime_env`` injects.
+"""Tests for the content fingerprints ``runtime_env`` injects.
 
 The rendered compose templates carry an ``osprey.env.digest`` label
-interpolated from this variable, which is what makes an edit to the env chain
-recreate the containers that read it. podman-compose does not diff a running
-container's environment against the env files it was built from, so without a
-label that moves with the chain's contents, ``osprey up`` after an edit to
-``.env`` leaves the old values running.
+interpolated from ``OSPREY_ENV_DIGEST``, which is what makes an edit to the env
+chain recreate the containers that read it. podman-compose does not diff a
+running container's environment against the env files it was built from, so
+without a label that moves with the chain's contents, ``osprey up`` after an edit
+to ``.env`` leaves the old values running.
+
+``OSPREY_CONFIG_DIGEST`` and ``osprey.config.digest`` are the same mechanism for
+the other file a container reads settings out of: the rendered ``config.yml``
+each service mounts. Neither file is named by the compose document, which is the
+only thing compose compares, so both need a label to be seen at all.
 
 Two properties are load-bearing and tested separately here:
 
@@ -28,7 +33,13 @@ from pathlib import Path
 
 import pytest
 
-from osprey.deployment.runtime_helper import ENV_DIGEST_VAR, env_chain_digest, runtime_env
+from osprey.deployment.runtime_helper import (
+    CONFIG_DIGEST_VAR,
+    ENV_DIGEST_VAR,
+    as_built_config_digest,
+    env_chain_digest,
+    runtime_env,
+)
 
 # ---------------------------------------------------------------------------
 # The recipe.
@@ -176,6 +187,116 @@ def test_runtime_env_digest_does_not_leak_into_the_caller_env(tmp_path: Path) ->
     runtime_env({"project_root": str(tmp_path)}, base_env=base, ignore_orphans=True)
 
     assert base == {}
+
+
+# ---------------------------------------------------------------------------
+# The same contract for the as-built config.
+#
+# A service mounts the rendered config.yml, so a setting an operator changes
+# lands in a file the compose document never mentions -- and compose recreates
+# on a changed DEFINITION. Everything below is the env-chain recipe applied to
+# that file: hash its raw bytes, empty when there is no build yet, and carried by
+# every runtime_env call site so the label moves exactly when the config does.
+# ---------------------------------------------------------------------------
+
+
+def _write_as_built(repo_root: Path, text: str) -> Path:
+    """Lay down the one as-built config a build leaves behind."""
+    build_dir = repo_root / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    path = build_dir / "config.yml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_config_digest_is_empty_before_a_build_has_rendered_one(tmp_path: Path) -> None:
+    """Every verb that runs before a build sees no config, which is not an error."""
+    assert as_built_config_digest(tmp_path) == ""
+
+
+def test_config_digest_hashes_the_as_built_config_bytes(tmp_path: Path) -> None:
+    """The recipe, so a second reproducer of it cannot disagree."""
+    _write_as_built(tmp_path, "connector: virtual_accelerator\n")
+
+    expected = hashlib.sha256(b"connector: virtual_accelerator\n").hexdigest()
+    assert as_built_config_digest(tmp_path) == expected
+
+
+def test_config_digest_is_stable_across_rewrites_of_identical_bytes(tmp_path: Path) -> None:
+    """Rebuilding an unchanged deployment must not restart it.
+
+    The property the removed deploy timestamp destroyed: it differed on every
+    render, so every ``up`` recreated every container.
+    """
+    _write_as_built(tmp_path, "connector: virtual_accelerator\n")
+    before = as_built_config_digest(tmp_path)
+
+    _write_as_built(tmp_path, "connector: virtual_accelerator\n")
+
+    assert as_built_config_digest(tmp_path) == before
+
+
+def test_config_digest_moves_when_a_setting_changes(tmp_path: Path) -> None:
+    """The whole point, in the shape the operator hits it.
+
+    ``osprey set connector=mock`` rewrites the config and the next ``up`` has to
+    recreate the containers that mount it -- otherwise the deployment keeps
+    answering with the connector it started on, and the flip silently did
+    nothing.
+    """
+    _write_as_built(tmp_path, "connector: virtual_accelerator\n")
+    before = as_built_config_digest(tmp_path)
+
+    _write_as_built(tmp_path, "connector: mock\n")
+
+    assert as_built_config_digest(tmp_path) != before
+
+
+def test_runtime_env_carries_the_config_digest_of_the_configured_repo(tmp_path: Path) -> None:
+    """The value in the env is the build under the repo compose is pinned to."""
+    _write_as_built(tmp_path, "connector: mock\n")
+    config = {"project_name": "proj-a", "project_root": str(tmp_path)}
+
+    env = runtime_env(config, base_env={})
+
+    assert env[CONFIG_DIGEST_VAR] == hashlib.sha256(b"connector: mock\n").hexdigest()
+
+
+def test_runtime_env_config_digest_is_empty_without_a_build(tmp_path: Path) -> None:
+    """Set-but-empty, like the env digest, so callers can rely on the key."""
+    config = {"project_name": "proj-a", "project_root": str(tmp_path)}
+
+    assert runtime_env(config, base_env={})[CONFIG_DIGEST_VAR] == ""
+
+
+def test_runtime_env_recomputes_rather_than_inheriting_a_stale_config_digest(
+    tmp_path: Path,
+) -> None:
+    """A value left in an outer shell must never pin the label."""
+    _write_as_built(tmp_path, "connector: mock\n")
+    config = {"project_name": "proj-a", "project_root": str(tmp_path)}
+
+    env = runtime_env(config, base_env={CONFIG_DIGEST_VAR: "stale-from-an-outer-shell"})
+
+    assert env[CONFIG_DIGEST_VAR] == hashlib.sha256(b"connector: mock\n").hexdigest()
+
+
+def test_the_two_digests_are_independent(tmp_path: Path) -> None:
+    """An env-chain edit must not move the config digest, or the reverse.
+
+    They answer different questions about different files, and a deployment that
+    edited only one of them should recreate for that reason alone.
+    """
+    (tmp_path / ".env").write_text("LOCAL=2\n", encoding="utf-8")
+    _write_as_built(tmp_path, "connector: mock\n")
+    config = {"project_name": "proj-a", "project_root": str(tmp_path)}
+    first = runtime_env(config, base_env={})
+
+    (tmp_path / ".env").write_text("LOCAL=3\n", encoding="utf-8")
+    second = runtime_env(config, base_env={})
+
+    assert second[ENV_DIGEST_VAR] != first[ENV_DIGEST_VAR]
+    assert second[CONFIG_DIGEST_VAR] == first[CONFIG_DIGEST_VAR]
 
 
 # ---------------------------------------------------------------------------

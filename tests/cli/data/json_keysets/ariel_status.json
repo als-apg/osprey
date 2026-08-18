@@ -13,6 +13,7 @@
   "entries",
   "message",
   "search_modules",
+  "search_modules.hybrid",
   "search_modules.keyword",
   "search_modules.semantic",
   "status"

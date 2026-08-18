@@ -52,7 +52,6 @@ def _render(
         "osprey_labels": {
             "project_name": "proj",
             "project_root": "/tmp/proj",
-            "deployed_at": "2026-08-07T00:00:00Z",
         },
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
@@ -157,7 +156,7 @@ def test_manager_is_given_the_mandatory_existing_plans_devices_path(
     ``existing_plans_and_devices_path`` as fatal (``logger.error(...); return
     1``), so a command without this flag exits immediately and the container
     restart-loops forever, with the bridge reporting ``manager_unreachable``
-    and no scan ever running. That is exactly what shipped until the
+    and no plan ever running. That is exactly what shipped until the
     container e2e (``tests/e2e/test_bluesky_queue_e2e.py``) actually deployed
     the stack: this render suite asserted the argv we WROTE, which upstream is
     free to reject.
@@ -431,16 +430,34 @@ def test_shipped_permissions_pass_upstream_and_admit_catalog_plans() -> None:
     assert sorted(allowed_devices["primary"]) == ["bpm1", "corr1"]
 
 
-def test_shipped_permissions_deny_function_execution_globally() -> None:
+def test_shipped_permissions_allow_only_preview_plan() -> None:
     """`function_execute` runs arbitrary callables in the worker namespace,
-    outside the plan path and outside the connector's reference monitor. An
-    empty `allowed_functions` selects nothing, and `root` filters every group,
-    so this denies it everywhere. The bridge never calls it."""
-    permissions = yaml.safe_load(
-        (TEMPLATE_DIR / "bluesky" / "user_group_permissions.yaml").read_text(encoding="utf-8")
+    outside the plan path and outside the connector's reference monitor, so
+    this must stay closed except for one deliberate, read-only exception.
+
+    Proved with queueserver's own `check_if_function_allowed` rather than by
+    reading the YAML shape, so the assertion tracks upstream's actual
+    resolution (root-as-preliminary-filter, allow/forbid pattern matching)
+    instead of our assumptions about it. `preview_plan_in_namespace` and
+    `collect_channel_moves` are sibling worker-namespace callables that share
+    `preview_plan`'s prefix; both must stay denied, which also pins that the
+    entry is an exact-match literal, not an unanchored substring or regex."""
+    from bluesky_queueserver.manager.profile_ops import (
+        check_if_function_allowed,
+        load_user_group_permissions,
     )
-    for group in permissions["user_groups"].values():
-        assert group["allowed_functions"] == []
+
+    permissions = load_user_group_permissions(
+        str(TEMPLATE_DIR / "bluesky" / "user_group_permissions.yaml")
+    )
+    for group in ("root", "primary"):
+        assert check_if_function_allowed(
+            "preview_plan", group_name=group, user_group_permissions=permissions
+        )
+        for other in ("preview_plan_in_namespace", "collect_channel_moves"):
+            assert not check_if_function_allowed(
+                other, group_name=group, user_group_permissions=permissions
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +478,7 @@ def test_queueserver_gets_the_config_mount_and_config_file(rendered: dict[str, A
 
 def test_limits_db_is_mounted_read_only_when_writes_are_enabled() -> None:
     """Without the DB the empty-DB failsafe blocks every write, so a
-    writes-enabled deploy that skipped this mount could not scan at all."""
+    writes-enabled deploy that skipped this mount could not run a plan at all."""
     rendered = _render(writes_enabled=True)
     assert (
         "./data/channel_limits.json:/app/project/data/channel_limits.json:ro"
@@ -481,7 +498,7 @@ def test_substrate_env_is_not_gated_on_the_va_being_co_deployed(
     """A facility on real EPICS has no VA container but still has a substrate;
     gating these on the VA would leave its worker with no devices."""
     manager_env = rendered["services"]["queueserver"]["environment"]
-    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_MOTORS", "BLUESKY_EPICS_DETECTORS"):
+    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_SETPOINTS", "BLUESKY_EPICS_READBACKS"):
         assert manager_env[var] == f"${{{var}:-}}"
 
 
@@ -585,7 +602,6 @@ def test_redis_image_honours_a_config_override() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},
@@ -731,7 +747,6 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},
@@ -755,7 +770,6 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},

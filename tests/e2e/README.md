@@ -185,7 +185,7 @@ source of truth.
 | `test_tiled_roundtrip.py` | `tiled-roundtrip-e2e` |
 | `test_bluesky_catalog_e2e.py` | `bluesky-catalog-e2e` |
 | `test_bluesky_sandbox_escape_e2e.py` | `bluesky-sandbox-escape-e2e` |
-| `test_scan_stack_agentic.py` | `scan-agentic-e2e` |
+| `test_plan_stack_agentic.py` | `scan-agentic-e2e` |
 
 Two entries are worth reading twice. `test_grid_scan_roundtrip.py` and
 `test_bump_roundtrip.py` are **adopted into** `orm-roundtrip-e2e` rather than
@@ -196,7 +196,7 @@ contention, since `test_bump_roundtrip.py` pins its whole port block. And
 `bluesky-queue-e2e` drives the queue stack with **no LLM in the loop** — it is
 a plain protocol test, unlike the agentic lane below.
 
-### `test_scan_stack_agentic.py` — the agentic member
+### `test_plan_stack_agentic.py` — the agentic member
 
 The only module in the family that puts an **agent** in the loop. An operator
 asks in plain language for a measurement on a **healthy** stack; the agent must
@@ -222,11 +222,11 @@ use, so you can iterate without Docker or a live run:
 
 ```bash
 # Structural floor — hand-built traces. No Docker, no API key, no agent.
-.venv/bin/pytest tests/e2e/test_scan_stack_agentic.py -k floor
+.venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k floor
 
 # Judge rubric — hand-written conclusions, one failing control per criterion.
 # Needs the judge provider's credentials (ALS_APG_API_KEY), nothing else.
-.venv/bin/pytest tests/e2e/test_scan_stack_agentic.py -k judge
+.venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k judge
 ```
 
 ## Per-PR LLM cost expectation
@@ -341,7 +341,7 @@ async def test_my_workflow(e2e_project_factory):
    judge what the floor already covered so it does not re-penalize it, and
    dry-verify both halves offline — the floor against hand-built traces, the
    judge against one passing conclusion plus one failing control per criterion —
-   before you spend a live run. See `test_scan_stack_agentic.py`.
+   before you spend a live run. See `test_plan_stack_agentic.py`.
 3. **Mark appropriately** - use `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.requires_*`
 4. **Clean validation** - verify actual outputs (files, code content) not just LLM responses
 

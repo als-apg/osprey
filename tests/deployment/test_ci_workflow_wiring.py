@@ -65,7 +65,7 @@ GRID_TEST_FILE = "tests/e2e/test_grid_scan_roundtrip.py"
 QUEUE_JOB = "bluesky-queue-e2e"
 QUEUE_TEST_FILE = "tests/e2e/test_bluesky_queue_e2e.py"
 SCAN_AGENTIC_JOB = "scan-agentic-e2e"
-SCAN_AGENTIC_TEST_FILE = "tests/e2e/test_scan_stack_agentic.py"
+SCAN_AGENTIC_TEST_FILE = "tests/e2e/test_plan_stack_agentic.py"
 SCAN_AGENTIC_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 ARCHIVER_JOB = "archiver-world-e2e"
 ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
@@ -2220,12 +2220,12 @@ def test_all_checks_passed_needs_bluesky_queue__mutation_drops_check_pr_lane_lin
 
 
 # ---------------------------------------------------------------------------
-# (k) scan-agentic-e2e: the agent-driven scan lane, secret-gated
+# (k) scan-agentic-e2e: the agent-driven plan lane, secret-gated
 # ---------------------------------------------------------------------------
 
 
 def test_scan_agentic_job_exists(workflow: dict[str, Any]) -> None:
-    """``test_scan_stack_agentic.py`` is ``--ignore``'d by the shared e2e-tests
+    """``test_plan_stack_agentic.py`` is ``--ignore``'d by the shared e2e-tests
     lane (its two live tests deploy the VA/bridge/queue stack on fixed host
     ports), so this dedicated job is the only place any of it runs — the
     offline floor and judge checks included, since they live in the same

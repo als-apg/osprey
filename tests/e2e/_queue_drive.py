@@ -5,7 +5,7 @@ The bridge has no direct-execute route any more: ``POST /runs`` and
 now four steps -- stage it in the shared draft, enqueue the exact revision that
 was staged, arm the queue with the launch token, poll the run record -- and
 this module is the single place they are spelled out, so a change to the flow
-lands in one file rather than in every deploy proof that happens to run a scan.
+lands in one file rather than in every deploy proof that happens to run a plan.
 
 ``tests/e2e/test_bluesky_queue_e2e.py`` deliberately does NOT import this: that
 module is the acceptance instrument for the queue surface itself, and a proof
@@ -16,7 +16,7 @@ round trip, and for which the queue is merely transport -- should use this.
 WHY EACH STEP IS SHAPED THE WAY IT IS:
 
 * The draft is CLEARED before it is staged. A ``PATCH /draft`` that changes
-  nothing is a documented no-op: no revision bump. Re-running the same scan
+  nothing is a documented no-op: no revision bump. Re-running the same plan
   with the same arguments (which is exactly what ``pytest.mark.flaky`` does on
   a rerun) would therefore hand back the revision the first attempt already
   consumed, and the enqueue would be refused ``draft_revision_already_launched``
@@ -256,7 +256,7 @@ def assert_start_request_route_is_gone(base_url: str) -> None:
     )
 
 
-def run_scan(
+def run_plan(
     base_url: str,
     plan_name: str,
     plan_args: dict[str, Any],

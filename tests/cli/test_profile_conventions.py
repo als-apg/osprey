@@ -19,9 +19,11 @@ import pytest
 
 from osprey.cli.profile_conventions import (
     BUILD_OUTPUT_DIR,
+    CONTEXT_BASELINE_FILENAME,
     CONVENTION_DIRS,
     CONVENTION_SOURCES,
     KNOWN_ROOT_ENTRIES,
+    PER_USER_CONTEXT_DIRNAME,
     PROJECT_MIRROR_DIR,
     RESERVED_PROJECT_PATHS,
     STATE_DIR,
@@ -151,6 +153,7 @@ def test_destination_for_rejects_a_non_convention_root():
         ("CLAUDE.md", "claude_md_template"),
         ("data/simulation/channel_manifest.json", "`data/`"),
         ("data/simulation/channel_limits.json", "`data/`"),
+        ("docker/web-terminal-context/base.md", "`web-terminal-context/base.md`"),
     ],
 )
 def test_reserved_path_names_its_channel(reserved: str, channel_hint: str):
@@ -385,6 +388,93 @@ def test_loose_file_in_a_directory_shaped_convention_is_rejected(profile_dir: Pa
     message = str(excinfo.value)
     assert "skills/orbit-check.md" in message
     assert "one directory per skill" in message
+
+
+def test_loose_file_in_the_per_user_convention_states_the_roster_rule(profile_dir: Path):
+    """The generic "move it into ``<stem>/``" advice manufactures a phantom user.
+
+    Directory names under the per-user convention are matched against the
+    resolved roster, so a directory invented to hold a loose file names nobody:
+    the build skips it as departed, and the operator's file stops being read
+    while they believe they followed the instructions. The message has to name
+    the rule, and must not offer the move that breaks it.
+    """
+    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / "shift-notes.md")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        validate_convention_sources(profile_dir)
+
+    message = str(excinfo.value)
+    assert f"{PER_USER_CONTEXT_DIRNAME}/shift-notes.md is a file" in message
+    assert "named for a user on the resolved roster" in message
+    assert "skipped as a user who has left" in message
+    assert f"{PER_USER_CONTEXT_DIRNAME}/<user>/shift-notes.md" in message
+    # The advice that would quietly stop the file being read.
+    assert f"Move it into {PER_USER_CONTEXT_DIRNAME}/shift-notes/" not in message
+
+
+def test_base_md_at_the_convention_root_is_accepted_and_planned(profile_dir: Path):
+    """``base.md`` is the per-user convention's one loose file: the shared
+    baseline every seeded user starts from, overriding the framework's
+    fallback at the same destination."""
+    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / CONTEXT_BASELINE_FILENAME, "# baseline\n")
+
+    validate_convention_sources(profile_dir)
+
+    copies = plan_convention_copies(profile_dir, context_users=["alice"])
+    baselines = [c for c in copies if c.destination == "docker/web-terminal-context/base.md"]
+    assert len(baselines) == 1
+    assert not baselines[0].is_directory
+    assert baselines[0].category == PER_USER_CONTEXT_DIRNAME
+
+
+def test_base_md_copies_even_without_a_roster(profile_dir: Path):
+    """The baseline is roster-independent: a persona render (no roster) still
+    carries the profile's text, like every other convention artifact."""
+    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / CONTEXT_BASELINE_FILENAME, "# baseline\n")
+
+    copies = plan_convention_copies(profile_dir, context_users=None)
+    assert any(c.destination == "docker/web-terminal-context/base.md" for c in copies)
+
+
+def test_a_base_md_directory_is_not_read_as_the_baseline(profile_dir: Path):
+    """Only the FILE is the baseline slot — a directory named ``base.md`` is
+    just a user directory naming nobody on the roster, skipped like any
+    other departed user."""
+    (profile_dir / PER_USER_CONTEXT_DIRNAME / CONTEXT_BASELINE_FILENAME).mkdir(parents=True)
+
+    validate_convention_sources(profile_dir)
+    copies = plan_convention_copies(profile_dir, context_users=["alice"])
+    assert not any(c.destination == "docker/web-terminal-context/base.md" for c in copies)
+
+
+def test_mirrored_base_md_is_rejected_naming_the_slot(profile_dir: Path):
+    """The mirror may not write the baseline's destination: the slot is its one
+    channel, so two writers can never race on build ordering."""
+    _write(profile_dir / PROJECT_MIRROR_DIR / "docker" / "web-terminal-context" / "base.md")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        validate_project_mirror(profile_dir / PROJECT_MIRROR_DIR)
+
+    message = str(excinfo.value)
+    assert f"`{PER_USER_CONTEXT_DIRNAME}/{CONTEXT_BASELINE_FILENAME}` slot" in message
+
+
+def test_the_other_directory_conventions_keep_their_move_advice(profile_dir: Path):
+    """Only the per-user convention constrains its directory names.
+
+    A skill directory is free-form, so ``skills/<stem>/`` is exactly the right
+    move there — the per-user wording must not have spread to the conventions
+    it does not describe.
+    """
+    _write(profile_dir / "skills" / "orbit-check.md")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        validate_convention_sources(profile_dir)
+
+    message = str(excinfo.value)
+    assert "Move it into skills/orbit-check/" in message
+    assert "roster" not in message
 
 
 def test_hidden_entries_do_not_trip_source_validation(profile_dir: Path):

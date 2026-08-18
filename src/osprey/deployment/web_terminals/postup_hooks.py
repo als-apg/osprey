@@ -10,15 +10,19 @@ it never fails the deploy. Called from
 import getpass
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-from osprey.cli.output import report_fact
+from osprey.cli.output import report_fact, warn_fact
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import resolve_repo_root
+from osprey.deployment.docker_desktop import (
+    HOST_NETWORKING_REMEDY,
+    host_networking_enabled,
+    on_docker_desktop,
+)
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.utils.logger import get_logger
@@ -235,27 +239,38 @@ def warn_if_web_stack_unreachable(
     This probe is the only signal that distinguishes that state from a
     working deploy.
 
-    SELF-HEAL, and why it comes before the settings hint. That forwarder
-    registers a VM-side socket by *watching* for the listen event. A
-    container that came back up under ``restart: unless-stopped`` while
-    Docker Desktop was still starting — after an update, a reboot, or the
-    Apply & Restart that enabling the setting itself performs — opens its
-    socket unobserved and stays invisible to the host indefinitely. Nothing
-    about its compose definition changed, so every subsequent ``up -d``
-    leaves it ``Running``, reconciles nothing, and reports the same failure
-    forever. Bouncing the container re-opens the socket while the forwarder
-    is watching, which fixes it. Because that state is indistinguishable
-    from "the setting is off" without a second experiment, and because the
-    restart is cheap and repairs the far more common cause, this tries the
-    restart first and only blames the setting if the port is *still* dark
-    afterwards. Gated to Docker Desktop: on Linux the port is bound on the
-    machine directly, so an unreachable one means something else entirely
-    and a blind restart would be noise.
+    TWO CAUSES, told apart by asking Docker Desktop. A dark host port on
+    Docker Desktop is either a forwarder that is switched off, or a socket the
+    running forwarder never saw. The second is real and common: the forwarder
+    registers a VM-side socket by *watching* for the listen event, so a
+    container that came back up under ``restart: unless-stopped`` while Docker
+    Desktop was still starting (after an update, a reboot, or the Apply &
+    restart that enabling the setting itself performs) opens its socket
+    unobserved and stays invisible to the host indefinitely. Nothing about its
+    compose definition changed, so every subsequent ``up -d`` leaves it
+    ``Running``, reconciles nothing, and reports the same failure forever.
+    Bouncing the container re-opens the socket while the forwarder is watching,
+    which fixes it.
+
+    :func:`~osprey.deployment.docker_desktop.host_networking_enabled` is what
+    separates the two, so the bounce is no longer attempted blind: a definite
+    "off" skips it (no restart can conjure a forwarder that is not running) and
+    the warning names the checkbox as the cause. An unreadable setting keeps the
+    old order, bouncing first and then naming the setting as a thing to check,
+    because on a host that cannot be asked the repairable cause is still the
+    likelier one. All of it is gated to Docker Desktop: on Linux the port is
+    bound on the machine directly, so an unreachable one means something else
+    entirely and a blind restart would be noise.
 
     Advisory like :func:`run_verify_script`: the containers themselves are
     healthy, so an unreachable host port warns loudly (with the Docker
     Desktop remedy where that's the likely cause) but never fails a deploy
-    that did, in fact, reconcile.
+    that did, in fact, reconcile. The warning goes out through
+    :func:`~osprey.cli.output.warn_fact` rather than ``logger.warning``, which
+    is not a style choice: the altitude gate drops raw WARNING records while a
+    lifecycle reporter owns the terminal (see :mod:`osprey.cli.altitude`), and
+    the root logger carries no other handler, so a warning emitted the raw way
+    here reaches nobody at all.
 
     :param web_cmd: The web stack's compose argv (from
         :func:`provision.web_stack_compose_cmd`), used for the self-heal
@@ -273,11 +288,19 @@ def warn_if_web_stack_unreachable(
     if _host_port_answers(url, attempts, delay):
         return
 
-    on_docker_desktop = (
-        sys.platform in ("darwin", "win32") and get_runtime_command(config)[0] == "docker"
-    )
+    desktop = on_docker_desktop(config)
+    # Asked once, up front, because it decides two separate things below: whether
+    # the self-heal bounce is worth attempting at all, and how confidently the
+    # warning at the end is allowed to speak. ``None`` means this host could not
+    # be asked, which is not the same as enabled and is not reported as either.
+    forwarder = host_networking_enabled() if desktop else None
 
-    if on_docker_desktop and web_cmd:
+    # A bounce re-registers a socket the forwarder missed. It cannot conjure a
+    # forwarder that is switched off, so a definite ``False`` skips it: the
+    # restart would cost an operator ten seconds and then tell them the same
+    # thing. ``None`` keeps the bounce, because an unknown host is exactly the
+    # one where the far more common stale registration is still worth repairing.
+    if desktop and web_cmd and forwarder is not False:
         restart_cmd = web_cmd + ["restart"]
         report_fact(
             logger,
@@ -288,8 +311,8 @@ def warn_if_web_stack_unreachable(
         try:
             # Spooled, not inherited: the restart's compose chatter would bury
             # the warning above, which is the part the operator has to act on.
-            # check=False keeps this advisory — a failed restart falls through
-            # to the settings hint below, exactly as before.
+            # check=False keeps this advisory: a failed restart falls through
+            # to the warning below, exactly as before.
             run_captured(
                 restart_cmd,
                 env=run_env,
@@ -307,23 +330,34 @@ def warn_if_web_stack_unreachable(
                 _report_step("web endpoint reachable")
                 return
 
-    hint = ""
-    if on_docker_desktop:
-        hint = (
-            " On Docker Desktop the web stack's network_mode: host binds "
-            "inside the Docker Linux VM and reaches this machine only through "
-            "Docker Desktop's host-network forwarder"
-            + (
-                ", and restarting the stack did not re-register it. Check that host "
-                "networking is enabled"
-                if web_cmd
-                else ", which is off unless host networking is enabled"
-            )
-            + ": Docker Desktop -> Settings -> Resources -> Network -> 'Enable "
-            "host networking', then Apply & Restart and re-run `osprey up`."
+    summary = "the web terminals are running but not reachable from this host"
+    if desktop and forwarder is False:
+        # Docker Desktop was asked and said no. Nothing here is a guess, so the
+        # copy states the cause and names the checkbox instead of hedging.
+        detail = (
+            f"every container is healthy and nginx is listening on port {nginx_port}, but it "
+            "is listening inside the Docker Desktop Linux VM. Host networking is turned off "
+            f"in Docker Desktop, so {url} never reaches this machine and the landing page "
+            "will not load in a browser."
         )
-    logger.warning(
-        f"Web-terminal containers are up, but {url} is not reachable from "
-        f"this host after {attempts} probes -- the landing page will not "
-        f"load in a browser.{hint}"
-    )
+        remedy = f"{HOST_NETWORKING_REMEDY}, and re-run `osprey up`"
+    elif desktop:
+        # Docker Desktop, but the setting could not be read. Same suspect, stated
+        # as a thing to check rather than as a finding.
+        bounced = " Restarting the stack did not re-register it." if web_cmd else ""
+        detail = (
+            f"{url} did not answer after {attempts} probes, so the landing page will not "
+            "load in a browser. On Docker Desktop the web stack binds its port inside the "
+            "Docker Linux VM and reaches this machine only through the host-network "
+            f"forwarder, which is off unless host networking is enabled.{bounced}"
+        )
+        remedy = f"check that host networking is on: {HOST_NETWORKING_REMEDY}"
+    else:
+        # Not Docker Desktop, so the port is bound on the machine itself and this
+        # is some other problem. Saying which one would be a guess.
+        detail = (
+            f"{url} did not answer after {attempts} probes, so the landing page will not "
+            f"load in a browser, even though nginx reports itself healthy on port {nginx_port}."
+        )
+        remedy = None
+    warn_fact(logger, summary, detail, remedy)

@@ -62,7 +62,7 @@ with exactly three keys::
       "tiles":   ["lattice", "artifacts"] | null,  # on-screen, reading order;
                                                    # null = occupancy UNKNOWN
       "active":  "artifacts" | null,               # active tab id
-      "visible": ["lattice", "artifacts", "scan"]  # launcher-rail membership
+      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 ``tiles`` is null whenever the server's answer does not actually describe what

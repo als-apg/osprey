@@ -120,7 +120,7 @@ tools into several functional areas.
 
 **Stored data:**
 
-Datasets are not a separate namespace -- an archiver read or a scan result is an
+Datasets are not a separate namespace -- an archiver read or a run result is an
 artifact with a ``category``, so the artifact tools above list, read and delete
 them (``artifact_list(category="archiver_data")``).
 

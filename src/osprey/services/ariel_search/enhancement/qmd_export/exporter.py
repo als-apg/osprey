@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -190,6 +191,29 @@ class QmdExportModule(BaseEnhancementModule):
                 "the sidecar will pick the change up on its next interval sweep"
             )
 
+    def mirror_now(self, entry: Mapping[str, Any]) -> bool:
+        """Mirror one entry synchronously, outside the enhancement pipeline.
+
+        The write-path twin of :meth:`enhance`, for callers that hold a plain
+        entry mapping rather than a pipeline row — most importantly the
+        service's ``create_entry``, whose optimistic upsert would otherwise be
+        invisible to hybrid search until the next batch enhancement run.
+
+        Args:
+            entry: The entry to mirror.
+
+        Returns:
+            ``True`` when a file changed on disk (and the freshness marker was
+            advanced), ``False`` when the mirror already held these bytes or
+            the module is unconfigured.
+        """
+        if self._mirror_root is None:
+            return False
+        if write_entry(self._mirror_root, entry):
+            self._touch_marker()
+            return True
+        return False
+
     async def health_check(self) -> tuple[bool, str]:
         """Check if module is ready.
 
@@ -233,3 +257,39 @@ def _atomic_write_text(path: Path, text: str) -> None:
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
+
+
+def mirror_entry_best_effort(config: Any, entry: Mapping[str, Any]) -> bool:
+    """Mirror one entry into the qmd markdown tree without ever raising.
+
+    The service's ``create_entry`` calls this after its optimistic upsert so an
+    agent- or operator-written entry becomes hybrid-searchable within one
+    sidecar poll instead of waiting for the next batch enhancement run. It is
+    best-effort by contract: the entry is already durable in Postgres, and a
+    mirror problem must not fail the write that caused it — the batch resync
+    remains the backstop for anything skipped here.
+
+    Args:
+        config: The loaded ARIEL configuration (duck-typed: only
+            ``is_enhancement_module_enabled`` and
+            ``get_enhancement_module_config`` are read, avoiding an import
+            cycle with :mod:`osprey.services.ariel_search.config`).
+        entry: The entry to mirror, as an ``enhanced_entries``-shaped mapping.
+
+    Returns:
+        ``True`` when a mirror file changed on disk, ``False`` otherwise —
+        including every failure path.
+    """
+    try:
+        if not config.is_enhancement_module_enabled("qmd_export"):
+            return False
+        module = QmdExportModule()
+        module.configure(config.get_enhancement_module_config("qmd_export") or {})
+        return module.mirror_now(entry)
+    except Exception as e:  # noqa: BLE001 — see docstring: never fail the write path.
+        logger.warning(
+            f"qmd_export: could not mirror entry {entry.get('entry_id')!r} inline: {e} — "
+            "it stays searchable by keyword and will reach the mirror on the next "
+            "enhancement run or `osprey ariel qmd-resync`."
+        )
+        return False
