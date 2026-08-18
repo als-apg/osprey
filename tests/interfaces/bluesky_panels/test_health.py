@@ -31,18 +31,7 @@ def test_health_ok(client: TestClient) -> None:
 
 
 def test_panel_mounts_registered() -> None:
-    # ``(mount_path, bundle_dir)`` pairs rather than a dict: one bundle is
-    # served at three paths, since ``/results`` and ``/plan`` are deprecated
-    # aliases of ``/bluesky`` for one release, and a ``{bundle: path}`` dict
-    # cannot say that. Every mount path must be registered — an alias is not a
-    # redirect, it is a second mount of the same directory.
-    bundle_of = dict(_PANEL_MOUNTS)
-    assert [mount_path for mount_path, _ in _PANEL_MOUNTS] == ["/bluesky", "/plan", "/results"]
-    # The alias invariant, asserted without naming the bundle directory: the
-    # BLUESKY bundle is renamed once (panels/results -> panels/bluesky) and
-    # this must keep holding across that rename, not break on it.
-    assert bundle_of["/results"] == bundle_of["/bluesky"]
-    assert bundle_of["/plan"] == bundle_of["/bluesky"]
+    assert [mount_path for mount_path, _ in _PANEL_MOUNTS] == ["/bluesky"]
 
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
     for mount_path, _bundle_dir in _PANEL_MOUNTS:

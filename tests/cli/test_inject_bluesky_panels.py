@@ -3,14 +3,13 @@
 Covers the three responsibilities of the bluesky-panels-injection step: copying
 the bundled ``templates/services/bluesky_panels/`` compose template, writing the
 ``services.bluesky_panels`` config + registering it in ``deployed_services``
-(additively), and registering the ``web.panels.<id>`` entries (``plan``,
-``bluesky``) with the sidecar-root ``url`` + per-panel ``path``/``label`` —
-mirroring ``_inject_dispatch``'s ``events`` panel registration, including the
+(additively), and registering the ``web.panels.bluesky`` entry with the
+sidecar-root ``url`` + per-panel ``path``/``label`` — mirroring
+``_inject_dispatch``'s ``events`` panel registration, including the
 "explicit override wins" precedence.
 
-WHICH panel ids get registered, and the one-release ``results`` alias for
-profiles written before the rename, are ``test_panel_registration.py``'s
-subject — that is where a change to the id set is meant to fail first.
+WHICH panel ids get registered is ``test_panel_registration.py``'s subject —
+that is where a change to the id set is meant to fail first.
 """
 
 from __future__ import annotations
@@ -95,10 +94,8 @@ def test_inject_bluesky_panels_registers_the_web_panels(tmp_path: Path) -> None:
     its path/label. The url points at the sidecar ROOT (not a panel-specific
     sub-path) — the panel's static mount is selected via `path`.
 
-    The BLUESKY entry's own history (the ``results`` rename, the ``plan``
-    merge, and both deprecated aliases) is covered by
-    ``test_panel_registration.py``; this file's subject is the injector's
-    compose/config wiring."""
+    The registered id set is covered by ``test_panel_registration.py``; this
+    file's subject is the injector's compose/config wiring."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)

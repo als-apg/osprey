@@ -533,24 +533,10 @@ def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_panels_served_200(deployed_stack: DeployedStack) -> None:
-    """The panel bundle serves, including its two deprecated aliases.
-
-    ``/bluesky``, ``/plan`` and ``/results`` are ONE bundle mounted three times
-    (the sidecar drives all of them from a single ``_BLUESKY_PANEL_DIR``
-    constant), so each alias must serve identical bytes -- an alias that
-    drifted into serving something else would be worse than a 404.
-    """
-    bodies: dict[str, str] = {}
-    for path in ("/plan/", "/bluesky/", "/results/"):
-        status, body = _get_html(path)
-        assert status == 200, f"GET {path} failed: {status}"
-        assert "<html" in body.lower(), f"GET {path} did not return HTML: {body[:200]!r}"
-        bodies[path] = body
-
-    for alias in ("/results/", "/plan/"):
-        assert bodies[alias] == bodies["/bluesky/"], (
-            f"{alias} must be a pure alias of /bluesky, serving the identical bundle"
-        )
+    """The panel bundle serves at its mount."""
+    status, body = _get_html("/bluesky/")
+    assert status == 200, f"GET /bluesky/ failed: {status}"
+    assert "<html" in body.lower(), f"GET /bluesky/ did not return HTML: {body[:200]!r}"
 
 
 # ---------------------------------------------------------------------------

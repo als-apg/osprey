@@ -2,11 +2,10 @@
 build-profile schema.
 
 Covers the :class:`BlueskyPanelsConfig` dataclass, the ``BuildProfile.validate``
-exemption that lets the non-builtin bluesky-panel web_panels ids
-(``bluesky``, plus the deprecated ``plan``/``results`` spellings) validate
-without a pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block
-is present
-(their urls are derived post-build by ``_inject_bluesky_panels``), and a
+exemption that lets the non-builtin ``bluesky`` web_panels id validate
+without a pre-existing ``web.panels.bluesky.url`` when a ``bluesky_panels``
+block is present
+(its url is derived post-build by ``_inject_bluesky_panels``), and a
 regression guard that the shipped control-assistant preset/profile still
 validates — the gate task 3.3 (tutorial-config) re-runs after adding the
 bluesky panel to that preset.
@@ -258,22 +257,6 @@ class TestControlAssistantTurnkeyPlanPanels:
         panel = turnkey_plan_config["web"]["panels"]["bluesky"]
         assert panel["path"] == "/bluesky/"
         assert panel["url"]
-
-    def test_control_assistant_ships_no_deprecated_results_panel(
-        self, turnkey_plan_config: dict
-    ) -> None:
-        """A fresh build carries only the canonical id. The deprecated
-        ``results`` entry is an accommodation for projects built against the
-        earlier spelling (kept working by the sidecar's alias mount); emitting
-        it here would put that tab back on every rebuild."""
-        assert "results" not in turnkey_plan_config["web"]["panels"]
-
-    def test_control_assistant_ships_no_deprecated_plan_panel(
-        self, turnkey_plan_config: dict
-    ) -> None:
-        """Same rule for the PLAN panel, which is the Plans tab of BLUESKY. Emitting
-        both ids would put two rail entries in front of the same panel."""
-        assert "plan" not in turnkey_plan_config["web"]["panels"]
 
 
 class TestControlAssistantTurnkeyPlanControlSystem:

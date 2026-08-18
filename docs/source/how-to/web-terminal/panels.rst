@@ -32,7 +32,7 @@ Panels backed by a URL
 
 An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
 that shows another web service inside the terminal. This is how the EVENTS
-dashboard and the Bluesky PLAN / BLUESKY tabs ship in the
+dashboard and the BLUESKY tab ship in the
 ``control-assistant`` preset (a build that includes those stacks registers
 the entries for you):
 
@@ -69,21 +69,6 @@ do.
 
 **Results** shows the selected run's record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.
-
-.. note::
-
-   **PLAN and RESULTS were separate tabs.** RESULTS became BLUESKY when that
-   bundle absorbed the queue, and PLAN then became BLUESKY's Plans view. The
-   sidecar still serves the same bundle at ``/results/`` and ``/plan/`` **for
-   one release**, so existing bookmarks and panel entries keep resolving; the
-   aliases go away after that, so drop any ``web.panels.plan.*`` entry of your
-   own and move ``web.panels.results.*`` to ``web.panels.bluesky.*``.
-
-   In the ``control-assistant`` preset both changes are already made. They
-   change the preset's resolved content, so an **already-deployed project will
-   report staleness** on its next ``osprey up``. That advisory is
-   correct rather than noise — unlike a cosmetic re-pin, this one changes the
-   tabs a user sees — and the remedy is the rebuild the advisory prints.
 
 Adding your own panel
 ---------------------

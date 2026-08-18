@@ -380,10 +380,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The **PLAN** and **BLUESKY** tabs are now one **BLUESKY** panel with three
   views — Plans, Queue, Results. The queue's state and its two halts (**Stop
   after current item**, **Abort running plan**) stay on screen across all
-  three, and picking a run in Queue opens it under Results. Projects that
-  still register a `plan` panel keep working for one release: the sidecar
-  serves the merged panel at `/plan/` too. Drop `plan` from your profile's
-  `web_panels` and remove any `web.panels.plan.*` override.
+  three, and picking a run in Queue opens it under Results. Drop `plan` from
+  your profile's `web_panels` and remove any `web.panels.plan.*` override.
 - `osprey -v` (`--verbose`) shows debug output, including every container
   command a deploy runs. Normal runs no longer echo those commands, so a
   deploy reads as a report — ending in the endpoint summary — rather than a
@@ -628,10 +626,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   browse-only — plans compose and validate, but the queue will not hold them.
   Switch with `osprey set connector=mock`.
 - The Bluesky **RESULTS** panel is now **BLUESKY**, and holds the scan queue as
-  well as the selected run's results. The sidecar serves the same bundle at
-  `/results/` for one more release so existing bookmarks and panel entries keep
-  resolving; move your own `web.panels.results.*` entries to
-  `web.panels.bluesky.*` before then. The preset rename changes its resolved
+  well as the selected run's results. Move your own `web.panels.results.*`
+  entries to `web.panels.bluesky.*`. The preset rename changes its resolved
   content, so an already-deployed project reports staleness on its next
   `osprey up`. That is the correct signal rather than noise — the tab a
   user sees is renamed — and rebuilding picks it up.

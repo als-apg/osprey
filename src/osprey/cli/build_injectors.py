@@ -730,36 +730,6 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     )
 
 
-# The RESULTS panel became BLUESKY when that bundle absorbed the queue view, so
-# the panel id, its label, and its mount path all moved together. A profile (or
-# an already-built config.yml) written before the rename still says ``results``;
-# that keeps working for one release because the sidecar serves the SAME bundle
-# at /results/ and /bluesky/ (the alias row in
-# ``interfaces/bluesky_panels/app.py``'s ``_PANEL_MOUNTS``). One release, because
-# the alias mount goes away with it — a rename the operator never hears about is
-# a tab that disappears on an upgrade.
-_RESULTS_PANEL_DEPRECATION = (
-    "web.panels.results is deprecated: the RESULTS panel is now BLUESKY "
-    "(web.panels.bluesky, served at /bluesky/). The `results` id keeps working for "
-    "ONE release and is removed after that. Until then the sidecar serves the same "
-    "bundle at /results/. Rename `results` to `bluesky` in the build profile's web_panels "
-    "list and in any web.panels.results.* config override."
-)
-
-# The PLAN panel was folded into BLUESKY as its Plans tab, on the same terms as
-# the RESULTS rename above: one bundle, one registration, and a ``/plan/`` alias
-# mount that keeps a config.yml written before the merge resolving for one
-# release rather than 404ing. Registering both ids now would put two rail
-# entries in front of the SAME panel.
-_PLAN_PANEL_DEPRECATION = (
-    "web.panels.plan is deprecated: the PLAN panel is now the Plans tab of BLUESKY "
-    "(web.panels.bluesky, served at /bluesky/). The `plan` id keeps working for "
-    "ONE release and is removed after that. Until then the sidecar serves the same "
-    "bundle at /plan/. Drop `plan` from the build profile's web_panels list, along with "
-    "any web.panels.plan.* config override."
-)
-
-
 def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> None:
     """Fill a partially-specified ``web.panels.<id>`` entry in place.
 
@@ -788,10 +758,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
        URL, mirroring ``_inject_dispatch``'s ``events`` panel registration: the
        panel points the proxy at the sidecar ROOT and uses ``path`` to select
        the panel's static mount, so the panel HTML loads there while its
-       prefix-relative API fetches reach the sidecar root. A ``results`` or
-       ``plan`` entry left in a profile from before the rename/merge is
-       completed and warned about rather than dropped — see
-       ``_RESULTS_PANEL_DEPRECATION`` and ``_PLAN_PANEL_DEPRECATION``.
+       prefix-relative API fetches reach the sidecar root.
     4. Print a post-build hint (image prerequisite).
 
     Thin mirror of :func:`_inject_va`/:func:`_inject_bluesky` for the compose
@@ -869,22 +836,6 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
             anchored_put(panels, panel_id, {"url": default_url, "path": panel_path, "label": label})
             continue
         _fill_panel_defaults(panel_cfg, default_url, panel_path, label)
-
-    # Deprecated ``results``/``plan`` aliases: completed, never created. An
-    # entry only exists here when the profile still declares one (a
-    # `web.panels.<id>.*` override merged earlier in the build, or a config.yml
-    # built before the rename/merge and rebuilt in place), and it keeps
-    # resolving because the sidecar serves the BLUESKY bundle at /results/ and
-    # /plan/ as well.
-    for _deprecated_id, _deprecated_path, _deprecated_label, _notice in (
-        ("results", "/results/", "RESULTS", _RESULTS_PANEL_DEPRECATION),
-        ("plan", "/plan/", "PLAN", _PLAN_PANEL_DEPRECATION),
-    ):
-        if _deprecated_id in panels:
-            logger.warning("  ! %s", _notice)
-            _fill_panel_defaults(
-                panels[_deprecated_id], default_url, _deprecated_path, _deprecated_label
-            )
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)

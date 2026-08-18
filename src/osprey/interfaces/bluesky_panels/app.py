@@ -13,8 +13,7 @@ and status code alike; the bridge decides what a request is allowed to do.
 Panel mounts (panel bundles must agree with this mapping — see
 ``_PANEL_MOUNTS`` below):
 
-- ``_BLUESKY_PANEL_DIR`` (bundle) -> ``/bluesky``, and the deprecated aliases
-  ``/plan`` and ``/results``
+- ``_BLUESKY_PANEL_DIR`` (bundle) -> ``/bluesky``
 
 Stays import-clean of ``bluesky``/``ophyd``/``tiled`` at module scope, mirroring
 ``osprey.services.bluesky_bridge.app``.
@@ -41,23 +40,11 @@ from osprey.interfaces.bluesky_panels import draft_relay, queue_relay, read_prox
 _PANELS_ROOT = Path(__file__).parent / "panels"
 
 # The bundle directory behind the BLUESKY panel — plan composition, the queue,
-# and the selected run's results, which is what the standalone plan and results
-# panels were folded into. Every mount path below reads this one name rather
-# than spelling the directory once per mount, so an alias cannot come apart
-# from the bundle it aliases.
+# and the selected run's results.
 _BLUESKY_PANEL_DIR = "bluesky"
 
-# (mount path, bundle directory). ``/results`` and ``/plan`` are deprecated
-# ALIASES of ``/bluesky``: the same bundle is served at all three so bookmarks,
-# the panel registry, and the web-terminal proxy keep resolving across one
-# release. A deployment whose config.yml still registers a PLAN panel therefore
-# shows the merged panel rather than a 404. Drop the alias rows — not the
-# bundle — when that release is out.
-_PANEL_MOUNTS: tuple[tuple[str, str], ...] = (
-    ("/bluesky", _BLUESKY_PANEL_DIR),
-    ("/plan", _BLUESKY_PANEL_DIR),
-    ("/results", _BLUESKY_PANEL_DIR),
-)
+# (mount path, bundle directory).
+_PANEL_MOUNTS: tuple[tuple[str, str], ...] = (("/bluesky", _BLUESKY_PANEL_DIR),)
 
 
 @asynccontextmanager
