@@ -238,4 +238,3 @@ describe('concurrent config fetch', () => {
     expect(status.textContent).toMatch(/unavailable/i);
   });
 });
-
