@@ -631,6 +631,14 @@ and this list is what <code class="docutils literal notranslate"><span class="pr
 <p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> becomes the container-name prefix for the web tier
 (<code class="docutils literal notranslate"><span class="pre">demo-nginx</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-web-alice</span></code>), so keep it short and distinct from the
 project name.</p>
+<p>While you are in the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code> block, note the <code class="docutils literal notranslate"><span class="pre">auth:</span></code>
+stanza the preset ships: the terminals ask for a login, with demo passwords
+that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> seeded into this repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+(<code class="docutils literal notranslate"><span class="pre">alice</span></code>/<code class="docutils literal notranslate"><span class="pre">alice</span></code>, <code class="docutils literal notranslate"><span class="pre">bob</span></code>/<code class="docutils literal notranslate"><span class="pre">bob</span></code>) and <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code>
+keeping the login flow on plain HTTP. That is a demo posture. For a facility
+host, set real passwords in <code class="docutils literal notranslate"><span class="pre">.env</span></code> (or rotate with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code>)
+and serve TLS — <a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a> walks through both, and through single
+sign-on if your site runs one.</p>
 <p>Then confirm the persona catalog, further down the same <code class="docutils literal notranslate"><span class="pre">config:</span></code> block
 under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> derived these names from the
 repository name, so after Step 2’s trim the block already reads:</p>

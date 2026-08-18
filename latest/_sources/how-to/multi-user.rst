@@ -429,14 +429,19 @@ warm, and returning to the same user reconnects to it.
 Require a login
 ===============
 
-Out of the box the stack asks for no credentials and speaks plain HTTP:
-clicking a card on the landing page opens that terminal, and anyone who can
-reach the nginx port can click any card. That posture suits a **single trusted
-host** — a workstation or control-room machine you already trust — and nothing
-beyond it. It is the walkthrough's choice, not a limit of the stack: it keeps
-one ``osprey up`` on a laptop free of certificates and identity
-providers. No preset ships with login enabled, so this is something you turn on
-deliberately.
+With no ``auth`` stanza the stack asks for no credentials and speaks plain
+HTTP: clicking a card on the landing page opens that terminal, and anyone who
+can reach the nginx port can click any card. That posture suits a **single
+trusted host** — a workstation or control-room machine you already trust — and
+nothing beyond it.
+
+The ``control-assistant`` preset ships with password login switched on, in its
+demo posture: each roster user's password is seeded into the repository's
+``.env`` by ``osprey init`` (``alice``/``alice``, ``bob``/``bob`` — change them
+there, or rotate with ``osprey users passwd``), the ARIEL entry stays public
+via ``login: false`` (see below), and ``allow_insecure_http: true`` keeps the
+demo on plain HTTP. Those passwords authenticate a demo, not a facility: for
+any reachable host, set real passwords and serve TLS as described here.
 
 Set ``auth.method`` and every request under ``/u/<name>/`` — pages, APIs and
 the terminal's live connection alike — is refused unless the browser holds a
@@ -546,6 +551,36 @@ The service listens on ``127.0.0.1`` on the deploy host itself (the web stack
 uses host networking), so nginx reaches it and nothing off-host does. It is not
 published as a container port, and anyone with a shell on the deploy host can
 reach it — the same as every per-user terminal.
+
+Leave one entry public
+----------------------
+
+Not every card on the landing page is a person's terminal. A roster entry that
+fronts a read-only service — the preset's ARIEL logbook assistant, say — can
+opt out of the login wall:
+
+.. code-block:: yaml
+
+   users:
+     - name: ariel
+       index: 2
+       persona: ariel
+       login: false
+
+With authentication on, that entry is served exactly as the whole deployment is
+with authentication off: no login, no session, open to anyone who can reach the
+nginx port. No password is provisioned for it (``osprey users passwd`` refuses
+the name and says why), and nginx never asks the authentication service about
+it. Session cookies still never reach its container.
+
+Only the literal ``false`` opts an entry out. Absence, ``true``, and any typo
+all mean "login required" — a misspelling can lock an entry down, never open it
+up — and lint reports a non-boolean value. The key is inert while
+``auth.method`` is ``none``, which lint points out as well.
+
+Opting out is for entries whose *content* is public by design. Anything that
+can reach a control system, write anywhere, or spend provider tokens belongs
+behind the wall.
 
 Serve it over HTTPS
 -------------------

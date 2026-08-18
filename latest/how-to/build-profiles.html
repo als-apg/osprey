@@ -1918,9 +1918,9 @@ resolve to the project’s own Python.</p>
 </section>
 <section id="environment-variables">
 <h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section declares what the deployment needs. It documents variables;
-it does not carry values — values live in the repository’s <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> (see <a class="reference internal" href="#profile-secrets"><span class="std std-ref">Secrets</span></a>).</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section declares what the deployment needs. <code class="docutils literal notranslate"><span class="pre">required</span></code> documents
+variables the operator must supply; secrets live in the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+and never in the profile (see <a class="reference internal" href="#profile-secrets"><span class="std std-ref">Secrets</span></a>).</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">required</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">API_KEY</span>
@@ -1932,9 +1932,15 @@ it does not carry values — values live in the repository’s <code class="docu
 <p>Both lists are rendered into the repository’s <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, so an operator
 opening that file sees them alongside every other variable. Required names must
 match <code class="docutils literal notranslate"><span class="pre">^[A-Z_][A-Z0-9_]*$</span></code>.</p>
-<p>Non-secret values the whole site should start from do not belong here either.
-Put them in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, which is committed with the repository and read by
-every host (see <a class="reference internal" href="deploy-project.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">defaults</span></code> values are additionally seeded into the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, under their own section banner, so a deployment created from
+the profile starts with them in force. Seeding is append-only: a value already
+in the file — set by the operator, or minted by a deploy — always wins, and
+later <code class="docutils literal notranslate"><span class="pre">init</span></code> runs never rewrite one. Declare a default only for a value the
+profile’s author can honestly choose for every deployment (the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset’s demo login passwords, say); values a <em>site</em>
+should share across hosts belong in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, which is committed with
+the repository and read by every host (see <a class="reference internal" href="deploy-project.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>).</p>
 </section>
 <section id="dependencies">
 <h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
