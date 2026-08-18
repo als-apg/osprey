@@ -577,12 +577,13 @@ def test_excluding_the_surviving_name_of_a_trust_collision_filters_it_out(
 
 def test_shipped_plans_register_through_the_real_shipped_dir() -> None:
     """Sanity check: `plan_loader.py` is the sole plan registry — the shipped
-    `orm`/`grid_scan` plans (in `plans_core/`) register through the ordinary
-    `shipped`-tier directory scan, same as any other layer."""
+    `orm`/`grid_scan`/`orbit_bump_sweep` plans (in `plans_core/`) register
+    through the ordinary `shipped`-tier directory scan, same as any other
+    layer."""
     pytest.importorskip("bluesky")
 
     facility = plan_loader.get_facility_plans()
-    assert set(facility.plans) == {"orm", "grid_scan"}
+    assert set(facility.plans) == {"orm", "grid_scan", "orbit_bump_sweep"}
     assert all(spec.provenance == "shipped" for spec in facility.plans.values())
 
 

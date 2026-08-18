@@ -416,9 +416,9 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
 ) -> None:
     """``GET /plans`` against the real container must show, in one response:
 
-    - the shipped plans (``orm``, ``grid_scan``) with ``provenance ==
-      "shipped"`` and non-null ``metadata`` (Task 1.5's in-image
-      ``plans_core/`` files);
+    - the shipped plans (``orm``, ``grid_scan``, ``orbit_bump_sweep``) with
+      ``provenance == "shipped"`` and non-null ``metadata`` (Task 1.5's
+      in-image ``plans_core/`` files);
     - the externally-injected ``facility_probe`` plan with
       ``provenance == "facility"`` and its authored metadata round-tripped
       byte-for-byte through the loader's ``PLAN_METADATA`` parser.
@@ -433,7 +433,7 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
     assert status == 200, f"GET /plans failed: {status} {plans}"
     by_name = {p["name"]: p for p in plans}
 
-    for shipped_name in ("orm", "grid_scan"):
+    for shipped_name in ("orm", "grid_scan", "orbit_bump_sweep"):
         assert shipped_name in by_name, (
             f"{shipped_name!r} missing from GET /plans: {sorted(by_name)}"
         )

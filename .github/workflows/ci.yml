@@ -1174,9 +1174,9 @@ jobs:
           # boots in this lane: every module that binds that port leaves by
           # --ignore below and runs in its own job — the scan-stack agentic
           # module and the VA substrate equivalence proof each in one, and
-          # the ORM and grid-scan roundtrips together in orm-roundtrip-e2e,
-          # where they run as sequential steps so the two stacks never
-          # contend for 5064.
+          # the ORM, grid-scan and orbit-bump roundtrips together in
+          # orm-roundtrip-e2e, where they run as sequential steps so the
+          # stacks never contend for a host port.
           uv run pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_plan_stack_agentic.py \
@@ -1190,6 +1190,7 @@ jobs:
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_orm_roundtrip.py \
             --ignore=tests/e2e/test_grid_scan_roundtrip.py \
+            --ignore=tests/e2e/test_bump_roundtrip.py \
             --ignore=tests/e2e/test_archiver_world_e2e.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
@@ -1729,10 +1730,13 @@ jobs:
     # was the lane's second-biggest time sink); same extraction pattern as
     # every other dockerbuild-marked file.
     #
-    # Two modules, run as two SEQUENTIAL steps rather than one pytest
-    # invocation: both stand up their own VA and bind CA port 5064 by design,
-    # so overlapping them would collide. Sequential steps also keep the two
-    # failures separately attributable in the job log.
+    # Three modules, run as SEQUENTIAL steps rather than one pytest
+    # invocation. The ORM and grid-scan roundtrips both stand up their own VA
+    # and bind CA port 5064 by design, so overlapping them would collide. The
+    # orbit-bump roundtrip pins its whole port block and so could run beside
+    # them, but it stands up a third full VA/bridge/Tiled stack — three at once
+    # is more than a GHA runner has to give. Sequential steps also keep the
+    # three failures separately attributable in the job log.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
@@ -1742,14 +1746,15 @@ jobs:
     # in the teardown, and flaky(reruns=1) repeats the SCAN only (the module
     # fixtures survive a rerun, so no second build/deploy) — 2580s for ORM
     # (240s scan) and 2340s for grid (120s scan), ~82min if both ran every
-    # timeout to the wire.
+    # timeout to the wire. Raised from 75 when the orbit-bump roundtrip
+    # joined, which adds a third build/deploy/teardown plus its own 600s scan.
     #
-    # 75 is therefore deliberately NOT that pathological sum: it bounds the
-    # realistic run, where the second module reuses the first's images and
+    # 100 is therefore deliberately NOT that pathological sum: it bounds the
+    # realistic run, where the later modules reuse the first's images and
     # nothing sits at its cap, while still leaving the suite's own named
     # timeouts — not a bare GHA cancellation — to report a genuine hang.
-    # Tighten once there are observed green timings for the pair.
-    timeout-minutes: 75
+    # Tighten once there are observed green timings for the three.
+    timeout-minutes: 100
 
     steps:
     - name: Checkout repository
@@ -1778,13 +1783,25 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    # Step caps under the job cap, each sized from its module's own internal
+    # timeouts (see the job-cap note above), so a hang fails THAT step and the
+    # diagnostics step below still runs. A job-level timeout is a hard cancel
+    # that takes the container logs with it (same rationale as
+    # va-substrate-equivalence-e2e's step cap).
     - name: Run ORM roundtrip E2E
+      timeout-minutes: 45
       run: |
         uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
 
     - name: Run grid scan roundtrip E2E
+      timeout-minutes: 40
       run: |
         uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
+
+    - name: Run orbit bump sweep roundtrip E2E
+      timeout-minutes: 45
+      run: |
+        uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
     # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
     - name: Capture failure diagnostics

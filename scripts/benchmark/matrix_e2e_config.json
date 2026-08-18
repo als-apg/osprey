@@ -99,6 +99,10 @@
       "reason": "Full Docker image build + deploy (dockerbuild marker; skips without Docker), and the in-container agent runs the baked-in als-apg/haiku project config, so OSPREY_E2E_FORCE_MODEL cannot reach it."
     },
     {
+      "path": "tests/e2e/test_bump_roundtrip.py",
+      "reason": "Non-agentic orbit-bump round-trip: the test drives the deployed VA+bridge stack over raw HTTP and checks closure, restore and figure parity against the stored data — no LLM call anywhere."
+    },
+    {
       "path": "tests/e2e/test_grid_scan_roundtrip.py",
       "reason": "Non-agentic HTTP round-trip against a Docker-deployed VA+bridge stack; the test itself drives POST /runs and asserts grid data shape — no LLM call anywhere."
     },
