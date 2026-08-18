@@ -33,6 +33,30 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Agents now route a measurement that needs more than one setting through the
+  Bluesky queue instead of stepping a setpoint with repeated `channel_write`
+  calls. The `operating-bluesky-plans` skill also triggers on requests phrased
+  as physics ("step a corrector across a few settings and record the beam")
+  rather than only on the words *plan*, *run*, *queue* and *start*, and the
+  control-system safety rule states the routing directly. Hand-stepping cost
+  the operator one approval per write instead of one per measurement and left
+  no run behind.
+- A panel closed by an agent workspace arrange no longer pops back open when a
+  browser's tab-switch report, sent before the arrange, arrives after it. The
+  server drops the stale report instead of re-adding the panel to every
+  client's rail and stealing the active tab.
+- A relative `control_system.limits_checking.database_path` now anchors on the
+  directory of the config actually loaded, so the limits gate finds the render's
+  database regardless of how the process was launched. Previously a Claude Code
+  hook running without `CONFIG_FILE` resolved it against the repo root and the
+  empty-database failsafe denied every write (#636).
+- The limits failsafe now refuses with "limits database unavailable" instead of
+  reporting every channel as "not in limits database", so a load failure is no
+  longer mistaken for a data problem (#636).
+- Resizing a web-terminal pane no longer freezes the other panels until a
+  browser refresh: the adapter's sash shield poisoned dockview's own
+  pointer-events snapshot and is removed — dockview shields iframes during
+  sash drags itself (#638).
 - `osprey up` now refuses as a precondition, rather than failing with a generic
   "Deployment failed", when a project deploys the archiver store and pymongo is
   missing. The refusal names the interpreter it is missing from — OSPREY seeds

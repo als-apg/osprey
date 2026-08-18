@@ -42,41 +42,49 @@ class LimitsValidator:
         limits_database: dict[str, ChannelLimitsConfig],
         policy_config: dict,
         raw_db: dict = None,
+        failsafe_reason: str | None = None,
     ):
         self.limits = limits_database
         self.policy = policy_config
         self._raw_db = raw_db  # Keep raw database for verification config access
+        # Set only by the empty-DB failsafe paths in from_config: the database
+        # could not be loaded, so every write is blocked. validate() uses it to
+        # refuse with a load-failure message instead of the unlisted-channel
+        # one — the two conditions need different operator responses.
+        self.failsafe_reason = failsafe_reason
 
     @staticmethod
-    def resolve_database_path(db_path: str, project_root: str | None) -> str:
+    def resolve_database_path(
+        db_path: str, project_root: str | None, config_path: str | None = None
+    ) -> str:
         """Resolve a relative ``database_path`` the same way for every caller.
 
-        The base is the directory holding the config that is actually in use:
-        ``Path(CONFIG_FILE).parent`` when ``CONFIG_FILE`` is set, and the
-        config's own ``project_root`` key otherwise.
+        A relative ``database_path`` is written alongside the config it appears
+        in, so the anchor is the directory of the config that is actually in
+        use: *config_path*, when the caller can name the file it loaded (see
+        :func:`osprey_connectors.config.default_config_path`). This is what
+        makes the resolution independent of how the process was launched — a
+        Claude Code hook, an MCP server, and a host verb anchored via
+        ``config_anchored_at`` all load the render's config and find the
+        ``data/`` tree the build copied next to it.
 
-        CONFIG_FILE wins because a relative ``database_path`` is written
-        alongside the config it appears in, and that config is the RENDER. A
-        build copies the profile's ``data/`` tree into the same directory it
-        writes ``config.yml`` (``<repo>/build/``), so ``data/channel_limits.json``
-        resolves there; in a container deploy CONFIG_FILE names the config
-        mounted inside the container while ``project_root`` may record a host
-        path the container does not have.
+        Fallbacks, for callers that cannot name the loaded config:
+        ``Path(CONFIG_FILE).parent`` when that variable is set (a container
+        deploy names the config mounted inside the container while
+        ``project_root`` may record a host path the container does not have),
+        else the config's own ``project_root`` key. Note that under the
+        four-zone repo layout the render lives at ``<repo>/build/config.yml``
+        while ``project_root`` names ``<repo>`` — the project_root branch is a
+        last resort, not an equivalent spelling.
 
-        These two bases are NOT the same directory. Under the four-zone repo
-        layout the rendered config lives at ``<repo>/build/config.yml`` while
-        ``project_root`` names ``<repo>`` — so the CONFIG_FILE branch is a real
-        choice of the build zone over the repo root, not the no-op it was back
-        when ``config.yml`` sat at the project root. Which root a relative
-        ``database_path`` *ought* to anchor on is a separate question from what
-        this function does today; nothing here decides it.
-
-        Returns ``db_path`` unchanged if it is already absolute, or if
-        neither ``CONFIG_FILE`` nor ``project_root`` is available.
+        Returns ``db_path`` unchanged if it is already absolute, or if no base
+        is available.
         """
         db_path_obj = Path(db_path)
         if db_path_obj.is_absolute():
             return db_path
+        if config_path:
+            return str(Path(config_path).parent / db_path)
         config_file = os.environ.get("CONFIG_FILE")
         if config_file:
             return str(Path(config_file).parent / db_path)
@@ -92,7 +100,7 @@ class LimitsValidator:
         This allows connectors to work in test environments without config files.
         """
         try:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import default_config_path, get_config_value
 
             enabled = get_config_value("control_system.limits_checking.enabled", False)
             if not enabled:
@@ -104,17 +112,22 @@ class LimitsValidator:
                 logger.warning(
                     "Limits checking enabled but no database path configured - blocking all writes"
                 )
-                return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
+                return cls(
+                    {},
+                    {},
+                    {},
+                    failsafe_reason=(
+                        "limits checking is enabled but "
+                        "control_system.limits_checking.database_path is not configured"
+                    ),
+                )  # Empty DB = blocks all (failsafe)
 
             project_root = get_config_value("project_root", None)
-            resolved_path = cls.resolve_database_path(db_path, project_root)
+            resolved_path = cls.resolve_database_path(
+                db_path, project_root, config_path=default_config_path()
+            )
             if resolved_path != db_path:
-                if os.environ.get("CONFIG_FILE"):
-                    logger.debug(
-                        f"Resolved limits database path (via CONFIG_FILE): {resolved_path}"
-                    )
-                else:
-                    logger.debug(f"Resolved limits database path: {resolved_path}")
+                logger.debug(f"Resolved limits database path: {resolved_path}")
             db_path = resolved_path
 
             try:
@@ -129,7 +142,14 @@ class LimitsValidator:
                     f"Limits checking enabled but the database at {db_path} could not "
                     f"be read or parsed - blocking all writes. {e}"
                 )
-                return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
+                return cls(
+                    {},
+                    {},
+                    {},
+                    failsafe_reason=(
+                        f"the limits database at {db_path} could not be read or parsed"
+                    ),
+                )  # Empty DB = blocks all (failsafe)
             logger.debug(f"Loaded limits database with {len(limits_db)} channels")
 
             policy = {
@@ -425,6 +445,24 @@ class LimitsValidator:
         channel_config = self.limits.get(channel_address)
 
         if channel_config is None:
+            # A database that failed to load blocks everything — say so, rather
+            # than refusing with the unlisted-channel message: "not in limits
+            # database" sends the operator chasing a data problem when the
+            # actual failure is that no database was loaded at all.
+            if self.failsafe_reason:
+                logger.warning(
+                    f"Blocked write (limits database unavailable): {channel_address}={value}"
+                )
+                raise ChannelLimitsViolationError(
+                    channel_address=channel_address,
+                    value=value,
+                    violation_type="LIMITS_DATABASE_UNAVAILABLE",
+                    violation_reason=(
+                        f"Limits database unavailable — all writes are blocked as a "
+                        f"failsafe ({self.failsafe_reason}). This is not a statement "
+                        f"about channel '{channel_address}'."
+                    ),
+                )
             # Unlisted channel - check policy
             if self.policy.get("allow_unlisted_channels", False):
                 return  # Allow unlisted channel

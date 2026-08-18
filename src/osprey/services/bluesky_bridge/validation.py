@@ -63,11 +63,12 @@ def _assert_limits_readable_if_writable() -> None:
     begins.
 
     Mirrors `LimitsValidator.from_config`'s ``database_path`` resolution
-    (a relative path resolved against the ``CONFIG_FILE`` env var's directory
-    when set, falling back to ``project_root`` otherwise — container-correct,
-    since the deploy flattens ``project_root`` in as the HOST build path,
-    while ``CONFIG_FILE`` points at the config actually mounted in-container),
-    but probes readability via `LimitsValidator._load_limits_database`
+    (a relative path anchors on the directory of the config actually loaded,
+    falling back to the ``CONFIG_FILE`` env var's directory and then
+    ``project_root`` — container-correct, since the deploy flattens
+    ``project_root`` in as the HOST build path while the loaded config is the
+    one mounted in-container), but probes readability via
+    `LimitsValidator._load_limits_database`
     directly rather than calling `from_config` — `from_config` swallows every
     load failure to `None`, which would hide the exact failure this guard
     must detect and raise on.
@@ -108,7 +109,11 @@ def _assert_limits_readable_if_writable() -> None:
     from osprey.connectors.control_system.limits_validator import LimitsValidator
 
     # Same relative-path resolution as `LimitsValidator.from_config`.
-    db_path = LimitsValidator.resolve_database_path(db_path, project_root)
+    from osprey.utils.config import default_config_path
+
+    db_path = LimitsValidator.resolve_database_path(
+        db_path, project_root, config_path=default_config_path()
+    )
 
     try:
         LimitsValidator._load_limits_database(db_path)

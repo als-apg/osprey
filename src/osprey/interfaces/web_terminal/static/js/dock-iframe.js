@@ -130,7 +130,6 @@ function ensureDock() {
         api.onDidActivePanelChange(trackActiveServiceGroup),
       );
       wireDragShield(api);
-      wireSashShield();
       window.addEventListener('resize', syncGeometry);
       // After a default-layout rebuild (reset / restore-fallback) the grid holds
       // only the terminal — re-dock every visible managed panel's placeholder so
@@ -177,6 +176,17 @@ export function setIframePointerShield(on) {
 /**
  * Re-apply dock-workspace.js's pointer shield to the overlay iframes across
  * every dockview-initiated drag gesture (start → any natural terminator).
+ *
+ * SASH drags need no shield here — and must not get one. dockview-core's own
+ * sash handling already disables pointer-events on every iframe in the
+ * document for the whole gesture (disableIframePointEvents in its splitview),
+ * by SNAPSHOTTING each iframe's inline pointer-events value on sash
+ * pointerdown and restoring the snapshot on pointerup. A second, adapter-side
+ * shield running in the capture phase sets 'none' before dockview snapshots,
+ * so dockview records 'none' as the "original" value and its restore
+ * re-freezes every overlay iframe after the drag — permanently, since each
+ * further drag re-snapshots the poisoned value. That was the issue-638
+ * panel freeze; dock-iframe.test.mjs pins the gesture contract.
  * @param {any} api
  */
 function wireDragShield(api) {
@@ -184,29 +194,6 @@ function wireDragShield(api) {
     onStart: () => setIframePointerShield(true),
     onEnd: () => setIframePointerShield(false),
   }));
-}
-
-/**
- * Same shield for SASH drags. A live resize now follows the pointer frame-by-
- * frame (see the content-container ResizeObserver), so the pointer can cross an
- * overlay iframe mid-drag — a separate browsing context that would swallow the
- * pointermove events dockview's sash handler needs. Neutralize the iframes for
- * the whole gesture (sash pointerdown → pointerup/cancel), exactly as the old
- * hand-rolled splitter did with `body.resizing iframe { pointer-events:none }`.
- * Capture-phase so it runs regardless of dockview's own sash handling.
- */
-function wireSashShield() {
-  document.addEventListener('pointerdown', (e) => {
-    if (!(e.target instanceof Element) || !e.target.closest('.dv-sash')) return;
-    for (const entry of managed.values()) entry.iframe.style.pointerEvents = 'none';
-    const end = () => {
-      document.removeEventListener('pointerup', end, true);
-      document.removeEventListener('pointercancel', end, true);
-      for (const entry of managed.values()) entry.iframe.style.pointerEvents = 'auto';
-    };
-    document.addEventListener('pointerup', end, true);
-    document.addEventListener('pointercancel', end, true);
-  }, true);
 }
 
 /** @param {HTMLIFrameElement} iframe */

@@ -395,17 +395,21 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     lands inside the user's own mount; an already-absolute URL is left
     untouched.
 
-    Focusing a panel that is **not** in the launcher rail also adds it there,
-    emitting a ``panel_visibility`` frame *before* the focus frame. An agent's
-    ``open_panel`` may name a panel the operator took off the rail; without the
-    membership update the rail entry would exist only on the client that
-    happened to apply the focus, so ``list_panels`` would keep reporting the
-    panel invisible, a reload would drop both the entry and the agent-opened
-    tile, and a late-connecting client would never see it at all. Ordering is
-    deliberate: clients add the rail entry, then apply focus to it.
+    An **agent** focus on a panel that is **not** in the launcher rail also
+    adds it there, emitting a ``panel_visibility`` frame *before* the focus
+    frame. An agent's ``open_panel`` may name a panel the operator took off
+    the rail; without the membership update the rail entry would exist only on
+    the client that happened to apply the focus, so ``list_panels`` would keep
+    reporting the panel invisible, a reload would drop both the entry and the
+    agent-opened tile, and a late-connecting client would never see it at all.
+    Ordering is deliberate: clients add the rail entry, then apply focus to it.
 
     A panel already in the rail — which is the only kind a human can click —
-    changes nothing and emits no visibility frame.
+    changes nothing and emits no visibility frame. A **source-less** focus on
+    a non-member is dropped whole: a human can only gesture at a panel already
+    on the rail, so such a report is always a fire-and-forget straggler that a
+    concurrent arrange overtook, and applying it would resurrect the panel the
+    arrange just pruned.
 
     An agent switch is also mirrored into the activity history ring as one
     ``open_panel`` row. When the open additionally adds rail membership,
@@ -435,6 +439,16 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     else:
         visible_panels = list(stored_visible)
     adds_membership = body.panel not in visible_panels
+    if adds_membership and body.source != "agent":
+        # A source-less focus is a human gesture report, and a human can only
+        # gesture at a panel already on the rail — new membership arrives via
+        # ``/api/panels/register`` or an agent ``open_panel``, never a human
+        # focus. A source-less report naming a non-member is therefore a
+        # fire-and-forget straggler that a concurrent arrange overtook;
+        # applying it would resurrect the pruned panel on every client's rail
+        # and steal the active slot, so the whole write is dropped.
+        active = getattr(request.app.state, "active_panel", None)
+        return {"status": "ok", "active_panel": active}
     if adds_membership:
         visible_panels.append(body.panel)
         request.app.state.visible_panels = visible_panels
