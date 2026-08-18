@@ -228,7 +228,7 @@ virtual_accelerator:
   # changing it moves both.
   port: 5064
 
-bluesky_panels:
+bluesky_web:
   port: 8095
 
 # ── Stored archive (MongoDB) ─────────────────────────────────────────────────
@@ -722,10 +722,10 @@ config:
   web.panels.events.path: /dashboard
   web.panels.events.health_endpoint: /health
   # BLUESKY — operator UI for the mediated Bluesky stack, served by the
-  # bluesky-panels sidecar. Override BLUESKY_PANELS_URL for containerized/
+  # bluesky-web sidecar. Override BLUESKY_WEB_URL for containerized/
   # remote web terminals (same pattern as EVENTS above).
   web.panels.bluesky.label: BLUESKY
-  web.panels.bluesky.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+  web.panels.bluesky.url: "${BLUESKY_WEB_URL:-http://localhost:8095}"
   web.panels.bluesky.path: /bluesky/
 """
 

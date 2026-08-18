@@ -8,7 +8,7 @@ LLM, so this test needs no provider API key — ``hello-world``'s bundled
 ``provider``/``model`` defaults are enough for the build to succeed.
 
 **Scope, and how it differs from ``test_bluesky_queue_e2e.py``.** That module
-is the full-stack proof: Virtual Accelerator, Tiled, the panels sidecar, real
+is the full-stack proof: Virtual Accelerator, Tiled, the bluesky-web sidecar, real
 plan runs driven to completion, aborts, restarts. THIS module deliberately deploys
 the smallest thing the ``bluesky:`` profile block can produce — one bridge, one
 ``bluesky-queueserver`` RE Manager, one Redis — on the ``hello-world`` preset,

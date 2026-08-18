@@ -1,9 +1,9 @@
 /**
  * Unit tests for the BLUESKY panel's figure renderer
- * (bluesky_panels/panels/bluesky/figure-renderer.js).
+ * (bluesky_web/panels/bluesky/figure-renderer.js).
  *
  * happy-dom environment (configured globally in vitest.config.js):
- *   npx vitest run tests/interfaces/bluesky_panels/figure-renderer.test.mjs
+ *   npx vitest run tests/interfaces/bluesky_web/figure-renderer.test.mjs
  *
  * Two layers:
  *  - The layout half against plain figure objects in the shape
@@ -46,21 +46,21 @@ import {
   seriesExtent,
   shownPointCount,
   splitSegments,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js';
+} from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js';
 import {
   groupPanels,
   resolveSectionSelection,
   resolveSeriesSelection,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-controls.js';
+} from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-controls.js';
 
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').FigurePoint} FigurePoint */
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').FigureSeries} FigureSeries */
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').LinesMark} LinesMark */
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').HeatmapMark} HeatmapMark */
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').BarsMark} BarsMark */
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').FigureMark} FigureMark */
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').FigurePanel} FigurePanel */
-/** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').Figure} Figure */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').FigurePoint} FigurePoint */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').FigureSeries} FigureSeries */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').LinesMark} LinesMark */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').HeatmapMark} HeatmapMark */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').BarsMark} BarsMark */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').FigureMark} FigureMark */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').FigurePanel} FigurePanel */
+/** @typedef {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').Figure} Figure */
 
 // ---------------------------------------------------------------------------
 // Wire-shaped builders — every field the bridge dumps, so a test object is

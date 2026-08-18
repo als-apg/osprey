@@ -1,4 +1,4 @@
-"""The bluesky panels sidecar's FastAPI app: the operator panel bundles plus a
+"""The bluesky-web sidecar's FastAPI app: the operator panel bundles plus a
 shared HTTP client onto the Bluesky bridge.
 
 What the app owns is serving and plumbing: its container healthcheck, a blanket
@@ -32,7 +32,7 @@ from starlette.staticfiles import StaticFiles
 
 from osprey.bluesky_bridge_connection import resolve_bridge_url
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.interfaces.bluesky_panels import draft_relay, queue_relay, read_proxy
+from osprey.interfaces.bluesky_web import draft_relay, queue_relay, read_proxy
 
 # Panel bundle directories (relative to this module's directory) and the mount
 # path each is served under. Directories are created on startup if absent, so
@@ -68,7 +68,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await client.aclose()
 
 
-app = FastAPI(title="OSPREY Bluesky Panels", lifespan=_lifespan)
+app = FastAPI(title="OSPREY Bluesky", lifespan=_lifespan)
 
 
 @app.middleware("http")

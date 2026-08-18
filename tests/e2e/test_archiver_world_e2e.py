@@ -227,7 +227,7 @@ def _override_yaml() -> str:
         f"  port_host: {MONGO_PORT_HOST}\n"
         f"  freshness_channel: {FRESHNESS_CANARY}\n"
         "bluesky: null\n"
-        "bluesky_panels: null\n"
+        "bluesky_web: null\n"
         "dispatch: null\n"
     )
 

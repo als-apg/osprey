@@ -162,7 +162,7 @@ class TestProxyPrefixIntegration:
 class TestPanelBundleRewriteCollisions:
     """Shipped prefix-aware panel bundles must not collide with the rewrite list.
 
-    The bluesky-panels bundles compute their API prefix at runtime
+    The bluesky-web bundles compute their API prefix at runtime
     (``panelApiPrefix()``) and prepend it to fetch paths. If such a bundle also
     embeds a quote-delimited literal starting with one of the proxy's
     ``_REWRITE_PREFIXES``, the proxy rewrites the literal server-side and the
@@ -180,7 +180,7 @@ class TestPanelBundleRewriteCollisions:
         import re
         from pathlib import Path
 
-        import osprey.interfaces.bluesky_panels as bp
+        import osprey.interfaces.bluesky_web as bp
         from osprey.interfaces.web_terminal.routes.proxy import _REWRITE_PREFIXES
 
         panels_dir = Path(bp.__file__).parent / "panels"

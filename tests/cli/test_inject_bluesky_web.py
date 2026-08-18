@@ -1,8 +1,8 @@
-"""Tests for the ``_inject_bluesky_panels`` build step in ``osprey.cli.build_cmd``.
+"""Tests for the ``_inject_bluesky_web`` build step in ``osprey.cli.build_cmd``.
 
-Covers the three responsibilities of the bluesky-panels-injection step: copying
-the bundled ``templates/services/bluesky_panels/`` compose template, writing the
-``services.bluesky_panels`` config + registering it in ``deployed_services``
+Covers the three responsibilities of the bluesky-web-injection step: copying
+the bundled ``templates/services/bluesky_web/`` compose template, writing the
+``services.bluesky_web`` config + registering it in ``deployed_services``
 (additively), and registering the ``web.panels.bluesky`` entry with the
 sidecar-root ``url`` + per-panel ``path``/``label`` — mirroring
 ``_inject_dispatch``'s ``events`` panel registration, including the
@@ -18,8 +18,8 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-from osprey.cli.build_cmd import _inject_bluesky_panels
-from osprey.cli.build_profile import BlueskyPanelsConfig
+from osprey.cli.build_cmd import _inject_bluesky_web
+from osprey.cli.build_profile import BlueskyWebConfig
 
 
 def _write_config(project_path: Path, *, extra: dict | None = None) -> None:
@@ -42,54 +42,54 @@ def _read_config(project_path: Path) -> dict:
         return yaml.load(fh)
 
 
-def test_inject_bluesky_panels_copies_template_dir(tmp_path: Path) -> None:
-    """The bundled compose template dir is copied into services/bluesky_panels."""
+def test_inject_bluesky_web_copies_template_dir(tmp_path: Path) -> None:
+    """The bundled compose template dir is copied into services/bluesky_web."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(), project_path=project_path)
 
-    dest = project_path / "services" / "bluesky_panels"
+    dest = project_path / "services" / "bluesky_web"
     assert (dest / "docker-compose.yml.j2").is_file()
     assert (dest / "Dockerfile").is_file()
 
 
-def test_inject_bluesky_panels_writes_service_config(tmp_path: Path) -> None:
-    """services.bluesky_panels is written with path + port, and deployed_services
-    is additive — keeps existing services, appends bluesky_panels."""
+def test_inject_bluesky_web_writes_service_config(tmp_path: Path) -> None:
+    """services.bluesky_web is written with path + port, and deployed_services
+    is additive — keeps existing services, appends bluesky_web."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
 
     config = _read_config(project_path)
-    sp = config["services"]["bluesky_panels"]
-    assert sp["path"] == "./services/bluesky_panels"
+    sp = config["services"]["bluesky_web"]
+    assert sp["path"] == "./services/bluesky_web"
     assert sp["port"] == 8095
     assert "image" not in sp
 
     deployed = [str(s) for s in config["deployed_services"]]
     assert "postgresql" in deployed
-    assert "bluesky_panels" in deployed
+    assert "bluesky_web" in deployed
 
 
-def test_inject_bluesky_panels_deployed_services_idempotent(tmp_path: Path) -> None:
+def test_inject_bluesky_web_deployed_services_idempotent(tmp_path: Path) -> None:
     """Re-running the injector does not duplicate the deployed_services entry."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
-    _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(), project_path=project_path)
 
     config = _read_config(project_path)
     deployed = [str(s) for s in config["deployed_services"]]
-    assert deployed.count("bluesky_panels") == 1
+    assert deployed.count("bluesky_web") == 1
 
 
-def test_inject_bluesky_panels_registers_the_web_panels(tmp_path: Path) -> None:
+def test_inject_bluesky_web_registers_the_web_panels(tmp_path: Path) -> None:
     """The web.panels.bluesky entry is registered with the sidecar-root url +
     its path/label. The url points at the sidecar ROOT (not a panel-specific
     sub-path) — the panel's static mount is selected via `path`.
@@ -100,30 +100,30 @@ def test_inject_bluesky_panels_registers_the_web_panels(tmp_path: Path) -> None:
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
 
     panels = _read_config(project_path)["web"]["panels"]
 
     bluesky = panels["bluesky"]
-    assert bluesky["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+    assert bluesky["url"] == "${BLUESKY_WEB_URL:-http://localhost:8095}"
     assert bluesky["path"] == "/bluesky/"
     assert bluesky["label"] == "BLUESKY"
     assert "health_endpoint" not in bluesky
 
 
-def test_inject_bluesky_panels_derives_url_from_custom_port(tmp_path: Path) -> None:
-    """A non-default bluesky_panels.port is reflected in the derived panel urls."""
+def test_inject_bluesky_web_derives_url_from_custom_port(tmp_path: Path) -> None:
+    """A non-default bluesky_web.port is reflected in the derived panel urls."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(port=9999), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=9999), project_path=project_path)
 
     panels = _read_config(project_path)["web"]["panels"]
-    assert panels["bluesky"]["url"] == "${BLUESKY_PANELS_URL:-http://localhost:9999}"
+    assert panels["bluesky"]["url"] == "${BLUESKY_WEB_URL:-http://localhost:9999}"
 
 
-def test_inject_bluesky_panels_explicit_url_override_wins(tmp_path: Path) -> None:
+def test_inject_bluesky_web_explicit_url_override_wins(tmp_path: Path) -> None:
     """A pre-existing web.panels.<id>.url (e.g. a facility config override
     merged earlier in the build) is not clobbered by the derived default."""
     project_path = tmp_path / "project"
@@ -139,7 +139,7 @@ def test_inject_bluesky_panels_explicit_url_override_wins(tmp_path: Path) -> Non
         },
     )
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
 
     bluesky = _read_config(project_path)["web"]["panels"]["bluesky"]
     # Explicit override preserved.
@@ -149,7 +149,7 @@ def test_inject_bluesky_panels_explicit_url_override_wins(tmp_path: Path) -> Non
     assert bluesky["label"] == "BLUESKY"
 
 
-def test_inject_bluesky_panels_explicit_path_label_override_wins(tmp_path: Path) -> None:
+def test_inject_bluesky_web_explicit_path_label_override_wins(tmp_path: Path) -> None:
     """A pre-existing path/label is not clobbered by the injector's setdefault."""
     project_path = tmp_path / "project"
     project_path.mkdir()
@@ -164,23 +164,23 @@ def test_inject_bluesky_panels_explicit_path_label_override_wins(tmp_path: Path)
         },
     )
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
 
     bluesky = _read_config(project_path)["web"]["panels"]["bluesky"]
     assert bluesky["path"] == "/custom-results/"
     assert bluesky["label"] == "CUSTOM"
     # Derived url is still filled in.
-    assert bluesky["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+    assert bluesky["url"] == "${BLUESKY_WEB_URL:-http://localhost:8095}"
 
 
-def test_inject_bluesky_panels_missing_config_yml_is_noop(tmp_path: Path) -> None:
+def test_inject_bluesky_web_missing_config_yml_is_noop(tmp_path: Path) -> None:
     """Missing config.yml is a warned no-op (mirrors _inject_bluesky), not a crash."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     # No config.yml written.
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)  # must not raise
+    _inject_bluesky_web(BlueskyWebConfig(), project_path=project_path)  # must not raise
 
     assert not (project_path / "config.yml").exists()
     # Template is still copied before the config.yml check.
-    assert (project_path / "services" / "bluesky_panels" / "Dockerfile").is_file()
+    assert (project_path / "services" / "bluesky_web" / "Dockerfile").is_file()

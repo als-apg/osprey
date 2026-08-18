@@ -13,7 +13,7 @@ a valid mapping), and the non-mapping guards on the optional ``bluesky:`` and
 
 Complements the block-scoped suites that exercise the *accepted* shapes:
 ``test_bluesky_service_registration.py`` for ``bluesky:`` field defaults and
-``excluded_plans`` typing, ``test_build_profile.py`` for ``bluesky_panels:``,
+``excluded_plans`` typing, ``test_build_profile.py`` for ``bluesky_web:``,
 and ``test_profile_schema.py`` for ``dispatch:``.
 """
 

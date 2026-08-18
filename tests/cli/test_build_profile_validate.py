@@ -12,7 +12,7 @@ list, a ``categories`` entry that is not a mapping) skip only their own
 remaining sub-checks — they never short-circuit the rest of the validator.
 
 Complements the block-scoped suites (``test_profile_schema.py`` for
-``dispatch:``, ``test_build_profile.py`` for ``bluesky_panels:``) by covering
+``dispatch:``, ``test_build_profile.py`` for ``bluesky_web:``) by covering
 the per-field branches those files leave untouched.
 """
 

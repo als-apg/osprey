@@ -25,7 +25,7 @@ CONTRACT = [
     ("channel_finder/static/css/channel-finder.css", "body.embedded .app-header"),
     ("lattice_dashboard/static/dashboard.css", "body.embedded #topbar"),
     ("health/static/dashboard.css", "body.embedded .hdr"),
-    ("bluesky_panels/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
+    ("bluesky_web/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
     # Theme switchers (hub owns theming)
     ("ariel/static/css/layout.css", "body.embedded osprey-theme-switcher"),
     ("channel_finder/static/css/channel-finder.css", "body.embedded osprey-theme-switcher"),

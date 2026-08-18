@@ -8,7 +8,7 @@ repeating a try/except around each HTTP call.
 
 The bridge URL / launch token resolution itself and the ``bridge_error_message``
 helper live in the shared leaf ``osprey.bluesky_bridge_connection``, imported by
-both this MCP server and the panels sidecar so the two never drift on which
+both this MCP server and the bluesky-web sidecar so the two never drift on which
 bridge instance or token they use (a safety-relevant bug class). This module
 re-exports ``bridge_error_message`` so the tool modules (``read_tools``,
 ``launch``, ``stop``, ``draft``, ``authoring``) keep importing it from here
@@ -76,7 +76,7 @@ class BridgeContext:
         """Resolve bridge_url and launch_token from env with config.yml fallback.
 
         Delegates to the shared ``osprey.bluesky_bridge_connection`` resolvers so
-        this MCP server and the panels sidecar agree on which bridge instance and
+        this MCP server and the bluesky-web sidecar agree on which bridge instance and
         token they use. Called once during create_server(); subsequent calls are
         no-ops.
         """

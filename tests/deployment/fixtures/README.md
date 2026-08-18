@@ -15,7 +15,7 @@ Both were written by an OSPREY lifecycle verb into the project's
 the build ran.
 
 - `buildkit_cold_build.log` — a cold `compose build` of a four-service project
-  (`bluesky-bridge`, `bluesky-panels`, `event-dispatcher`,
+  (`bluesky-bridge`, `bluesky-web`, `event-dispatcher`,
   `virtual-accelerator`). Every service name in the stream is a real service.
 - `buildkit_project_image.log` — a single project-image build. It has 13
   nameless step headers, in both shapes BuildKit emits: space-padded below ten

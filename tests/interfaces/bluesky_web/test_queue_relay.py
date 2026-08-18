@@ -1,6 +1,6 @@
-"""Unit tests for the bluesky panels sidecar's plan-queue relay.
+"""Unit tests for the bluesky-web sidecar's plan-queue relay.
 
-Exercises ``osprey.interfaces.bluesky_panels.queue_relay.router`` mounted on a
+Exercises ``osprey.interfaces.bluesky_web.queue_relay.router`` mounted on a
 LOCAL FastAPI app, with the bridge HTTP layer faked by ``httpx.MockTransport``
 (respx is not installed here), mirroring ``test_draft_relay.py`` /
 ``test_launch.py``. The composed-app assertions at the bottom are the
@@ -34,7 +34,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.bluesky_panels import queue_relay
+from osprey.interfaces.bluesky_web import queue_relay
 
 _BRIDGE_URL = "http://bridge.test"
 TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
@@ -910,7 +910,7 @@ def test_router_exposes_exactly_the_bridge_queue_surface() -> None:
 
 
 def test_queue_paths_are_wired_onto_the_composed_app() -> None:
-    from osprey.interfaces.bluesky_panels.app import app as composed_app
+    from osprey.interfaces.bluesky_web.app import app as composed_app
 
     paths = composed_app.openapi()["paths"]
     for path in (
@@ -933,7 +933,7 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
     ``/runs/launch`` is deliberately not on this list: there is no launch
     relay, and every bridge primitive it would call answers an unconditional
     410."""
-    from osprey.interfaces.bluesky_panels.app import app as composed_app
+    from osprey.interfaces.bluesky_web.app import app as composed_app
 
     paths = composed_app.openapi()["paths"]
     for path in ("/health", "/bridge/health", "/plans", "/runs", "/draft"):

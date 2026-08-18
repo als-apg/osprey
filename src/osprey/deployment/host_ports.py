@@ -55,7 +55,7 @@ _SERVICE_REMEDY_KEYS = {
     "dispatch-worker": "dispatch.worker_port_base",
     "bluesky-bridge": "services.bluesky.port",
     "tiled": "services.bluesky.tiled_port",
-    "bluesky-panels": "services.bluesky_panels.port",
+    "bluesky-web": "services.bluesky_web.port",
     "virtual-accelerator": "services.virtual_accelerator.port",
     "qmd": QMD_PORT_CONFIG_KEY,
 }

@@ -26,7 +26,7 @@ _SERVICE_ARTIFACTS = [
     "services/event_dispatcher",
     "services/dispatch_worker",
     "services/bluesky",
-    "services/bluesky_panels",
+    "services/bluesky_web",
     "services/virtual_accelerator",
     "services/mongodb",
     "services/archiver_recorder",

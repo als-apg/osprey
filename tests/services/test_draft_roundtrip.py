@@ -1,7 +1,7 @@
 """Cross-service integration roundtrip locking the agent-plan-draft contract:
 PATCH draft -> SSE frame -> a pinned revision that only the queue will take.
 
-Here, the real ``osprey.interfaces.bluesky_panels.app`` sidecar is wired to the
+Here, the real ``osprey.interfaces.bluesky_web.app`` sidecar is wired to the
 real ``osprey.services.bluesky_bridge.app`` bridge via ``httpx.ASGITransport``
 (no real bridge process, no container) -- so a PATCH sent through the sidecar's
 ``/draft`` relay actually lands on the bridge's draft singleton, and the SSE
@@ -20,7 +20,7 @@ and one of them silently going stale.
 
 Everything else is covered per-router elsewhere:
 
-- ``tests/interfaces/bluesky_panels/test_draft_relay.py`` covers the sidecar's
+- ``tests/interfaces/bluesky_web/test_draft_relay.py`` covers the sidecar's
   routers in isolation (mocked bridge).
 - ``tests/services/bluesky_bridge/test_draft.py`` covers the bridge draft
   module's SSE wire format and per-field validation directly.
@@ -58,7 +58,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.bluesky_panels.app import app as sidecar_app
+from osprey.interfaces.bluesky_web.app import app as sidecar_app
 from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import draft as bridge_draft
 from osprey.services.bluesky_bridge import plan_loader

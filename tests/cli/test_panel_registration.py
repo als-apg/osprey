@@ -1,15 +1,15 @@
 """The BLUESKY panel's registration in a built project.
 
-``_inject_bluesky_panels`` writes the ``web.panels.bluesky`` entry into a built
+``_inject_bluesky_web`` writes the ``web.panels.bluesky`` entry into a built
 ``config.yml``, pointing the web-terminal proxy at the sidecar and selecting
 the panel's static mount via ``path``. This module covers that registration
 end to end: the entry a fresh build writes, the profile validation that lets
 ``bluesky`` stay url-less (its URL is derived post-build from the sidecar
 port), and that the registered path actually serves the panel's HTML.
 
-The rest of ``_inject_bluesky_panels`` (template copy, service config,
+The rest of ``_inject_bluesky_web`` (template copy, service config,
 deployed_services, url derivation, override precedence) is covered by
-``test_inject_bluesky_panels.py``.
+``test_inject_bluesky_web.py``.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 from ruamel.yaml import YAML
 
-from osprey.cli.build_injectors import _inject_bluesky_panels
-from osprey.cli.build_profile import BlueskyPanelsConfig, BuildProfile
+from osprey.cli.build_injectors import _inject_bluesky_web
+from osprey.cli.build_profile import BlueskyWebConfig, BuildProfile
 
 
 def _write_config(project_path: Path, *, panels: dict | None = None) -> None:
@@ -51,10 +51,10 @@ def test_injector_registers_the_bluesky_panel(project_path: Path) -> None:
     """The entry carries the derived url, the panel's mount path, and its label."""
     _write_config(project_path)
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
 
     bluesky = _read_panels(project_path)["bluesky"]
-    assert bluesky["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+    assert bluesky["url"] == "${BLUESKY_WEB_URL:-http://localhost:8095}"
     assert bluesky["path"] == "/bluesky/"
     assert bluesky["label"] == "BLUESKY"
 
@@ -67,7 +67,7 @@ def test_injector_registers_exactly_one_panel(project_path: Path) -> None:
     """
     _write_config(project_path)
 
-    _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(), project_path=project_path)
 
     assert set(_read_panels(project_path)) == {"bluesky"}
 
@@ -77,7 +77,7 @@ def test_profile_listing_bluesky_validates_without_warning(tmp_path: Path) -> No
     profile = BuildProfile(
         name="modern",
         web_panels=["bluesky"],
-        bluesky_panels=BlueskyPanelsConfig(),
+        bluesky_web=BlueskyWebConfig(),
     )
 
     with warnings.catch_warnings():
@@ -89,15 +89,15 @@ def test_the_registered_path_actually_serves_the_panel(project_path: Path) -> No
     """The operator-visible half: the registered path returns the panel's HTML.
 
     A mount can be registered against an empty directory and still 404 (see
-    ``tests/interfaces/bluesky_panels/test_health.py``), which would leave this
+    ``tests/interfaces/bluesky_web/test_health.py``), which would leave this
     config.yml pointing a tab at nothing.
     """
     from fastapi.testclient import TestClient
 
-    from osprey.interfaces.bluesky_panels.app import app
+    from osprey.interfaces.bluesky_web.app import app
 
     _write_config(project_path)
-    _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(), project_path=project_path)
 
     panels = _read_panels(project_path)
 

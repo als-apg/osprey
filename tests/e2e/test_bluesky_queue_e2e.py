@@ -7,7 +7,7 @@ the agent, or a panel) actually uses -- ``PATCH /draft`` -> ``POST /queue/items`
 -> ``POST /queue/start`` -> ``GET /runs`` -> ``GET /runs/{id}/data`` -- against
 real containers: the bluesky bridge, the ``bluesky-queueserver`` RE Manager,
 its Redis, the co-deployed Tiled catalog, the Virtual Accelerator soft-IOC,
-and the bluesky-panels sidecar.
+and the bluesky-web sidecar.
 
 Why this file exists at all: every other test of this stack drives a *mocked*
 queue client. Those cover OSPREY's half of a two-party contract. The manager,
@@ -184,7 +184,7 @@ BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 QUEUESERVER_CONTAINER = f"{PROJECT_NAME}-bluesky-queueserver"
 REDIS_CONTAINER = f"{PROJECT_NAME}-bluesky-redis"
 TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
-PANELS_CONTAINER = f"{PROJECT_NAME}-bluesky-panels"
+PANELS_CONTAINER = f"{PROJECT_NAME}-bluesky-web"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 
 # Every container this proof asserts healthy after the mock flip (stage 8).
@@ -760,7 +760,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             "--set",
             f"bluesky.tiled_port={TILED_PORT}",
             "--set",
-            f"bluesky_panels.port={PANELS_PORT}",
+            f"bluesky_web.port={PANELS_PORT}",
         ],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
@@ -2013,7 +2013,7 @@ def test_9_security_redis_is_unreachable_from_osprey_network(stack: QueueStack) 
     Redis holds the queue and history and has no authentication of its own; the
     only thing keeping it private is that it is attached to an ``internal:
     true`` network with the RE manager as its sole client. Probed from a
-    throwaway container on ``osprey-network`` -- where the panels sidecar, Tiled
+    throwaway container on ``osprey-network`` -- where the bluesky-web sidecar, Tiled
     and the VA live -- using this project's own bridge image (no pull, nothing
     new on the host).
 

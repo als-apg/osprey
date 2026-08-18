@@ -232,7 +232,7 @@ def test_internal_network_is_declared_internal(rendered: dict[str, Any]) -> None
 
 
 def test_bridge_and_queueserver_are_dual_homed(rendered: dict[str, Any]) -> None:
-    """Both need osprey-network (Tiled, the VA, the panels sidecar) as well as
+    """Both need osprey-network (Tiled, the VA, the bluesky-web sidecar) as well as
     the internal network — which is exactly why key auth, not network
     placement, is what protects the manager's sockets."""
     for service in ("bluesky-bridge", "queueserver"):
@@ -669,7 +669,7 @@ def test_dockerfile_queueserver_pin_matches_the_lockfile() -> None:
 # exist because that asymmetry is invisible in a green unit-test run and only
 # shows up as a failed image build.
 #
-# For reference: the sibling bluesky_panels Dockerfile has NEVER had a
+# For reference: the sibling bluesky_web Dockerfile has NEVER had a
 # deps-layer `pip check` — wheel-layer-only is the house shape, and this
 # template is the one that diverged from it.
 # ---------------------------------------------------------------------------

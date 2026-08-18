@@ -52,7 +52,7 @@ origin, so the browser never needs direct access to the backing port.
 The Bluesky panel
 -----------------
 
-One tab covers a plan end to end, served by the ``bluesky-panels`` sidecar.
+One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
 **BLUESKY** (``/bluesky/``) has three views, and the queue's state — with
 **Stop after current item** and **Abort running plan** — stays on screen across
 all three:

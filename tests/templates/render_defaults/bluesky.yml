@@ -179,7 +179,7 @@ services:
 
 
     networks:
-      # Dual-homed: osprey-network for the panels sidecar and Tiled,
+      # Dual-homed: osprey-network for the bluesky-web sidecar and Tiled,
       # bluesky-internal to reach the RE Manager's control socket.
       - osprey-network
       - bluesky-internal
@@ -412,7 +412,7 @@ networks:
   # network off from the host and the outside world, which is what keeps
   # Redis — attached to nothing else — unreachable from anywhere but the
   # manager. The manager and the bridge are also on osprey-network for the
-  # things that genuinely live there (VA, Tiled, the panels sidecar).
+  # things that genuinely live there (VA, Tiled, the bluesky-web sidecar).
   bluesky-internal:
     internal: true
 

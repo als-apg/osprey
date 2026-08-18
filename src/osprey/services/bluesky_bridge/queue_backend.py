@@ -339,7 +339,7 @@ class QueueBackend:
             status and one ``re_pause`` re-issue per poll + ``re_abort`` + a
             final status, i.e. ~43 round trips, for ~96s in total at the
             defaults. That figure is what the layered clients budget against
-            (the panels sidecar's ``queue_relay._ABORT_TIMEOUT`` and the MCP
+            (the bluesky-web sidecar's ``queue_relay._ABORT_TIMEOUT`` and the MCP
             ``stop_run`` tool both allow 120s); change these defaults and those
             two must move with them. The sleep budget stays deliberately short
             regardless — an operator waiting on a halt must get an answer, one

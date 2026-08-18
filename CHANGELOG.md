@@ -68,6 +68,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The browser-facing bluesky sidecar is now the `bluesky-web` service (was
+  `bluesky-panels`): it is named for its role — the web half of the bluesky
+  stack, beside `bluesky-bridge` — rather than for the one panel it serves.
+  Everything moves with it: the `bluesky_web:` build-profile block, the
+  `services.bluesky_web.*` config keys, the compose service and image names,
+  and the `OSPREY_BLUESKY_WEB_IMAGE` / `BLUESKY_WEB_URL` variables. Rebuild
+  and redeploy to pick up the new names; nothing keeps the old spellings
+  alive.
+
 - Osprey now calls a bluesky plan a plan, not a scan. A plan is any bluesky
   generator — a scan is only one kind — so the word is gone from the operator
   panels, the live activity labels, the agent's tool descriptions and the docs.
