@@ -1491,6 +1491,22 @@ def test_passwd_refuses_an_off_roster_user(tmp_path, monkeypatch, fake_runtime):
     assert fake_runtime == []
 
 
+def test_passwd_refuses_a_login_false_user(tmp_path, monkeypatch, fake_runtime):
+    """On the roster, but outside the login wall: no gate ever consults a hash
+    for a `login: false` entry, so "changing its password" would store a
+    credential nothing checks over a success message."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(
+        tmp_path, _auth_config(["alice", {"name": "ariel", "index": 1, "login": False}])
+    )
+
+    with pytest.raises(ValueError, match="login: false"):
+        lifecycle.rotate_user_password(str(config_path), "ariel", "some-password")
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+    assert fake_runtime == []
+
+
 def test_passwd_refuses_before_writing_when_the_runtime_is_down(tmp_path, monkeypatch):
     """Gate on the runtime BEFORE the write: otherwise the operator is handed a
     password the deployment was never told about."""

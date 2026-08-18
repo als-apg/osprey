@@ -108,6 +108,7 @@ from osprey.deployment.web_terminals.naming import web_container_name, web_conta
 from osprey.deployment.web_terminals.personas import (
     as_dict,
     effective_image_source,
+    entry_requires_login,
     env_var_suffix,
     freeze_user_indices,
     normalize_users,
@@ -915,9 +916,19 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
             "there; nothing was modified."
         )
 
-    if not any(entry["name"] == user for entry in normalize_users(web_terminals.get("users"))):
+    roster = normalize_users(web_terminals.get("users"))
+    if not any(entry["name"] == user for entry in roster):
         raise ValueError(
             f"User {user!r} is not present in modules.web_terminals.users; no password was changed."
+        )
+    # On the roster, but outside the login wall: no gate ever consults a hash
+    # for this entry, so "changing its password" would store a credential
+    # nothing checks while telling the operator it took effect.
+    if not any(entry["name"] == user and entry_requires_login(entry) for entry in roster):
+        raise ValueError(
+            f"User {user!r} has 'login: false' in modules.web_terminals.users, so its "
+            "terminal is served without authentication and has no password to change. "
+            "Remove that key to put the entry behind the login wall; nothing was modified."
         )
 
     _require_running_runtime(config)

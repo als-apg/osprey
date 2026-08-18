@@ -31,6 +31,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_facility_bundle,
     config_needs_launch_token,
     effective_image_source,
+    entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
     resolve_personas,
@@ -360,6 +361,12 @@ def render_web_terminals(
                 # would render no subject mapping at all and every IdP identity
                 # would be unmappable.
                 "oidc_subject": entry.get("oidc_subject"),
+                # Whether this entry opted out of the login wall (`login:
+                # false` on the roster entry). Read through the shared
+                # predicate rather than off the raw key so the template's gate
+                # and credential provisioning can never disagree about who has
+                # a login. With auth off the template never consults it.
+                "login_exempt": not entry_requires_login(entry),
                 # The env-var name that subject is emitted under, resolved HERE
                 # through env_var_suffix() — the single definition of the
                 # username->env-var mapping, shared with credential

@@ -388,6 +388,36 @@ def test_preflight_mints_credentials_then_secrets_for_the_roster(
     assert calls[1][1] == str(tmp_path)
 
 
+def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_path):
+    """A roster entry with `login: false` is left out of the password mint: no
+    gate ever asks the sidecar about it, so a hash for it would be a credential
+    nothing checks — and a minted password printed for it would tell the
+    operator the opposite of the truth."""
+    calls: list[list[str]] = []
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+
+    def _fake_credentials(usernames, project_root, **kwargs):
+        calls.append(list(usernames))
+        return _credentials_result(env_auth, users=usernames)
+
+    monkeypatch.setattr(provision, "ensure_auth_credentials", _fake_credentials)
+    monkeypatch.setattr(
+        provision, "ensure_auth_session_secrets", lambda root: _secrets_result(env_auth)
+    )
+
+    config = _auth_config(
+        "password",
+        users=[
+            "alice",
+            {"name": "ariel", "index": 1, "login": False},
+            {"name": "bob", "index": 2, "login": True},
+        ],
+    )
+    _run_preflight(monkeypatch, tmp_path, config)
+
+    assert calls == [["alice", "bob"]]
+
+
 def test_preflight_with_auth_none_touches_no_credential_state(monkeypatch, tmp_path, caplog):
     """`auth.method: none` (the default) must behave exactly as it did before
     authentication existed: nothing minted, no .env.auth, no gitignore warning

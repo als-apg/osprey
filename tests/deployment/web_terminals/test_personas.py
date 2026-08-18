@@ -13,6 +13,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_launch_token,
+    entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
     freeze_user_indices,
@@ -1115,6 +1116,56 @@ def test_normalize_users_oidc_subject_is_independent_of_the_cosmetic_fields() ->
             "oidc_subject": "alice@example.org",
         }
     ]
+
+
+def test_normalize_users_carries_login_false_through() -> None:
+    """`login: false` — the one value that changes anything — rides onto the
+    normalized entry."""
+    # Act
+    result = normalize_users([{"name": "ariel", "index": 2, "login": False}])
+
+    # Assert
+    assert result == [{"name": "ariel", "index": 2, "login": False}]
+
+
+def test_normalize_users_drops_every_other_login_spelling() -> None:
+    """`true`, absence, and every malformed spelling all normalize to "login
+    required" — a typo can lock an entry down, never open it up."""
+    # Act / Assert — explicit true and non-boolean spellings alike leave the
+    # plain two-key shape, so downstream reads them all as gated
+    for spelling in (True, "false", "no", 0, None, ["false"]):
+        result = normalize_users([{"name": "ariel", "index": 2, "login": spelling}])
+        assert result == [{"name": "ariel", "index": 2}], repr(spelling)
+
+
+def test_entry_requires_login_reads_only_the_literal_false() -> None:
+    """The shared predicate: one reading of the key for render, provisioning,
+    and the `users passwd` refusal."""
+    assert entry_requires_login({"name": "alice", "index": 0}) is True
+    assert entry_requires_login({"name": "ariel", "index": 2, "login": False}) is False
+
+
+def test_resolve_personas_threads_login_false_through_both_branches() -> None:
+    """The exemption survives resolution on the zero-migration path and the
+    persona-catalog path alike, and stays absent when never declared."""
+    # Act
+    zero_migration = resolve_personas(
+        {"users": [{"name": "ariel", "index": 0, "login": False}]}, _REGISTRY, "als"
+    )
+    persona_branch = resolve_personas(
+        {
+            "users": [{"name": "ariel", "index": 0, "persona": "gui", "login": False}],
+            "personas": {"gui": {"project": "als-gui"}},
+        },
+        _REGISTRY,
+        "als",
+    )
+    undeclared = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+
+    # Assert
+    assert zero_migration[0]["login"] is False
+    assert persona_branch[0]["login"] is False
+    assert "login" not in undeclared[0]
 
 
 def test_resolve_personas_exposes_oidc_subject_when_set() -> None:

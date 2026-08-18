@@ -114,6 +114,7 @@ def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Fi
     findings.extend(_check_username_charset(users))
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
+    findings.extend(_check_user_login(web_terminals, users))
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
@@ -138,7 +139,7 @@ def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Fi
     findings.extend(_check_unknown_mcp_topology(web_terminals))
     findings.extend(_check_nginx_image(web_terminals))
     findings.extend(_check_auth_method(web_terminals))
-    findings.extend(_check_auth_transport(web_terminals))
+    findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
     return findings
@@ -365,6 +366,60 @@ def _check_user_theme(users: list[Any]) -> list[Finding]:
                     f"modules.web_terminals.users entry {name!r} has a non-string "
                     f"theme {theme!r}; theme must be a string (a theme family such "
                     f"as 'desy', or a concrete id such as 'desy-light')"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_user_login(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+    """An object-form entry's optional ``login`` must be a boolean, and only
+    does anything while authentication is on.
+
+    Two findings, for the two ways the key can lie:
+
+    * A non-boolean ``login`` is an ERROR. The normalizer reads anything but
+      the literal ``false`` as "login required" — deliberately fail-closed —
+      so the typo can never open an entry to the world, but the author who
+      wrote ``login: no-thanks`` believes the opposite of what deploys.
+    * ``login: false`` with ``auth.method: none`` is a WARN. The key is inert
+      (there is no login wall to be exempt from), so the config claims a
+      distinction the deployment does not have.
+    """
+    findings: list[Finding] = []
+    login_declared = False
+    for user in users:
+        if not isinstance(user, dict) or "login" not in user:
+            continue
+        login = user.get("login")
+        if isinstance(login, bool):
+            login_declared = login_declared or login is False
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_user_login",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} has a non-boolean "
+                    f"login {login!r}; login must be true (default: this entry "
+                    f"requires a login) or false (served without authentication). "
+                    f"Anything else deploys as 'login required'"
+                ),
+            )
+        )
+
+    context = _auth_context(web_terminals)
+    auth_off = context is None or context["auth_method"] == "none"
+    if login_declared and auth_off:
+        findings.append(
+            Finding(
+                severity="warn",
+                code="web_terminals.user_login_inert",
+                message=(
+                    "a modules.web_terminals.users entry sets login: false, but "
+                    "auth.method is 'none' so no entry has a login to be exempt "
+                    "from; the key changes nothing until authentication is enabled"
                 ),
             )
         )
@@ -1408,7 +1463,7 @@ def _check_auth_method(web_terminals: dict[str, Any]) -> list[Finding]:
     ]
 
 
-def _check_auth_transport(web_terminals: dict[str, Any]) -> list[Finding]:
+def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
     """Authentication over cleartext HTTP: an ERROR, or a WARN once accepted.
 
     A session cookie is a bearer credential. Served over plain HTTP it is
@@ -1419,7 +1474,12 @@ def _check_auth_transport(web_terminals: dict[str, Any]) -> list[Finding]:
     WARN when the escape hatch is what's keeping the config renderable, so the
     risk is restated at every lint rather than only in the commit that took it.
 
-    With TLS on, ``allow_insecure_http`` is inert and nothing is reported.
+    With TLS on, ``allow_insecure_http`` is inert and nothing is reported. The
+    WARN is also withheld when ``deploy.fqdn`` names loopback: the deployment
+    advertises itself as same-host-only, so its cookies cross no network path —
+    the exact case the escape hatch exists for, and the posture the
+    control-assistant preset ships in. Pointing ``fqdn`` at a real host brings
+    the WARN back with the config change that creates the exposure.
     """
     context = _auth_context(web_terminals)
     if context is None or context["auth_method"] == "none":
@@ -1427,6 +1487,9 @@ def _check_auth_transport(web_terminals: dict[str, Any]) -> list[Finding]:
     if context["tls_enabled"]:
         return []
     if context["auth_allow_insecure_http"]:
+        fqdn = str(as_dict(root.get("deploy")).get("fqdn") or "").strip()
+        if fqdn in ("127.0.0.1", "localhost", "::1"):
+            return []
         return [
             Finding(
                 severity="warn",
