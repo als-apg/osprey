@@ -41,6 +41,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   control-system safety rule states the routing directly. Hand-stepping cost
   the operator one approval per write instead of one per measurement and left
   no run behind.
+- A panel closed by an agent workspace arrange no longer pops back open when a
+  browser's tab-switch report, sent before the arrange, arrives after it. The
+  server drops the stale report instead of re-adding the panel to every
+  client's rail and stealing the active tab.
 - `osprey up` now refuses as a precondition, rather than failing with a generic
   "Deployment failed", when a project deploys the archiver store and pymongo is
   missing. The refusal names the interpreter it is missing from — OSPREY seeds

@@ -284,15 +284,48 @@ def test_focus_without_explicit_membership_treats_enabled_as_the_rail():
     assert not hasattr(app.state, "visible_panels")
 
 
-def test_focus_without_explicit_membership_still_adds_a_custom_non_member():
-    """A custom panel is not in the enabled set, so it is a genuine non-member."""
+def test_focus_without_explicit_membership_drops_a_source_less_non_member():
+    """A custom panel outside the enabled fallback is a non-member too."""
     app = _make_focus_app(visible=None)
     with TestClient(app) as client:
         client.post("/api/panel-focus", json={"panel": "grafana"})
-    # Membership is shared state, so the visibility frame broadcasts even for a
-    # human gesture; the focus itself stays a local matter.
-    assert [f["type"] for f in _frames(app)] == ["panel_visibility"]
-    assert "grafana" in app.state.visible_panels
+    # A source-less focus can only be a human gesture, and a human can only
+    # gesture at a panel already on the rail — so this is a straggler report
+    # and must not create membership.
+    assert _frames(app) == []
+    assert not hasattr(app.state, "visible_panels")
+
+
+# ---- A stale human focus must not resurrect a pruned panel ---- #
+#
+# Every source-less focus POST is a human gesture REPORT (panel-commands.js),
+# and a human can only gesture at a panel already on screen. New membership
+# arrives through /api/panels/register or an agent ``open_panel``, never
+# through a human focus. So a source-less focus naming a non-member is always
+# a straggler that a concurrent arrange overtook: the fire-and-forget report
+# was issued before the arrange pruned the panel and arrived after. Applying
+# it would resurrect the pruned panel on every client's rail and steal the
+# active slot, so the whole write is dropped.
+
+
+def test_stale_human_focus_does_not_resurrect_a_pruned_panel():
+    """Source-less focus on a non-member: no membership add, no broadcast."""
+    app = _make_focus_app(visible=["ariel"])  # an arrange just pruned grafana
+    with TestClient(app) as client:
+        resp = client.post("/api/panel-focus", json={"panel": "grafana"})
+    assert resp.status_code == 200
+    assert app.state.visible_panels == ["ariel"]
+    app.state.broadcaster.broadcast.assert_not_called()
+
+
+def test_stale_human_focus_does_not_steal_the_active_slot():
+    """The dropped straggler must leave ``active_panel`` untouched too."""
+    app = _make_focus_app(visible=["ariel"])
+    app.state.active_panel = "ariel"
+    with TestClient(app) as client:
+        resp = client.post("/api/panel-focus", json={"panel": "grafana"})
+    assert resp.json() == {"status": "ok", "active_panel": "ariel"}
+    assert app.state.active_panel == "ariel"
 
 
 def test_focus_on_unknown_panel_changes_nothing():
