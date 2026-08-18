@@ -9,8 +9,9 @@ parts the FastAPI TestClient cannot reach.
 
 One panel per tile is a workspace invariant: the rail is the tab system, so an
 activation REPLACES the focused service tile's panel (the evicted panel closes
-server-side and dims on the rail), the "+" add menu is the verb that opens a
-NEW tile beside the current one, and no drop geometry may stack tabs.
+server-side and dims on the rail), the "+" add menu and the rail entry's
+"Open in a new tile" are the verbs that open a NEW tile beside the current one,
+and no drop geometry may stack tabs.
 
 What is proven here, grouped:
 
@@ -34,6 +35,19 @@ What is proven here, grouped:
   * The "+" add menu: unclipped geometry beside the rail, URL-row gating, reveal a
     hidden panel INTO A NEW TILE beside the active one, register from URL, and
     inline register errors.
+  * Tile header-bar contributions (the embed contract): a panel's own nav, search
+    and overflow items render in ITS bar only, actions round-trip into the iframe,
+    and the bar's drag ghost keeps its icons bar-sized.
+  * The right-click context menu (``panel-context-menu.js``), the only home left
+    for the open-beside and pop-out verbs: the rows a rail entry and a tile header
+    offer, the surfaces that DECLINE (an offline entry by mouse or keyboard, a
+    contributed header input, the terminal in simple mode), and the dismissals
+    that need real focus and real event targets — a click into a panel iframe,
+    and the scroll scoping that leaves the menu standing while xterm scrolls.
+  * The command palette: it opens with the input focused and typing filters
+    immediately, its Panels rows cover the ACTIVE panel and answer domain
+    synonyms, a pop-out row really opens the proxied panel URL, and executed
+    items come back under "Recent" on an empty query.
 
 Each test launches a real uvicorn server in a background thread, drives events
 through the REST API, and asserts the DOM via Playwright auto-waiting.
@@ -385,18 +399,70 @@ def _command_posts(posts: list[str]) -> list[str]:
     return [p for p in posts if p != "panel-layout"]
 
 
+# ---------------------------------------------------------------------------
+# Context-menu helpers
+# ---------------------------------------------------------------------------
+#
+# The rail's ⊞ and ↗ corner glyphs are gone: "open in a new tile" and "open in
+# a new window" live only in the right-click context menu
+# (panel-context-menu.js), a body-level popover carrying one .rail-context-item
+# per verb. Every gesture that used to click a corner goes through the menu
+# now, so these helpers are the one place that knows the popover's DOM.
+
+_RAIL_MENU = ".rail-context-menu"
+_RAIL_MENU_ITEM = ".rail-context-item"
+
+#: Row labels of the open context menu, in render order. Read from the label
+#: span rather than the row so the trailing glyph never joins the text.
+_MENU_LABELS_JS = (
+    "() => [...document.querySelectorAll('.rail-context-menu .rail-context-label')]"
+    ".map(e => e.textContent)"
+)
+
+
+def _rail_entry(page: Page, panel_id: str):
+    return page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
+
+
+def _context_menu(page: Page):
+    return page.locator(_RAIL_MENU)
+
+
+def _menu_labels(page: Page) -> list[str]:
+    return page.evaluate(_MENU_LABELS_JS)
+
+
+def _menu_row(page: Page, label: str):
+    """The menu row whose label contains ``label``."""
+    return page.locator(_RAIL_MENU_ITEM).filter(has_text=label)
+
+
+def _open_rail_menu(page: Page, panel_id: str):
+    """Right-click a rail entry and wait for its context menu to render.
+
+    The entry is the click target rather than one of its corners: a disabled
+    entry is ``pointer-events: none``, so Playwright's actionability check also
+    waits out the boot window in which the panel has not yet reported healthy —
+    the same implicit wait the hover-corner gesture used to provide.
+    """
+    _rail_entry(page, panel_id).click(button="right")
+    menu = _context_menu(page)
+    expect(menu).to_have_count(1, timeout=5_000)
+    return menu
+
+
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
-    """Open ``panel_id`` as a SECOND tile beside the current one via the rail's ⊞.
+    """Open ``panel_id`` as a SECOND tile beside the current one from its menu.
 
     A rail click would REPLACE the focused tile's panel (one panel per tile), so
-    tests that need two service tiles side by side use the entry's hover ⊞
-    ("open in a new tile") corner — the open-beside verb. ``base_url`` is
-    unused (kept so call sites read uniformly with the old add-menu dance).
+    tests that need two service tiles side by side use the entry's context-menu
+    row "Open in a new tile" — the open-beside verb, whose hover ⊞ corner is
+    gone. ``base_url`` is unused (kept so call sites read uniformly with the old
+    add-menu dance).
     """
-    del base_url  # the ⊞ path is purely client-side
-    entry = page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
-    entry.hover()
-    entry.locator(".panel-rail-beside").click()
+    del base_url  # the menu path is purely client-side
+    _open_rail_menu(page, panel_id)
+    _menu_row(page, "Open in a new tile").click()
     expect(_service_tab(page, label)).to_have_count(1, timeout=5_000)
 
 
@@ -829,7 +895,7 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
 
 
 def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromium_browser):
-    """⊞ on an ALREADY-OPEN panel moves its tile beside the active one.
+    """The new-tile verb on an ALREADY-OPEN panel moves its tile beside the active one.
 
     The old dance (remove from rail, re-add via "+") is gone: dockPanelAt's
     move semantics relocate the existing placeholder, so the panel never
@@ -853,10 +919,9 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
         ).to_have_count(1, timeout=5_000)
         groups_before = len(_dock_groups(page))
 
-        # Act — ⊞ on the already-open data-viz entry.
-        entry = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
-        entry.hover()
-        entry.locator(".panel-rail-beside").click()
+        # Act — "Open in a new tile" on the already-open data-viz entry.
+        _open_rail_menu(page, "data-viz")
+        _menu_row(page, "Open in a new tile").click()
 
         # Still exactly one data-viz tab, and the tile count is unchanged —
         # the tile MOVED (beside artifacts), it was not duplicated.
@@ -2240,6 +2305,14 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
             workspace,
             enabled_panels={"artifacts"},
             custom_panels=[custom],
+            # The premise below is that artifacts contributes NOTHING, which
+            # only holds while its iframe fails to load. The default fallback
+            # URL is the artifacts server's standard port, so a real artifacts
+            # server running on this host (a live web terminal, a demo stack)
+            # would load for real and contribute its own nav items — turning
+            # that assertion into a report about the machine. A free port keeps
+            # the panel dead by construction.
+            artifact_url=f"http://127.0.0.1:{_free_port()}",
         ) as (base_url, _app):
             page = _open_page(chromium_browser, base_url)
             _open_second_tile(page, base_url, "contrib-demo", "CONTRIB")
@@ -2534,3 +2607,745 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
             assert probe["ghostClose"] == probe["liveClose"], probe
 
             page.close()
+
+
+# ===========================================================================
+# Group 9 — The rail / tile-header context menu (FR1-FR6)
+# ===========================================================================
+#
+# The panel verbs that used to be hover-revealed corner glyphs now live in a
+# right-click menu, and only there. What only a real browser can settle:
+#
+#   * FR1 - a right-click on a healthy rail entry really renders the popover,
+#     with every verb in words, and its rows really drive the panel.
+#   * FR3/FR5 - the surfaces that must DECLINE: a disabled entry (mouse on its
+#     still-live "×" and keyboard alike) and a contributed header input, where
+#     the browser's own text menu has to survive. No test can see that native
+#     menu; what it can hold the app to is that the app's own popover stays
+#     away and the event is left to the browser.
+#   * FR4 - the dismissals that depend on real focus and real event targets: a
+#     click landing inside a panel iframe (which never reaches this document —
+#     only `window` blur does), and the scroll scoping that keeps the menu
+#     standing while the terminal streams output.
+#   * FR5 - the keyboard route, opened by the app rather than the platform.
+
+
+def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
+    """Right-clicking a healthy rail entry opens the menu with all four verbs.
+
+    The popover is body-level and viewport-positioned (it has to escape the
+    rail's own overflow), names the panel in its accessible name, and carries
+    the verbs in words with the rail's glyphs kept as trailing decoration. The
+    membership verb is the only destructive one and is styled apart.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+
+        menu = _open_rail_menu(page, "data-viz")
+
+        assert _menu_labels(page) == [
+            "Focus DATA VIZ",
+            "Open in a new tile",
+            "Open in a new window",
+            "Remove from rail",
+        ], _menu_labels(page)
+        expect(menu).to_have_attribute("role", "menu")
+        expect(menu).to_have_attribute("aria-label", "DATA VIZ actions")
+        expect(menu.locator(".rail-context-divider")).to_have_count(1)
+        expect(menu.locator(".rail-context-glyph")).to_have_count(3)
+        expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
+            re.compile(r"Remove from rail")
+        )
+        # data-viz's URL resolved at boot, so the popout row is live.
+        expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(0)
+
+        placement = page.evaluate(
+            "() => { const m = document.querySelector('.rail-context-menu');"
+            " return { parent: m.parentElement.tagName,"
+            " position: getComputedStyle(m).position }; }"
+        )
+        assert placement == {"parent": "BODY", "position": "fixed"}, placement
+
+        page.close()
+
+
+def test_rail_context_menu_keyboard_open_and_escape_restores_focus(tmp_path, chromium_browser):
+    """Shift+F10 on a focused entry opens ONE menu; Escape hands focus back.
+
+    macOS synthesises no `contextmenu` event from the keyboard, so the rail
+    opens the menu itself — and cancels the keydown's default action, which on
+    the platforms that DO synthesise one is what keeps a single keypress from
+    stacking a second, native menu. Escape is a keyboard dismissal, so focus
+    returns to whatever held it when the menu opened.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        # The entry has to be enabled before the keyboard route is allowed —
+        # the same gate the mouse route passes through.
+        expect(_rail_entry(page, "data-viz")).not_to_have_class(
+            re.compile(r"\bdisabled\b"), timeout=10_000
+        )
+
+        _rail_entry(page, "data-viz").focus()
+        page.keyboard.press("Shift+F10")
+
+        # Exactly one popover, and the keyboard user lands on its first row.
+        expect(_context_menu(page)).to_have_count(1, timeout=5_000)
+        assert page.evaluate("() => document.activeElement?.textContent ?? ''").startswith(
+            "Focus DATA VIZ"
+        )
+
+        page.keyboard.press("Escape")
+        expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+        focused = page.evaluate("() => document.activeElement?.getAttribute('data-panel-id') ?? ''")
+        assert focused == "data-viz", focused
+
+        page.close()
+
+
+def test_rail_context_menu_remove_from_rail_drops_membership(tmp_path, chromium_browser):
+    """The menu's "Remove from rail" runs the same membership POST the "×" does.
+
+    Like the corner it replaces, this is a SERVER change applied through the
+    panel_visibility echo, so the wait spans a full click → POST → broadcast →
+    handler round trip (see the rail "×" test for why the budget is 10s).
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        _focus_service_panel(page, "data-viz", "DATA VIZ")
+
+        _open_rail_menu(page, "data-viz")
+        _menu_row(page, "Remove from rail").click()
+
+        # The menu closes before the action runs, and the panel loses both its
+        # rail entry (membership) and its tile.
+        expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+        expect(_rail_entry(page, "data-viz")).to_have_count(0, timeout=10_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=10_000)
+
+        page.close()
+
+
+def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromium_browser):
+    """The new-window row renders inert while the panel has no standalone URL.
+
+    A panel's URL and its health arrive together at boot (one with no URL never
+    polls, so it never enables), which is why the entry is force-enabled here:
+    the menu's enabled gate is a DOM-class question, and taking the class off is
+    the only way to reach an entry that HAS a menu while its popout target is
+    still unresolved — the state an operator meets when a companion server is
+    slow to answer.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        artifact_url=None,
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        entry = _rail_entry(page, "artifacts")
+        expect(entry).to_have_class(re.compile(r"\bdisabled\b"), timeout=10_000)
+        page.evaluate(
+            "() => document.querySelector('button.panel-rail-button"
+            "[data-panel-id=\"artifacts\"]').classList.remove('disabled')"
+        )
+
+        menu = _open_rail_menu(page, "artifacts")
+        popout = _menu_row(page, "Open in a new window")
+        expect(popout).to_have_attribute("aria-disabled", "true")
+        # Every other row stays live — the gate is per-verb, not per-menu.
+        expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(1)
+
+        pages_before = len(page.context.pages)
+        # Forced, because Playwright reads `aria-disabled` on a menuitem as
+        # "not enabled" and would otherwise refuse the press outright — which
+        # is itself half the assertion. The press is still delivered, so the
+        # row is held to doing nothing rather than merely looking inert.
+        popout.click(force=True)
+        page.wait_for_timeout(500)
+        assert len(page.context.pages) == pages_before, "an inert row opened a window"
+        # An inert row is not a dismissal either: the press landed inside the
+        # menu, so the menu is still standing.
+        expect(_context_menu(page)).to_have_count(1)
+
+        page.close()
+
+
+def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
+    """An offline panel's entry offers no menu — not by its "×", not by keyboard.
+
+    The gate is in the handler rather than the rail's CSS on purpose: the
+    disabled entry's "×" keeps `pointer-events: auto` so a dead panel can always
+    be dismissed, and a keyboard menu request never consults CSS at all. Both
+    routes are driven here; neither may reach a menu whose verbs act on a panel
+    that has never answered. Declining leaves the event untouched, so what an
+    operator gets on those presses is the browser's own menu.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        artifact_url=None,
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        entry = _rail_entry(page, "artifacts")
+        expect(entry).to_have_class(re.compile(r"\bdisabled\b"), timeout=10_000)
+
+        # The still-live corner: a right-click on it lands on the entry.
+        entry.locator(".panel-rail-close").click(button="right")
+        page.wait_for_timeout(500)
+        expect(_context_menu(page)).to_have_count(0)
+
+        # The keyboard route bypasses `pointer-events` entirely.
+        entry.focus()
+        page.keyboard.press("Shift+F10")
+        page.wait_for_timeout(500)
+        expect(_context_menu(page)).to_have_count(0)
+
+        page.close()
+
+
+def test_simple_mode_drops_new_tile_row_and_terminal_menu(tmp_path, chromium_browser):
+    """Simple mode: no new-tile row, and the terminal surfaces decline outright.
+
+    The layout is locked to a single service tile there, so the open-beside verb
+    has nowhere to go; and the xterm card is replaced by the operator console,
+    so every terminal verb would act on a surface the operator cannot see — the
+    same reason the palette drops those actions in simple mode.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    # Non-empty workspace — see test_simple_mode_locks_layout_and_hides_close_controls.
+    (workspace / "seed_artifact.txt").write_text("seed\n")
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        ui_mode="simple",
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
+
+        _open_rail_menu(page, "artifacts")
+        assert _menu_labels(page) == [
+            "Focus WORKSPACE",
+            "Open in a new window",
+            "Remove from rail",
+        ], _menu_labels(page)
+
+        page.keyboard.press("Escape")
+        expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+
+        # The SESSION entry declines: no rows means no menu at all, never an
+        # empty popover.
+        _rail_entry(page, "terminal").click(button="right")
+        page.wait_for_timeout(500)
+        expect(_context_menu(page)).to_have_count(0)
+
+        page.close()
+
+
+def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_browser):
+    """The terminal's menu stays open while xterm scrolls its own viewport.
+
+    Scroll dismissal is scoped to the menu's anchor: only a scroll of the
+    document, or of a container that HOLDS the anchor, may close the menu. An
+    unscoped listener would close it on xterm's viewport scroll — which fires on
+    every streamed line, i.e. the terminal's normal state, making the menu
+    unusable exactly where it is most useful.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+
+        _open_rail_menu(page, "terminal")
+        assert _menu_labels(page) == [
+            "Restart terminal",
+            "New session",
+            "Close terminal tile",
+        ], _menu_labels(page)
+
+        # The event xterm emits from its viewport on every streamed line. It
+        # does not bubble, which is why the module listens in the capture phase
+        # — and why it has to tell this target apart from the document.
+        page.evaluate(
+            "() => document.querySelector('.xterm-viewport').dispatchEvent(new Event('scroll'))"
+        )
+        page.wait_for_timeout(300)
+        expect(_context_menu(page)).to_have_count(1)
+
+        # A document scroll DOES move the anchor, so it dismisses — the contrast
+        # that keeps the assertion above from passing on a missing listener.
+        page.evaluate("() => document.dispatchEvent(new Event('scroll'))")
+        expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+
+        page.close()
+
+
+def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_browser):
+    """A right-click inside a contributed header input keeps the browser's menu.
+
+    The tile bar owns a menu of the panel's verbs, but its interactive children
+    do not: right-clicking a contributed search box has to leave copy/paste and
+    the spell-check entries alone (dock-tab.js's INTERACTIVE guard). The title
+    beside it is the contrast — the same press there does open the panel's menu.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _search_menu_panel_backend() as stub_url:
+        custom = {
+            "id": "search-demo",
+            "label": "SEARCHY",
+            "url": stub_url,
+            "healthEndpoint": None,
+            "path": "/",
+        }
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[custom],
+        ) as (base_url, _app):
+            page = _open_page(chromium_browser, base_url)
+            _open_second_tile(page, base_url, "search-demo", "SEARCHY")
+
+            tab = _service_tab(page, "SEARCHY")
+            search = tab.locator(".contrib-search-input")
+            expect(search).to_have_attribute("placeholder", "Filter things…", timeout=10_000)
+
+            search.click(button="right")
+            page.wait_for_timeout(500)
+            expect(_context_menu(page)).to_have_count(0)
+
+            # The bar itself is a menu surface, with the same verbs the rail
+            # entry offers.
+            tab.locator(".tile-tab-title").click(button="right")
+            menu = _context_menu(page)
+            expect(menu).to_have_count(1, timeout=5_000)
+            expect(menu).to_have_attribute("aria-label", "SEARCHY actions")
+            assert _menu_labels(page) == [
+                "Focus SEARCHY",
+                "Open in a new tile",
+                "Open in a new window",
+                "Remove from rail",
+            ], _menu_labels(page)
+
+            page.close()
+
+
+def test_context_menu_closes_when_a_click_lands_in_a_panel_iframe(tmp_path, chromium_browser):
+    """A click inside a panel iframe closes the menu — without stealing focus back.
+
+    A press inside an overlay iframe never reaches this document, so the outside
+    pointerdown listener cannot see it; `window` blur is the only signal, and it
+    arrives AFTER focus has entered the iframe. Restoring focus on that path
+    would yank it straight back out of the panel the operator just clicked into,
+    so this dismissal deliberately leaves focus alone.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _stub_backend() as stub_url:
+        custom = {
+            "id": "data-viz",
+            "label": "DATA VIZ",
+            "url": stub_url,
+            "healthEndpoint": None,
+            "path": "/",
+        }
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[custom],
+        ) as (base_url, _app):
+            page = _open_page(chromium_browser, base_url)
+            _focus_service_panel(page, "data-viz", "DATA VIZ")
+            expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=10_000)
+
+            _open_rail_menu(page, "data-viz")
+
+            # A real click in the panel's own document (the stub answers the
+            # proxied /panel/data-viz, so the iframe is same-origin and has a
+            # body to click).
+            page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="data-viz"]').locator(
+                "body"
+            ).click()
+
+            expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+            # Focus stayed where the operator put it: inside the iframe, not
+            # back on the rail entry the menu was opened from.
+            focused = page.evaluate("() => document.activeElement?.tagName ?? ''")
+            assert focused == "IFRAME", focused
+
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# Command palette (FR7-FR9)
+# ---------------------------------------------------------------------------
+#
+# What only a real browser can settle about the palette:
+#
+#   * FR7 - focus. The input is focused inside the same rAF that reveals the
+#     overlay, because focusing a node in a `visibility: hidden` subtree is a
+#     spec'd no-op. happy-dom has no visibility model, so it cannot tell a
+#     working focus call from the broken one; a real keystroke landing in the
+#     input is the only proof.
+#   * FR8 - the Panels rows. The registry unit tests prove the row set from
+#     injected getters; these prove the LIVE getters produce it: ARIEL's
+#     standalone URL really resolved through /api/ariel-server, and the active
+#     panel really is included in the popout source and excluded from the
+#     new-tile source.
+#   * FR8 - the popout verb end to end: `window.open` opens a real page on the
+#     proxied, same-origin /panel/<id> URL.
+#   * FR9 - Recent. Real localStorage, and the section really renders first on
+#     an empty query and survives a reload.
+#
+# ARIEL is the panel under test because it is the one the synonym table has
+# domain vocabulary for ("logbook"/"elog"). It is enabled as a built-in panel
+# with its companion server URL published post-startup - the catalog entry
+# carries no healthEndpoint, so it is healthy the moment its config fetch
+# resolves, and the stub backend behind it lets the proxied /panel/ariel URL
+# answer for real when a popout navigates to it.
+
+_PALETTE_OVERLAY = ".command-palette-overlay.visible"
+_PALETTE_INPUT = ".command-palette-input"
+_PALETTE_ITEM = ".command-palette-item"
+
+#: The same platform split palette-boot.js applies to the hotkey: Cmd+K on
+#: macOS, Ctrl+K everywhere else. Read from the browser rather than from the
+#: host's ``sys.platform`` so the test follows the page's own decision.
+_IS_MAC_JS = r"""() => {
+  const nav = navigator;
+  const platform = (nav.userAgentData && nav.userAgentData.platform) || nav.platform || '';
+  return /Mac|iPhone|iPad|iPod/i.test(platform);
+}"""
+
+#: The palette list's group headings, in render order. "Recent" is a
+#: presentation-level section, so it shows up here as a heading like any group.
+_PALETTE_HEADINGS_JS = (
+    "() => [...document.querySelectorAll('.command-palette-group-heading')].map(h => h.textContent)"
+)
+
+#: Row texts of the "Recent" section only - the nodes between the Recent
+#: heading and the next heading. Returns None when no Recent section rendered,
+#: which distinguishes "the section is absent" from "the section is empty".
+_PALETTE_RECENT_ROWS_JS = r"""() => {
+  const list = document.querySelector('.command-palette-list');
+  if (!list) return null;
+  const rows = [];
+  let inRecent = false;
+  for (const node of list.children) {
+    if (node.classList.contains('command-palette-group-heading')) {
+      if (inRecent) break;
+      if (node.textContent === 'Recent') inRecent = true;
+      continue;
+    }
+    if (inRecent) rows.push(node.textContent);
+  }
+  return inRecent ? rows : null;
+}"""
+
+
+@contextmanager
+def _palette_live_server(workspace):
+    """A live server whose ARIEL panel is a rail member with a resolved URL.
+
+    ``_launch_panel_server`` is stubbed to publish only the gallery URL, so
+    ARIEL's is set here - after startup, before any page load, which is when
+    the browser first fetches /api/ariel-server. It points at the always-200
+    stub so the proxied ``/panel/ariel`` a popout navigates to answers for real
+    instead of erroring behind the proxy.
+
+    Yields:
+        (base_url, app) - as ``_live_server``.
+    """
+    with _stub_backend() as stub_url:
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts", "ariel"},
+        ) as (base_url, app):
+            app.state.ariel_server_url = stub_url
+            yield base_url, app
+
+
+def _palette_input(page: Page):
+    return page.locator(_PALETTE_INPUT)
+
+
+def _palette_row(page: Page, label: str):
+    """Palette rows whose text contains ``label`` (substring, case-insensitive).
+
+    A row's label is split across highlight spans when the query matched it, so
+    the text is read from the row rather than from a single text node.
+    """
+    return page.locator(_PALETTE_ITEM).filter(has_text=label)
+
+
+def _open_palette(page: Page, *, hotkey: bool = False) -> None:
+    """Open the command palette and wait for the revealed overlay.
+
+    The default entry point is the header trigger; ``hotkey=True`` drives the
+    Cmd/Ctrl+K path instead. Either way this returns only once the overlay
+    carries ``.visible`` - the class the focus call shares a frame with, so a
+    caller may type immediately afterwards without a further wait.
+
+    The hotkey path first focuses a rail entry: off macOS the shortcut
+    deliberately yields to readline's Ctrl+K while focus is inside the
+    terminal, so the gesture has to start where the operator's would.
+    """
+    if hotkey:
+        page.locator('button.panel-rail-button[data-panel-id="artifacts"]').focus()
+        page.keyboard.press("Meta+k" if page.evaluate(_IS_MAC_JS) else "Control+k")
+    else:
+        page.locator("#command-palette-btn").click()
+    expect(page.locator(_PALETTE_OVERLAY)).to_be_visible(timeout=5_000)
+
+
+def _palette_query(page: Page, query: str) -> None:
+    """Put ``query`` in the search box and let the list re-render.
+
+    Typed rather than pressed: whether the open FOCUSED the box is FR7's
+    question, and exactly one test above owns it. Every other palette test is
+    about what the list then contains, so they set the query outright instead of
+    inheriting a focus dependency and failing for someone else's reason.
+    """
+    _palette_input(page).fill(query)
+    expect(_palette_input(page)).to_have_value(query)
+
+
+def _palette_reload(page: Page) -> None:
+    """Reload the page and wait for the same steady state ``_open_page`` does.
+
+    A reload tears down the rail and the dock grid and rebuilds both
+    asynchronously, so a test that reaches for the palette straight after one
+    would race the rebuild rather than the behaviour it means to assert.
+    """
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
+        timeout=10_000
+    )
+    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
+
+
+def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path, chromium_browser):
+    """FR7: Cmd/Ctrl+K opens the palette focused - the next keystroke filters.
+
+    The regression this guards is silent: ``inputEl.focus()`` ran while the
+    overlay was still ``visibility: hidden``, which the spec makes a no-op, so
+    the palette opened looking usable and swallowed everything the operator
+    typed. Nothing here clicks the input - the characters are pressed straight
+    at the document, so they can only reach the input if the open really moved
+    focus there.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _palette_live_server(workspace) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+
+        _open_palette(page, hotkey=True)
+
+        # Real focus, not merely a rendered overlay. The diagnostic carries the
+        # computed visibility because that is the whole story when this fails:
+        # a `visible` class on the overlay is not the same as a computed
+        # `visibility: visible` the browser will focus into.
+        state = page.evaluate(
+            """() => {
+  const overlay = document.querySelector('.command-palette-overlay');
+  const active = document.activeElement;
+  return {
+    focused: !!active && active.classList.contains('command-palette-input'),
+    active: active ? active.tagName + '.' + active.className : null,
+    overlayClass: overlay ? overlay.className : null,
+    overlayVisibility: overlay ? getComputedStyle(overlay).visibility : null,
+  };
+}"""
+        )
+        assert state["focused"] is True, f"palette opened without the search input focused: {state}"
+
+        # Act - type without touching the input first.
+        page.keyboard.type("ariel")
+
+        # Assert - the keystrokes landed AND re-filtered the list.
+        expect(_palette_input(page)).to_have_value("ariel")
+        expect(_palette_row(page, "Open ARIEL in a new window")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Settings")).to_have_count(0)
+
+        page.close()
+
+
+def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromium_browser):
+    """FR8: with ARIEL active, "ariel" finds its popout row but no new-tile row.
+
+    The two "Open ..." verbs draw on different sources, and the live getters
+    are what this proves: ``getPopoutPanels`` includes the ACTIVE panel
+    (popping out what you are looking at is the verb's commonest use, and it
+    needed ARIEL's standalone URL to have resolved through /api/ariel-server),
+    while ``getVisiblePanels`` - the new-tile source - excludes it, because
+    opening a panel beside itself is a no-op. The second query proves the
+    new-tile verb is present in this (expert) mode at all, so ARIEL's missing
+    row is the active-panel exclusion rather than a whole verb going absent.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _palette_live_server(workspace) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        _focus_service_panel(page, "ariel", "ARIEL")
+
+        _open_palette(page)
+        _palette_query(page, "ariel")
+
+        expect(_palette_row(page, "Open ARIEL in a new window")).to_have_count(1, timeout=5_000)
+        # The query really narrowed the list, so the absences below mean the
+        # rows do not exist rather than that everything is still on screen.
+        expect(_palette_row(page, "Open Settings")).to_have_count(0)
+        expect(_palette_row(page, "Open ARIEL in a new tile")).to_have_count(0)
+        # Focus is the same story as the new tile: the active panel is not
+        # offered a verb that would do nothing.
+        expect(_palette_row(page, "Focus ARIEL")).to_have_count(0)
+
+        # The new-tile verb itself is alive here - it just skips the active panel.
+        _palette_query(page, "tile")
+        expect(_palette_row(page, "Open WORKSPACE in a new tile")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open ARIEL in a new tile")).to_have_count(0)
+
+        page.close()
+
+
+def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
+    """FR8: "logbook" - the domain word, not the label - finds the ARIEL rows.
+
+    ARIEL's rail label says nothing about logbooks, so an operator who types
+    what the panel IS gets nothing unless the synonym tokens really reach the
+    live rows' searchText.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _palette_live_server(workspace) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+
+        _open_palette(page)
+        _palette_query(page, "logbook")
+
+        expect(_palette_row(page, "Open ARIEL in a new window")).to_have_count(1, timeout=5_000)
+        # A word ARIEL's own rows are the only ones carrying: WORKSPACE, the
+        # other rail member, is filtered out entirely.
+        expect(_palette_row(page, "WORKSPACE")).to_have_count(0)
+
+        page.close()
+
+
+def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_browser):
+    """FR8: running the popout row opens a real page on same-origin /panel/ariel.
+
+    happy-dom can only prove ``window.open`` was called with some string. What
+    matters to the operator is the page that opens: the proxied, root-relative
+    standalone URL resolved against the terminal's own origin - never the
+    panel's internal address, which the browser cannot reach.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _palette_live_server(workspace) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+
+        _open_palette(page)
+        _palette_query(page, "ariel window")
+        row = _palette_row(page, "Open ARIEL in a new window")
+        expect(row).to_have_count(1, timeout=5_000)
+
+        with page.context.expect_page() as popup_info:
+            row.click()
+        popup = popup_info.value
+        popup.wait_for_url(re.compile(r"/panel/ariel$"), timeout=10_000)
+
+        assert popup.url == f"{base_url}/panel/ariel", popup.url
+
+        popup.close()
+        page.close()
+
+
+def test_palette_recent_section_leads_the_empty_query_after_an_execution(
+    tmp_path, chromium_browser
+):
+    """FR9: an executed item comes back first under "Recent", and survives reload.
+
+    Recent is a presentation-level section rebuilt from localStorage keys that
+    are re-resolved against the live registry on each render, so this drives
+    the whole loop through a real browser store: execute, reopen on an empty
+    query, reload, reopen again. "Move panel rail to left" is the item because
+    it is offered in every mode and is a no-op at the default rail position, so
+    the proof does not hinge on the workspace being left in some other state.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _palette_live_server(workspace) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+
+        # No history yet: an empty query renders no Recent section at all.
+        _open_palette(page)
+        assert page.evaluate(_PALETTE_RECENT_ROWS_JS) is None
+        page.keyboard.press("Escape")
+        expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
+
+        # Act - run one item.
+        _open_palette(page)
+        _palette_query(page, "rail to left")
+        row = _palette_row(page, "Move panel rail to left")
+        expect(row).to_have_count(1, timeout=5_000)
+        row.click()
+        expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
+
+        # Assert - it leads the empty-query render, ahead of every group.
+        _open_palette(page)
+        headings = page.evaluate(_PALETTE_HEADINGS_JS)
+        assert headings and headings[0] == "Recent", headings
+        assert page.evaluate(_PALETTE_RECENT_ROWS_JS) == ["Move panel rail to left"]
+        # The normal groups still render underneath - Recent never replaces them.
+        assert "Panels" in headings, headings
+        page.keyboard.press("Escape")
+        expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
+
+        # Assert - the history lives in the browser store, not in module memory.
+        _palette_reload(page)
+        _open_palette(page)
+        assert page.evaluate(_PALETTE_RECENT_ROWS_JS) == ["Move panel rail to left"]
+
+        page.close()

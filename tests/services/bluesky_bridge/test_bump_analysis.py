@@ -11,6 +11,7 @@ import pytest
 from osprey.services.bluesky_bridge.bump_analysis import (
     DegenerateBumpError,
     band_converged,
+    band_violations,
     demand_is_negligible,
     fit_probe_response,
     noise_floor_violations,
@@ -423,6 +424,63 @@ def test_band_is_not_converged_when_the_outcome_cannot_be_established(
     measured: np.ndarray, desired: np.ndarray, tolerance: float
 ) -> None:
     assert not band_converged(measured, desired, tolerance)
+
+
+def test_band_violations_is_empty_inside_the_band_including_the_boundary() -> None:
+    """The elementwise form keeps `band_converged`'s boundary convention:
+    exactly `tolerance` away is inside."""
+    desired = np.zeros(4)
+    measured = np.array([TOLERANCE, -TOLERANCE, 5e-5, 0.0])
+
+    assert band_violations(measured, desired, TOLERANCE) == []
+
+
+def test_band_violations_names_only_the_offending_rows_ascending() -> None:
+    """The leakage form: an all-zero desired, and the answer is which monitor
+    BPMs moved -- the indices an error message turns into names."""
+    desired = np.zeros(5)
+    measured = np.array([0.0, 3e-4, 5e-5, -2e-4, 1e-5])
+
+    assert band_violations(measured, desired, TOLERANCE) == [1, 3]
+
+
+def test_band_violations_flags_an_unreadable_row_alongside_a_miss() -> None:
+    """A NaN reading is a row whose membership cannot be established, so it is
+    flagged -- individually, not by failing the whole vector, because the
+    message should still name the finite miss next to it."""
+    desired = np.zeros(4)
+    measured = np.array([0.0, np.nan, 5e-5, 2e-4])
+
+    assert band_violations(measured, desired, TOLERANCE) == [1, 3]
+
+
+@pytest.mark.parametrize(
+    ("measured", "desired", "tolerance", "expected"),
+    [
+        (np.zeros(3), np.zeros(2), TOLERANCE, [0]),
+        (np.zeros(3), np.zeros(3), 0.0, [0, 1, 2]),
+        (np.zeros(3), np.zeros(3), float("nan"), [0, 1, 2]),
+        (np.zeros(0), np.zeros(0), 0.0, [0]),
+    ],
+    ids=["shape-mismatch", "zero-tolerance", "nan-tolerance", "empty-and-invalid"],
+)
+def test_band_violations_is_never_empty_when_the_judgment_is_unsupportable(
+    measured: np.ndarray, desired: np.ndarray, tolerance: float, expected: list[int]
+) -> None:
+    assert band_violations(measured, desired, tolerance) == expected
+
+
+def test_band_violations_and_band_converged_agree_row_for_row() -> None:
+    """`band_converged` is implemented on top of `band_violations`, and this is
+    the observable contract: converged exactly when no row is flagged."""
+    desired = np.array([2e-4, 0.0, -3e-4, 1e-4])
+    inside = desired + np.array([1e-5, -4e-5, 2e-5, 0.0])
+    outside = desired + np.array([1e-5, -4e-5, 2e-5, 1.5e-4])
+
+    assert band_converged(inside, desired, TOLERANCE)
+    assert band_violations(inside, desired, TOLERANCE) == []
+    assert not band_converged(outside, desired, TOLERANCE)
+    assert band_violations(outside, desired, TOLERANCE) == [3]
 
 
 def test_band_noise_floor_is_empty_when_every_bpm_is_quiet_enough() -> None:

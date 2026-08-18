@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The `orbit_bump_sweep` plan can now assert bump closure at its monitor BPMs:
+  an optional `leakage_tolerance` band judges every `readbacks` BPM against the
+  reference orbit at each settled step, failing the run (or recording the miss
+  under `best_effort`) when the bump leaks beyond it. Unset, monitors stay
+  recorded-only as before.
 - Web-terminal roster entries can opt out of the login wall with `login:
   false` — the entry is served without authentication while every other
   terminal stays gated, and no password is provisioned for it. Meant for
@@ -1297,6 +1302,34 @@ Compatibility is documented in release notes, not encoded in the version string.
   ~1e-16 residue a rank-deficient matrix leaves behind. The raw per-corrector
   sweeps move below the fit into a collapsed section that shows one corrector
   at a time; when the fit is skipped they stay inline.
+
+### Added
+
+- The web terminal's command palette keeps a Recent section listing the
+  commands you last ran.
+- The command palette can open a panel in a new window or in a new tile — the
+  same two verbs the right-click menu offers. The new-window rows include the
+  panel you are looking at, which is the one most often wanted in its own tab.
+  The new-tile rows are absent in simple mode, whose layout holds one service
+  tile.
+
+### Changed
+
+- Panel actions in the web terminal now live in a right-click menu, on the
+  panel's rail entry and on its tile header alike: focus the panel, open it in
+  a new tile, open it in a new window, remove it from the rail. It replaces the
+  ↗ and ⊞ corner glyphs, which appeared only on hover and only on the rail. The
+  menu also opens from the keyboard — the menu key or Shift+F10 on a focused
+  rail entry.
+
+### Fixed
+
+- The command palette takes typing straight away. The search box was focused
+  before the overlay was made visible, which does nothing, so the first
+  keystrokes after Cmd/Ctrl+K were dropped and you had to click the box first.
+- Palette search answers to the words operators actually reach for: a panel's
+  domain vocabulary ("logbook" finds ARIEL, "pv" finds Channel Finder) and the
+  verbs' synonyms ("window", "popout", "tile", "split").
 
 ## [2026.8.0]
 

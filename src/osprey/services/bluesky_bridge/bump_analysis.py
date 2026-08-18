@@ -22,6 +22,7 @@ measurement step:
 - `demand_is_negligible`: the run-level gate deciding whether anything is
   actually being asked for, before any solve is attempted.
 - `band_converged`: whether the machine landed inside the tolerance band.
+- `band_violations`: which rows landed outside it -- the leakage check's form.
 - `noise_floor_violations`: whether the requested band is measurable at all.
 
 Everything here is expressed *relative to the measured reference orbit*: a
@@ -352,6 +353,57 @@ def demand_is_negligible(
     return bool(np.all(np.abs(demand) <= band))
 
 
+def band_violations(measured: np.ndarray, desired: np.ndarray, tolerance: float) -> list[int]:
+    """Indices of rows sitting outside the `±tolerance` band around *desired*.
+
+    The elementwise form of `band_converged`: a row is flagged when
+    `|measured - desired| > tolerance`, with both vectors expressed relative
+    to the measured reference orbit. `band_converged` answers "is every row
+    in?"; this answers "which rows are out?", which is what an error message
+    that names the offending BPMs needs. The leakage check runs it with an
+    all-zero *desired* -- a monitor BPM is asked for nothing, so any offset
+    beyond the band is leakage.
+
+    Equality at the boundary is inside the band, exactly as `band_converged`
+    counts it -- the two must agree row by row, since `band_converged` is
+    implemented on top of this.
+
+    Anything unreadable -- mismatched shapes, a non-finite reading, a
+    non-positive tolerance -- flags *every* row rather than raising or
+    returning none. Conservative in the same direction as `band_converged`'s
+    `False` and `noise_floor_violations`' all-indices answer: a judgment that
+    cannot be established must never read as "all clear".
+
+    Args:
+        measured: `[n_rows]` measured offsets, relative to the reference.
+        desired: `[n_rows]` wanted offsets, relative to the reference.
+        tolerance: The band's half-width, in BPM units.
+
+    Returns:
+        The offending indices into *measured*, ascending; empty when every row
+        is inside the band.
+    """
+    got = np.asarray(measured, dtype=float)
+    want = np.asarray(desired, dtype=float)
+
+    if got.ndim != 1 or got.shape != want.shape:
+        # "Every row" of a mis-shaped input is ill-defined, so flag row 0:
+        # the answer must be non-empty for the caller's violation branch to
+        # run, and there is no honest list of indices to hand it.
+        return [0]
+    if not np.isfinite(tolerance) or tolerance <= 0.0:
+        # A band nothing can satisfy: every row is out, and even an empty
+        # input flags row 0 -- vacuous convergence into an invalid band is
+        # still a claim nobody could check.
+        return list(range(got.size)) if got.size else [0]
+
+    unreadable = ~(np.isfinite(got) & np.isfinite(want))
+    outside = np.zeros(got.shape, dtype=bool)
+    finite = ~unreadable
+    outside[finite] = np.abs(got[finite] - want[finite]) > tolerance
+    return [int(index) for index in np.flatnonzero(unreadable | outside)]
+
+
 def band_converged(measured: np.ndarray, desired: np.ndarray, tolerance: float) -> bool:
     """Did the machine land inside the tolerance band at every constraint row?
 
@@ -380,18 +432,16 @@ def band_converged(measured: np.ndarray, desired: np.ndarray, tolerance: float) 
     for a step whose outcome cannot be established: it trims, and if trimming
     cannot fix it the run stops or records a best-effort miss, either of which
     is visible. `True` would silently bank an unverified bump.
+
+    Implemented as "no `band_violations`", so the two can never disagree about
+    a row.
     """
     got = np.asarray(measured, dtype=float)
     want = np.asarray(desired, dtype=float)
-
     if got.ndim != 1 or got.shape != want.shape:
         return False
-    if not (np.all(np.isfinite(got)) and np.all(np.isfinite(want))):
-        return False
-    if not np.isfinite(tolerance) or tolerance <= 0.0:
-        return False
 
-    return bool(np.all(np.abs(got - want) <= tolerance))
+    return not band_violations(measured, desired, tolerance)
 
 
 def noise_floor_violations(sigma: np.ndarray, tolerance: float) -> list[int]:

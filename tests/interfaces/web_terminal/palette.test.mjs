@@ -4,7 +4,9 @@
  *   npx vitest run tests/interfaces/web_terminal/palette.test.mjs
  *
  * happy-dom weakly supports scrollIntoView/focus, so these tests assert only
- * CLASS/ATTRIBUTE state — never scroll position or document.activeElement.
+ * CLASS/ATTRIBUTE state and never scroll position. document.activeElement is
+ * asserted in one place only — the focus-on-open block, which checks WHEN
+ * focus() is called relative to the reveal frame, not browser focus fidelity.
  * scrollIntoView is stubbed to a no-op and a fake `fetchConfig` is injected so
  * no real network is hit.
  *
@@ -80,15 +82,51 @@ function pressKey(key) {
   input().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 }
 
+/**
+ * Recent commands need a working `localStorage`. Node defines a `localStorage`
+ * global that stays undefined unless the process was started with
+ * `--localstorage-file`, and on Node versions that ship it that definition
+ * shadows the one happy-dom installs — so the Recent code path would be
+ * exercised against nothing on such a host. Give the global a real happy-dom
+ * Storage when it is missing; a working one is left untouched.
+ */
+if (!globalThis.localStorage) {
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: new Storage(),
+    configurable: true,
+    writable: true,
+  });
+}
+
+/** localStorage key holding the Recent list (mirrors palette.js). */
+const RECENT_KEY = 'osprey-palette-recent-v1';
+
+/** @returns {string[]} the stored Recent keys, most-recent first. */
+function storedRecent() {
+  return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+}
+
+/** @returns {string[]} the visible section headings, in DOM order. */
+function headings() {
+  return [...document.querySelectorAll('.command-palette-group-heading')].map((h) => h.textContent);
+}
+
+/** @returns {string[]} the visible row labels, in DOM order. */
+function rowLabels() {
+  return [...document.querySelectorAll('.command-palette-item-label')].map((l) => l.textContent);
+}
+
 beforeEach(() => {
   closePalette();
   document.body.innerHTML = '';
+  localStorage.clear();
   // happy-dom does not implement scrollIntoView — stub to a no-op.
   Element.prototype.scrollIntoView = () => {};
 });
 
 afterEach(() => {
   closePalette();
+  vi.restoreAllMocks();
 });
 
 describe('open / close lifecycle', () => {
@@ -236,5 +274,197 @@ describe('concurrent config fetch', () => {
     const status = /** @type {HTMLElement} */ (document.querySelector('.command-palette-status'));
     expect(status).toBeTruthy();
     expect(status.textContent).toMatch(/unavailable/i);
+  });
+});
+
+describe('focus on open', () => {
+  test('the search input is focused once the overlay becomes visible', async () => {
+    openPalette(makeDeps());
+    // Focus is deferred to the reveal frame: a real browser makes focus() a
+    // no-op while the overlay subtree is still `visibility: hidden`.
+    expect(document.activeElement).not.toBe(input());
+
+    await flushRaf();
+
+    expect(overlay().classList.contains('visible')).toBe(true);
+    expect(document.activeElement).toBe(input());
+  });
+
+  test('open then close within one frame leaves the overlay hidden and focus put', async () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    openPalette(makeDeps());
+    closePalette();
+    await flushRaf();
+
+    expect(isOpen()).toBe(false);
+    expect(overlay().classList.contains('visible')).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe('recent commands', () => {
+  /** The stable keys of two fixture rows (group + label, \x1f-joined). */
+  const RESTART = 'Actions\x1fRestart terminal';
+  const SHOW_ARIEL = 'Panels\x1fShow ARIEL';
+
+  /** Click the row whose label reads exactly `label`.
+   * @param {string} label */
+  function clickRow(label) {
+    const row = [...document.querySelectorAll('.command-palette-item')].find(
+      (r) => r.querySelector('.command-palette-item-label')?.textContent === label,
+    );
+    if (!row) throw new Error(`no palette row labelled "${label}"`);
+    /** @type {HTMLElement} */ (row).click();
+  }
+
+  /** Seed the stored Recent list directly.
+   * @param {string[]} keys */
+  function seedRecent(keys) {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(keys));
+  }
+
+  test('the Enter path records the executed item key', async () => {
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('restart terminal');
+    pressKey('Enter');
+    expect(storedRecent()).toEqual([RESTART]);
+  });
+
+  test('the click path records the same plain key', async () => {
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('show ariel');
+    clickRow('Show ARIEL');
+    expect(storedRecent()).toEqual([SHOW_ARIEL]);
+  });
+
+  test('the list is capped at 5, most-recent first', async () => {
+    seedRecent(['k1', 'k2', 'k3', 'k4', 'k5']);
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('restart terminal');
+    pressKey('Enter');
+    expect(storedRecent()).toEqual([RESTART, 'k1', 'k2', 'k3', 'k4']);
+  });
+
+  test('re-executing an item moves it to the front instead of duplicating it', async () => {
+    seedRecent(['k1', RESTART, 'k2']);
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('restart terminal');
+    pressKey('Enter');
+    expect(storedRecent()).toEqual([RESTART, 'k1', 'k2']);
+  });
+
+  test('an empty query renders Recent first, in stored order', async () => {
+    seedRecent([RESTART, SHOW_ARIEL]);
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('');
+
+    expect(headings()).toEqual(['Recent', 'Settings', 'Panels', 'Layouts', 'Actions']);
+    expect(rowLabels().slice(0, 2)).toEqual(['Restart terminal', 'Show ARIEL']);
+  });
+
+  test('Recent is hidden as soon as the query is non-empty', async () => {
+    seedRecent([RESTART]);
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('restart');
+    expect(headings()).not.toContain('Recent');
+  });
+
+  test('stored keys with no live registry match are skipped silently', async () => {
+    seedRecent(['Panels\x1fShow GONE', RESTART]);
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('');
+
+    expect(headings()[0]).toBe('Recent');
+    // Only the surviving key renders, so the label appears exactly twice: once
+    // in Recent, once in its home group.
+    expect(rowLabels()[0]).toBe('Restart terminal');
+    expect(rowLabels().filter((l) => l === 'Restart terminal').length).toBe(2);
+  });
+
+  test('an all-stale list renders no Recent section at all', async () => {
+    seedRecent(['Panels\x1fShow GONE', 'Actions\x1fVanished']);
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('');
+    expect(headings()).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
+  });
+
+  test('selection stays on the home-group row when Recent duplicates it', async () => {
+    seedRecent([RESTART]);
+    /** @type {(value: any) => void} */
+    let resolveConfig = () => {};
+    const pending = new Promise((r) => {
+      resolveConfig = r;
+    });
+    openPalette(makeDeps({ fetchConfig: () => pending }));
+    typeQuery('');
+
+    const options = () => [...document.querySelectorAll('[role="option"]')];
+    const activeIdx = () => options().findIndex(
+      (o) => o.classList.contains('command-palette-item--active'),
+    );
+
+    // Wrap backwards from the first row onto the LAST one — the Actions group's
+    // own "Restart terminal", the twin of the Recent row at index 0.
+    pressKey('ArrowUp');
+    expect(activeIdx()).toBe(options().length - 1);
+
+    resolveConfig({ sections: SECTIONS });
+    await flushMicro();
+
+    // The mid-open re-render must not snap the selection up to the Recent
+    // duplicate: namespaced nav keys keep the two rows distinct.
+    expect(activeIdx()).toBe(options().length - 1);
+    expect(activeIdx()).not.toBe(0);
+    const active = options()[activeIdx()];
+    expect(active.querySelector('.command-palette-item-label')?.textContent).toBe(
+      'Restart terminal',
+    );
+  });
+
+  test('blocked storage disables Recent without breaking execution', async () => {
+    // A private-mode-style storage that throws on every access. Swapping the
+    // global (rather than spying on Storage.prototype, which happy-dom's
+    // instances bypass) is what actually reaches the module's bare
+    // `localStorage` reference.
+    const blocked = {
+      getItem() {
+        throw new Error('storage blocked');
+      },
+      setItem() {
+        throw new Error('storage blocked');
+      },
+    };
+    const real = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: blocked,
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const run = vi.fn();
+      openPalette(makeDeps({ actions: [{ label: 'Restart terminal', run }] }));
+      await flushMicro();
+      typeQuery('');
+      expect(headings()).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
+
+      typeQuery('restart terminal');
+      pressKey('Enter');
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(isOpen()).toBe(false);
+    } finally {
+      if (real) Object.defineProperty(globalThis, 'localStorage', real);
+    }
   });
 });

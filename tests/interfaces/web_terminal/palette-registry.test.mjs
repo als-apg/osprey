@@ -9,6 +9,10 @@
  *   - config ok flattens a NESTED sections tree into leaf dot-keys, and each
  *     item's run calls the injected revealSetting with its dot-key
  *   - Panels emit Show/Focus items wired to showPanel/focusPanel by id
+ *   - Panels emit "Open … in a new window" rows from getPopoutPanels (active
+ *     panel INCLUDED) and "Open … in a new tile" rows from getVisiblePanels
+ *     (active panel EXCLUDED, dropped entirely without openPanelBeside)
+ *   - panel rows carry domain + verb synonyms in searchText
  *   - Layouts emit items wired to applyPreset with the preset's NAME
  *   - Actions are wrapped in order with run passed through
  *   - missing optional deps never throw and contribute nothing
@@ -132,6 +136,167 @@ describe('buildRegistry', () => {
     panels[1].run();
     expect(shown).toEqual(['ariel']);
     expect(focused).toEqual(['okf']);
+  });
+
+  it('FR8 ACTIVE PANEL: the active panel gets a new-window row but NO new-tile row', () => {
+    // ARIEL is the active panel, so panel-manager's getVisiblePanels (which
+    // filters the active id out) omits it while getPopoutPanels keeps it.
+    const items = buildRegistry({
+      getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
+      getPopoutPanels: () => [
+        { id: 'ariel', label: 'ARIEL' },
+        { id: 'okf', label: 'Facility' },
+      ],
+      focusPanel: () => {},
+      popoutPanel: () => {},
+      openPanelBeside: () => {},
+    });
+
+    const labels = inGroup(items, 'Panels').map((it) => it.label);
+    expect(labels).toContain('Open ARIEL in a new window');
+    // Opening the active panel beside itself is a no-op, so the row is absent.
+    expect(labels).not.toContain('Open ARIEL in a new tile');
+    // A non-active member gets both verbs.
+    expect(labels).toContain('Open Facility in a new window');
+    expect(labels).toContain('Open Facility in a new tile');
+  });
+
+  it('FR8 NON-ACTIVE PANEL: with ARIEL not active, ARIEL gets both Open rows', () => {
+    const items = buildRegistry({
+      getVisiblePanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      getPopoutPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      focusPanel: () => {},
+      popoutPanel: () => {},
+      openPanelBeside: () => {},
+    });
+
+    const labels = inGroup(items, 'Panels').map((it) => it.label);
+    expect(labels).toEqual([
+      'Focus ARIEL',
+      'Open ARIEL in a new window',
+      'Open ARIEL in a new tile',
+    ]);
+  });
+
+  it('OPEN ROWS: run calls popoutPanel / openPanelBeside with the panel id', () => {
+    /** @type {string[]} */
+    const poppedOut = [];
+    /** @type {string[]} */
+    const besided = [];
+    const items = buildRegistry({
+      getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
+      getPopoutPanels: () => [{ id: 'okf', label: 'Facility' }],
+      popoutPanel: (id) => poppedOut.push(id),
+      openPanelBeside: (id) => besided.push(id),
+    });
+
+    const byLabel = (/** @type {string} */ label) => inGroup(items, 'Panels').find((it) => it.label === label);
+    byLabel('Open Facility in a new window').run();
+    byLabel('Open Facility in a new tile').run();
+    expect(poppedOut).toEqual(['okf']);
+    expect(besided).toEqual(['okf']);
+  });
+
+  it('SIMPLE MODE: omitting openPanelBeside drops every new-tile row, Focus rows stay', () => {
+    // Simple mode's layout is locked to one service tile, so palette-boot
+    // withholds the closure — the rows come off the SAME getter as Focus, so
+    // this is the only thing that can distinguish them.
+    const items = buildRegistry({
+      getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
+      getPopoutPanels: () => [{ id: 'okf', label: 'Facility' }],
+      focusPanel: () => {},
+      popoutPanel: () => {},
+    });
+
+    const labels = inGroup(items, 'Panels').map((it) => it.label);
+    expect(labels).toEqual(['Focus Facility', 'Open Facility in a new window']);
+  });
+
+  it('NO POPOUT GETTER: omitting getPopoutPanels drops every new-window row', () => {
+    const items = buildRegistry({
+      getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
+      openPanelBeside: () => {},
+    });
+
+    const labels = inGroup(items, 'Panels').map((it) => it.label);
+    expect(labels).toEqual(['Focus Facility', 'Open Facility in a new tile']);
+  });
+
+  it('SYNONYMS: a panel domain alias matches EVERY row for that panel', () => {
+    const items = buildRegistry({
+      getHiddenPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      getVisiblePanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      getPopoutPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      openPanelBeside: () => {},
+    });
+
+    const panels = inGroup(items, 'Panels');
+    expect(panels).toHaveLength(4);
+    for (const row of panels) {
+      // Only searchText is scored by the matcher, so the alias has to live there.
+      expect(row.searchText).toContain('logbook');
+      expect(row.searchText).toContain('elog');
+      // The label and id stay searchable alongside the aliases.
+      expect(row.searchText).toContain('ARIEL');
+      expect(row.searchText).toContain('ariel');
+    }
+  });
+
+  it('SYNONYMS: every built-in panel id carries its domain aliases', () => {
+    const expected = {
+      ariel: ['logbook', 'elog'],
+      'channel-finder': ['pv', 'channels'],
+      artifacts: ['gallery', 'files'],
+      lattice: ['optics'],
+      okf: ['knowledge', 'docs'],
+      'system-health': ['status', 'monitoring'],
+    };
+    const ids = Object.keys(expected);
+    const items = buildRegistry({
+      getVisiblePanels: () => ids.map((id) => ({ id, label: id.toUpperCase() })),
+      focusPanel: () => {},
+    });
+
+    const panels = inGroup(items, 'Panels');
+    for (const [id, aliases] of Object.entries(expected)) {
+      const row = panels.find((it) => it.label === `Focus ${id.toUpperCase()}`);
+      for (const alias of aliases) {
+        expect(row.searchText).toContain(alias);
+      }
+    }
+  });
+
+  it('SYNONYMS: verb aliases ride the Open rows, not Show/Focus', () => {
+    const items = buildRegistry({
+      getHiddenPanels: () => [{ id: 'okf', label: 'Facility' }],
+      getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
+      getPopoutPanels: () => [{ id: 'okf', label: 'Facility' }],
+      openPanelBeside: () => {},
+    });
+
+    const byLabel = (/** @type {string} */ label) => inGroup(items, 'Panels').find((it) => it.label === label);
+    const popout = byLabel('Open Facility in a new window').searchText;
+    for (const token of ['window', 'popout', 'standalone', 'tab']) {
+      expect(popout).toContain(token);
+    }
+    const beside = byLabel('Open Facility in a new tile').searchText;
+    for (const token of ['tile', 'beside', 'split']) {
+      expect(beside).toContain(token);
+    }
+    // The verb vocabularies do not bleed into each other or onto Show/Focus.
+    expect(popout).not.toContain('beside');
+    expect(beside).not.toContain('popout');
+    expect(byLabel('Show Facility').searchText).not.toContain('popout');
+    expect(byLabel('Focus Facility').searchText).not.toContain('beside');
+  });
+
+  it('SYNONYMS: an unknown (facility-custom) panel id contributes no aliases', () => {
+    const items = buildRegistry({
+      getVisiblePanels: () => [{ id: 'custom-thing', label: 'Custom Thing' }],
+      focusPanel: () => {},
+    });
+    const [row] = inGroup(items, 'Panels');
+    expect(row.searchText).toBe('focus Custom Thing custom-thing');
   });
 
   it('LAYOUTS: preset run applies the preset BY NAME', () => {

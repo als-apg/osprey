@@ -208,3 +208,199 @@ describe('tile-tab renderer', () => {
     });
   });
 });
+
+/**
+ * The tile header is a panel's second right-click surface: the same verb menu
+ * its rail entry offers. dock-tab holds no policy — it forwards the press
+ * through the setTileContextMenuHandler seam (panel-manager registers into it,
+ * and cannot be imported here: dock-workspace already imports this module) and
+ * suppresses the browser's own menu ONLY when the handler reports it opened
+ * one. Declining is doing nothing at all, which is what leaves copy/paste
+ * working inside a contributed search input.
+ */
+describe('tile header context menu', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  /** A right-click, cancelable so defaultPrevented is observable. */
+  function rightClick(x = 40, y = 12) {
+    return new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: x, clientY: y,
+    });
+  }
+
+  /**
+   * The (id, opts) pair a handler mock was called with. Named here because a
+   * `vi.fn(() => true)` carries a zero-argument signature, so its recorded
+   * call tuple is not indexable without saying what it holds.
+   * @param {any} handler
+   * @returns {{id: string, opts: {x: number, y: number, anchorEl: HTMLElement}}}
+   */
+  function firstCall(handler) {
+    const [id, opts] = handler.mock.calls[0];
+    return { id, opts };
+  }
+
+  /** The detached terminal card fixture, as the terminal-tab suite builds it. */
+  function terminalHeaderFixture() {
+    const card = document.createElement('div');
+    card.className = 'terminal-card';
+    const header = document.createElement('div');
+    header.className = 'terminal-header';
+    const sel = document.createElement('select');
+    sel.id = 'session-selector';
+    header.appendChild(sel);
+    card.appendChild(header);
+    return header;
+  }
+
+  test('a service bar forwards the press with the SERVICE id, the bar as anchor, and the cursor position', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const ev = rightClick(120, 30);
+    tab.element.dispatchEvent(ev);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const { id, opts } = firstCall(handler);
+    // The dockview placeholder prefix never leaves this module — the handler
+    // speaks the same panel ids the rail does.
+    expect(id).toBe('ariel');
+    expect(opts.anchorEl).toBe(tab.element);
+    expect(opts.x).toBe(120);
+    expect(opts.y).toBe(30);
+    // The menu owns this press: no native menu on top of it.
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test('a declined press keeps the browser default (nothing is prevented)', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    // What simple mode's terminal reports: no menu opened, so the native one
+    // must still appear.
+    setTileContextMenuHandler(vi.fn(() => false));
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const ev = rightClick();
+    tab.element.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  test('with no handler registered the bar is inert — no throw, no suppression', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const ev = rightClick();
+    expect(() => tab.element.dispatchEvent(ev)).not.toThrow();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  test('interactive bar children are excluded — their native menu survives', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    // A contributed control standing in for the panel search inputs that make
+    // this exclusion matter: right-clicking one must still offer copy/paste.
+    const input = document.createElement('input');
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-contrib')).appendChild(input);
+
+    const onInput = rightClick();
+    input.dispatchEvent(onInput);
+    expect(handler).not.toHaveBeenCalled();
+    expect(onInput.defaultPrevented).toBe(false);
+
+    // The close button is interactive too, by the same rule.
+    const onClose = rightClick();
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close')).dispatchEvent(onClose);
+    expect(handler).not.toHaveBeenCalled();
+    expect(onClose.defaultPrevented).toBe(false);
+
+    // Plain bar surface still opens the menu.
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title'))
+      .dispatchEvent(rightClick());
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test('the terminal bar forwards the terminal id once, anchored to its adopted header', async () => {
+    const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
+    const header = terminalHeaderFixture();
+    setTerminalHeaderSource(header);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('terminal');
+    tab.init({ title: 'SESSION', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const ev = rightClick(8, 4);
+    /** @type {HTMLElement} */ (tab.element.querySelector('.terminal-header')).dispatchEvent(ev);
+
+    // Exactly once: the header fills the terminal bar, so listening on the tab
+    // root as well would run the handler twice for one press.
+    expect(handler).toHaveBeenCalledTimes(1);
+    const { id, opts } = firstCall(handler);
+    expect(id).toBe('terminal');
+    expect(opts.anchorEl).toBe(header);
+    expect(opts.x).toBe(8);
+    expect(opts.y).toBe(4);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test('the terminal header keeps ONE contextmenu listener across tab rebuilds', async () => {
+    const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
+    const header = terminalHeaderFixture();
+    // Registration is per NODE, not per tab: close→reopen rebuilds the tab but
+    // re-adopts the same header, so a per-construction wiring would stack up.
+    setTerminalHeaderSource(header);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+
+    const first = createTileTab('terminal');
+    first.init({ title: 'SESSION', params: {}, api: fakeApi() });
+    first.element.remove();
+    const second = createTileTab('terminal');
+    second.init({ title: 'SESSION', params: {}, api: fakeApi() });
+    document.body.appendChild(second.element);
+
+    /** @type {HTMLElement} */ (second.element.querySelector('.terminal-header'))
+      .dispatchEvent(rightClick());
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("the terminal header's interactive children are excluded too", async () => {
+    const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
+    const header = terminalHeaderFixture();
+    setTerminalHeaderSource(header);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('terminal');
+    tab.init({ title: 'SESSION', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const ev = rightClick();
+    /** @type {HTMLElement} */ (tab.element.querySelector('#session-selector')).dispatchEvent(ev);
+    expect(handler).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  test('the verbs live in the menu, not on the bar — still no popout control', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    setTileContextMenuHandler(vi.fn(() => true));
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+  });
+});

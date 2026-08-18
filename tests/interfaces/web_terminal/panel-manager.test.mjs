@@ -59,6 +59,35 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   onDragGesture: () => [],
 }));
 
+// The terminal verbs the context menu binds live outside panel-manager's own
+// state machine (a PTY socket and the session list). Stub both modules at the
+// boundary so a menu pick can be asserted as the call it makes — the restart
+// PAIR above all, which is a correctness contract, not a detail: restartTerminal
+// tears the PTY down without reconnecting.
+// Only the three verbs are replaced: terminal.js is already on the import
+// chain (panel-iframe-sync reads the live session id from it), so a whole-module
+// stub would strand that reader — these are partial mocks, registered per
+// import next to the dock-iframe one below for the same freshness reason.
+const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
+const SESSIONS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sessions.js';
+const { restartTerminal, startTerminal, startNewSession } = vi.hoisted(() => ({
+  restartTerminal: vi.fn(async () => {}),
+  startTerminal: vi.fn(),
+  startNewSession: vi.fn(),
+}));
+
+/** @param {() => Promise<unknown>} importOriginal */
+async function terminalWithVerbSpies(importOriginal) {
+  const actual = /** @type {Record<string, unknown>} */ (await importOriginal());
+  return { ...actual, restartTerminal, startTerminal };
+}
+
+/** @param {() => Promise<unknown>} importOriginal */
+async function sessionsWithVerbSpies(importOriginal) {
+  const actual = /** @type {Record<string, unknown>} */ (await importOriginal());
+  return { ...actual, startNewSession };
+}
+
 // dock-iframe.js keeps its REAL placement engine — only the tile-glow entry
 // point is spied on. What the glow looks like (an overlay rectangle measured a
 // frame later) is dock-glow.test.mjs's and the browser suite's contract; what
@@ -135,6 +164,8 @@ function stubEventSource() {
 async function freshImport() {
   vi.resetModules();
   vi.doMock(DOCK_IFRAME_PATH, dockIframeWithGlowSpy);
+  vi.doMock(TERMINAL_PATH, terminalWithVerbSpies);
+  vi.doMock(SESSIONS_PATH, sessionsWithVerbSpies);
   return import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js');
 }
 
@@ -611,7 +642,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
   });
 });
 
-describe('getPanelStandaloneUrl — the rail popout corner\'s target (railOptions onPopout)', () => {
+describe('getPanelStandaloneUrl — the "Open in a new window" target (context menu + palette)', () => {
   test('is null before config resolves a url, then the resolved url once it has', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
@@ -953,6 +984,55 @@ const dockedTiles = (/** @type {any} */ api) =>
   api.panels
     .filter((/** @type {any} */ p) => p.id.startsWith('iframe:'))
     .map((/** @type {any} */ p) => p.id.slice('iframe:'.length));
+
+/** The open context-menu popover, or null when none is open. */
+const contextMenu = () =>
+  /** @type {HTMLElement | null} */ (document.querySelector('.rail-context-menu'));
+
+/** Every menu row's visible verb, in order (dividers carry no label). */
+const menuLabels = () =>
+  [...document.querySelectorAll('.rail-context-label')].map((el) => el.textContent);
+
+/**
+ * The menu row reading exactly `label`, or undefined when the menu omits it.
+ * @param {string} label
+ * @returns {HTMLElement | undefined}
+ */
+const menuRow = (label) =>
+  /** @type {HTMLElement | undefined} */ (
+    [...document.querySelectorAll('.rail-context-item')].find(
+      (el) => el.querySelector('.rail-context-label')?.textContent === label
+    )
+  );
+
+/**
+ * Right-click a rail surface the way the browser does — on the entry button or
+ * on a child of it (the "×" corner), letting the event bubble. The returned
+ * event's `defaultPrevented` is the visible half of the handler's boolean:
+ * true means a menu was claimed and the browser's native menu is suppressed.
+ * @param {Element} el
+ * @returns {MouseEvent}
+ */
+function rightClick(el) {
+  const ev = new MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, clientX: 40, clientY: 60,
+  });
+  el.dispatchEvent(ev);
+  return ev;
+}
+
+/**
+ * Ask a focused entry for its menu from the keyboard (the ContextMenu key),
+ * the route the rail synthesises itself because macOS fires no `contextmenu`
+ * event from the keyboard at all.
+ * @param {Element} el
+ * @returns {KeyboardEvent}
+ */
+function menuKey(el) {
+  const ev = new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true });
+  el.dispatchEvent(ev);
+  return ev;
+}
 
 /**
  * Boot the manager against a live dock shell. Every listed panel is enabled and
@@ -1339,17 +1419,20 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
   });
 
   test('a tile still on screen is never painted over as an empty workspace', async () => {
-    // The one reachable route to "docked but UNHEALTHY": the rail's ⊞ corner
-    // docks a tile regardless of health (its activation then refuses), which is
-    // the state the rebuild deliberately leaves on screen.
+    // The reachable route to "docked but UNHEALTHY": "Open in a new tile" docks
+    // a tile regardless of health (its activation then refuses), which is the
+    // state the rebuild deliberately leaves on screen.
     const { api, emit } = await bootWorkspace({
       panels: ['artifacts', 'ariel'],
       unhealthy: ['ariel'],
     });
-    const beside = /** @type {HTMLElement} */ (
-      document.querySelector('[data-panel-id="ariel"] .panel-rail-beside')
-    );
-    beside.click();
+    // A panel that is unhealthy from boot never had its entry enabled, and the
+    // menu declines a disabled entry. Clear the class by hand to stand in for
+    // the production sequence this state comes from: healthy long enough to
+    // enable the entry, then gone dark — the manager never re-disables one.
+    entry('ariel')?.classList.remove('disabled');
+    rightClick(/** @type {Element} */ (entry('ariel')));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
     expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
     expect(activeStamp()).toBe('artifacts'); // the unhealthy panel took no focus
 
@@ -1804,5 +1887,211 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     open();
 
     await vi.waitFor(() => expect(badged('artifacts')).toBe(true));
+  });
+});
+
+
+describe('rail context menu — the entry’s verbs in words (railOptions onContextMenu)', () => {
+  const entry = (/** @type {string} */ id) =>
+    /** @type {HTMLElement} */ (document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`));
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+
+  afterEach(() => {
+    // Dismiss whatever a test left open — an undismissed popover keeps
+    // document-level listeners alive across the module reset.
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    document.documentElement.removeAttribute('data-ui-mode');
+  });
+
+  test('a healthy service entry opens the full verb list and suppresses the native menu', async () => {
+    await bootWorkspace();
+
+    const ev = rightClick(entry('ariel'));
+
+    expect(ev.defaultPrevented).toBe(true);
+    expect(menuLabels()).toEqual([
+      'Focus ARIEL', 'Open in a new tile', 'Open in a new window', 'Remove from rail',
+    ]);
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('ARIEL actions');
+  });
+
+  test('the entry is the menu’s anchor, so a panel scrolling its own content leaves it open', async () => {
+    await bootWorkspace();
+    rightClick(entry('ariel'));
+
+    // A scroll inside some other subtree — xterm streaming output is the case
+    // that matters — is not a scroll of the anchor and must not dismiss.
+    const other = document.createElement('div');
+    document.body.appendChild(other);
+    other.dispatchEvent(new Event('scroll', { bubbles: false }));
+    expect(contextMenu()).not.toBeNull();
+
+    // The rail scrolling DOES move the anchor.
+    document.getElementById('panel-rail')?.dispatchEvent(new Event('scroll'));
+    expect(contextMenu()).toBeNull();
+  });
+
+  test('"Open in a new tile" docks a NEW tile beside the active one', async () => {
+    const { api } = await bootWorkspace();
+    const artifactsGroup = api.getPanel('iframe:artifacts').group;
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
+    expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
+    // Running a row closes the menu before the action — never after it.
+    expect(contextMenu()).toBeNull();
+  });
+
+  test('"Open in a new window" opens the panel’s standalone url in a new tab', async () => {
+    const { mod } = await bootWorkspace();
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new window')).click();
+
+    expect(open).toHaveBeenCalledWith(mod.getPanelStandaloneUrl('ariel'), '_blank', 'noopener');
+    open.mockRestore();
+  });
+
+  test('"Remove from rail" POSTs the same membership change the "×" does', async () => {
+    const { calls } = await bootWorkspace();
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
+
+    const post = /** @type {{url: string, opts: any}} */ (
+      calls.find((c) => c.url === '/api/panel-visibility')
+    );
+    expect(post).toBeDefined();
+    expect(JSON.parse(post.opts.body)).toEqual({ panel: 'ariel', visible: false });
+  });
+
+  test('Focus on the ALREADY-active panel is a no-op — never the entry click’s retire branch', async () => {
+    const { api } = await bootWorkspace();
+    expect(activeStamp()).toBe('artifacts');
+
+    rightClick(entry('artifacts'));
+    /** @type {HTMLElement} */ (menuRow('Focus WORKSPACE')).click();
+
+    expect(dockedTiles(api)).toContain('artifacts');
+    expect(activeStamp()).toBe('artifacts');
+
+    // The contrast that makes the row’s wording true: clicking the entry
+    // itself toggles, and DOES retire the tile it is already showing.
+    entry('artifacts').click();
+    expect(dockedTiles(api)).not.toContain('artifacts');
+  });
+
+  test('Focus surfaces a member that holds no tile', async () => {
+    const { api } = await bootWorkspace();
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Focus ARIEL')).click();
+
+    expect(dockedTiles(api)).toContain('ariel');
+    expect(activeStamp()).toBe('ariel');
+  });
+
+  test('simple mode drops the new-tile row — its layout is one service tile', async () => {
+    await bootWorkspace({ mode: 'simple' });
+
+    rightClick(entry('ariel'));
+
+    expect(menuLabels()).toEqual(['Focus ARIEL', 'Open in a new window', 'Remove from rail']);
+  });
+
+  test('an entry with no standalone url yet renders the popout row inert', async () => {
+    await bootWorkspace({ panels: ['artifacts', 'ariel'], unhealthy: ['ariel'] });
+    // Stand-in for the production state: enabled by an earlier healthy settle,
+    // url since gone (the manager never re-disables an entry).
+    entry('ariel').classList.remove('disabled');
+
+    rightClick(entry('ariel'));
+
+    const row = /** @type {HTMLElement} */ (menuRow('Open in a new window'));
+    expect(row.getAttribute('aria-disabled')).toBe('true');
+    // Inert, not merely dimmed: the row carries no action at all.
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    row.click();
+    expect(open).not.toHaveBeenCalled();
+    expect(contextMenu()).not.toBeNull();
+    open.mockRestore();
+  });
+
+  test('a disabled entry gets no menu — not by right-click, not through its still-live "×"', async () => {
+    await bootWorkspace({ panels: ['artifacts', 'ariel'], unhealthy: ['ariel'] });
+    expect(entry('ariel').classList.contains('disabled')).toBe(true);
+
+    // The gate is the handler’s, not the CSS’s: happy-dom applies no
+    // pointer-events, so these dispatches are exactly the two routes that get
+    // past `pointer-events: none` in a real browser.
+    const onEntry = rightClick(entry('ariel'));
+    expect(contextMenu()).toBeNull();
+    // Declining leaves the event alone, so the browser’s own menu still shows.
+    expect(onEntry.defaultPrevented).toBe(false);
+
+    const close = /** @type {Element} */ (entry('ariel').querySelector('.panel-rail-close'));
+    const onClose = rightClick(close);
+    expect(contextMenu()).toBeNull();
+    expect(onClose.defaultPrevented).toBe(false);
+  });
+
+  test('the keyboard route obeys the same gate', async () => {
+    await bootWorkspace({ panels: ['artifacts', 'ariel'], unhealthy: ['ariel'] });
+
+    const declined = menuKey(entry('ariel'));
+    expect(contextMenu()).toBeNull();
+    // Not cancelled: on the platforms that fire a native contextmenu from this
+    // keydown, the declined entry keeps it.
+    expect(declined.defaultPrevented).toBe(false);
+
+    const opened = menuKey(entry('artifacts'));
+    expect(contextMenu()).not.toBeNull();
+    // Cancelled, so one keypress cannot also stack the platform’s own menu.
+    expect(opened.defaultPrevented).toBe(true);
+  });
+
+  test('the terminal entry offers the session verbs, and pairs restart with reconnect', async () => {
+    await bootWorkspace();
+
+    const ev = rightClick(entry('terminal'));
+
+    expect(ev.defaultPrevented).toBe(true);
+    expect(menuLabels()).toEqual(['Restart terminal', 'New session', 'Close terminal tile']);
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('SESSION actions');
+
+    /** @type {HTMLElement} */ (menuRow('Restart terminal')).click();
+    await vi.waitFor(() => expect(startTerminal).toHaveBeenCalled());
+    // restartTerminal tears the PTY down without reconnecting — unpaired it
+    // would leave the card stranded.
+    expect(restartTerminal).toHaveBeenCalled();
+    expect(restartTerminal.mock.invocationCallOrder[0])
+      .toBeLessThan(startTerminal.mock.invocationCallOrder[0]);
+  });
+
+  test('the terminal entry’s other verbs reach the session list and the dock', async () => {
+    await bootWorkspace();
+
+    rightClick(entry('terminal'));
+    /** @type {HTMLElement} */ (menuRow('New session')).click();
+    expect(startNewSession).toHaveBeenCalled();
+
+    rightClick(entry('terminal'));
+    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    expect(closeTerminalPanel).toHaveBeenCalled();
+  });
+
+  test('simple mode declines the terminal menu entirely', async () => {
+    await bootWorkspace({ mode: 'simple' });
+
+    // The terminal is replaced by the operator console there and
+    // closeTerminalPanel no-ops, so every row would act on an invisible
+    // surface — the native menu falls through instead.
+    const ev = rightClick(entry('terminal'));
+
+    expect(contextMenu()).toBeNull();
+    expect(ev.defaultPrevented).toBe(false);
   });
 });

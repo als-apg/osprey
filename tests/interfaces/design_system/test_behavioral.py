@@ -171,7 +171,7 @@ def _hub_live_server(
 
 
 # ---------------------------------------------------------------------------
-# Shared helpers: navigation, welcome modal, console capture
+# Shared helpers: navigation, console capture
 # ---------------------------------------------------------------------------
 
 

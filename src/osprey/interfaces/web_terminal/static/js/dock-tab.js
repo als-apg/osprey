@@ -20,6 +20,10 @@
  * Registered via dockview's createTabComponent/defaultTabComponent
  * (dock-workspace.js), which keeps dockview's native tab DnD, drop
  * hit-testing and close plumbing intact — the bar IS the drag handle.
+ *
+ * Both bar kinds are also a right-click surface: the tile header opens the
+ * same verb menu as the panel's rail entry (panel-context-menu.js), routed
+ * through the setTileContextMenuHandler registration seam below.
  */
 
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
@@ -58,11 +62,12 @@ let terminalHeaderEl = null;
 /**
  * Registers the live `.terminal-header` node. Called once by dock-workspace.js
  * before the terminal panel is added to dockview (see initDockWorkspace).
- * Also wires the interactive-children pointerdown guard directly on the node,
- * here rather than in the TileTab constructor: the header node is long-lived
- * across close/reopen/mode-switch, but a TileTab is rebuilt on every one of
- * those, so attaching in the constructor would stack a new listener on the
- * same node each time. Registration happens exactly once per node.
+ * Also wires the interactive-children pointerdown guard and the header's
+ * contextmenu route directly on the node, here rather than in the TileTab
+ * constructor: the header node is long-lived across close/reopen/mode-switch,
+ * but a TileTab is rebuilt on every one of those, so attaching in the
+ * constructor would stack a new listener on the same node each time.
+ * Registration happens exactly once per node.
  * @param {HTMLElement} el
  */
 export function setTerminalHeaderSource(el) {
@@ -75,6 +80,10 @@ export function setTerminalHeaderSource(el) {
       e.stopPropagation();
     }
   });
+  // The terminal bar's right-click surface is the adopted header itself, not
+  // the tab root: the header fills the bar, and listening on the root as well
+  // would run the handler twice for one press.
+  wireTileContextMenu(el, TERMINAL_RAIL_ID);
 }
 
 /** @returns {HTMLElement | null} */
@@ -84,6 +93,58 @@ function terminalHeader() {
 
 /** Matches the interactive children of the adopted terminal header. */
 const INTERACTIVE = 'button, select, input, a, [role="button"]';
+
+/**
+ * Handler a tile-header right-click is routed to, registered by
+ * panel-manager.js at init — it owns the whole menu policy (which verbs, and
+ * whether the surface has a menu at all), exactly as it does for the rail.
+ *
+ * A registration seam rather than an import, mirroring dock-sync's
+ * setTileCloseHandler: panel-manager imports dock-workspace, which imports
+ * this module, so importing panel-manager back would close a cycle.
+ * @type {((id: string, opts: TileMenuRequest) => boolean) | null}
+ */
+let tileContextMenuHandler = null;
+
+/**
+ * Where the menu should appear and what it belongs to. `anchorEl` is the
+ * header bar: the menu scopes its scroll dismissal to it, so a panel
+ * scrolling its own content underneath leaves the menu standing.
+ * @typedef {{ x: number, y: number, anchorEl: HTMLElement }} TileMenuRequest
+ */
+
+/**
+ * Registers the tile-header context-menu handler. Called once by
+ * panel-manager.js at init. The handler returns true when it opened a menu.
+ * @param {((id: string, opts: TileMenuRequest) => boolean) | null} fn
+ */
+export function setTileContextMenuHandler(fn) {
+  tileContextMenuHandler = fn;
+}
+
+/**
+ * Route right-clicks on a header bar to the registered handler.
+ *
+ * Declining is doing NOTHING — no menu and no preventDefault — so the browser
+ * shows its own menu instead. That happens on interactive header children
+ * (right-clicking inside a contributed search input must still offer
+ * copy/paste) and whenever the handler itself declines, e.g. the terminal in
+ * simple mode, where every terminal verb acts on a surface the operator
+ * cannot see.
+ * @param {HTMLElement} el  the header surface, and the menu's anchor
+ * @param {string} id  the panel id the menu's verbs act on
+ */
+function wireTileContextMenu(el, id) {
+  el.addEventListener('contextmenu', (e) => {
+    if (e.target instanceof Element && e.target.closest(INTERACTIVE)) return;
+    const opened = tileContextMenuHandler?.(id, {
+      x: e.clientX,
+      y: e.clientY,
+      anchorEl: el,
+    });
+    if (opened) e.preventDefault();
+  });
+}
 
 /**
  * The tile-tab renderer (dockview ITabRenderer: element / init / dispose).
@@ -147,6 +208,10 @@ class TileTab {
         ? id.slice(PLACEHOLDER_PREFIX.length)
         : id;
       registerContribHost(this._servicePanelId, contrib);
+      // The bar is the panel's second home for its verbs, alongside the rail
+      // entry. Wired per construction because a service tab's root IS rebuilt
+      // with the tab — unlike the terminal's long-lived adopted header.
+      wireTileContextMenu(root, this._servicePanelId);
     }
 
     const actions = document.createElement('div');

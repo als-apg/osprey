@@ -551,20 +551,22 @@ html[data-ui-mode="simple"] .session-selector {
   box-sizing: border-box;
 }
 
-/* Per-entry corner affordances — decorative, revealed on hover. The rail owns
-   a panel's MEMBERSHIP lifecycle: close "×" (remove from rail, top-left),
-   popout "↗" (top-right), and open-beside "⊞" (open as a new tile,
-   bottom-right); closing an OPEN tile is the tile header's own "×". The
-   corners sit clear of the centred icon + label stack. */
-.panel-rail-close,
-.panel-rail-popout,
-.panel-rail-beside {
+/* The entry's one corner affordance — decorative, revealed on hover. The rail
+   owns a panel's MEMBERSHIP lifecycle, and the close "×" (top-left) is what is
+   left of that in the corners: "open in a new tile" and "open in a new window"
+   now live in the right-click context menu, spelled out as words instead of
+   glyphs. Closing an OPEN tile remains the tile header's own "×". The corner
+   sits clear of the centred icon + label stack. */
+.panel-rail-close {
   position: absolute;
+  top: 4px;
+  left: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 14px;
   height: 14px;
+  font-size: var(--text-lg);
   border-radius: var(--radius-xs);
   line-height: var(--leading-none);
   color: var(--text-muted);
@@ -574,34 +576,9 @@ html[data-ui-mode="simple"] .session-selector {
     background var(--wt-transition-fast);
 }
 
-.panel-rail-close {
-  top: 4px;
-  left: 4px;
-  font-size: var(--text-lg);
-}
-
-/* The arrow is a smaller glyph than the "×" at the same nominal size, so it
-   rides one step up the scale to read as the "×"'s equal weight. */
-.panel-rail-popout {
-  top: 4px;
-  right: 4px;
-  font-size: var(--text-base);
-}
-
-/* Open-beside takes the bottom-right corner, below the popout: both "take
-   this panel somewhere" verbs share the right edge, membership removal keeps
-   the left. Same step-up sizing rationale as the popout glyph. */
-.panel-rail-beside {
-  bottom: 4px;
-  right: 4px;
-  font-size: var(--text-base);
-}
-
 /* Revealed on hover only — the active cell stays clean (close via hover or the
    keyboard Delete/Backspace shortcut). */
-.panel-rail-button:hover .panel-rail-close,
-.panel-rail-button:hover .panel-rail-popout,
-.panel-rail-button:hover .panel-rail-beside { opacity: 0.7; }
+.panel-rail-button:hover .panel-rail-close { opacity: 0.7; }
 
 .panel-rail-close:hover {
   opacity: 1;
@@ -609,27 +586,10 @@ html[data-ui-mode="simple"] .session-selector {
   background: var(--accent-tint-08);
 }
 
-/* Popout and open-beside are non-destructive, so they light accent rather
-   than the close's error red — the colour is the cue distinguishing the
-   corners on hover. */
-.panel-rail-popout:hover,
-.panel-rail-beside:hover {
-  opacity: 1;
-  color: var(--color-accent-light);
-  background: var(--accent-tint-08);
-}
-
 /* The drag source dims while its ghost travels, so "this entry is being
    dragged" reads at a glance. */
 .panel-rail-button.dragging {
   opacity: 0.4;
-}
-
-/* Simple mode is a locked layout: growing it is not a simple-mode gesture, so
-   the open-beside corner disappears entirely (rail-drag.js cancels the drag
-   half in JS — CSS cannot suppress draggable). */
-html[data-ui-mode="simple"] .panel-rail-beside {
-  display: none;
 }
 
 /* The design system's `.agent-attention` badge is pinned to the same top-right
@@ -649,22 +609,11 @@ html[data-ui-mode="simple"] .panel-rail-beside {
   opacity: 0.6;
 }
 
-/* Popout and open-beside are the opposite case: a panel whose backend has not
-   come up has nothing useful to open, so the affordances are hidden rather
-   than offered as a dead click (the JS handlers guard regardless). */
-.panel-rail-button.disabled .panel-rail-popout,
-.panel-rail-button.disabled .panel-rail-beside {
-  display: none;
-}
-
 /* The SESSION (terminal) entry is the rail's permanent anchor: it never has a
    membership "×" — its tile is closed/reopened through its own header bar and
    the Delete-key shortcut instead (dock-workspace.js guards the JS paths too).
-   It has no standalone page either, so no "↗"; its tile reopens via a plain
-   click, so no "⊞" (and panel-manager cancels its drag). */
-.panel-rail-button[data-panel-id="terminal"] .panel-rail-close,
-.panel-rail-button[data-panel-id="terminal"] .panel-rail-popout,
-.panel-rail-button[data-panel-id="terminal"] .panel-rail-beside {
+   Its context menu carries terminal verbs rather than the panel ones. */
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-close {
   display: none;
 }
 
@@ -807,6 +756,103 @@ html[data-ui-mode="simple"] .panel-rail-beside {
 .panel-add-submit:hover { background: var(--color-accent-light); color: var(--bg-primary); }
 .panel-add-submit:disabled { opacity: 0.5; cursor: default; }
 
+/* ---- Rail / tile-header context menu ---- */
+
+/* The right-click popover that replaced the "↗" and "⊞" corners: the same
+   verbs, spelled out. Styled as the "+" popover's sibling (same surface,
+   border, shadow and row rhythm) so the two read as one menu family, but
+   positioned `fixed` rather than absolute — panel-context-menu.js appends it
+   to <body> at the cursor and clamps it into the viewport, so it has no
+   layout parent to hang off and needs no data-rail-position variants. */
+.rail-context-menu {
+  position: fixed;
+  min-width: 200px;
+  max-width: 280px;
+  padding: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  z-index: var(--z-dropdown);
+}
+
+/* Verb on the left, its rail glyph trailing right — the glyph is the bridge
+   back to the iconography operators already learned. */
+.rail-context-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.rail-context-item:hover,
+.rail-context-item:focus {
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+/* A server-supplied panel label rides inside the verb, so it must be able to
+   truncate rather than widen the popover past its max. */
+.rail-context-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-context-glyph {
+  flex-shrink: 0;
+  font-size: var(--text-base);
+  line-height: var(--leading-none);
+  color: var(--text-muted);
+}
+
+/* The hovered row's glyph joins its text colour — on the danger row that is
+   how the "×" turns red with "Remove from rail". */
+.rail-context-item:hover .rail-context-glyph,
+.rail-context-item:focus .rail-context-glyph {
+  color: inherit;
+}
+
+/* Destructive verb: neutral at rest like every other row, error-red the
+   moment it is the one about to run. */
+.rail-context-item.danger:hover,
+.rail-context-item.danger:focus {
+  color: var(--color-error);
+  background: var(--error-tint-10);
+}
+
+/* An unavailable verb (a panel whose standalone URL has not resolved yet) is
+   shown so the menu's shape stays stable, but reads and behaves as inert:
+   muted, no pointer, and no hover response of any kind. */
+.rail-context-item[aria-disabled="true"] {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.rail-context-item[aria-disabled="true"]:hover,
+.rail-context-item[aria-disabled="true"]:focus {
+  color: var(--text-muted);
+  background: none;
+}
+
+.rail-context-divider {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border-default);
+}
+
 /* ============================================================
    Rail position: top — the same rail DOM rendered as a horizontal
    strip under the header, echoing the pre-redesign tab bar. Gated
@@ -867,24 +913,11 @@ html[data-rail-position="top"] .panel-rail-label {
   font-family: var(--font-display);
 }
 
-/* Pinned children: the LED keeps its top-right corner; close and popout tuck
-   tighter into their top corners so they clear the now-centered icon. */
-html[data-rail-position="top"] .panel-rail-close,
-html[data-rail-position="top"] .panel-rail-popout {
-  top: 2px;
-}
-
+/* Pinned children: the LED keeps its top-right corner; the close "×" tucks
+   tighter into its top-left corner so it clears the now-centered icon. */
 html[data-rail-position="top"] .panel-rail-close {
+  top: 2px;
   left: 2px;
-}
-
-html[data-rail-position="top"] .panel-rail-beside {
-  bottom: 2px;
-  right: 2px;
-}
-
-html[data-rail-position="top"] .panel-rail-popout {
-  right: 2px;
 }
 
 html[data-rail-position="top"] .panel-add {
