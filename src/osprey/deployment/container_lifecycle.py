@@ -1730,6 +1730,38 @@ def _resolve_pip_spec(dev_mode: bool = False) -> str:
     return f"osprey-framework=={get_release_version()}"
 
 
+#: Env-var spellings for "on" and "off", matching the other framework switches.
+_TRUTHY = {"1", "true", "yes", "on"}
+_FALSY = {"0", "false", "no", "off"}
+
+
+def _resolve_prebuilt_images(config: dict) -> bool:
+    """Whether this host already has the images and must not build them.
+
+    Some deployment hosts cannot build at all — no build tooling, no registry
+    reachable, images side-loaded from a tarball instead. There the dev-mode
+    compose build is not slow but impossible, and the only thing that can run
+    is ``up`` against tags that are already present.
+
+    Resolution order:
+      1. ``OSPREY_PREBUILT_IMAGES`` environment variable (truthy: 1/true/yes/on;
+         falsy: 0/false/no/off)
+      2. Top-level ``prebuilt_images`` key in the deploy config
+      3. Default: false — deploys build as they always have
+
+    Env var wins in both directions, so a host whose config pins the switch can
+    still be made to build for one shell, and vice versa.
+
+    :param config: Loaded deploy config.
+    """
+    env = os.environ.get("OSPREY_PREBUILT_IMAGES", "").strip().lower()
+    if env in _TRUTHY:
+        return True
+    if env in _FALSY:
+        return False
+    return bool(config.get("prebuilt_images", False))
+
+
 def _worker_image_target(config: dict, env: dict) -> str:
     """The image the dispatch worker will actually run.
 
@@ -4004,7 +4036,14 @@ def _start_stack(
     run_captured(rm_cmd, env=run_env, spool_name="compose-rm", repo_root=repo_root, check=False)
     _report_step("cleared stopped containers")
 
-    if dev_mode:
+    if dev_mode and _resolve_prebuilt_images(config):
+        # Nothing to build: the tags are expected to be on the host already, and
+        # the `up --no-build` below runs against them. A tag that is in fact
+        # missing surfaces as compose's own "No such image", which names the
+        # image that has to be loaded — better than anything a preflight here
+        # could say.
+        _report_step("skipped image build (prebuilt images)")
+    elif dev_mode:
         # `osprey up --dev` re-bakes the local osprey checkout into a fresh
         # wheel on every run, but compose reuses the cached image tag (e.g.
         # <project>-dispatch:local) unless it is rebuilt — so a dev deploy must build.

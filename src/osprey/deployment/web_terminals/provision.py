@@ -1211,17 +1211,25 @@ def deploy_up_web_terminals(
             check=False,
         )
         _report_step("cleared stale service containers")
-        if dev_mode:
+        # Function-level import, like `_env_file_args` below: container_lifecycle
+        # imports this module at its own top level, so the favour cannot be
+        # returned there.
+        from osprey.deployment.container_lifecycle import (
+            _resolve_prebuilt_images,
+            compose_build_step_reporter,
+        )
+
+        if dev_mode and _resolve_prebuilt_images(config):
+            # Same bargain as the plain path (see _start_stack): the service tags
+            # are already on the host, `up --no-build` runs against them, and a
+            # missing one surfaces as compose's own "No such image".
+            _report_step("skipped image build (prebuilt images)")
+        elif dev_mode:
             # Mirrors the plain non-web path's dev-mode build (see deploy_up):
             # without a rebuild, a co-deployed service's cached image tag keeps
             # running the stale code from its first build. Build in its own step,
             # then `up --no-build`, to dodge the `up --build` containerd
             # image-store race.
-            # Function-level import, like `_env_file_args` below:
-            # container_lifecycle imports this module at its own top level, so
-            # the favour cannot be returned there.
-            from osprey.deployment.container_lifecycle import compose_build_step_reporter
-
             services_build = services_base + ["build"]
             logger.debug(f"Running command:\n    {' '.join(services_build)}")
             # Watched only for as long as the build runs — same scope as the
