@@ -6,6 +6,8 @@
 - content invariants (base image, port, project path, the 3-ARG site
   extension contract),
 - the security-critical .dockerignore entries (secrets never enter the image),
+- the pairing between the repo's hatch exclude list and its .gitignore (what
+  must not ship has to be kept out of both),
 - that a Claude Code regeneration never touches the Dockerfile (it is
   rendered by `osprey build` and owned by the user in between), and
 - the anti-drift guard: every `osprey <cmd>` invocation inside the rendered
@@ -21,6 +23,7 @@ import pathlib
 import re
 import shlex
 import subprocess
+import tomllib
 
 import click
 import pytest
@@ -516,6 +519,67 @@ class TestDockerignore:
         assert ".dockerignore" not in entries, (
             ".dockerignore must not self-exclude — the wheel-staging COPY relies on it"
         )
+
+    def test_staged_models_excluded(self, hello_project):
+        """Model files staged by hand are qmd build inputs, not image content.
+
+        Pinned with its ``**/`` prefix, which is the one deviation from the
+        root-anchored spelling the rest of the list uses: the staged directory
+        sits beside the qmd service's Dockerfile inside the render, so a
+        root-anchored pattern would name nothing and gigabytes of GGUF would
+        ride into the project image.
+        """
+        assert "**/prefetched-models/" in self._entries(hello_project)
+
+
+class TestPackagingExcludePairing:
+    """The hatch exclude list and .gitignore are one list, spelled twice.
+
+    Hatchling packages the working tree rather than what git tracks, so a
+    directory that must never ship needs both halves: the
+    ``[tool.hatch.build]`` exclude keeps it out of the sdist and wheel, the
+    ``.gitignore`` entry keeps it out of the repo. Either half alone leaves a
+    way in, and the failure is quiet at the moment it is introduced — a staged
+    model directory that was gitignored but not excluded produced a
+    multi-gigabyte wheel, and nothing said so until someone installed it.
+
+    Asserted as a pairing over the whole list rather than entry by entry, so a
+    future exclude added with no ``.gitignore`` sibling fails here too.
+    """
+
+    @staticmethod
+    def _repo_root() -> pathlib.Path:
+        return pathlib.Path(__file__).resolve().parents[2]
+
+    @classmethod
+    def _hatch_excludes(cls) -> list[str]:
+        with (cls._repo_root() / "pyproject.toml").open("rb") as handle:
+            return tomllib.load(handle)["tool"]["hatch"]["build"]["exclude"]
+
+    @classmethod
+    def _gitignore_entries(cls) -> set[str]:
+        text = (cls._repo_root() / ".gitignore").read_text(encoding="utf-8")
+        return {
+            line.strip().rstrip("/")
+            for line in text.splitlines()
+            if line.strip() and not line.startswith("#")
+        }
+
+    def test_every_hatch_exclude_is_gitignored(self):
+        # Compared with the trailing slash normalized away: .gitignore spells a
+        # directory `foo/` and hatch spells it `foo`, and the pairing is about
+        # the path, not the punctuation.
+        gitignored = self._gitignore_entries()
+        for pattern in self._hatch_excludes():
+            assert pattern.rstrip("/") in gitignored, (
+                f"{pattern} is excluded from the build but not gitignored — "
+                "add the matching .gitignore entry"
+            )
+
+    def test_staged_models_are_excluded_from_the_distribution(self):
+        """Named guard for the pair that motivated the rule."""
+        assert "**/prefetched-models" in self._hatch_excludes()
+        assert "**/prefetched-models" in self._gitignore_entries()
 
 
 class TestRegenOwnership:

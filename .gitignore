@@ -175,6 +175,13 @@ tests/e2e/claude_code/benchmark_results/
 # or the build — see also the hatch exclude in pyproject.toml)
 src/osprey/templates/apps/control_assistant/data/benchmarks/results/
 
+# Model files staged by hand for hosts that cannot reach the model host. They
+# reach the qmd sidecar over the read-only mount `services.qmd.models_dir`
+# names, never through a build context — but the staging directory itself can
+# sit anywhere, this tree included. Gigabytes of GGUF, never source — keep them
+# out of git and out of the build (see also the hatch exclude in pyproject.toml)
+**/prefetched-models/
+
 # Playwright MCP browser-session cache (page snapshots, console logs)
 .playwright-mcp/
 
