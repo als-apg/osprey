@@ -7,7 +7,7 @@ figure, the pre-flight summary -- needs to know which channels the plan *moves*
 and which it merely *reads*, and until now each of those consumers guessed from
 the field's name. This module replaces the guessing with a declaration.
 
-An author annotates the field with one of four types::
+An author annotates the field with one of the role types::
 
     class PARAMS(BaseModel):
         correctors: MovableChannels = Field(..., min_length=1, title="Correctors")
@@ -16,7 +16,14 @@ An author annotates the field with one of four types::
 Each type is a plain ``list[str]`` / ``str`` carrying one extra JSON-schema key,
 ``x-channel-role``, whose value is ``"movable"`` or ``"readable"``. The
 singles (`MovableChannel` / `ReadableChannel`) exist for nested models, where
-one field holds one channel name rather than a list.
+one field holds one channel name rather than a list. A parameter that may be
+left unset takes the optional singles (`OptionalMovableChannel` /
+`OptionalReadableChannel`) -- their own types rather than a ``| None`` at the
+field site, because pydantic only lifts an ``Annotated`` declaration into the
+field's own metadata when it is the outermost annotation: spelled
+``MovableChannel | None``, the role silently reads back as no declaration at
+all, which is a plan whose channel no consumer collects (pinned by this
+module's tests).
 
 Two properties consumers rely on:
 
@@ -93,6 +100,20 @@ MovableChannel = Annotated[str, Field(json_schema_extra=_role_extra(MOVABLE_ROLE
 ReadableChannel = Annotated[str, Field(json_schema_extra=_role_extra(READABLE_ROLE))]
 """One channel name the plan records -- the single-channel form of
 `ReadableChannels`, for a nested model holding one channel per entry."""
+
+OptionalMovableChannel = Annotated[str | None, Field(json_schema_extra=_role_extra(MOVABLE_ROLE))]
+"""`MovableChannel` for a parameter that may be left unset.
+
+Its own type because ``MovableChannel | None`` would not work: pydantic lifts
+an ``Annotated`` declaration into the field's metadata only when it is the
+outermost annotation, so inside a union the role silently vanishes. Here the
+``Annotated`` wraps the union itself, which keeps the role at the field level.
+An unset (``None``) value simply contributes no channel -- `collect_channels`
+skips it, so nothing downstream needs to special-case absence."""
+
+OptionalReadableChannel = Annotated[str | None, Field(json_schema_extra=_role_extra(READABLE_ROLE))]
+"""`ReadableChannel` for a parameter that may be left unset -- see
+`OptionalMovableChannel` for why the union lives inside the annotation."""
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +202,7 @@ def channel_roles(model_cls: type[BaseModel]) -> list[tuple[str, ChannelRole]]:
     The path is for *reporting*; code matching values against a params dict wants
     `collect_channels`, whose rule is the leaf field name alone.
 
-    Only the four role types declare a role, so a plan that declares none comes
+    Only the role types declare a role, so a plan that declares none comes
     back empty -- that is what the load gate reads to quarantine a plan claiming
     to write without naming anything it moves.
     """

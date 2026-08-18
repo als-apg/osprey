@@ -96,7 +96,10 @@ cell per grid position — and a cell the run has not reached yet is left empty
 rather than filled with a zero. Sweep a single axis instead and the same plan
 draws lines: one panel per monitor, against that axis. The ``orm`` plan brings
 its own view too: a trace per corrector while the sweep runs, then the fitted
-response matrix and per-device scores.
+response matrix and per-device scores. ``orbit_bump_sweep`` draws the bump
+itself — the orbit shift across the BPMs at each step of the profile,
+displaced where you asked for it and back on the reference where the bump
+closes — with the residual against its tolerance band under it.
 
 A short note above the plots says where the data came from and whether it is
 still arriving — *live data · still filling in* while the plan runs. A run you
@@ -120,9 +123,12 @@ token, no switch can disable them:
 - **Stop after current item** — gentle. The running plan finishes, then the
   queue stops.
 - **Abort running plan** — immediate. It takes a second, confirming click,
-  because its cost is real: the rest of the plan is discarded, the data
-  already taken is kept, and the hardware **stays wherever the plan left
-  it** — nothing is driven back to a starting position.
+  because its cost is real: the rest of the plan is discarded, and the data
+  already taken is kept. Whether the hardware comes back is the plan's own
+  business — ``orm`` and ``orbit_bump_sweep`` put their correctors back on
+  every exit path, an abort included, while a plan that makes no such promise
+  leaves the machine **wherever the plan left it** — nothing is driven back
+  to a starting position.
 
 .. dropdown:: What happened behind the scenes
    :color: info
@@ -173,4 +179,4 @@ token, no switch can disable them:
       happens after an emergency stop.
 
    :doc:`write-plans`
-      When the two shipped plans aren't enough — add your own.
+      When the shipped plans aren't enough — add your own.

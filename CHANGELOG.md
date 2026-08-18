@@ -257,6 +257,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- A third shipped plan, `orbit_bump_sweep`, drives a closed local orbit
+  bump. The bump is stated in orbit space — the BPMs the beam should move at
+  and by how much, plus the BPMs it must not move at all — and the plan solves
+  for the kicks of the three or four correctors you name, so there is no
+  lattice model to supply. It records a reference orbit and per-BPM noise,
+  probes each corrector's response, then walks the amplitude up and back down,
+  trimming each step inside the tolerance band before moving on. The last step
+  commands the correctors back to their recorded working points and verifies,
+  rather than trims, that the machine came back. A step that will not come
+  inside tolerance stops the sweep unless `best_effort` is set. An optional
+  beam-current guard re-reads the current before every write batch — each
+  probe, each step, each trim pass — and stops the run when it falls below a
+  minimum you set. Every corrector is returned to its pre-scan value on any
+  exit. The run brings its own figure: the orbit shift across the BPMs at each
+  step, the residual against the tolerance band, the corrector offsets, and
+  the response of any extra monitor channels the run was asked to record.
+
 - The `control-assistant` preset now stands up a third web terminal beside
   Alice and Bob: a standalone ARIEL logbook assistant, on its own card at
   `/u/ariel/`. It shares the deployment's Postgres and logbook, and runs no

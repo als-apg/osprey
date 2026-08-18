@@ -48,9 +48,10 @@ does, not what it is called. Everything above is shared; only a small
 predicate over the accumulated state distinguishes one measurement class from
 another — correctors driven against BPM readbacks for the orbit-response
 class, two or more distinct setpoint axes against readbacks for the grid-scan
-class. An agent that picks a differently-named but structurally equivalent
-plan still passes, and the two predicates are mutually exclusive, so neither
-live test can be satisfied by the other's run.
+class, correctors driven toward per-BPM targets within a tolerance band for
+the orbit-bump class. An agent that picks a differently-named but structurally
+equivalent plan still passes, and the predicates are PAIRWISE exclusive, so no
+live test can be satisfied by another class's run.
 
 **Both queue steps.** Execution is two calls: ``queue_add`` puts the pinned
 draft in the queue and moves nothing; only ``queue_start`` drains it. A floor
@@ -275,12 +276,23 @@ def accumulated_draft_states(traces: list[ToolTrace]) -> list[dict[str, Any]]:
 
 def is_orbit_response_state(state: dict[str, Any]) -> bool:
     """Orbit-response plan class: the state drives a set of correctors AND
-    reads a set of BPMs together.
+    reads a set of BPMs together, with no orbit goal attached.
 
     The ``orm`` plan's own device-class contract, checked structurally so a
     differently-named but equivalent plan still qualifies. Never compares
     ``plan_name``.
+
+    ``targets`` disqualifies the state outright. An orbit response measures
+    what the correctors DO to the orbit; a state carrying ``targets`` is
+    asking for a specific orbit instead — the bump class (see
+    :func:`is_orbit_bump_state`) — and a bump draft may legitimately carry
+    ``monitors`` alongside its correctors, which without this clause would
+    satisfy both predicates at once. The exclusion is on presence, not
+    content: an ``orm`` draft has no notion of a target orbit, so the key
+    appearing at all means the state was assembled for a different class.
     """
+    if state.get("targets") is not None:
+        return False
     correctors = state.get("correctors")
     readbacks = state.get("readbacks")
     return (
@@ -314,6 +326,50 @@ def is_grid_scan_state(state: dict[str, Any]) -> bool:
     if not all(isinstance(s, str) and s for s in setpoints) or len(setpoints) != len(axes):
         return False
     return len(set(setpoints)) == len(setpoints)
+
+
+def is_orbit_bump_state(state: dict[str, Any]) -> bool:
+    """Orbit-bump plan class: the state drives a set of correctors toward a
+    requested ORBIT, stated as per-BPM targets, within a tolerance band.
+
+    The ``orbit_bump_sweep`` plan's contract (see
+    ``services/bluesky_bridge/plans_core/orbit_bump_sweep.py``'s ``PARAMS`` /
+    ``TargetPoint``), reduced to what makes the measurement that class rather
+    than another: correctors to drive, an orbit goal to drive them toward, and
+    a band the achieved orbit has to land inside. Never compares ``plan_name``.
+
+    ``tolerance`` is required, not decorative. Correctors plus targets alone
+    describe a *demand*; what makes this a bump SWEEP is that the plan trims
+    until the measured orbit sits within a band, so a state with no band is a
+    draft that has not yet said what it would accept — and the band is the one
+    parameter with no defensible default, since it is a facility's BPM units.
+
+    ``targets`` are checked for ``TargetPoint`` shape rather than mere
+    non-emptiness: the accumulated draft state holds whatever JSON the agent
+    patched in, so a list of bare BPM names would otherwise pass while naming
+    no displacement at all.
+    """
+    correctors = state.get("correctors")
+    if not (isinstance(correctors, list) and correctors):
+        return False
+    if not _is_real_number(state.get("tolerance")):
+        return False
+    targets = state.get("targets")
+    if not (isinstance(targets, list) and targets):
+        return False
+    return all(
+        isinstance(target, dict)
+        and isinstance(target.get("readback"), str)
+        and bool(target.get("readback"))
+        and _is_real_number(target.get("value"))
+        for target in targets
+    )
+
+
+def _is_real_number(value: Any) -> bool:
+    """A JSON number, excluding ``bool`` — which ``isinstance(v, int)`` accepts
+    and which never means a displacement or a tolerance band."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _first_successful_after(
@@ -1456,14 +1512,185 @@ def test_grid_floor_accepts_a_grid_assembled_across_two_calls() -> None:
     assert _grid_floor_passes(traces)
 
 
+# --- orbit-bump class ------------------------------------------------------
+# Again the same accumulator and the same ordered walk; only the plan-class
+# predicate changes. These tests cover what is specific to that predicate, plus
+# the walk over a bump-shaped trace.
+
+_BUMP_ARGS: dict[str, Any] = {
+    "correctors": ["corrector_01", "corrector_02", "corrector_03"],
+    "targets": [{"readback": "bpm_17", "value": 0.3}],
+    "closure_readbacks": ["bpm_23", "bpm_29"],
+    "readbacks": ["bpm_01", "bpm_17", "bpm_23", "bpm_29"],
+    "tolerance": 0.02,
+    "probe_amplitude": 0.5,
+    "num": 3,
+}
+
+#: The case the tightened :func:`is_orbit_response_state` exists for: a bump
+#: draft is free to record extra instruments alongside its orbit goal, and
+#: correctors + readbacks is exactly the shape the orbit-response predicate
+#: used to accept.
+_BUMP_ARGS_WITH_MONITORS: dict[str, Any] = {
+    **_BUMP_ARGS,
+    "monitors": ["bpm_01", "bpm_17"],
+}
+
+# A healthy bump readback: the requested displacement reached at the target
+# BPM on both legs, the closure BPMs sitting inside the tolerance band.
+_BUMP_RUN_DATA = (
+    '{"run_id":"run-1","steps":6,'
+    '"target_mm":{"bpm_17":[0.0,0.15,0.3,0.3,0.15,0.0]},'
+    '"closure_residual_mm":{"bpm_23":0.004,"bpm_29":-0.006}}'
+)
+
+
+def _bump_run_trace() -> list[ToolTrace]:
+    """The canonical healthy bump shape: one complete orbit-bump draft, the add
+    that pins it, the start that drains the queue, then the data read."""
+    return [
+        _draft(plan_name="orbit_bump_sweep", patch=_BUMP_ARGS),
+        _add(),
+        _start(),
+        _read(data=_BUMP_RUN_DATA),
+    ]
+
+
+def _bump_floor_passes(traces: list[ToolTrace]) -> bool:
+    return find_satisfying_chain(traces, is_orbit_bump_state) is not None
+
+
 @pytest.mark.harness_benchmark
-def test_grid_and_orbit_response_floors_do_not_accept_each_other() -> None:
-    """The two plan classes must be mutually exclusive on these traces, or the
-    two live tests could pass on each other's runs — an agent that ran a grid
-    scan when asked for an orbit response (or the reverse) would still be
-    graded as having done the right measurement."""
-    assert not _grid_floor_passes(_orm_run_trace())
-    assert not _floor_passes(_grid_run_trace())
+def test_bump_floor_accepts_orbit_bump_class_run() -> None:
+    """The healthy bump shape passes the whole chain walk."""
+    assert _bump_floor_passes(_bump_run_trace())
+
+
+@pytest.mark.harness_benchmark
+@pytest.mark.parametrize("missing", ["targets", "correctors", "tolerance"])
+def test_bump_floor_requires_every_part_of_the_bump_contract(missing: str) -> None:
+    """Non-vacuity for the predicate: dropping ANY of the three things that
+    make this class must fail the floor.
+
+    Without targets there is no orbit goal, so the draft is an orbit-response
+    sweep; without correctors nothing can produce the bump; without a tolerance
+    the draft has not said what orbit it would accept, so nothing can be
+    trimmed to a band.
+    """
+    patch = {k: v for k, v in _BUMP_ARGS.items() if k != missing}
+    traces = [_draft(plan_name="orbit_bump_sweep", patch=patch), _add(), _start(), _read()]
+    assert not _bump_floor_passes(traces)
+
+
+@pytest.mark.harness_benchmark
+def test_bump_floor_rejects_targets_that_name_no_displacement() -> None:
+    """``targets`` is an array of ``{bpm, value}`` objects. A list of bare BPM
+    names asks for no displacement anywhere, and a draft carrying one never
+    reached the plan's validator — the bridge refused it — so the floor must
+    not read it as a staged bump."""
+    traces = [
+        _draft(
+            plan_name="orbit_bump_sweep",
+            patch={**_BUMP_ARGS, "targets": ["bpm_17"]},
+        ),
+        _add(),
+        _start(),
+        _read(),
+    ]
+    assert not _bump_floor_passes(traces)
+
+
+@pytest.mark.harness_benchmark
+@pytest.mark.parametrize("missing", [QUEUE_ADD, QUEUE_START])
+def test_bump_floor_requires_both_queue_steps(missing: str) -> None:
+    """The bump class inherits the two-step execution contract: a queued bump
+    has moved no corrector, so an add-only trace is not a measurement."""
+    assert not _bump_floor_passes([t for t in _bump_run_trace() if t.name != missing])
+
+
+@pytest.mark.harness_benchmark
+def test_bump_floor_accepts_a_bump_assembled_across_two_calls() -> None:
+    """Correctors and targets in one ``set_draft``, the band and the sweep
+    shape in the next. Shares the accumulator with the other two classes, so an
+    incremental bump build is graded on the state the add actually saw."""
+    traces = [
+        _draft(
+            plan_name="orbit_bump_sweep",
+            patch={k: _BUMP_ARGS[k] for k in ("correctors", "targets", "closure_readbacks")},
+        ),
+        _draft(plan_name=None, patch={"tolerance": 0.02, "probe_amplitude": 0.5, "num": 3}),
+        _add(),
+        _start(),
+        _read(data=_BUMP_RUN_DATA),
+    ]
+    assert _bump_floor_passes(traces)
+
+
+@pytest.mark.harness_benchmark
+def test_bump_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
+    """The read that closes a bump chain must be OF the run the add launched —
+    the same binding the orbit-response floor gets, asserted for this class
+    because the predicate is what selects which add can anchor a chain, and a
+    class-specific predicate could otherwise anchor on one add while the read
+    was satisfied by another run entirely."""
+    launched = [
+        _draft(plan_name="orbit_bump_sweep", patch=_BUMP_ARGS),
+        _add(run_id="run-7"),
+        _start(),
+        _read(data=_BUMP_RUN_DATA, run_id="run-7"),
+    ]
+    assert _bump_floor_passes(launched)
+
+    read_an_older_run = [
+        _draft(plan_name="orbit_bump_sweep", patch=_BUMP_ARGS),
+        _add(run_id="run-7"),
+        _start(),
+        _read(data=_BUMP_RUN_DATA, run_id="run-1"),
+    ]
+    assert not _bump_floor_passes(read_an_older_run)
+
+
+# --- the exclusivity matrix ------------------------------------------------
+
+#: Every plan-class predicate the floor grades with, keyed by class name.
+_PLAN_CLASS_PREDICATES: dict[str, PlanClassPredicate] = {
+    "orbit-response": is_orbit_response_state,
+    "grid-scan": is_grid_scan_state,
+    "orbit-bump": is_orbit_bump_state,
+}
+
+#: One representative accumulated draft state per case, labelled with the class
+#: it belongs to. Two bump entries, because the bare bump draft and the one
+#: carrying extra monitors fail differently: only the second one is what the
+#: orbit-response predicate had to be tightened against.
+_REPRESENTATIVE_STATES: dict[str, tuple[str, dict[str, Any]]] = {
+    "orbit-response draft": ("orbit-response", _ORM_ARGS),
+    "grid draft": ("grid-scan", _GRID_ARGS),
+    "bump draft": ("orbit-bump", _BUMP_ARGS),
+    "bump draft with extra monitors": ("orbit-bump", _BUMP_ARGS_WITH_MONITORS),
+}
+
+
+@pytest.mark.harness_benchmark
+@pytest.mark.parametrize("case", list(_REPRESENTATIVE_STATES), ids=list(_REPRESENTATIVE_STATES))
+def test_plan_class_predicates_are_pairwise_exclusive(case: str) -> None:
+    """Each representative state must satisfy ITS class's predicate and no
+    other's — the full matrix, not a chosen pair.
+
+    Without this, a live test could pass on another class's run: an agent asked
+    for an orbit response that ran a grid scan (or a bump) would still be
+    graded as having taken the right measurement. The bump-with-monitors row
+    is the one that was actually broken — a bump draft recording extra
+    instruments carries correctors AND monitor readbacks, which is precisely the
+    orbit-response shape.
+    """
+    expected_class, state = _REPRESENTATIVE_STATES[case]
+    for class_name, predicate in _PLAN_CLASS_PREDICATES.items():
+        expected = class_name == expected_class
+        assert predicate(state) == expected, (
+            f"the {case} must {'' if expected else 'NOT '}satisfy the "
+            f"{class_name} predicate; state={state}"
+        )
 
 
 def _any_class_floor_passes(traces: list[ToolTrace]) -> bool:
@@ -2375,9 +2602,10 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
 
     The second measurement class, on the same stack and the same deploy as the
     orbit-response test above — which is the point of running it here rather
-    than in a module of its own. The two floors are mutually exclusive (proved
-    offline in ``test_grid_and_orbit_response_floors_do_not_accept_each_other``),
-    so neither test can be satisfied by the other's run, and ``clean_queue``
+    than in a module of its own. The three plan-class floors are pairwise
+    exclusive (proved offline in
+    ``test_plan_class_predicates_are_pairwise_exclusive``), so no one of these
+    tests can be satisfied by another's run, and ``clean_queue``
     leaves this one an empty queue no matter what the earlier test left behind.
     """
     repo = deployed_scan_stack.repo
