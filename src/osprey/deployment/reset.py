@@ -201,6 +201,18 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-configured bluesky bridge plan devices (osprey deploy up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
     "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
+    # Not a secret — service account names, written so an operator can find the
+    # whole login in one place. Listed here for the same reason as the rest:
+    # every block the deploy writes is one the deploy can write again, so
+    # leaving it behind would strand a name beside credentials that are gone.
+    #
+    # Names the current command, unlike the older banners above, which still
+    # carry the retired command spelling they were written under — this tuple is
+    # a data format and never rewrites an entry. A NEW banner has no `.env` on
+    # disk to stay compatible with, so it uses the command that actually exists.
+    # test_lifecycle_invariants' retired-spelling scan grandfathers exactly the
+    # older three and nothing else, which is what keeps this from drifting back.
+    "Service account names (osprey up) — not secrets",
 )
 
 
