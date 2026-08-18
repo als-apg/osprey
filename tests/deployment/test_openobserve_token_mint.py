@@ -360,7 +360,8 @@ def test_writing_the_email_is_idempotent(tmp_path, monkeypatch):
 # Password SHAPE. This store is a localhost demo backend whose password a human
 # reads off a terminal and types into a browser login form — the only minted
 # credential in the system with a human in the loop. The length is chosen for
-# that, and bounded by the expose-time refusal below.
+# that; every character still comes from ``secrets``, so the value is short
+# without being guessable.
 # ---------------------------------------------------------------------------
 
 
@@ -382,15 +383,26 @@ def test_minted_password_avoids_visually_ambiguous_characters():
 
 
 # ---------------------------------------------------------------------------
-# Off-host exposure raises the bar. Minting is idempotent, so a short password
-# minted on a loopback deploy SURVIVES a later `osprey up --expose` — scoping
-# the recipe to expose_network at mint time would be false comfort. The refusal
-# is what makes the short mint safe: it reads the effective value on every
-# exposed deploy, whatever its origin.
+# Off-host exposure does NOT impose a length bar. A character count is the wrong
+# instrument for this credential: it would reject the CSPRNG-minted value while
+# admitting a longer, guessable one an operator typed. The only attack this
+# password faces is online guessing against an HTTP login form, where ~65 bits
+# is many orders of magnitude out of reach. What an exposed deploy still
+# refuses is a password that is ABSENT (the empty-token rule, covered in
+# test_container_lifecycle) or PUBLIC (the published compose default, below) —
+# the two failures a length has no opinion about.
 # ---------------------------------------------------------------------------
 
 
-def test_an_exposed_deploy_refuses_the_short_demo_password(tmp_path, monkeypatch):
+def test_an_exposed_deploy_accepts_the_minted_demo_password(tmp_path, monkeypatch):
+    """osprey must never refuse a value it minted itself.
+
+    Minting is idempotent, so the password from a loopback demo is still in
+    ``.env`` when the project is later brought up exposed. That is not an edge
+    case: every deployment carrying web terminals counts as exposed, which is
+    the ordinary shape of a shipped preset, so a self-refusal here would break
+    the first ``osprey up`` on a project whose operator did nothing wrong.
+    """
     monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
     monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
     env_path = tmp_path / ".env"
@@ -399,11 +411,9 @@ def test_an_exposed_deploy_refuses_the_short_demo_password(tmp_path, monkeypatch
     container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
     minted = _parse_dotenv(env_path)["ZO_ROOT_USER_PASSWORD"]
 
-    with pytest.raises(RuntimeError, match="ZO_ROOT_USER_PASSWORD") as exc_info:
-        container_lifecycle._ensure_service_tokens(config, expose_network=True, env_path=env_path)
+    container_lifecycle._ensure_service_tokens(config, expose_network=True, env_path=env_path)
 
-    assert minted not in str(exc_info.value)
-    assert "reachable off-host" in str(exc_info.value)
+    assert _parse_dotenv(env_path)["ZO_ROOT_USER_PASSWORD"] == minted
 
 
 def test_an_exposed_deploy_accepts_a_long_operator_password(tmp_path, monkeypatch):
@@ -421,7 +431,6 @@ def test_an_exposed_deploy_accepts_a_long_operator_password(tmp_path, monkeypatc
 
 
 def test_a_loopback_deploy_accepts_the_short_demo_password(tmp_path, monkeypatch):
-    """The refusal must not fire on the ordinary demo deploy it exists to allow."""
     monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
     monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
     env_path = tmp_path / ".env"
@@ -431,22 +440,6 @@ def test_a_loopback_deploy_accepts_the_short_demo_password(tmp_path, monkeypatch
     container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
 
     assert len(_parse_dotenv(env_path)["ZO_ROOT_USER_PASSWORD"]) == 12
-
-
-def test_the_exposure_bar_is_opt_in_per_var(tmp_path, monkeypatch):
-    """A short token on an unregistered var is not this rule's business.
-
-    The dispatch tokens are machine-to-machine and carry their own recipes; the
-    length bar exists for the one credential a human shortened on purpose.
-    """
-    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "short1")
-    monkeypatch.setenv("DISPATCH_WORKER_TOKEN", "short2")
-
-    container_lifecycle._ensure_service_tokens(
-        {"deployed_services": ["event_dispatcher"]},
-        expose_network=True,
-        env_path=tmp_path / ".env",
-    )
 
 
 # ---------------------------------------------------------------------------
