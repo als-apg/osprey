@@ -33,6 +33,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `osprey up` now refuses as a precondition, rather than failing with a generic
+  "Deployment failed", when a project deploys the archiver store and pymongo is
+  missing. The refusal names the interpreter it is missing from — OSPREY seeds
+  the store from the process running the CLI, not from the project's
+  `build/.venv` — so a `dependencies:` entry in the build profile is visibly
+  the wrong lever.
 - `osprey init --reset` no longer crashes with a Python traceback when the
   containers it would remove belong to another copy of this repo. `osprey
   reset` has always caught that refusal and rendered it; this path never did,
@@ -80,6 +86,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `pymongo` is now a core dependency instead of the `archiver-mongodb` extra.
+  The `control-assistant` preset deploys a MongoDB archive, so a plain `pip
+  install osprey-framework` has to be able to run it. The extra is gone —
+  drop it from any install command, since pip only warns about an unknown
+  extra rather than failing. The preset no longer lists `pymongo` under
+  `dependencies:`, which moves its profile hash: rebuilt projects will report
+  staleness once, then match.
 - The browser-facing bluesky sidecar is now the `bluesky-web` service (was
   `bluesky-panels`): it is named for its role — the web half of the bluesky
   stack, beside `bluesky-bridge` — rather than for the one panel it serves.

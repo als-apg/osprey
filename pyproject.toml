@@ -126,6 +126,15 @@ dependencies = [
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.3.4,<4.0.0",
     "psycopg-pool>=3.3.1,<4.0.0",
+    # MongoDB client for the stored archive: the `mongodb_archiver` connector
+    # reads it, the deploy-time seeder writes it, and the recorder keeps it
+    # current. Core rather than an extra because the shipped `control-assistant`
+    # preset deploys that store, and `osprey up` preflights this import before it
+    # builds anything -- so an install that lacked it could not run the preset at
+    # all. Declared here as well as in osprey-connectors: three framework modules
+    # (simulation.apply, deployment.container_lifecycle, services.archiver_recorder)
+    # import pymongo directly rather than through a connector.
+    "pymongo>=4.17.0",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -210,7 +219,7 @@ dev = [
     # disagree about what "formatted" means.
     "ruff>=0.16.2,<0.17",
     "testcontainers[postgres]>=4.15.0",  # Real PostgreSQL for integration tests
-    "testcontainers[mongodb]>=4.15.0",  # MongoDB for archiver-mongodb integration tests
+    "testcontainers[mongodb]>=4.15.0",  # Real MongoDB for archiver integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
@@ -233,11 +242,6 @@ ariel-proxy = [
 # Google Sheets database backend for channel finder
 sheets = [
     "gspread>=6.2.1",
-]
-
-# MongoDB archiver connector backend
-archiver-mongodb = [
-    "pymongo>=4.17.0",
 ]
 
 # Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
@@ -273,11 +277,12 @@ screen-capture-linux = [
 # `osprey-framework[virtual-accelerator]` keeps resolving for every existing
 # reference to it (CI `uv sync --extra`, both VA images).
 #
-# The last two entries are the recorder's, not the IOC's. The recorder
+# The `aioca` entry is the recorder's, not the IOC's. The recorder
 # (osprey.services.archiver_recorder) ships as a compose-template-only service
 # that runs this image with a different command -- deliberately, so it adds no
 # image build to any deploy or to the seven VA-stack CI lanes -- which makes its
-# two dependencies part of what this extra has to deliver:
+# dependencies part of what this extra has to deliver. Its other one, pymongo, is
+# a core dependency and reaches the image without being named here:
 #
 #   * aioca is its Channel Access CLIENT. The serving stack below is a CA
 #     *server* and ships no client, and while `ophyd-async[ca]` (a core
@@ -285,10 +290,6 @@ screen-capture-linux = [
 #     another package's extra, not a declaration -- and the recorder imports
 #     aioca directly. Declared here so it stays installed if ophyd-async ever
 #     changes backends.
-#   * pymongo arrives through the `archiver-mongodb` extra rather than a second
-#     `pymongo>=4.0` line, so the floor keeps exactly one definition and cannot
-#     drift between the connector's extra and this one. Same self-referencing
-#     form the `all` extra uses.
 #
 # lume-pva-apg is the serving package `serving/runner.py` subclasses. Its `ca`
 # and `pva` extras are what put the two transports on the wire -- pcaspy for
@@ -353,12 +354,11 @@ virtual-accelerator = [
     # everywhere, so marking them would only make the recorder's dependencies
     # silently absent on a developer's machine.
     "aioca>=1.7",
-    "osprey-framework[archiver-mongodb]",
 ]
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge,gchat]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat]"
 ]
 
 [tool.uv.workspace]

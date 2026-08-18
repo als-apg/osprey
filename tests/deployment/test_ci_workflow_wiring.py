@@ -2476,23 +2476,22 @@ def test_archiver_world_job_has_no_llm_secret__mutation_adds_secret() -> None:
         assert not _job_declares_secret(mutated, ARCHIVER_JOB, SECRET_TOKEN)
 
 
-def test_archiver_world_job_installs_the_pymongo_extra(workflow: dict[str, Any]) -> None:
-    """The staged bring-up preflights pymongo before any image build, so without
-    the extra this lane aborts in seconds with an install hint instead of running
-    — a green-looking job that tested nothing."""
+def test_archiver_world_job_installs_osprey(workflow: dict[str, Any]) -> None:
+    """The staged bring-up preflights pymongo before any image build, so a lane
+    that never installed osprey would abort in seconds with an install hint
+    instead of running — a green-looking job that tested nothing. pymongo is a
+    core dependency, so a plain sync is enough; there is no extra to select."""
     installed = json.dumps(_jobs(workflow)[ARCHIVER_JOB])
-    assert "archiver-mongodb" in installed, (
-        f"the '{ARCHIVER_JOB}' lane must `uv sync` the archiver-mongodb extra"
-    )
+    assert "uv sync" in installed, f"the '{ARCHIVER_JOB}' lane must install osprey"
 
 
-def test_archiver_world_job_installs_the_pymongo_extra__mutation_drops_extra() -> None:
+def test_archiver_world_job_installs_osprey__mutation_drops_sync() -> None:
     mutated = copy.deepcopy(_load_workflow())
     mutated["jobs"][ARCHIVER_JOB] = json.loads(
-        json.dumps(mutated["jobs"][ARCHIVER_JOB]).replace(" --extra archiver-mongodb", "")
+        json.dumps(mutated["jobs"][ARCHIVER_JOB]).replace("uv sync", "true")
     )
     with pytest.raises(AssertionError):
-        test_archiver_world_job_installs_the_pymongo_extra(mutated)
+        test_archiver_world_job_installs_osprey(mutated)
 
 
 def test_archiver_world_job_runs_pytest_unbuffered(workflow: dict[str, Any]) -> None:

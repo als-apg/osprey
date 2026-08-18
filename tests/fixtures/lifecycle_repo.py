@@ -148,11 +148,6 @@ model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 # also accepts in_context or middle_layer.
 channel_finder_mode: hierarchical
 
-# Extra Python packages your agent needs. pymongo is required by the stored
-# archive declared under `va_archiver:` below.
-dependencies:
-  - pymongo>=4.0
-
 # ── What the agent can do ────────────────────────────────────────────────────
 # Each entry is a name from the OSPREY artifact library. Delete what you do not
 # need; add your own through an overlay.

@@ -62,8 +62,9 @@ importing `osprey_connectors` never requires them:
   Install `epicscorelibs` (or otherwise make a per-architecture `libca`
   available) if you use `EPICSConnector` or `EPICSArchiverConnector` against a
   live control system; `PYEPICS_LIBCA` can also point at one explicitly.
-- **`pymongo`** — required by `MongoDBArchiverConnector`. Install with
-  `pip install pymongo` if you archive to MongoDB.
+- **`pymongo`** — required by `MongoDBArchiverConnector`. Installed with this
+  package; the connector imports it inside `connect()` so registration stays
+  cheap, not because it is optional.
 - **`doocs4py`** — required by `DOOCSConnector` and `DOOCSArchiverConnector`.
   Install separately (it is not on PyPI in all environments) if you connect
   to a DOOCS control system.

@@ -39,15 +39,20 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved when the control-assistant preset turned password login on for its
     # web terminals (auth stanza, ariel's `login: false`, demo passwords under
     # `env.defaults`). All four moved together, as the note above predicts.
-    "control-assistant": "sha256:71f3f6e282f6e9c64d76d933310b973fda3dff3f9ba891cfb2f3aac5682d3cfb",
+    # Moved again when pymongo became a core OSPREY dependency and the preset
+    # dropped its `dependencies: [pymongo>=4.0]` line. Behavior-neutral for a
+    # rebuilt project — pymongo still lands in its venv, now from the base
+    # install rather than the profile — but the generated pyproject.toml no
+    # longer names it, so the advisory firing is correct.
+    "control-assistant": "sha256:7410d74d603fefa04d8ad79e042782da32b01a9acb0ca8871786e93ad3d65f13",
     "control-assistant-ariel": (
-        "sha256:fbf54b9933426ceeac2e4a5e018422fcfcc777f7e6f8eaa6c6475eed704f0877"
+        "sha256:9e71eaa1c45afcf201a12a1722fab5b80ffcb059ff45b0d602785c7e37a1cea5"
     ),
     "control-assistant-readonly": (
-        "sha256:479a6dc1652f3b7ff8866d62dcef6f7e4fdb147f912f2966dea6fa85f2a1d921"
+        "sha256:8a304867bb0f9d2aab63d6ebd3490780d6e720780d01562a72c92ce62ddc46f5"
     ),
     "control-assistant-readwrite": (
-        "sha256:7633397e5dfbe696da4a3298ff2511201f64bd8e22b68ecadfcd502aa5a1f77d"
+        "sha256:2a9af46cc9affb350db60b7df30ebc58f51d3ce19634ae05292e67d40bad60e2"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

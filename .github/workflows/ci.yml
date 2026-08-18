@@ -2051,10 +2051,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      # archiver-mongodb: the staged bring-up preflights pymongo before any
-      # image build, so without the extra this lane aborts in seconds with an
-      # install hint rather than running.
-      run: uv sync --extra dev --extra archiver-mongodb
+      run: uv sync --extra dev
 
     - name: Run archiver world E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the

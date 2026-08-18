@@ -20,8 +20,7 @@ def mongodb_container():
     """Start a MongoDB container for the test session.
 
     Yields a dict with connection parameters. Skips the entire chain
-    of dependent tests if Docker isn't available or pymongo isn't
-    installed (i.e., the ``archiver-mongodb`` extra wasn't selected).
+    of dependent tests if Docker isn't available.
     """
     if not is_docker_available():
         pytest.skip(

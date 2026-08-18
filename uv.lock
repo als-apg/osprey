@@ -4385,6 +4385,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyepics" },
+    { name = "pymongo" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -4396,6 +4397,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pyepics" },
+    { name = "pymongo", specifier = ">=4.17.0" },
     { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
@@ -4451,6 +4453,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
     { name = "pyepics" },
+    { name = "pymongo" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
@@ -4490,7 +4493,6 @@ all = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
     { name = "pydata-sphinx-theme" },
-    { name = "pymongo" },
     { name = "pysocks" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -4510,9 +4512,6 @@ all = [
     { name = "sphinxcontrib-jsmath" },
     { name = "sphinxcontrib-mermaid" },
     { name = "testcontainers", extra = ["mongodb"] },
-]
-archiver-mongodb = [
-    { name = "pymongo" },
 ]
 ariel = [
     { name = "psycopg", extra = ["pool"] },
@@ -4571,7 +4570,6 @@ virtual-accelerator = [
     { name = "aioca" },
     { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "pcaspy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "pymongo" },
 ]
 
 [package.metadata]
@@ -4658,9 +4656,7 @@ requires-dist = [
     { name = "pydata-sphinx-theme", marker = "extra == 'all'" },
     { name = "pydata-sphinx-theme", marker = "extra == 'docs'" },
     { name = "pyepics" },
-    { name = "pymongo", marker = "extra == 'all'", specifier = ">=4.17.0" },
-    { name = "pymongo", marker = "extra == 'archiver-mongodb'", specifier = ">=4.17.0" },
-    { name = "pymongo", marker = "extra == 'virtual-accelerator'", specifier = ">=4.17.0" },
+    { name = "pymongo", specifier = ">=4.17.0" },
     { name = "pysocks", marker = "extra == 'all'", specifier = ">=1.7" },
     { name = "pysocks", marker = "extra == 'gchat'", specifier = ">=1.7" },
     { name = "pytest", marker = "extra == 'all'" },
@@ -4719,7 +4715,7 @@ requires-dist = [
     { name = "watchdog", specifier = ">=6.0.0" },
     { name = "websocket-client", specifier = ">=1.7.0" },
 ]
-provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "screen-capture-linux", "sheets", "virtual-accelerator"]
+provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "screen-capture-linux", "sheets", "virtual-accelerator"]
 
 [[package]]
 name = "p4p"

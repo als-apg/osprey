@@ -17,6 +17,10 @@ dependencies = [
     "pandas>=2.2.3",
     "python-dateutil>=2.9.0",
     "pyepics",
+    # MongoDB client for MongoDBArchiverConnector. Declared even though the
+    # connector imports it inside connect(): the deferred import exists so
+    # registration stays cheap, not to make the dependency optional.
+    "pymongo>=4.17.0",
 ]
 
 [tool.hatch.build.targets.wheel]

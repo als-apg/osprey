@@ -493,9 +493,8 @@ archiver:
     url: https://archiver.als.lbl.gov:8443
     timeout: 60              # Timeout for archiver requests in seconds
 
-  # MongoDB archiver — needs the archiver-mongodb extra:
-  #   pip install 'osprey-framework[archiver-mongodb]'
-  # Every key here except port and timeout is required; the connector raises on
+  # MongoDB archiver. Its client ships with OSPREY, so there is nothing extra to
+  # install. Every key here except port and timeout is required; the connector raises on
   # the first one missing. The password itself is never stored here — it is read
   # at connect time from the environment variable named by password_env, which
   # `osprey up` mints into the project's .env.

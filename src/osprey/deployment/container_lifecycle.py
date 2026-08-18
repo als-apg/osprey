@@ -41,6 +41,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import (
+    ArchiverClientMissingError,
     ComposeInterpolationError,
     DevModeUnavailableError,
     NoRenderedBuildError,
@@ -2684,10 +2685,11 @@ _ARCHIVER_STORE_SERVICE = "mongodb"
 _ARCHIVER_RECORDER_SERVICE = "archiver-recorder"
 _ARCHIVER_RECORDER_DEPLOY_NAME = "archiver_recorder"
 
-# The install target every archiver error names. pymongo is an optional extra,
-# and a deploy that hits the seeder without it must say what to install rather
-# than surfacing a bare ImportError.
-_ARCHIVER_EXTRA = "osprey-framework[archiver-mongodb]"
+# The install target every archiver error names. pymongo is a core dependency,
+# so a deploy that hits the seeder without it is running from an incomplete
+# environment -- which is worth saying plainly rather than surfacing a bare
+# ImportError, or pointing at an extra that no longer exists.
+_ARCHIVER_INSTALL_TARGET = "osprey-framework"
 
 # How long the staged store gets to start answering before the deploy gives up.
 # Generous because the very first start of a fresh volume creates the admin user
@@ -2736,23 +2738,39 @@ def _archiver_store_deployed(config: dict) -> bool:
 def _preflight_archiver_pymongo(config: dict) -> None:
     """Abort a store-deploying run that cannot talk to the store it deploys.
 
-    pymongo is an optional extra, and without it the seeder cannot run — but the
-    only place that becomes visible is minutes later, after the project image has
-    been built and the store container is already up. Checking here, beside the
-    token mint, turns that into an immediate error naming the install.
+    pymongo is a core dependency, but an environment can still be missing it —
+    a partial install, a stale venv — and without it the seeder cannot run. The
+    only place that would otherwise become visible is minutes later, after the
+    project image has been built and the store container is already up. Checking
+    here, beside the token mint, turns that into an immediate error naming the
+    install.
+
+    The reason names ``sys.executable`` rather than only the package, because
+    the environment is the whole confusion: see
+    :class:`~osprey.deployment.errors.ArchiverClientMissingError`.
 
     :param config: Raw deploy config.
-    :raises RuntimeError: if the store is deployed and pymongo is absent.
+    :raises ArchiverClientMissingError: if the store is deployed and pymongo is
+        absent from the interpreter running this process.
     """
     if not _archiver_store_deployed(config):
         return
     try:
         import pymongo  # noqa: F401
     except ImportError as exc:
-        raise RuntimeError(
-            "This project deploys the archiver store (services.mongodb), and seeding "
-            "its history needs pymongo, which is not installed.\n"
-            f"Install it with: pip install '{_ARCHIVER_EXTRA}'"
+        raise ArchiverClientMissingError(
+            reason=(
+                "This project deploys the archiver store (services.mongodb), and "
+                "OSPREY seeds its history from this process — "
+                f"{sys.executable} — not from the project's build/.venv and not "
+                "in the project image. pymongo is not importable there. A "
+                "`dependencies:` entry in the build profile installs it into "
+                "those, not into this interpreter."
+            ),
+            remedy=(
+                "Reinstall osprey where the CLI runs:\n"
+                f"    pip install --upgrade {_ARCHIVER_INSTALL_TARGET}"
+            ),
         ) from exc
 
 
