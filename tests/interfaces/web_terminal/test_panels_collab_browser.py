@@ -191,9 +191,52 @@ def _new_page(browser) -> Page:
     return page
 
 
+# Passive in-flight counter around window.fetch, installed before the app
+# boots. The panel write helpers (panel-commands.js) are fire-and-forget by
+# design: a click resolves in the DOM via the server's SSE echo, so the browser
+# can still have focus/visibility POSTs in flight after every DOM- and
+# server-side wait has converged. A test that then issues its own write from
+# the pytest process races those stragglers on unrelated connections — this
+# counter is what lets it wait for the browser's writes to actually settle.
+# `.then(settle, settle)` fires when headers arrive, which is after the server
+# has processed the POST — exactly the ordering the barrier needs.
+_FETCH_COUNTER_JS = r"""(() => {
+  window.__ospreyFetchInflight = 0;
+  const orig = window.fetch.bind(window);
+  window.fetch = (...args) => {
+    window.__ospreyFetchInflight += 1;
+    const settle = () => { window.__ospreyFetchInflight -= 1; };
+    const p = orig(...args);
+    p.then(settle, settle);
+    return p;
+  };
+})();"""
+
+
+def _wait_for_fetch_quiescence(page: Page, *, timeout: float = 10.0) -> None:
+    """Block until the page has had no fetch in flight for 3 consecutive reads.
+
+    A single zero-read is not enough: the SSE echo of a write can itself
+    trigger the next write (a dock change schedules an open-tiles report), so
+    the counter can pass through zero between links of a chain. Three reads
+    50ms apart require a genuine quiet period, not an instant between requests.
+    """
+    deadline = time.monotonic() + timeout
+    streak = 0
+    inflight = None
+    while time.monotonic() < deadline:
+        inflight = page.evaluate("window.__ospreyFetchInflight ?? 0")
+        streak = streak + 1 if inflight == 0 else 0
+        if streak >= 3:
+            return
+        page.wait_for_timeout(50)
+    raise AssertionError(f"browser fetches never went quiet ({inflight} still in flight)")
+
+
 def _open_page(browser, base_url: str) -> Page:
     """Open a page and wait for the rail and the dock grid to be up."""
     page = _new_page(browser)
+    page.add_init_script(_FETCH_COUNTER_JS)
     page.goto(base_url, wait_until="domcontentloaded")
     expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
         timeout=15_000
@@ -775,11 +818,17 @@ def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chr
             page.locator('button.panel-rail-button[data-panel-id="scope"]').click()
             _wait_for_client_tiles(page, ["scope"])
             _wait_for_active(base_url, "scope")
+            # _wait_for_active proves A focus write landed, not the LAST one:
+            # the click's POSTs are fire-and-forget, so a straggler can arrive
+            # AFTER the arrangement below, hit the membership-adding branch
+            # (the arrange just pruned scope), and resurrect the pruned panel —
+            # diverging tiles, rail, and active all at once. Quiesce first.
+            _wait_for_fetch_quiescence(page)
 
             page_action(page, base_url)
 
             _wait_for_client_tiles(page, ["data-viz", "artifacts"])
-            page.wait_for_timeout(800)
+            _wait_for_fetch_quiescence(page)
             signature = _workspace_signature(page)
             server = _wait_for_open_tiles(base_url, ["data-viz", "artifacts"])
             signature["server_open_tiles"] = server["open_tiles"]
