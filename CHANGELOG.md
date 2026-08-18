@@ -268,9 +268,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   major is a client rewrite, so adopting it should be a deliberate change
   rather than something a lock refresh picks up on its own.
 
-- In the bluesky panel's web-terminal tile bar, the plan filter now sits to
-  the left of the Plans / Queue / Results switcher rather than to its right,
-  matching the artifacts gallery.
+- Controls no longer slide out from under the pointer when a neighbouring
+  control appears, disappears, or changes its label. Fixed across the web
+  interfaces: the bluesky panel's Plans / Queue / Results switcher (the plan
+  filter now opens to its left), the operator chat's Send button (Stop now
+  opens inboard of it, so Send never lands where Stop was), the ARIEL entry
+  pager (Previous and Next stay put and grey out at the ends instead of
+  vanishing), the channel finder's feedback toolbar (Clear All now opens
+  left of Add/Export instead of shoving them), and the confirm step on the
+  bluesky emergency abort and the lattice dashboard's Baseline button, whose
+  armed labels no longer widen the button and shove the control beside it.
 
 ### Added
 

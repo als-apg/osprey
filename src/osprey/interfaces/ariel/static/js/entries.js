@@ -168,20 +168,27 @@ function renderEntriesList(container, result) {
  * @returns {string} HTML string
  */
 function renderPagination(currentPage, totalPages) {
-  let html = '<div class="pagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px;">';
-
-  if (currentPage > 1) {
-    html += `<button class="btn btn-secondary btn-sm" data-page="${currentPage - 1}">Previous</button>`;
-  }
-
-  html += `<span class="text-muted" style="padding: 8px;">Page ${currentPage} of ${totalPages}</span>`;
-
-  if (currentPage < totalPages) {
-    html += `<button class="btn btn-secondary btn-sm" data-page="${currentPage + 1}">Next</button>`;
-  }
-
-  html += '</div>';
-  return html;
+  // Both buttons ALWAYS render; the ends of the range disable them rather than
+  // dropping them from the DOM. The row is centred, so a member coming and
+  // going re-centres the whole row and moves every OTHER member by half the
+  // delta — and the first click of "Next" is exactly what brings "Previous"
+  // into existence, so Next would slide out from under the cursor on the one
+  // gesture people repeat to page through a list. Disabled buttons hold the
+  // geometry still for the whole run. (artifacts/js/timeseries.js pages its
+  // table the same way, for the same reason.)
+  //
+  // Residual, deliberately left: the page readout still widens when the counts
+  // cross a digit (Page 9 of 9 -> Page 10 of 12), which nudges both buttons by
+  // about half a character. Same class, two orders of magnitude smaller.
+  const atStart = currentPage <= 1;
+  const atEnd = currentPage >= totalPages;
+  return (
+    '<div class="pagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px;">' +
+    `<button class="btn btn-secondary btn-sm" data-page="${currentPage - 1}"${atStart ? ' disabled' : ''}>Previous</button>` +
+    `<span class="text-muted" style="padding: 8px;">Page ${currentPage} of ${totalPages}</span>` +
+    `<button class="btn btn-secondary btn-sm" data-page="${currentPage + 1}"${atEnd ? ' disabled' : ''}>Next</button>` +
+    '</div>'
+  );
 }
 
 export default {

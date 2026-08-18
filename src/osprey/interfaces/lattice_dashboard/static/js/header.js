@@ -66,7 +66,15 @@ export function createHeader(callbacks) {
       {
         kind: 'button',
         id: 'baseline',
-        label: armed ? 'Confirm baseline?' : 'Baseline',
+        // Same character count as the resting label, deliberately. This button
+        // is not last in either rendering — the theme switcher follows it in
+        // the standalone topbar, Refresh/Verify precede it in both — and every
+        // one of those is a persistent control that a growing label shoves
+        // sideways on the very click that arms this one. `Confirm baseline?`
+        // was 9 characters longer — in the topbar's monospace face, a ~60px
+        // shove of Refresh and Verify. What the second click does is in the
+        // title, where it does not cost layout.
+        label: armed ? 'Confirm?' : 'Baseline',
         title: armed ? 'Click again to overwrite the baseline' : 'Set current as baseline',
         tone: armed ? 'accent' : 'default',
         disabled: !hasLattice,
@@ -82,7 +90,8 @@ export function createHeader(callbacks) {
     btn.classList.toggle('action-btn--armed', armed);
     btn.title = armed ? 'Click again to overwrite the baseline' : 'Set current as baseline';
     const label = btn.querySelector('.baseline-label');
-    if (label) label.textContent = armed ? 'Confirm baseline?' : 'Baseline';
+    // Same length as the resting label — see publishContribution for why.
+    if (label) label.textContent = armed ? 'Confirm?' : 'Baseline';
   }
 
   function render() {

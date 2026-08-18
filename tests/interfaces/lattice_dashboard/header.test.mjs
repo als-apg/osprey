@@ -102,7 +102,7 @@ describe('baseline arming', () => {
     byId('btn-baseline').click();
 
     expect(cb.onBaseline).not.toHaveBeenCalled();
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm baseline?');
+    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm?');
     expect(byId('btn-baseline').classList.contains('action-btn--armed')).toBe(true);
   });
 
@@ -129,7 +129,7 @@ describe('baseline arming', () => {
 
     byId('btn-baseline').click();
     expect(cb.onBaseline).not.toHaveBeenCalled();
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm baseline?');
+    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm?');
   });
 
   test('one state machine drives both renderings', () => {
@@ -138,9 +138,9 @@ describe('baseline arming', () => {
 
     // Armed from the tile bar, confirmed from the standalone button
     headerAction('baseline');
-    expect(contributedItem('baseline').label).toBe('Confirm baseline?');
+    expect(contributedItem('baseline').label).toBe('Confirm?');
     expect(contributedItem('baseline').tone).toBe('accent');
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm baseline?');
+    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm?');
 
     byId('btn-baseline').click();
     expect(cb.onBaseline).toHaveBeenCalledTimes(1);
@@ -174,6 +174,30 @@ describe('contribution', () => {
     expect(contributedItem('lattice-name').text).toBe('AR_full.mat');
     expect(contributedItem('refresh').disabled).toBe(false);
     expect(contributedItem('baseline').disabled).toBe(false);
+  });
+
+  test('the armed label matches the resting one in length, so neighbours hold still', () => {
+    // Baseline is not the last item in either rendering: the standalone topbar
+    // puts the theme switcher after it, and Refresh/Verify sit before it in
+    // both. A label that grows on arming therefore shoves a persistent control
+    // sideways on the very click that arms this one — exactly the class of
+    // jump the two-step confirm is supposed to protect against, reintroduced
+    // by the confirm itself.
+    //
+    // Equal CHARACTER count is exact in the topbar (.action-btn is monospace)
+    // and near-exact in the tile bar (--font-display is proportional), which
+    // is the best a contributed item can do: the hub owns that button's box
+    // and a panel has no way to ask it for a width.
+    const header = createHeader(makeCallbacks());
+    header.init();
+    header.syncState({ base_lattice: '/fake.mat' });
+
+    const resting = contributedItem('baseline').label;
+    byId('btn-baseline').click();
+    const armed = contributedItem('baseline').label;
+
+    expect(armed).not.toBe(resting);
+    expect(armed.length).toBe(resting.length);
   });
 
   test('unloading the lattice cancels a pending confirm', () => {

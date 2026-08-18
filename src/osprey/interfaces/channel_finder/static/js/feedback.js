@@ -110,9 +110,15 @@ async function _renderList() {
         </div>
       </div>
       <div class="fb-toolbar-right">
+        <!-- ORDER IS THE LAYOUT. space-between pins this cluster's right edge,
+             so a member's arrival moves everything BEFORE it and nothing after
+             it. Clear All is the conditional member (it exists only while
+             there are entries), so it goes FIRST: it appears on the very
+             action that creates the first entry, and the other order shoved
+             the persistent Add/Export pair sideways on that click. -->
+        ${entries.length > 0 ? '<button class="btn btn-danger btn-sm" id="fb-clear-btn">Clear All</button>' : ''}
         <button class="btn btn-secondary btn-sm" id="fb-add-btn">+ Add Entry</button>
         <button class="btn btn-secondary btn-sm" id="fb-export-btn">Export</button>
-        ${entries.length > 0 ? '<button class="btn btn-danger btn-sm" id="fb-clear-btn">Clear All</button>' : ''}
       </div>
     </div>
   `;

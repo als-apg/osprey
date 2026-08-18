@@ -34,10 +34,40 @@
  * what keeps a panel and a hub of different vintages compatible — there is no
  * negotiation beyond that.
  *
+ * ORDER IS THE LAYOUT, AND THE RIGHT EDGE IS THE ANCHOR. The hub gathers every
+ * INTERACTIVE item into one cluster pinned against the tile's close button — a
+ * flexible spacer takes all the slack to its left — and lays that cluster out
+ * in contribution order. (`text` items are outside it: they are the tile's
+ * subtitle, left-anchored beside the name, and their width costs the spacer,
+ * not a neighbour.) Right-anchoring makes change ASYMMETRIC: when an item
+ * appears, disappears, or changes width, everything contributed BEFORE it
+ * slides sideways and everything after it does not move at all.
+ *
+ * So order the array by how STABLE each item is, least stable first:
+ *
+ *   1. items contributed CONDITIONALLY — only in one view, only outside
+ *      Simple, only while something is running;
+ *   2. items whose label CHANGES WIDTH at runtime — an arming button's
+ *      "Confirm?", a count, an activity marker;
+ *   3. the control the operator aims at repeatedly — the view switcher, the
+ *      primary action — LAST, hard against the close button.
+ *
+ * Put a conditional item after a persistent one and the persistent one moves
+ * every time the conditional comes and goes — usually as a direct result of
+ * clicking that persistent control, which is the worst case there is: the
+ * target slides out from under the cursor that just hit it. Reordering the
+ * array is a panel's ONLY control over this; there is no side or slot to ask
+ * the hub for.
+ *
  * Every item may carry `priority` (number, default 0): in a narrow tile the
  * hub hides lowest-priority items first (text truncates before anything
- * hides). Both helpers are strict no-ops outside an embedded frame, so panels
- * call them unconditionally.
+ * hides). That is a SEPARATE axis from order — it decides what survives a
+ * narrow tile, not where anything sits — and the two may legitimately
+ * disagree. Note the coupling, though: a re-contribution that widens a label
+ * can itself make the bar crowded, so an item that both grows and carries the
+ * lowest priority can fold ITSELF into the ⋯ menu at the moment it grows.
+ * Both helpers are strict no-ops outside an embedded frame, so panels call
+ * them unconditionally.
  *
  * SIMPLE MODE: the hub collapses a service tile's whole bar to zero height in
  * Simple mode, so anything contributed is invisible there. That suits chrome
