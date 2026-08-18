@@ -14,8 +14,9 @@
 #     on dev builds. Its build cache is shared across projects and only
 #     rebuilds when the staged manifest changes. The extra is what carries the
 #     serving stack (`lume-pva-apg[ca,pva]`, PyAT) and the archiver recorder's
-#     client-side deps (a CA client, pymongo) — deliberately, so this file
-#     cannot pin a dependency that pyproject.toml disagrees with. The recorder
+#     CA client — deliberately, so this file cannot pin a dependency that
+#     pyproject.toml disagrees with. The recorder's other client-side dep,
+#     pymongo, is core and arrives with the base install. The recorder
 #     runs THIS image with a different command (compose template only, no
 #     Dockerfile of its own), which is why its deps ride along here.
 #   * wheel layer — when `osprey up --dev` stages a locally-built wheel

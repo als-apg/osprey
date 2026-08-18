@@ -22,6 +22,17 @@ def _default_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+# Characters excluded from the OpenObserve password alphabet because a human
+# reads this one off a screen: ``l``/``I``/``1`` and ``O``/``0`` are the pairs
+# people transcribe wrongly, and a rejected OpenObserve login says nothing about
+# which character was misread.
+_AMBIGUOUS_CHARS = "lI1O0"
+
+#: Length of a minted ``ZO_ROOT_USER_PASSWORD``. See
+#: :func:`_generate_openobserve_password` for why this one credential is short.
+_OPENOBSERVE_PASSWORD_LENGTH = 12
+
+
 def _generate_openobserve_password() -> str:
     """Mint a ``ZO_ROOT_USER_PASSWORD`` that satisfies OpenObserve's policy.
 
@@ -35,23 +46,44 @@ def _generate_openobserve_password() -> str:
     constraint (see ``_VAR_GENERATORS`` below).
 
     Build a value that guarantees all four required classes instead, drawing
-    every character from ``secrets`` (never ``random``): a 44-char alphanumeric
-    core (>=256 bits of entropy on its own, meeting the module's CSPRNG bar)
-    plus one guaranteed member of each class, then shuffled so the class
-    positions are not fixed. The special is drawn from ``@%*^`` — punctuation
-    every reasonable policy counts as "special", and each of which is safe both
-    in a ``.env`` value (unlike ``#``, ``$``, quotes, backslash, ``=`` or a
-    space, which break dotenv parsing) and in the base64 Basic-auth header the
-    resolver computes from it.
+    every character from ``secrets`` (never ``random``), then shuffling so the
+    class positions are not fixed. The special is drawn from ``@%*^`` —
+    punctuation every reasonable policy counts as "special", and each of which
+    is safe both in a ``.env`` value (unlike ``#``, ``$``, quotes, backslash,
+    ``=`` or a space, which break dotenv parsing) and in the base64 Basic-auth
+    header the resolver computes from it.
+
+    **Why this recipe is deliberately short.** It is the one minted credential
+    with a human in the loop: every other secret in ``_VAR_GENERATORS`` travels
+    machine-to-machine, but this one is read off a terminal and typed into a
+    browser login form, often on a projector during a demo. At 12 characters
+    from an alphabet with the easily-misread characters removed it carries ~65
+    bits — under the module's 256-bit default bar, and that is the point, not
+    an oversight. That bar is sized for secrets an attacker can attack offline;
+    the only attack this one faces is online guessing against an HTTP login
+    form, where 65 bits of CSPRNG entropy is many orders of magnitude out of
+    reach. A character count is the wrong instrument here in any case — it
+    would reject this value while admitting a longer, guessable one an operator
+    typed. What actually disqualifies a password is being absent or being
+    public, and both are refused on their own terms: the empty-value check in
+    ``_ensure_service_tokens`` under exposure, and ``_VAR_FORBIDDEN_VALUES``
+    for the template's published default.
     """
-    alphabet = string.ascii_letters + string.digits
-    chars = [secrets.choice(alphabet) for _ in range(44)]
-    chars += [
-        secrets.choice(string.ascii_lowercase),
-        secrets.choice(string.ascii_uppercase),
-        secrets.choice(string.digits),
-        secrets.choice("@%*^"),
+    lower = "".join(c for c in string.ascii_lowercase if c not in _AMBIGUOUS_CHARS)
+    upper = "".join(c for c in string.ascii_uppercase if c not in _AMBIGUOUS_CHARS)
+    digits = "".join(c for c in string.digits if c not in _AMBIGUOUS_CHARS)
+    specials = "@%*^"
+
+    # One guaranteed member of each required class, then fill to length from the
+    # union so the class counts are not themselves a fixed pattern.
+    chars = [
+        secrets.choice(lower),
+        secrets.choice(upper),
+        secrets.choice(digits),
+        secrets.choice(specials),
     ]
+    pool = lower + upper + digits + specials
+    chars += [secrets.choice(pool) for _ in range(_OPENOBSERVE_PASSWORD_LENGTH - len(chars))]
     secrets.SystemRandom().shuffle(chars)
     return "".join(chars)
 
@@ -59,12 +91,23 @@ def _generate_openobserve_password() -> str:
 # Per-variable overrides of the default recipe. A var absent here gets
 # ``_default_token``.
 #
-# CSPRNG bar: any recipe registered here MUST draw from ``secrets`` (never
-# ``random``, a hashed timestamp, or any other non-cryptographic source) and
-# MUST yield at least 256 bits of entropy — the same bar ``_default_token``'s
-# ``token_urlsafe(32)`` meets. A registered recipe exists to change the
-# *alphabet* for a downstream consumer's parsing rules (see
-# BLUESKY_TILED_API_KEY below), never to weaken the randomness.
+# CSPRNG bar: every recipe registered here MUST draw from ``secrets`` (never
+# ``random``, a hashed timestamp, or any other non-cryptographic source). That
+# half is absolute and has no exceptions.
+#
+# Entropy bar: a recipe SHOULD yield at least 256 bits — the same bar
+# ``_default_token``'s ``token_urlsafe(32)`` meets. Ordinarily a registered
+# recipe exists to change the *alphabet* for a downstream consumer's parsing
+# rules (see BLUESKY_TILED_API_KEY below), never to weaken the randomness.
+#
+# ONE exception is allowed, and only on this ground: a credential a HUMAN types
+# into a login form may trade entropy for legibility, because a password nobody
+# can transcribe is a password that gets pasted into a chat window or replaced
+# with something worse. A recipe claiming the exception must say so in its
+# docstring and must still draw every character from ``secrets``: legibility
+# buys a shorter value, never a weaker source. ZO_ROOT_USER_PASSWORD is the only
+# var that qualifies today: the Tiled key, both dispatch tokens, and the
+# Postgres/Mongo passwords are read by processes, never by people.
 #
 # BLUESKY_TILED_API_KEY: Tiled validates its ``--api-key`` during server startup
 # and raises ``ValueError("The API key must only contain alphanumeric

@@ -478,7 +478,8 @@ def _require_pymongo() -> None:
     except ImportError as exc:
         raise RuntimeError(
             "Rewriting the archive needs pymongo, which is not installed. "
-            "Install it with: pip install 'osprey-framework[archiver-mongodb]'"
+            "It is a core dependency, so this environment is incomplete. "
+            "Reinstall it with: pip install --upgrade osprey-framework"
         ) from exc
 
 

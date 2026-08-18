@@ -145,6 +145,32 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
 }
 .status-strip-spacer { flex: 1 1 auto; }
 
+/* WIDTH FLOORS on the two halt buttons. The strip is a right-anchored cluster
+ * (leading spacer), so a member's position depends only on the widths of the
+ * members AFTER it — which makes the rightmost button, Abort, the thing that
+ * positions Stop. Both buttons swap labels at runtime (arming, and the
+ * stop-pending withdrawal), and every one of those swaps used to drag Stop
+ * sideways under the operator's cursor at the exact moment they are choosing
+ * between the two halts. Worse, the armed Abort then covered most of the
+ * pixels Stop had just vacated, so a click aimed at Stop committed the abort —
+ * the confirm gate defeating itself geometrically.
+ *
+ * Only ABORT needs the floor. Stop is inboard of it, so Stop's own label swaps
+ * (the stop-pending withdrawal, and its confirm) move Stop's left edge into
+ * the spacer and nothing else — which is why those labels are left long and
+ * explicit. Abort is the one whose width is load-bearing for a neighbour.
+ *
+ * The floor is one `ch` per character of the resting label. `ch` is the "0"
+ * advance, comfortably wider than the mean glyph advance of this Latin string
+ * in a proportional face, so the floor clears the resting text without anyone
+ * measuring a pixel — slack in the box rather than a number that goes stale
+ * when the type changes. The armed label is kept SHORTER than the resting one
+ * (queue-client.js), so the box never changes size in either direction. */
+#abort-btn {
+  box-sizing: content-box;
+  min-width: 18ch; /* 'Abort running plan' — the resting label */
+}
+
 /* `body.embedded` zeroes the body padding so the scrolling views can meet the
    tile edges — but this strip is a fixed header band, not scrolling content,
    and it had no inset of its own: standalone, the body padding was quietly

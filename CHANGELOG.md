@@ -33,6 +33,33 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `osprey up` now refuses as a precondition, rather than failing with a generic
+  "Deployment failed", when a project deploys the archiver store and pymongo is
+  missing. The refusal names the interpreter it is missing from — OSPREY seeds
+  the store from the process running the CLI, not from the project's
+  `build/.venv` — so a `dependencies:` entry in the build profile is visibly
+  the wrong lever.
+- The `osprey` command no longer prints a Python traceback when something goes
+  wrong. Its console script was wired straight to the Click group, past the
+  handler that turns an error into a `✗` line with a cause and a remedy, so
+  every failure no verb caught reached the terminal as a stack trace ending in
+  installed-package paths. Affects every verb.
+- `osprey init --reset` and `osprey init --up` now check for a running
+  container runtime before they create anything. Both need one — `--reset` to
+  read what the previous deployment owns, `--up` to start the new one — but the
+  check ran after the repo had been written, git-initialized and committed, so
+  a stopped Docker left a repo behind that nobody asked for.
+- `osprey init --provider cborg` (and `--model`, `--connector`,
+  `--channel-finder-mode`) now say which spelling works — `--set
+  provider=cborg` — instead of suggesting the unrelated `--override`.
+- Artifacts built from a dev checkout report the right version again. A release
+  tag cut for the workspace sibling (`osprey-connectors-v0.1.0`) matched the
+  build backend's default tag glob, so every wheel, editable install and
+  container built off `main` since 2026-08-15 was stamped `0.1.0.postN` while
+  `osprey --version` said `2026.6.2.postN`. The build now describes against the
+  same `v[0-9]*` tags the runtime always has, the commit hash is pinned to one
+  width instead of varying with clone size, and a test holds the two
+  derivations byte-identical.
 - `osprey init --reset` no longer crashes with a Python traceback when the
   containers it would remove belong to another copy of this repo. `osprey
   reset` has always caught that refusal and rendered it; this path never did,
@@ -80,6 +107,24 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey up` now writes the OpenObserve account name `ZO_ROOT_USER_EMAIL` into
+  `.env` alongside the minted password, so both halves of the telemetry login
+  are in one findable place. Previously only the password was written and the
+  email existed solely as a default inside the templates. The value is
+  unchanged (`root@example.com`), and a value you already set is never
+  overwritten.
+- The minted `ZO_ROOT_USER_PASSWORD` is now 12 characters instead of 48, drawn
+  from an alphabet without the easily-misread `l I 1 O 0` — you read this one
+  off a terminal and type it into a browser login. Existing projects keep the
+  password already in their `.env`.
+
+- `pymongo` is now a core dependency instead of the `archiver-mongodb` extra.
+  The `control-assistant` preset deploys a MongoDB archive, so a plain `pip
+  install osprey-framework` has to be able to run it. The extra is gone —
+  drop it from any install command, since pip only warns about an unknown
+  extra rather than failing. The preset no longer lists `pymongo` under
+  `dependencies:`, which moves its profile hash: rebuilt projects will report
+  staleness once, then match.
 - The browser-facing bluesky sidecar is now the `bluesky-web` service (was
   `bluesky-panels`): it is named for its role — the web half of the bluesky
   stack, beside `bluesky-bridge` — rather than for the one panel it serves.
@@ -254,6 +299,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   `uv.lock` regenerated to match. `openai` is now capped below 3.x: the 3.0
   major is a client rewrite, so adopting it should be a deliberate change
   rather than something a lock refresh picks up on its own.
+
+- Controls no longer slide out from under the pointer when a neighbouring
+  control appears, disappears, or changes its label. Fixed across the web
+  interfaces: the bluesky panel's Plans / Queue / Results switcher (the plan
+  filter now opens to its left), the operator chat's Send button (Stop now
+  opens inboard of it, so Send never lands where Stop was), the ARIEL entry
+  pager (Previous and Next stay put and grey out at the ends instead of
+  vanishing), the channel finder's feedback toolbar (Clear All now opens
+  left of Add/Export instead of shoving them), and the confirm step on the
+  bluesky emergency abort and the lattice dashboard's Baseline button, whose
+  armed labels no longer widen the button and shove the control beside it.
 
 ### Added
 

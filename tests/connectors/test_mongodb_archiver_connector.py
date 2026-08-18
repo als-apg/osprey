@@ -199,10 +199,13 @@ class TestImportErrorHandling:
             with pytest.raises(ImportError) as exc_info:
                 await connector.connect(mongodb_config)
 
-            # Naming the extra, not the bare package: that is how a user of
-            # this framework actually installs the dependency.
+            # pymongo is a declared dependency of osprey-connectors, so the
+            # message must name the package to reinstall — not an extra to
+            # select, which would send the reader after one that no longer
+            # exists.
             assert "pymongo is required" in str(exc_info.value)
-            assert "osprey-framework[archiver-mongodb]" in str(exc_info.value)
+            assert "osprey-connectors" in str(exc_info.value)
+            assert "archiver-mongodb" not in str(exc_info.value)
 
 
 @pytest.mark.integration

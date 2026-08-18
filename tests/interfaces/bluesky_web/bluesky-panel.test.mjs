@@ -1642,10 +1642,29 @@ describe('abortControl', () => {
 });
 
 describe('abort button label and class', () => {
-  test('two steps, and the second states what it does', () => {
+  test('two steps, and the armed one names the act', () => {
     expect(abortButtonLabel(false)).toBe(ABORT_LABEL);
     expect(abortButtonLabel(true)).toBe(CONFIRM_ABORT_LABEL);
-    expect(CONFIRM_ABORT_LABEL).toContain('hardware stays put');
+    expect(CONFIRM_ABORT_LABEL.toLowerCase()).toContain('abort');
+  });
+
+  test('the armed label never outgrows the resting one, so Stop cannot move', () => {
+    // The status strip is a right-anchored cluster, so a member's position
+    // depends only on the widths of the members AFTER it — which makes Abort,
+    // the rightmost, the thing that positions the plain Stop beside it.
+    // panel.css floors #abort-btn at its resting label width; the floor only
+    // holds while every other label this button can show is shorter. A longer
+    // one pushes the box past its floor and drags Stop sideways at the moment
+    // an operator is choosing between the two halts — and the widened Abort
+    // lands on the pixels Stop just vacated, so a click meant for Stop commits
+    // the abort. That is the defect the two-step confirm exists to prevent, so
+    // the confirm must not reintroduce it.
+    //
+    // Asserted on the constants, not rendered geometry: the CSS floor is safe
+    // by construction (1ch per resting character), the copy is what drifts.
+    // Stop's own labels are deliberately NOT constrained — it is inboard of
+    // Abort, so its width moves nothing but itself.
+    expect(CONFIRM_ABORT_LABEL.length).toBeLessThanOrEqual(ABORT_LABEL.length);
   });
 
   test('the caution class is on the armed step only', () => {
@@ -2462,6 +2481,23 @@ describe('the merged panel shell', () => {
     const search = lastContribution().find((entry) => entry.kind === 'search');
     expect(search.id).toBe('plan-filter');
     expect(search.placeholder).toContain('Filter plans');
+  });
+
+  test('the view switcher is contributed last, so the conditional filter cannot move it', async () => {
+    // The hub right-anchors the interactive items into ONE cluster against the
+    // close button and lays it out in contribution order, so an item's arrival
+    // or departure moves everything BEFORE it and nothing after it. The filter
+    // is conditional (Plans view, Expert only); the switcher is what an
+    // operator aims at repeatedly. Switcher last therefore keeps the tab strip
+    // still, and the filter comes and goes in the slack to its left.
+    //
+    // Swap these and the strip jumps right by the filter's whole width the
+    // moment you click away from Plans — the target sliding out from under the
+    // cursor that just hit it.
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    expect(lastContribution().map((entry) => entry.kind)).toEqual(['search', 'nav']);
   });
 
   test('Simple mode contributes no search — the hub collapses the bar there', async () => {

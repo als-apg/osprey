@@ -61,8 +61,18 @@ function buildConsole() {
   stopBtn.type = 'button';
   stopBtn.hidden = true;
 
+  // ORDER IS THE LAYOUT. The textarea takes all the slack (`flex: 1`), so this
+  // cluster is pinned to the row's right edge and a member's arrival moves
+  // everything BEFORE it and nothing after it. Stop is the conditional one —
+  // it exists only while a turn streams — so it goes FIRST and Send stays put.
+  //
+  // The other order is a control-substitution hazard, not just a jump: Stop
+  // hides and Send re-enables in the same statement block (see setStreaming),
+  // so Send would slide into the exact pixels Stop had occupied at the moment
+  // it becomes clickable again — a hand already moving toward Stop as the turn
+  // ends lands on Send instead.
   const controls = elem('div', 'op-input-controls');
-  controls.append(sendBtn, stopBtn);
+  controls.append(stopBtn, sendBtn);
 
   const inputArea = elem('div', 'op-input-area');
   inputArea.append(elem('span', 'op-prompt-char', '›'), textarea, controls);

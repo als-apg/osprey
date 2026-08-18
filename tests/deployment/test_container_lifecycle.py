@@ -18,7 +18,11 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey.deployment.errors import UnmetPreconditionsError
+from osprey.deployment.errors import (
+    ArchiverClientMissingError,
+    DeploymentPreconditionError,
+    UnmetPreconditionsError,
+)
 from osprey.deployment.web_terminals import postup_hooks, provision
 
 
@@ -2325,7 +2329,7 @@ def test_deploy_without_the_store_service_stages_nothing(captured_argv, monkeypa
 
 
 def test_pymongo_preflight_aborts_before_any_container_work(monkeypatch, tmp_path):
-    """Naming the extra in seconds beats an ImportError after a minutes-long
+    """Naming the install in seconds beats an ImportError after a minutes-long
     image build, so the check sits beside the token mint, not at the seeder."""
     import sys
 
@@ -2344,14 +2348,49 @@ def test_pymongo_preflight_aborts_before_any_container_work(monkeypatch, tmp_pat
     monkeypatch.setattr(
         container_lifecycle.subprocess, "run", lambda *a, **k: ran.append("compose")
     )
-    # A None entry in sys.modules is what an absent optional extra looks like to
+    # A None entry in sys.modules is what an incomplete environment looks like to
     # `import pymongo` — the import machinery raises ImportError without touching
     # the installed package.
     monkeypatch.setitem(sys.modules, "pymongo", None)
 
-    with pytest.raises(RuntimeError, match=r"osprey-framework\[archiver-mongodb\]"):
+    with pytest.raises(ArchiverClientMissingError) as exc_info:
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     assert ran == []
+    assert "pip install --upgrade osprey-framework" in exc_info.value.remedy
+
+
+def test_pymongo_preflight_refusal_names_the_interpreter(monkeypatch):
+    """The refusal has to say WHICH environment is missing pymongo.
+
+    A `dependencies:` entry in the build profile installs into the project's
+    `build/.venv`, its recorded pyproject.toml and its image — never into the
+    interpreter running the CLI, which is where the seeder runs. An operator who
+    has declared pymongo and still sees this refusal has already tried the
+    obvious lever, so the reason names `sys.executable` and says that entry is
+    not the one, rather than repeating "pymongo is not installed" at them.
+    """
+    import sys
+
+    monkeypatch.setitem(sys.modules, "pymongo", None)
+
+    with pytest.raises(ArchiverClientMissingError) as exc_info:
+        container_lifecycle._preflight_archiver_pymongo(dict(ARCHIVER_CONFIG))
+
+    reason = exc_info.value.reason
+    assert sys.executable in reason
+    assert "build/.venv" in reason
+    assert "dependencies:" in reason
+
+
+def test_pymongo_preflight_refusal_is_a_precondition_not_a_bug():
+    """It must leave `up` through the precondition handler, not the catch-all.
+
+    `deploy_cmd.up_verb` renders `DeploymentPreconditionError` as a refusal with
+    a remedy and renders everything else as "Deployment failed". A bare
+    RuntimeError here would be indistinguishable from a genuine bug — which is
+    exactly what DeploymentPreconditionError's own docstring forbids.
+    """
+    assert issubclass(ArchiverClientMissingError, DeploymentPreconditionError)
 
 
 def test_pymongo_preflight_is_silent_without_the_store_service():

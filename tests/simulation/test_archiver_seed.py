@@ -642,11 +642,13 @@ def _epoch(moment: datetime) -> float:
 
 
 def test_the_module_never_imports_pymongo():
-    """An optional dependency has to stay optional.
+    """A deferred import has to stay deferred.
 
-    The seeder is imported by deployment code that runs on hosts where the
-    ``archiver-mongodb`` extra was never selected — the fingerprint check has to
-    be able to say "no store here" without one.
+    The seeder is imported by deployment code on every deploy, archiver or not,
+    and the fingerprint check has to be able to say "no store here" without
+    paying for a MongoDB client. pymongo being a core dependency now makes this
+    cheaper to get wrong, not less important: nothing would fail loudly if the
+    import were hoisted to module scope, it would only get slower.
     """
     import subprocess
     import sys

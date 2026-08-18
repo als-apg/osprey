@@ -199,6 +199,27 @@ class UnmetPreconditionsError(DeploymentPreconditionError):
         super().__init__("\n\n".join(blocks), "")
 
 
+class ArchiverClientMissingError(DeploymentPreconditionError):
+    """A deploy would seed an archiver store, but pymongo is not importable here.
+
+    "Here" is the load-bearing word, and it is why this carries its own type
+    rather than a bare :class:`RuntimeError`. OSPREY seeds the store *in the
+    process running the CLI*, not in the project's ``build/.venv`` and not in
+    the project image — so the one lever an operator reaches for first, a
+    ``dependencies:`` entry in the build profile, cannot satisfy it. That entry
+    is real and does install pymongo, into all three of the environments the
+    project owns; none of them is this one. An operator who has declared it and
+    still sees a refusal is owed that sentence explicitly, so ``reason`` names
+    the interpreter instead of only naming the package.
+
+    pymongo is a core dependency, so reaching this at all means an incomplete
+    environment — a partial install, a stale venv, a wheel built from a narrower
+    dependency set — rather than an unselected option.
+    """
+
+    summary = "The archiver store cannot be seeded"
+
+
 class NoComposeFilesError(DeploymentPreconditionError):
     """A read verb needs the compose files a build rendered, and there are none.
 

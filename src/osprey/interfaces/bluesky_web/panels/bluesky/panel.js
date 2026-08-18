@@ -221,27 +221,39 @@ function resultsHaveUnwatchedActivity() {
  */
 function publishContribution() {
   /** @type {import('/design-system/js/header-contrib.js').HeaderItem[]} */
-  const items = [
-    {
-      kind: 'nav',
-      id: VIEW_ITEM_ID,
-      items: VIEWS.map((entry) => ({
-        id: entry.id,
-        label:
-          entry.id === 'results' && resultsHaveUnwatchedActivity()
-            ? `${entry.label}${ACTIVITY_MARKER}`
-            : entry.label,
-        active: entry.id === activeView,
-      })),
-    },
-  ];
-  // The filter belongs to the Plans view, so it is contributed only while that
-  // view is showing — and never in Simple mode, where the hub collapses the
-  // tile bar and Simple deliberately ENLARGES a search box rather than hiding
-  // it. In both excluded cases the in-body search box is the one on screen.
+  const items = [];
+  // ORDER IS THE LAYOUT (see header-contrib.js): the hub right-anchors every
+  // interactive item into one cluster against the close button, so an item's
+  // arrival or departure moves everything contributed BEFORE it and nothing
+  // after it.
+  //
+  // The filter is the conditional item here — it belongs to the Plans view, so
+  // it is contributed only while that view is showing, and never in Simple
+  // mode, where the hub collapses the tile bar and Simple deliberately
+  // ENLARGES a search box rather than hiding it (in both excluded cases the
+  // in-body box is the one on screen). The view switcher is the item an
+  // operator aims at over and over. So the filter goes FIRST and the switcher
+  // LAST: the switcher stays pinned to the close button and the filter appears
+  // and disappears to its left, in the slack.
+  //
+  // The other order would put the tab strip on the moving side of its own
+  // effect — clicking away from Plans drops the filter, and the strip you just
+  // clicked slides right by the filter's whole width. Do not swap these.
   if (activeView === 'plans' && !isSimpleMode()) {
     items.push({ kind: 'search', id: FILTER_ITEM_ID, placeholder: 'Filter plans…' });
   }
+  items.push({
+    kind: 'nav',
+    id: VIEW_ITEM_ID,
+    items: VIEWS.map((entry) => ({
+      id: entry.id,
+      label:
+        entry.id === 'results' && resultsHaveUnwatchedActivity()
+          ? `${entry.label}${ACTIVITY_MARKER}`
+          : entry.label,
+      active: entry.id === activeView,
+    })),
+  });
   contributeHeader(items);
 }
 

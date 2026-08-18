@@ -557,11 +557,18 @@ class TestControlAssistantMongoDBTemplate:
         return path.read_text(encoding="utf-8")
 
     def test_template_documents_mongodb_option(self):
-        """The options comment must list mongodb_archiver and name the extra."""
+        """The options comment must list mongodb_archiver, and must not send the
+        reader after an install that no longer exists.
+
+        pymongo is a core dependency; the ``archiver-mongodb`` extra is gone, and
+        pip accepts an unknown extra with a warning rather than an error — so a
+        stale hint here would have a reader install nothing and hit the same
+        failure again.
+        """
         template = self._template_text()
 
         assert "#   - mongodb_archiver:" in template
-        assert "archiver-mongodb" in template
+        assert "archiver-mongodb" not in template
 
     def test_template_shows_required_mongodb_keys(self):
         """A LIVE block covers every key the connector refuses to default.

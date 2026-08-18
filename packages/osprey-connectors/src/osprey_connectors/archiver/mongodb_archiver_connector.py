@@ -30,11 +30,15 @@ logger = get_logger("mongodb_archiver_connector")
 # the only one, since a facility MongoDB may be administered elsewhere.
 DEPLOY_HINT = "If this project deploys its own MongoDB, run 'osprey up' to start it."
 
-# Names the optional dependency the way it is actually installed, so the message
-# works whether or not the reader knows pymongo is what backs this connector.
+# pymongo is a dependency of this package, so reaching this message means an
+# incomplete environment rather than an unselected option. It names the package
+# to reinstall, not an extra to add -- there is no longer an extra to select --
+# and it names pymongo too, so the message works whether or not the reader knows
+# what backs this connector.
 PYMONGO_INSTALL_HINT = (
-    "pymongo is required for the MongoDB archiver. "
-    "Install it with: pip install 'osprey-framework[archiver-mongodb]'"
+    "pymongo is required for the MongoDB archiver. It is a dependency of "
+    "osprey-connectors, so this environment is incomplete. "
+    "Reinstall it with: pip install --upgrade osprey-connectors"
 )
 
 #: Environment overrides for the two connection keys whose configured value is

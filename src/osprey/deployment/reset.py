@@ -201,6 +201,18 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-configured bluesky bridge plan devices (osprey deploy up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
     "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
+    # Not a secret — service account names, written so an operator can find the
+    # whole login in one place. Listed here for the same reason as the rest:
+    # every block the deploy writes is one the deploy can write again, so
+    # leaving it behind would strand a name beside credentials that are gone.
+    #
+    # Names the current command, unlike the older banners above, which still
+    # carry the retired command spelling they were written under — this tuple is
+    # a data format and never rewrites an entry. A NEW banner has no `.env` on
+    # disk to stay compatible with, so it uses the command that actually exists.
+    # test_lifecycle_invariants' retired-spelling scan grandfathers exactly the
+    # older three and nothing else, which is what keeps this from drifting back.
+    "Service account names (osprey up) — not secrets",
 )
 
 
@@ -1735,6 +1747,27 @@ def _condensed_outcome_lines(plan: ResetPlan) -> list[str]:
     return lines
 
 
+def runtime_selection_config(repo_root: Path) -> dict | None:
+    """The as-built config, where this repo has one, for choosing the runtime.
+
+    Only ever used to decide docker vs podman: a deployment that pins one is
+    entitled to have every check made against that one, and a probe that
+    defaulted to detection would report the wrong daemon's absence at an
+    operator running the other. ``None`` when there is nothing built yet or the
+    file will not load — a fresh repo has no as-built config by definition, and
+    detection is the right answer there rather than a failure.
+    """
+    config_path = as_built_config_path(repo_root)
+    if not config_path.is_file():
+        return None
+    try:
+        from osprey.utils.config import load_project_config
+
+        return load_project_config(str(config_path), wrap_errors=True)
+    except Exception:  # noqa: BLE001 - runtime selection falls back to detection
+        return None
+
+
 def _default_probe(repo_root: Path) -> RuntimeProbe:
     """The real runtime seam, refusing early when the daemon is unreachable.
 
@@ -1746,16 +1779,7 @@ def _default_probe(repo_root: Path) -> RuntimeProbe:
     """
     from osprey.deployment.runtime_helper import verify_runtime_is_running
 
-    config_path = as_built_config_path(repo_root)
-    config: dict | None = None
-    if config_path.is_file():
-        try:
-            from osprey.utils.config import load_project_config
-
-            config = load_project_config(str(config_path), wrap_errors=True)
-        except Exception:  # noqa: BLE001 - runtime selection falls back to detection
-            config = None
-
+    config = runtime_selection_config(repo_root)
     is_running, error = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(

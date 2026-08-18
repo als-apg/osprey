@@ -56,7 +56,16 @@ export const CONFIRM_WITHDRAW_STOP_LABEL = 'Confirm — the queue keeps draining
 // has a Stop and the two must not read as degrees of the same thing: this one
 // throws away the rest of the running plan.
 export const ABORT_LABEL = 'Abort running plan';
-export const CONFIRM_ABORT_LABEL = 'Confirm — abort now, hardware stays put';
+// SHORTER than the resting label, deliberately, and panel.css pins the button
+// at its resting width. This button is the LAST item in the status strip's
+// right-anchored cluster, so its own width is what positions the plain Stop
+// beside it: a label that grew on arming dragged Stop ~150px left at the exact
+// moment an operator is choosing between the two halts — and the armed Abort
+// then covered most of the pixels Stop had just vacated, so a click aimed at
+// Stop committed the abort. The confirm gate defeated itself geometrically.
+// What the second click does is said in #abort-note (see abortControl), which
+// already renders on arm and says it better than a button label can.
+export const CONFIRM_ABORT_LABEL = 'Confirm abort';
 
 /** @typedef {Record<string, unknown>} QueueStatus */
 /** @typedef {Record<string, any>} QueueItem */

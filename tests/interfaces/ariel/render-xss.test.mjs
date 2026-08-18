@@ -325,6 +325,43 @@ describe('pagination (entries.js renderPagination, via delegated click)', () => 
     await vi.waitFor(() => expect(entriesApi.list).toHaveBeenCalledTimes(2));
     expect(vi.mocked(entriesApi.list).mock.calls[1][0]).toMatchObject({ page: 2 });
   });
+
+  test('both pager buttons always render; the ends disable them instead of removing them', async () => {
+    // The pager row is centred, so a button coming and going re-centres the
+    // whole row and moves every other member by half the delta — and the first
+    // click of Next is exactly what brings Previous into existence, sliding
+    // Next out from under the cursor on the one gesture people repeat to page
+    // through a list. Disabled-at-the-ends keeps the geometry constant for the
+    // whole run; this asserts the DOM contract that guarantees it.
+    const entry = {
+      entry_id: 'e1',
+      timestamp: '2026-01-01T00:00:00Z',
+      author: 'a',
+      source_system: 's',
+      raw_text: 'body',
+      score: null,
+      attachments: [],
+      keywords: [],
+      highlights: [],
+    };
+    const list = /** @type {HTMLElement} */ (document.getElementById('entries-list'));
+
+    // First page: Previous exists but is disabled, Next is live.
+    vi.mocked(entriesApi.list).mockResolvedValueOnce({ entries: [entry], total: 60, page: 1, total_pages: 3 });
+    await loadEntries();
+    let buttons = list.querySelectorAll('.pagination [data-page]');
+    expect(buttons.length, 'both buttons render on the first page').toBe(2);
+    expect(/** @type {HTMLButtonElement} */ (buttons[0]).disabled, 'Previous disabled at the start').toBe(true);
+    expect(/** @type {HTMLButtonElement} */ (buttons[1]).disabled, 'Next live at the start').toBe(false);
+
+    // Last page: the mirror image.
+    vi.mocked(entriesApi.list).mockResolvedValueOnce({ entries: [entry], total: 60, page: 3, total_pages: 3 });
+    await loadEntries({ page: 3 });
+    buttons = list.querySelectorAll('.pagination [data-page]');
+    expect(buttons.length, 'both buttons render on the last page').toBe(2);
+    expect(/** @type {HTMLButtonElement} */ (buttons[0]).disabled, 'Previous live at the end').toBe(false);
+    expect(/** @type {HTMLButtonElement} */ (buttons[1]).disabled, 'Next disabled at the end').toBe(true);
+  });
 });
 
 describe('cited-source link (components.js renderAnswerBox, via performSearch + delegated click)', () => {
