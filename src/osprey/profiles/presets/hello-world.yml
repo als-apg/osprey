@@ -1,47 +1,84 @@
 # hello-world.yml
-# Minimal starter — one MCP server, mock control system, safety hooks included.
+# The onboarding preset: the smallest agent that still shows the whole
+# write-safety chain. A mock control system, ten hooks, and no containers, so
+# `osprey init` → `osprey build` → `osprey web` is the entire first session.
 #
-# Use this as a sandbox for learning OSPREY or for unit-testing integrations
-# before graduating to the full control-assistant profile.
+# `osprey init my-agent --preset hello-world` writes this out as
+# my-agent/profile.yml, at the root of a repo you own. Edit it there; the
+# packaged preset is never touched.
+#
+# Nearly everything is left unset on purpose. Every key this preset omits is
+# emitted into that file as a commented block, so the profile people get is
+# also the syllabus: uncomment one block, rebuild, see what changed.
+#
+# Every comment below is copied into that file, so it is written for whoever
+# opens their own profile.yml, not for a reader of this one. Keep them short:
+# two lines each. Anything longer belongs in the docs.
 
 name: Hello World
 
-# Minimal bundle: project skeleton and config only (no channel databases,
-# no benchmark data, no logbook seed).
+# Which packaged app this builds. "hello_world" is the small one: a project
+# skeleton and config, with no channel databases, logbook, or benchmark data.
 app_template: hello_world
 
+# Which model answers. `osprey set provider=...` / `osprey set model=...` edit
+# these in place, keeping your comments.
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
-# ── Artifact selection ───────────────────────────────────────────────────────
+# ── What the agent can do ────────────────────────────────────────────────────
+# Each entry is a name from the OSPREY artifact library. Delete what you do not
+# need; add your own through an overlay.
 
 hooks:
   - hook-log       # Append every tool call to a structured JSONL audit log
   - hook-config    # Inject project config.yml path into every tool call env
   - error-guidance # Post-error hook that surfaces remediation hints
-  - writes-check   # Pre-write safety check: confirm channel is writable
+  # The next three are the write-safety chain, and no write reaches the control
+  # system until all three agree. Removing any one of them removes a guard.
+  - writes-check   # Kill switch: refuse every write while writes_enabled is false
   - approval       # Gate hardware-write tool calls on human approval prompt
-  - limits         # Enforce per-channel min/max limits before writes
-  - config-drift   # Warn at session start when config.yml drifted from generated artifacts
+  - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
+  - config-drift   # Warn at session start when the build is out of date
   - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt
-  - panels-context # Inject the web terminal panel inventory into agent context
+  - panels-context # Tell the agent which web terminal panels exist
   - workspace-delta # Report web workspace changes since the agent's last turn
 
 rules:
   - safety          # Core safety rules: never write without approval
   - error-handling  # Standard error handling and retry guidance
-  - facility        # Facility-level conventions (naming, units)
   - timezone        # Always localise timestamps to facility timezone
+  # The `facility` rule is left out: mock channels have no naming scheme or
+  # units to teach. Add it once yours do.
 
-skills: []   # No skills — keep the interface minimal
+# The three empty lists below are where a real deployment grows. Leaving them
+# empty keeps the interface small; control-assistant shows them filled in.
 
-agents: []   # No sub-agents — single-model operation
+skills: []   # Named workflows the agent can run on request
+
+agents: []   # Sub-agents the main model can hand work to
 
 output_styles:
-  - control-operator  # Terse, actionable output style
+  - control-operator  # Terse, actionable output style for control-room operators
 
-web_panels: []   # No web panels
+web_panels: []   # Extra tabs in the web workspace, beside the terminal
 
-# ── Config overrides ─────────────────────────────────────────────────────────
+# ── Everything else ──────────────────────────────────────────────────────────
+# One dotted `key.path` per line. Never write a nested block here: it would
+# replace the whole subtree and silently drop the keys beside it.
+#
+# This block is where configuration lives. build/config.yml is generated from
+# it and should never be hand-edited. `osprey set` writes here.
 config:
+  # Which control system to talk to. "mock" invents channels in-process, so
+  # reads work with no hardware and no containers behind them.
   control_system.type: mock
+  # Writes are refused until this is on. Uncomment it, rebuild, and the limits
+  # and approval hooks above take over from there.
+  # control_system.writes_enabled: true
+  # Your facility's name, used in the agent's prompts and on the web landing
+  # page. Defaults to the deployment name.
+  # facility.name: My Facility
+  # Starting theme for every web terminal. Each browser can override it from
+  # the display menu.
+  # web.theme: light

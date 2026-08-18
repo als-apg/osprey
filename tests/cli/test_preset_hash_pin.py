@@ -44,7 +44,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "control-assistant-readwrite": (
         "sha256:a141880a8037ba0afa7b655cdc157b6bbaebc413b61392714ba0ce8671f4c8a3"
     ),
-    "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
+    # Moved when the onboarding rewrite dropped the `facility` rule. The
+    # wholesale comment rewrite that shipped alongside it contributed nothing:
+    # the digest is comment-blind, so the rule drop is the entire delta.
+    "hello-world": "sha256:9a87fb40f03287e8b4605c63a56cb8220ae1c32cd2e8c7df9a7d01ad370f358a",
 }
 
 

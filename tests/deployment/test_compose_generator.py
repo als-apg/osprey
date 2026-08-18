@@ -1,7 +1,10 @@
 """Framework-guard tests for projects with empty deployed_services.
 
-The hello-world preset (and any future "agent-only" preset) declares no
-deployed_services. Two failure modes have to stay fixed:
+An "attached" project (built with ``deploy_services: false``, connecting to
+another project's already-deployed services stack) is what declares no
+deployed_services — the hello-world preset's own default build deploys one
+service (openobserve). Two failure modes have to stay fixed for the empty
+case:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
    into the project, because the renderer references it unconditionally.

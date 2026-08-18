@@ -33,9 +33,9 @@ cd quickstart
 # When it reports none, copy the example and fill it in:
 # cp .env.example .env
 
-# Render the deployment, then start an agent session
+# Render the deployment, then open the web terminal
 osprey build
-osprey chat
+osprey web
 ```
 
 For a deployment tailored to your detector, beamline, or accelerator subsystem, install the

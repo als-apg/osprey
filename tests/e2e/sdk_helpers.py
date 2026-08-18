@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 # SDK imports — skip entire module if not installed
 try:
     from claude_agent_sdk import (
@@ -369,6 +371,21 @@ def _run_osprey(verb: str, args: list[str], *, timeout: int) -> None:
     )
 
 
+def _flip_writes_enabled(text: str) -> str:
+    """Set the real ``writes_enabled`` key to true, leaving comments alone.
+
+    Returns the text unchanged when no such key line exists, which the caller
+    treats as an error.
+    """
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        code = line.split("#", 1)[0]
+        if "writes_enabled:" in code and "false" in code:
+            lines[i] = line.replace("false", "true", 1)
+            return "".join(lines)
+    return text
+
+
 def enable_writes_in_project(repo: Path) -> None:
     """Ensure ``control_system.writes_enabled`` is true in the rendered config.
 
@@ -391,12 +408,20 @@ def enable_writes_in_project(repo: Path) -> None:
 
     Idempotent: presets like ``control_assistant`` already ship with
     ``writes_enabled: true``; only ``hello_world`` defaults to false.
+
+    Both the "already enabled?" check and the flip read the parsed value and
+    skip comments. A whole-file substring test cannot tell the live key from
+    the same characters quoted in a comment, and the hello_world config
+    comments quote ``control_system.writes_enabled: true`` to tell the reader
+    what to uncomment in their profile — which would otherwise read as "writes
+    are already on" and silently skip the flip.
     """
     render = render_dir(repo)
     config_path = render / "config.yml"
     text = config_path.read_text(encoding="utf-8")
-    if "writes_enabled: true" not in text:
-        updated = text.replace("writes_enabled: false", "writes_enabled: true", 1)
+    parsed = yaml.safe_load(text) or {}
+    if not (parsed.get("control_system") or {}).get("writes_enabled"):
+        updated = _flip_writes_enabled(text)
         if updated == text:
             raise RuntimeError(
                 f"Could not enable writes in {config_path}: no writes_enabled key found."
