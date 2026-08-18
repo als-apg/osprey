@@ -1032,9 +1032,9 @@ resolve to the project's own Python.
 Environment variables
 =====================
 
-The ``env`` section declares what the deployment needs. It documents variables;
-it does not carry values — values live in the repository's ``.env.shared`` and
-``.env`` (see :ref:`profile-secrets`).
+The ``env`` section declares what the deployment needs. ``required`` documents
+variables the operator must supply; secrets live in the repository's ``.env``
+and never in the profile (see :ref:`profile-secrets`).
 
 .. code-block:: yaml
 
@@ -1049,9 +1049,15 @@ Both lists are rendered into the repository's ``.env.example``, so an operator
 opening that file sees them alongside every other variable. Required names must
 match ``^[A-Z_][A-Z0-9_]*$``.
 
-Non-secret values the whole site should start from do not belong here either.
-Put them in ``.env.shared``, which is committed with the repository and read by
-every host (see :ref:`deployment-env-chain`).
+``defaults`` values are additionally seeded into the repository's ``.env`` by
+``osprey init``, under their own section banner, so a deployment created from
+the profile starts with them in force. Seeding is append-only: a value already
+in the file — set by the operator, or minted by a deploy — always wins, and
+later ``init`` runs never rewrite one. Declare a default only for a value the
+profile's author can honestly choose for every deployment (the
+``control-assistant`` preset's demo login passwords, say); values a *site*
+should share across hosts belong in ``.env.shared``, which is committed with
+the repository and read by every host (see :ref:`deployment-env-chain`).
 
 
 Dependencies

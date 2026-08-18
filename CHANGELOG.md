@@ -13,6 +13,18 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Web-terminal roster entries can opt out of the login wall with `login:
+  false` — the entry is served without authentication while every other
+  terminal stays gated, and no password is provisioned for it. Meant for
+  entries that front a public read-only service, like the ARIEL card.
+- Profile `env.defaults` values are now seeded into the repository's `.env` by
+  `osprey init` (append-only; a value already set wins), so a preset can ship
+  working starting values.
+- The `control-assistant` preset now deploys its web terminals with password
+  login on: Alice and Bob log in with demo passwords seeded into `.env`
+  (`alice`/`alice`, `bob`/`bob` — edit there, or rotate with `osprey users
+  passwd`), while the ARIEL terminal stays open via `login: false`.
+
 - Build profiles can now author the shared web-terminal context baseline at
   `web-terminal-context/base.md`, overriding the framework's copy. `osprey
   init` materializes it from the preset (the control assistant ships its own

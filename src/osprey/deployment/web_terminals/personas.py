@@ -326,6 +326,15 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     *non-secret* side of the mapping ever lives in config.yml; password hashes
     never do (they live in ``.env.auth``, keyed by :func:`env_var_suffix`).
 
+    An object entry's optional ``login`` (whether this entry sits behind the
+    deployment's login wall when authentication is enabled) is carried through
+    only when it is the literal boolean ``False`` — the one value that changes
+    anything. ``true``, absence, and every malformed spelling all mean "login
+    required", so dropping them is both the fail-closed reading and what keeps
+    a config typo from silently opening an entry to the world (lint reports
+    the typo separately). See :func:`entry_requires_login` for the single
+    consumer-side reading of the carried key.
+
     Malformed entries — anything that isn't a string, and any dict missing a
     string ``name`` or an int ``index`` — are dropped rather than raising
     (well-formedness is lint.py's job). ``bool`` is a subclass of ``int`` in
@@ -342,9 +351,10 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
 
     Returns:
         New ``{"name": str, "index": int}`` dicts (plus optional
-        ``"display_name"``, ``"theme"`` and ``"oidc_subject"`` string keys when
-        the entry carried them) in config-declaration order. Input dicts are
-        never mutated or returned by reference.
+        ``"display_name"``, ``"theme"`` and ``"oidc_subject"`` string keys and
+        a ``"login": False`` marker when the entry carried them) in
+        config-declaration order. Input dicts are never mutated or returned by
+        reference.
     """
     if not isinstance(users_raw, list):
         return []
@@ -366,8 +376,34 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 oidc_subject = entry.get("oidc_subject")
                 if isinstance(oidc_subject, str) and oidc_subject:
                     normalized_entry["oidc_subject"] = oidc_subject
+                # Only the literal boolean False is carried: absent or True both
+                # mean "login required", and any other value is a config typo
+                # (reported by lint) whose safe reading is the same. Carrying
+                # only the exempting value keeps the gate fail-closed — a typo
+                # can never open an entry to the world.
+                if entry.get("login") is False:
+                    normalized_entry["login"] = False
                 normalized.append(normalized_entry)
     return normalized
+
+
+def entry_requires_login(entry: dict[str, Any]) -> bool:
+    """Whether this normalized roster entry sits behind the login wall.
+
+    ``login: false`` on a roster entry opts it out of authentication: with
+    ``auth.method`` enabled, nginx still gates every other entry but proxies
+    this one without an ``auth_request``, and no password is provisioned for
+    it. The single reading of that key, shared by the render (which decides
+    whether to emit the gate), credential provisioning (which decides whether a
+    password exists) and the ``users passwd`` verb (which refuses to rotate a
+    password that cannot exist) — three call sites that must never disagree
+    about who has a login.
+
+    Reads the *normalized* entry, so only the literal ``False``
+    :func:`normalize_users` carries through exempts; every malformed spelling
+    already normalized back to "login required".
+    """
+    return entry.get("login") is not False
 
 
 def freeze_user_indices(users_raw: Any) -> list[dict[str, Any]]:
@@ -645,7 +681,9 @@ def resolve_personas(
         existed. An optional ``"oidc_subject"`` key rides through on the same
         terms, so the auth sidecar's roster→identity mapping is read off the same
         resolved entry as everything else rather than re-derived from the raw
-        roster. An optional ``"landing_group"`` key — the catalog entry's own
+        roster. An optional ``"login": False`` marker rides through likewise —
+        present only when the roster entry opted out of the login wall (see
+        :func:`entry_requires_login`). An optional ``"landing_group"`` key — the catalog entry's own
         ``landing_group``, present only for a non-empty string — names the
         landing-page section this entry's card belongs in; it is read by
         :func:`osprey.deployment.web_terminals.render._build_groups` and affects
@@ -698,6 +736,10 @@ def resolve_personas(
             value = source.get(field)
             if isinstance(value, str) and value:
                 entry[field] = value
+        # `login: False` rides through on the same present-only-when-set terms;
+        # normalize_users already reduced every other spelling to absence.
+        if source.get("login") is False:
+            entry["login"] = False
         return entry
 
     def _zero_migration_entry(

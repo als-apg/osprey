@@ -164,6 +164,57 @@ def test_seam_auth_method_set_gates_every_user_behind_its_own_internal_target() 
     assert "location = /_osprey_auth {" not in nginx_conf
 
 
+def test_seam_login_false_entry_is_served_ungated_while_the_rest_stay_gated() -> None:
+    """SEAM 1 (deliberate exemption): a roster entry with `login: false` renders
+    with no `auth_request` and no internal verify target, while every other
+    entry keeps both — and the exempt location still strips the origin's cookie
+    jar before proxying, since a public container must never see another user's
+    session cookie."""
+    # Arrange
+    config = _auth_config(
+        [
+            {"name": "alice", "index": 0},
+            {"name": "ariel", "index": 1, "login": False},
+        ]
+    )
+
+    # Act
+    nginx_conf = _render_nginx(config)
+    directives = _directives(nginx_conf)
+
+    # Assert — exactly one gate, and it is alice's
+    assert directives.count("auth_request ") == 1
+    assert "auth_request /_osprey_auth/alice;" in _location_body(nginx_conf, "location /u/alice/")
+    assert "location = /_osprey_auth/alice {" in nginx_conf
+
+    # Assert — ariel is proxied with no gate and no verify target at all
+    ariel_body = _location_body(nginx_conf, "location /u/ariel/")
+    assert "auth_request" not in _directives(ariel_body)
+    assert "location = /_osprey_auth/ariel" not in nginx_conf
+
+    # Assert — the cookie strip survives the exemption
+    assert 'proxy_set_header Cookie "";' in ariel_body
+
+
+def test_seam_login_exemption_is_fail_closed_against_typos() -> None:
+    """SEAM 1 (fail-closed): only the literal boolean `false` opts an entry
+    out. A string spelling — the classic YAML quoting accident — deploys as
+    "login required", so a typo can never open a terminal to the world."""
+    # Arrange
+    config = _auth_config(
+        [
+            {"name": "alice", "index": 0, "login": "false"},
+            {"name": "bob", "index": 1, "login": True},
+        ]
+    )
+
+    # Act
+    directives = _directives(_render_nginx(config))
+
+    # Assert — both entries stay gated
+    assert directives.count("auth_request ") == 2
+
+
 def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> None:
     """SEAM 1 (identity is structural): each internal target's `?user=` is a
     render-time literal from the roster, so no part of a client's request

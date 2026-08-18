@@ -159,6 +159,15 @@ and this list is what ``osprey up`` reads.
 (``demo-nginx``, ``demo-web-alice``), so keep it short and distinct from the
 project name.
 
+While you are in the ``modules.web_terminals:`` block, note the ``auth:``
+stanza the preset ships: the terminals ask for a login, with demo passwords
+that ``osprey init`` seeded into this repository's ``.env``
+(``alice``/``alice``, ``bob``/``bob``) and ``allow_insecure_http: true``
+keeping the login flow on plain HTTP. That is a demo posture. For a facility
+host, set real passwords in ``.env`` (or rotate with ``osprey users passwd``)
+and serve TLS — :doc:`multi-user` walks through both, and through single
+sign-on if your site runs one.
+
 Then confirm the persona catalog, further down the same ``config:`` block
 under ``modules.web_terminals:``. ``osprey init`` derived these names from the
 repository name, so after Step 2's trim the block already reads:

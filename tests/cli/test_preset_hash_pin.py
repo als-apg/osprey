@@ -36,15 +36,18 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # health check or a skill directory — and in either case the deploy-side
     # staleness advisory firing on already-deployed projects is the correct
     # signal, not noise.
-    "control-assistant": "sha256:7f34fdf03e254c29b56a50197c3145fad0e3696fc6aba1158389c68d6449772e",
+    # Moved when the control-assistant preset turned password login on for its
+    # web terminals (auth stanza, ariel's `login: false`, demo passwords under
+    # `env.defaults`). All four moved together, as the note above predicts.
+    "control-assistant": "sha256:71f3f6e282f6e9c64d76d933310b973fda3dff3f9ba891cfb2f3aac5682d3cfb",
     "control-assistant-ariel": (
-        "sha256:a19f94f08707b1ae31ee8b552c7b5ae1d64da7a2408c59fc820af89cdaca37ba"
+        "sha256:fbf54b9933426ceeac2e4a5e018422fcfcc777f7e6f8eaa6c6475eed704f0877"
     ),
     "control-assistant-readonly": (
-        "sha256:f382bdcd0c14db5a6a6885a3df8af598998a510d6fa28be18608cdd4f2587dd5"
+        "sha256:479a6dc1652f3b7ff8866d62dcef6f7e4fdb147f912f2966dea6fa85f2a1d921"
     ),
     "control-assistant-readwrite": (
-        "sha256:c1abf15d10e77b4cb9b63bd8641cb14d578328558f2b9f3b1b94411711eb7e87"
+        "sha256:7633397e5dfbe696da4a3298ff2511201f64bd8e22b68ecadfcd502aa5a1f77d"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

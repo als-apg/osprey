@@ -147,6 +147,13 @@ _ENV_EXAMPLE_TEMPLATE = "project/env.example.j2"
 # attribution at all (SC-8).
 REPO_SEEDED_ENV_BANNER = "# ── Seeded by `osprey init` from your shell ──"
 
+# Section header for values the profile itself declares under `env.defaults`.
+# A third origin, and a third banner for the same reason the two above are
+# distinct: these came from the preset's author, not from this operator's shell
+# and not from a deploy mint, and the reader deciding whether a value is safe
+# to change needs to know that.
+PROFILE_DEFAULTS_ENV_BANNER = "# ── Declared by this profile (env.defaults) — edit freely ──"
+
 #: Source-zone entries a repo-root materialization owns, and therefore the exact
 #: set a re-materialization is allowed to replace. Everything else in a
 #: deployment repo — ``.git``, ``.env``, ``var/``, ``build/``, ``ci-extra.yml``,
@@ -514,9 +521,18 @@ def _write_secret_channel(
     ``.env.example`` is always written, and comes from the project template
     (:data:`_ENV_EXAMPLE_TEMPLATE`) rather than from prose of its own — one
     template documents the variable set wherever it is rendered. ``.env`` is
-    written ONLY when ``exported`` is non-empty: an empty secrets file reads as
-    a configured one, and ``cp .env.example .env`` is the honest starting point
-    when there is nothing to seed.
+    written ONLY when there is something to seed it with — shell-exported
+    provider keys (``exported``) and/or the profile's own ``env.defaults``
+    values: an empty secrets file reads as a configured one, and ``cp
+    .env.example .env`` is the honest starting point when there is nothing to
+    seed.
+
+    ``env.defaults`` values are seeded as real starting values, under their own
+    banner (:data:`PROFILE_DEFAULTS_ENV_BANNER`), because a preset declares one
+    for exactly the deployments that should come up working without a hand
+    edit — a demo login password, say. The append-only writer keeps every
+    later authority intact: a value the operator has already set (or that
+    ``osprey up`` minted) always wins over the declared default.
 
     Args:
         target: The profile directory, already created.
@@ -550,8 +566,9 @@ def _write_secret_channel(
                 if entry["provider"] in providers
             ],
             "service_token_vars": service_token_var_entries(),
-            # The profile's `env:` block is documentation, not values — the
-            # same two keys `osprey build` feeds this template.
+            # The profile's `env:` block, for the example's documentation —
+            # the same two keys `osprey build` feeds this template. The
+            # `env.defaults` VALUES are additionally seeded into `.env` below.
             "env_required": list(resolved.env.required or []),
             "env_defaults": dict(resolved.env.defaults or {}),
             # No project exists yet; the key is a commented hint either way.
@@ -567,6 +584,14 @@ def _write_secret_channel(
         # profile `.env` rather than a second one that only new profiles get.
         append_profile_env(target / _PROFILE_ENV_FILENAME, exported, REPO_SEEDED_ENV_BANNER)
         written.append(_PROFILE_ENV_FILENAME)
+
+    defaults = dict(resolved.env.defaults or {})
+    if defaults:
+        # Same writer, own banner: a declared default an operator has already
+        # overridden (or that a mint got to first) is never rewritten.
+        append_profile_env(target / _PROFILE_ENV_FILENAME, defaults, PROFILE_DEFAULTS_ENV_BANNER)
+        if _PROFILE_ENV_FILENAME not in written:
+            written.append(_PROFILE_ENV_FILENAME)
 
     return written
 

@@ -517,8 +517,9 @@ def test_env_example_documents_the_whole_variable_set(
 def test_env_example_documents_the_profiles_own_env_block(
     runner: CliRunner, tmp_path: Path, no_provider_keys: None
 ) -> None:
-    """The `env:` block is documentation, not values — required vars arrive
-    bare, declared defaults arrive with theirs."""
+    """The example documents the `env:` block — required vars arrive bare,
+    declared defaults arrive with theirs (the defaults are *also* seeded into
+    `.env`; the test below pins that)."""
     target = tmp_path / "my-facility"
 
     result = _new(
@@ -535,6 +536,31 @@ def test_env_example_documents_the_profiles_own_env_block(
     lines = (target / ".env.example").read_text(encoding="utf-8").splitlines()
     assert "FACILITY_ENDPOINT=" in lines
     assert "LOG_LEVEL=info" in lines
+
+
+def test_env_defaults_are_seeded_into_env_as_starting_values(
+    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+) -> None:
+    """Declared `env.defaults` become real starting values: seeded into `.env`
+    under their own banner, so a deployment created from the profile comes up
+    with them in force — even when the shell exported nothing."""
+    from osprey.cli.profile_cmd import PROFILE_DEFAULTS_ENV_BANNER
+
+    target = tmp_path / "my-facility"
+
+    result = _new(
+        runner,
+        target,
+        "hello-world",
+        "--set",
+        "env.defaults={OSPREY_AUTH_PW_ALICE: alice}",
+    )
+
+    assert result.exit_code == 0, result.output
+    content = (target / ".env").read_text(encoding="utf-8")
+    assert "OSPREY_AUTH_PW_ALICE=alice" in content
+    assert PROFILE_DEFAULTS_ENV_BANNER in content
+    assert (target / ".env").stat().st_mode & 0o777 == 0o600
 
 
 def test_summary_names_the_secret_files_it_wrote(

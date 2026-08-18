@@ -224,6 +224,9 @@ class TestControlAssistantWebTier:
         assert wt["image_source"] == "local"
         assert wt["default_persona"] == "readonly"
         assert wt["nginx_port"] == 9080
+        # Password login ships ON, in the demo posture: plain HTTP is only
+        # acceptable because the preset's fqdn is loopback.
+        assert wt["auth"] == {"method": "password", "allow_insecure_http": True}
 
         assert wt["users"][0] == {
             "name": "alice",
@@ -237,11 +240,14 @@ class TestControlAssistantWebTier:
             "persona": "readonly",
             "display_name": "Read-Only View (Bob)",
         }
+        # The standalone research tier is public by design: `login: false`
+        # keeps its card outside the login wall the preset ships enabled.
         assert wt["users"][2] == {
             "name": "ariel",
             "index": 2,
             "persona": "ariel",
             "display_name": "ARIEL Logbook Research",
+            "login": False,
         }
 
         personas = wt["personas"]

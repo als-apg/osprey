@@ -69,6 +69,7 @@ from osprey.deployment.web_terminals.persona_images import (
 )
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
+    entry_requires_login,
     normalize_users,
     resolve_personas,
 )
@@ -292,7 +293,15 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
 
     credentials = None
     if auth_method == "password":
-        usernames = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+        # `login: false` entries are left out on purpose: no gate ever asks the
+        # sidecar about them, so a hash here would be a credential nothing
+        # checks — and a minted password printed for an entry that has no login
+        # would tell the operator the opposite of the truth.
+        usernames = [
+            entry["name"]
+            for entry in normalize_users(web_terminals.get("users"))
+            if entry_requires_login(entry)
+        ]
         credentials = ensure_auth_credentials(usernames, repo_root, echo=_mint_echo())
         _report_unshown_mints(credentials)
     session_secrets = ensure_auth_session_secrets(repo_root)

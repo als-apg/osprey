@@ -39,6 +39,11 @@
       location each of them subrequests, and the public `/auth/` surface the
       sidecar serves the login flow from. When "none", nothing auth-related is
       emitted and the plain proxy config below is the whole render.
+      Per-service exception: a svc with `login_exempt: true` (the roster
+      entry declared `login: false`) gets NO auth_request and NO internal
+      verify target — it is served publicly even while auth is on. The
+      cookie strip in its location is kept: public or not, a per-user
+      container must never receive the origin-wide session cookie jar.
     auth_port: int, required when auth_method != "none" (defaults to 9070)
       The loopback port the auth sidecar listens on. Reached at bind_host, the
       same way every per-user app is: the sidecar shares the host network
@@ -131,7 +136,9 @@
     authorized is structural — a request cannot influence which user it is
     checked against. The public `/auth/` prefix (login page, credential POST,
     OIDC callback, logout) stays outside `auth_request`, as does the landing
-    page at `= /`; everything else under a user prefix is gated.
+    page at `= /`; everything else under a user prefix is gated — except a
+    svc whose roster entry declared `login: false` (`svc.login_exempt`),
+    which is served ungated on purpose and gets no verify target either.
 
   Fail-closed is the invariant that survives every partial state: a sidecar
   that is down, unconfigured, or answering 503 denies the subrequest, and
@@ -267,7 +274,13 @@ server {
     # location and proxy_pass target strip /u/{{ svc.user }} before the
     # request reaches the upstream.
     location /u/{{ svc.user }}/ {
-{% if auth_method != "none" %}
+{% if auth_method != "none" and svc.login_exempt %}
+        # Authentication is on, but this roster entry declared `login: false`:
+        # it is served to anyone who can reach this nginx, exactly as the whole
+        # deployment is when auth is off. The cookie strip below still applies —
+        # a public container must never see another user's session cookie.
+{% endif -%}
+{% if auth_method != "none" and not svc.login_exempt %}
         # Authentication is on (web_terminals.auth.method is "{{ auth_method }}"):
         # every request that reaches this location — page load, panel API call,
         # WebSocket handshake, SSE stream — is authorized first by the internal
@@ -322,7 +335,7 @@ server {
     location = /u/{{ svc.user }} {
         return 301 /u/{{ svc.user }}/;
     }
-{% if auth_method != "none" %}
+{% if auth_method != "none" and not svc.login_exempt %}
 
     # {{ svc.user }}'s own auth target — the only thing the `auth_request` above
     # can reach. There is one of these per roster user, and the `?user=` it asks

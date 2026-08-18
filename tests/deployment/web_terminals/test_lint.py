@@ -436,6 +436,57 @@ def test_lint_string_display_name_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.invalid_display_name" for f in findings)
 
 
+def test_lint_non_boolean_user_login_is_an_error() -> None:
+    """A non-boolean `login` deploys fail-closed as "login required", which is
+    the opposite of what the author who wrote it believes — so the typo is an
+    ERROR here rather than a silent lock-out."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "login": "false"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_user_login" for f in _errors(findings))
+
+
+def test_lint_login_false_without_auth_is_an_inert_key_warning() -> None:
+    """`login: false` with `auth.method: none` changes nothing — there is no
+    login wall to be exempt from — and the config should not claim otherwise."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "login": False}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.user_login_inert" for f in _warnings(findings))
+
+
+def test_lint_login_false_with_auth_on_reports_nothing() -> None:
+    """The intended use — a public entry in an authenticated deployment — is
+    clean; and explicit `login: true` is a well-formed (default) spelling."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
+    web_terminals["users"] = [
+        {"name": "thellert", "index": 0, "login": True},
+        {"name": "ariel", "index": 1, "login": False},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_login" for f in findings)
+    assert not any(f.code == "web_terminals.user_login_inert" for f in findings)
+
+
 def test_lint_non_string_user_theme_is_an_error() -> None:
     """A non-string `theme` (a config typo) is rejected — the renderer would
     otherwise drop it silently."""
@@ -2080,6 +2131,24 @@ def test_lint_auth_without_tls_and_allow_insecure_http_is_a_warning() -> None:
 
     # Assert
     assert any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_auth_insecure_http_warning_is_withheld_on_loopback() -> None:
+    """With `deploy.fqdn` naming loopback the deployment advertises itself as
+    same-host-only, so its cookies cross no network path — the exact case the
+    escape hatch exists for (and the control-assistant preset's demo posture).
+    A real hostname brings the warning back with the exposure."""
+    # Arrange
+    config = _auth_config(
+        {"method": "password", "allow_insecure_http": True}, tls=False, fqdn="127.0.0.1"
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
     assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
 
 

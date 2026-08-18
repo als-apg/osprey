@@ -1375,16 +1375,25 @@ def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
 def _env_note(target: Path, materialized: _MaterializedProfile) -> str:
     """What happened to the secrets file, in one clause.
 
-    Three outcomes, and the remedy differs: keys were taken from the shell,
-    nothing was exported at all, or what was exported belongs to providers this
-    assistant does not use.
+    Three outcomes, and the remedy differs: keys were seeded (from the shell
+    and/or the profile's own ``env.defaults`` — the file's section banners say
+    which is which), nothing was exported at all, or what was exported belongs
+    to providers this assistant does not use.
     """
     from osprey.utils.dotenv import parse_dotenv_file
 
+    from .templates.scaffolding import provider_api_key_entries
+
     env_path = target / ".env"
     if env_path.is_file():
-        taken = ", ".join(sorted(parse_dotenv_file(env_path)))
-        return f"from your shell: {taken}. Not in git"
+        keys = sorted(parse_dotenv_file(env_path))
+        taken = ", ".join(keys)
+        # A .env holding only profile-declared defaults is seeded but not yet
+        # usable: the provider key is still the operator's to add, and that
+        # remedy must not disappear just because the file exists now.
+        if not {entry["var"] for entry in provider_api_key_entries()}.intersection(keys):
+            return f"seeded: {taken}. Add your API key; not in git"
+        return f"seeded: {taken}. Not in git"
     if materialized.skipped_shell_keys:
         return "empty; no key for the providers this assistant uses"
     return "empty; copy .env.example and add your API key"

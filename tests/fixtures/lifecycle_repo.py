@@ -305,6 +305,13 @@ config:
     lattice_base_port: 9491       # first per-user lattice-dashboard port
     channel_finder_base_port: 9591  # first per-user channel-finder panel port
     default_persona: readonly   # used for any user below with no persona
+    # Every terminal below asks for a login (user alice: password alice, and
+    # so on — set in this repo's .env; rotate with `osprey users passwd`).
+    auth:
+      method: password
+      # Accepts login over plain HTTP, which fits 127.0.0.1 and nothing else.
+      # For any reachable host, delete this line and configure tls instead.
+      allow_insecure_http: true
     # How the landing page is laid out. Omit this whole block and you get one
     # section holding every entry below, headed "Terminals".
     landing:
@@ -334,6 +341,8 @@ config:
         index: 2
         persona: ariel
         display_name: "ARIEL Logbook Research"
+        # Read-only research service, open without a login on purpose.
+        login: false
     personas:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
@@ -374,6 +383,11 @@ env:
   required:
     - EVENT_DISPATCHER_TOKEN
     - DISPATCH_WORKER_TOKEN
+  # Demo login passwords for the terminals above, written into this repo's
+  # .env by `osprey init`. Edit them there — these are not secrets.
+  defaults:
+    OSPREY_AUTH_PW_ALICE: alice
+    OSPREY_AUTH_PW_BOB: bob
 data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.9.0'
@@ -911,6 +925,11 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # cannot run without them.
 EVENT_DISPATCHER_TOKEN=
 DISPATCH_WORKER_TOKEN=
+
+# Declared by this profile with a default (`env.defaults`). Override only if
+# your facility needs a different value.
+OSPREY_AUTH_PW_ALICE=alice
+OSPREY_AUTH_PW_BOB=bob
 
 # Runtime overrides (optional - for advanced use cases)
 #LOCAL_PYTHON_VENV=/path/to/your/venv/bin/python

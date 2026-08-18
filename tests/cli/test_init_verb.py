@@ -591,10 +591,19 @@ def test_force_replaces_the_source_zone_and_nothing_else(
     result = init_exemplar(runner, exemplar_repo, "--force")
 
     assert result.exit_code == 0, result.output
+    # `.env` is held to survival-of-content rather than byte-identity: the
+    # profile's `env.defaults` seeding is append-only (missing keys join the
+    # file; nothing present is ever rewritten), so a re-init may grow the file
+    # — what it can never do is cost the operator a line they wrote.
     destroyed = sorted(
         entry
         for entry, survivor in survivors.items()
-        if not survivor.is_file() or survivor.read_text(encoding="utf-8") != SENTINEL
+        if not survivor.is_file()
+        or (
+            SENTINEL not in survivor.read_text(encoding="utf-8")
+            if entry == ".env"
+            else survivor.read_text(encoding="utf-8") != SENTINEL
+        )
     )
     assert destroyed == []
     # …and the source zone really was re-materialized, so the test cannot pass
@@ -688,9 +697,16 @@ def test_env_is_seeded_from_the_shell(
     assert stat.S_IMODE((target / ".env").stat().st_mode) == 0o600
 
 
-def test_a_shell_with_no_keys_writes_no_env(exemplar_repo: Path) -> None:
-    """An empty secrets file reads as a configured one. Absence is the honest state."""
-    assert not (exemplar_repo / ".env").exists()
+def test_a_shell_with_no_keys_seeds_only_the_profiles_declared_defaults(
+    exemplar_repo: Path,
+) -> None:
+    """With nothing exported, the ``.env`` that appears carries exactly the
+    preset's own ``env.defaults`` (the demo login passwords) — no provider key
+    is invented, and the example file still documents the full variable set."""
+    env_text = (exemplar_repo / ".env").read_text(encoding="utf-8")
+    assert "OSPREY_AUTH_PW_ALICE=alice" in env_text
+    assert "OSPREY_AUTH_PW_BOB=bob" in env_text
+    assert "ANTHROPIC_API_KEY" not in env_text
     assert (exemplar_repo / ".env.example").is_file()
 
 
@@ -732,7 +748,7 @@ EXEMPLAR_REPORT = f"""\
   profile.yml   your assistant's settings; edit this
   data/         channel lists and facility docs; edit these
   personas/     one per web login: ariel, readonly, readwrite
-  .env          empty; copy .env.example and add your API key
+  .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB. Add your API key; not in git
   .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does
 
