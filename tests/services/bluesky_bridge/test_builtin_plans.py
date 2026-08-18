@@ -52,6 +52,7 @@ from osprey.services.bluesky_bridge.plan_fields import (  # noqa: E402
     CHANNEL_ROLE_KEY,
     MOVABLE_ROLE,
     READABLE_ROLE,
+    channel_roles,
 )
 from osprey.services.bluesky_bridge.plan_metadata import parse_plan_metadata_dict  # noqa: E402
 from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep  # noqa: E402
@@ -568,9 +569,9 @@ def _bump_payload(**overrides: object) -> dict[str, object]:
     """
     payload: dict[str, object] = {
         "correctors": ["hcm1", "hcm2", "hcm3"],
-        "targets": [{"bpm": "bpm1", "value": 0.3}],
-        "closure_bpms": ["bpm2", "bpm3"],
-        "bpms": ["bpm4"],
+        "targets": [{"readback": "bpm1", "value": 0.3}],
+        "closure_readbacks": ["bpm2", "bpm3"],
+        "readbacks": ["bpm4"],
         "num": 5,
         "probe_amplitude": 0.05,
         "tolerance": 0.001,
@@ -585,18 +586,18 @@ def test_bump_params_accepts_a_well_formed_set_and_defaults_the_rest() -> None:
     params = BumpParams(**_bump_payload())
 
     assert params.correctors == ["hcm1", "hcm2", "hcm3"]
-    assert [target.bpm for target in params.targets] == ["bpm1"]
+    assert [target.readback for target in params.targets] == ["bpm1"]
     assert params.targets[0].value == 0.3
-    assert params.closure_bpms == ["bpm2", "bpm3"]
-    assert params.bpms == ["bpm4"]
+    assert params.closure_readbacks == ["bpm2", "bpm3"]
+    assert params.readbacks == ["bpm4"]
     # The optional half of the schema: a bump asked for with none of these
     # named still runs, one-sided, off the orbit the machine is already on.
     assert params.mode == "relative"
     assert params.sweep == "monodirectional"
     assert params.baseline_reads == 5
     assert params.best_effort is False
-    assert params.detectors == []
-    assert params.beam_current_device is None
+    assert params.monitors == []
+    assert params.beam_current_readback is None
     assert params.min_beam_current is None
 
 
@@ -604,9 +605,9 @@ def test_bump_params_accepts_a_well_formed_set_and_defaults_the_rest() -> None:
     ("field", "value"),
     [
         ("correctors", ["hcm1", "hcm1", "hcm2"]),
-        ("closure_bpms", ["bpm2", "bpm2", "bpm3"]),
-        ("bpms", ["bpm4", "bpm4"]),
-        ("detectors", ["dcct", "dcct"]),
+        ("closure_readbacks", ["bpm2", "bpm2", "bpm3"]),
+        ("readbacks", ["bpm4", "bpm4"]),
+        ("monitors", ["dcct", "dcct"]),
     ],
 )
 def test_bump_params_rejects_a_device_named_twice_in_one_list(field: str, value: list[str]) -> None:
@@ -622,7 +623,9 @@ def test_bump_params_rejects_two_demands_on_one_target_bpm() -> None:
     question; there is no rule that picks between them."""
     with pytest.raises(ValidationError, match="at most once"):
         BumpParams(
-            **_bump_payload(targets=[{"bpm": "bpm1", "value": 0.3}, {"bpm": "bpm1", "value": 0.5}])
+            **_bump_payload(
+                targets=[{"readback": "bpm1", "value": 0.3}, {"readback": "bpm1", "value": 0.5}]
+            )
         )
 
 
@@ -632,8 +635,8 @@ def test_bump_params_rejects_a_bpm_that_is_both_bumped_and_held() -> None:
     with pytest.raises(ValidationError, match="disjoint"):
         BumpParams(
             **_bump_payload(
-                targets=[{"bpm": "bpm2", "value": 0.3}],
-                closure_bpms=["bpm2", "bpm3"],
+                targets=[{"readback": "bpm2", "value": 0.3}],
+                closure_readbacks=["bpm2", "bpm3"],
             )
         )
 
@@ -645,7 +648,7 @@ def test_bump_params_accepts_three_or_four_correctors(count: int) -> None:
     params = BumpParams(
         **_bump_payload(
             correctors=[f"hcm{i}" for i in range(1, count + 1)],
-            closure_bpms=["bpm2", "bpm3", "bpm5"],
+            closure_readbacks=["bpm2", "bpm3", "bpm5"],
         )
     )
     assert len(params.correctors) == count
@@ -660,7 +663,7 @@ def test_bump_params_rejects_a_corrector_count_that_cannot_be_a_bump(count: int)
         BumpParams(
             **_bump_payload(
                 correctors=[f"hcm{i}" for i in range(1, count + 1)],
-                closure_bpms=["bpm2", "bpm3", "bpm5", "bpm6", "bpm7"],
+                closure_readbacks=["bpm2", "bpm3", "bpm5", "bpm6", "bpm7"],
             )
         )
 
@@ -683,7 +686,9 @@ def test_bump_params_accepts_targets_whose_values_are_all_zero() -> None:
     before it is ever pointed at a ring.
     """
     params = BumpParams(
-        **_bump_payload(targets=[{"bpm": "bpm1", "value": 0.0}, {"bpm": "bpm5", "value": 0.0}])
+        **_bump_payload(
+            targets=[{"readback": "bpm1", "value": 0.0}, {"readback": "bpm5", "value": 0.0}]
+        )
     )
     assert [target.value for target in params.targets] == [0.0, 0.0]
 
@@ -699,7 +704,7 @@ def test_bump_params_accepts_a_demand_larger_than_any_one_facilitys_band() -> No
     run, rather than being guessed at here.
     """
     params = BumpParams(
-        **_bump_payload(targets=[{"bpm": "bpm1", "value": 5000.0}], probe_amplitude=400.0)
+        **_bump_payload(targets=[{"readback": "bpm1", "value": 5000.0}], probe_amplitude=400.0)
     )
     assert params.targets[0].value == 5000.0
     assert params.probe_amplitude == 400.0
@@ -711,13 +716,13 @@ def test_bump_params_rejects_fewer_orbit_constraints_than_correctors() -> None:
     every point of which fits the request equally well — so the operator picks,
     not the numerics."""
     with pytest.raises(ValidationError, match="underdetermined"):
-        BumpParams(**_bump_payload(closure_bpms=["bpm2"]))
+        BumpParams(**_bump_payload(closure_readbacks=["bpm2"]))
 
 
 @pytest.mark.parametrize(
     "guard",
     [
-        {"beam_current_device": "dcct"},
+        {"beam_current_readback": "dcct"},
         {"min_beam_current": 50.0},
     ],
 )
@@ -730,8 +735,8 @@ def test_bump_params_rejects_half_a_beam_current_guard(guard: dict[str, object])
 
 
 def test_bump_params_accepts_a_complete_beam_current_guard() -> None:
-    params = BumpParams(**_bump_payload(beam_current_device="dcct", min_beam_current=50.0))
-    assert params.beam_current_device == "dcct"
+    params = BumpParams(**_bump_payload(beam_current_readback="dcct", min_beam_current=50.0))
+    assert params.beam_current_readback == "dcct"
     assert params.min_beam_current == 50.0
 
 
@@ -744,7 +749,7 @@ def test_bump_params_rejects_a_non_finite_float(field: str, value: float) -> Non
     catch it either: `inf > 0` is true."""
     overrides: dict[str, object] = {field: value}
     if field == "min_beam_current":
-        overrides["beam_current_device"] = "dcct"
+        overrides["beam_current_readback"] = "dcct"
     with pytest.raises(ValidationError):
         BumpParams(**_bump_payload(**overrides))
 
@@ -752,7 +757,7 @@ def test_bump_params_rejects_a_non_finite_float(field: str, value: float) -> Non
 @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
 def test_bump_params_rejects_a_non_finite_target_value(value: float) -> None:
     with pytest.raises(ValidationError):
-        BumpParams(**_bump_payload(targets=[{"bpm": "bpm1", "value": value}]))
+        BumpParams(**_bump_payload(targets=[{"readback": "bpm1", "value": value}]))
 
 
 def test_bump_params_rejects_an_absolute_bidirectional_sweep() -> None:
@@ -823,30 +828,61 @@ def test_bump_params_schema_validation_path_matches_reinitialize() -> None:
 def test_bump_plan_metadata_parses_alongside_its_params_schema() -> None:
     """`PLAN_METADATA` goes through the same fail-closed parser every plan does.
 
-    `required_devices` names the PARAMS fields carrying device names, matched
-    by the queue's add-time pre-check on the trailing-`s`-stripped form — so
-    `bpms` covers both the `bpms` field and the `bpm` inside each target, and
-    `beam_current_devices` covers `beam_current_device`.
+    Three keys is the whole dict: which channels the plan touches is declared
+    on the `PARAMS` fields themselves (the roles test below), not here.
     """
     metadata = parse_plan_metadata_dict(
         orbit_bump_sweep.PLAN_METADATA, source="plans_core/orbit_bump_sweep.py"
     )
     assert metadata.name == "orbit_bump_sweep"
-    assert metadata.category == "accelerator"
     assert metadata.writes is True
-    assert metadata.required_devices == [
-        "correctors",
-        "bpms",
-        "closure_bpms",
-        "detectors",
-        "beam_current_devices",
-    ]
 
-    stripped = {name.removesuffix("s") for name in metadata.required_devices}
-    for field in ("correctors", "closure_bpms", "bpms", "detectors", "beam_current_device"):
-        assert field in BumpParams.model_fields
-        assert field.removesuffix("s") in stripped
-    assert "bpm" in stripped  # reaches TargetPoint.bpm nested inside `targets`
+
+def test_bump_declares_a_role_for_every_channel_field() -> None:
+    """`orbit_bump_sweep` drives hardware, so what it moves and what it merely
+    reads is a safety-relevant claim — declared, not inferred from the field
+    names. Six declarations: the correctors are the only movables; every
+    other channel field, the nested per-target readback and the optional
+    beam-current guard included, is readable."""
+    assert channel_roles(BumpParams) == [
+        ("correctors", MOVABLE_ROLE),
+        ("targets[].readback", READABLE_ROLE),
+        ("closure_readbacks", READABLE_ROLE),
+        ("readbacks", READABLE_ROLE),
+        ("beam_current_readback", READABLE_ROLE),
+        ("monitors", READABLE_ROLE),
+    ]
+    # The role sits alongside the widget hint rather than replacing it.
+    assert BumpParams.model_fields["correctors"].json_schema_extra == {
+        CHANNEL_ROLE_KEY: MOVABLE_ROLE,
+        "x-widget": "channel-list",
+    }
+
+
+def test_bump_stamps_its_own_run_metadata() -> None:
+    """`orbit_bump_sweep` opens its own run, so it declares the run's channels
+    and point count itself, through `scan_metadata()`.
+
+    The point count is the rows the run actually emits — `baseline_reads`
+    baseline rows plus one row per amplitude step (`2*num` monodirectional) —
+    because that is the denominator a progress readout divides by. Probe and
+    convergence reads are off the record and add nothing. The keys asserted
+    here are bluesky's native start-document spelling, which is what
+    `scan_metadata()` translates the capability vocabulary into.
+    """
+    devices = asyncio.run(
+        build_devices(
+            settable_names=["hcm1", "hcm2", "hcm3"],
+            readable_names=["bpm1", "bpm2", "bpm3", "bpm4"],
+        )
+    )
+    params = BumpParams(**_bump_payload())
+
+    metadata = _open_run_metadata(bump_plan(devices, params))
+
+    assert list(metadata["motors"]) == ["hcm1", "hcm2", "hcm3"]
+    assert list(metadata["detectors"]) == ["bpm1", "bpm2", "bpm3", "bpm4"]
+    assert metadata["num_points"] == params.baseline_reads + 2 * params.num
 
 
 def test_bump_plan_loads_as_shipped_with_its_params_schema() -> None:
@@ -907,7 +943,7 @@ _BUMP_LOGGER = "osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep"
 def _bump_devices(**replacements: Any) -> dict[str, Any]:
     """Connect a bump-sized device set, with *replacements* swapped in by name.
 
-    BPMs are `MockMotor`s rather than `MockDetector`s: a detector counts up on
+    BPMs are `MockSettable`s rather than `MockReadable`s: a detector counts up on
     every trigger, which a baseline reads as noise (σ = 1.0 over three reads),
     and the plan correctly refuses a tolerance narrower than that before it
     writes anything — see the fail-fast test, which is the one place that
@@ -915,10 +951,11 @@ def _bump_devices(**replacements: Any) -> dict[str, Any]:
     number a quiet BPM reports.
     """
     devices: dict[str, Any] = {
-        name: MockMotor(name, initial_value=value) for name, value in _BUMP_WORKING_POINTS.items()
+        name: MockSettable(name, initial_value=value)
+        for name, value in _BUMP_WORKING_POINTS.items()
     }
     for name in ("bpm1", "bpm2", "bpm3", "bpm4"):
-        devices[name] = MockMotor(name, initial_value=_BUMP_BPM_VALUE)
+        devices[name] = MockSettable(name, initial_value=_BUMP_BPM_VALUE)
     devices.update(replacements)
     return asyncio.run(connect_all(devices))
 
@@ -931,7 +968,7 @@ def _bump_run_params(**overrides: object) -> BumpParams:
     spend real time sleeping; `num=2` for a four-step monodirectional profile.
     """
     payload = _bump_payload(
-        targets=[{"bpm": "bpm1", "value": 0.0}],
+        targets=[{"readback": "bpm1", "value": 0.0}],
         num=2,
         baseline_reads=3,
         tolerance=0.01,
@@ -963,8 +1000,8 @@ def _record_writes(commands: list[tuple[str, float]]) -> Callable[[Any], None]:
     return _record
 
 
-class _RefusingMotor(MockMotor):
-    """A `MockMotor` that refuses every write while `refusing` is set.
+class _RefusingSettable(MockSettable):
+    """A `MockSettable` that refuses every write while `refusing` is set.
 
     The flag is flipped by the test's own `msg_hook`, so a refusal is pinned to
     a *moment* in the run — this probe write, the cleanup restore after the
@@ -986,7 +1023,7 @@ class _RefusingMotor(MockMotor):
         self._set_readback(value)
 
 
-class _StickyReadbackMotor(MockMotor):
+class _StickyReadbackSettable(MockSettable):
     """A corrector whose readback never follows its setpoint.
 
     This is the shape a *clamped* write has under the real device layer: the
@@ -1007,13 +1044,13 @@ class _StickyReadbackMotor(MockMotor):
             )
 
 
-class _NegativeZeroMotor(MockMotor):
+class _NegativeZeroSettable(MockSettable):
     """A corrector whose readback reports negative zero.
 
     Signed zero is the one float where `value + 0.0` is not `value`, which is
     what makes "commanded verbatim" distinguishable from "commanded through the
     arithmetic" at all. It has to be reported from `read()` — the call the
-    plan's `bps.rd` makes — because `MockMotor`'s soft signal normalizes `-0.0`
+    plan's `bps.rd` makes — because `MockSettable`'s soft signal normalizes `-0.0`
     to `+0.0` on the way in.
     """
 
@@ -1022,7 +1059,7 @@ class _NegativeZeroMotor(MockMotor):
         return {key: {**entry, "value": -0.0} for key, entry in reading.items()}
 
 
-class _ArmableBpm(MockMotor):
+class _ArmableBpm(MockSettable):
     """A BPM whose readback jumps to `armed_value` once the test arms it.
 
     Arming from a `msg_hook` pins the change to a moment in the run — "the
@@ -1081,7 +1118,7 @@ def test_bump_plan_restores_every_corrector_after_a_mid_run_failure() -> None:
     sitting where it started. Restoring it is a real move, which is what makes
     the assertion below mean something.
     """
-    hcm1 = _RefusingMotor(
+    hcm1 = _RefusingSettable(
         "hcm1", initial_value=_BUMP_WORKING_POINTS["hcm1"], message="PROBE write refused"
     )
     devices = _bump_devices(hcm1=hcm1)
@@ -1197,9 +1234,9 @@ def test_bump_plan_beam_current_guard_stops_the_sweep_before_it_writes() -> None
     whole run issues are the `finally`'s restores, each commanding a corrector
     to exactly where it already is.
     """
-    dcct = MockMotor("dcct", initial_value=12.0)
+    dcct = MockSettable("dcct", initial_value=12.0)
     devices = _bump_devices(dcct=dcct)
-    params = _bump_run_params(beam_current_device="dcct", min_beam_current=50.0)
+    params = _bump_run_params(beam_current_readback="dcct", min_beam_current=50.0)
 
     commands: list[tuple[str, float]] = []
     RE = RunEngine(context_managers=[])
@@ -1216,7 +1253,7 @@ def test_bump_plan_fail_fast_refuses_a_tolerance_below_the_baseline_noise() -> N
     """A tolerance narrower than twice the measured BPM noise fails the run at
     the baseline — before the first probe write.
 
-    The BPMs here are `MockDetector`s, whose counter advances on every trigger,
+    The BPMs here are `MockReadable`s, whose counter advances on every trigger,
     so three baseline reads of 1, 2, 3 carry σ = 1.0 — a noisier machine than
     any tolerance of 0.001 could be verified on. That band is one a perfectly
     converged orbit falls outside of by chance alone, so trimming into it would
@@ -1228,7 +1265,7 @@ def test_bump_plan_fail_fast_refuses_a_tolerance_below_the_baseline_noise() -> N
     that moves the machine.
     """
     devices = _bump_devices(
-        **{name: MockDetector(name) for name in ("bpm1", "bpm2", "bpm3", "bpm4")}
+        **{name: MockReadable(name) for name in ("bpm1", "bpm2", "bpm3", "bpm4")}
     )
     params = _bump_run_params(tolerance=0.001)
 
@@ -1250,7 +1287,7 @@ def test_bump_plan_fail_fast_refuses_a_corrector_reading_back_non_finite() -> No
     and `nan > high` are both false): it would reach the IOC and surface only
     as a readback-settle timeout, having already written.
     """
-    devices = _bump_devices(hcm2=MockMotor("hcm2", initial_value=float("nan")))
+    devices = _bump_devices(hcm2=MockSettable("hcm2", initial_value=float("nan")))
 
     commands: list[tuple[str, float]] = []
     RE = RunEngine(context_managers=[])
@@ -1272,7 +1309,7 @@ def test_bump_plan_clamped_corrector_write_aborts_and_restores_the_rest() -> Non
     by the *commanded* amplitude, so a probe that only half-arrived would be
     fitted as a real slope and the bump solved through it would be wrong.
     """
-    hcm2 = _StickyReadbackMotor("hcm2", initial_value=_BUMP_WORKING_POINTS["hcm2"])
+    hcm2 = _StickyReadbackSettable("hcm2", initial_value=_BUMP_WORKING_POINTS["hcm2"])
     devices = _bump_devices(hcm2=hcm2)
 
     commands: list[tuple[str, float]] = []
@@ -1301,7 +1338,7 @@ def test_bump_plan_restore_failure_on_a_clean_sweep_is_raised_not_logged(
     The refusal is armed once the last data row is saved, so the only write it
     can catch is the cleanup restore.
     """
-    hcm2 = _RefusingMotor(
+    hcm2 = _RefusingSettable(
         "hcm2", initial_value=_BUMP_WORKING_POINTS["hcm2"], message="RESTORE refused"
     )
     devices = _bump_devices(hcm2=hcm2)
@@ -1346,7 +1383,7 @@ def test_bump_plan_terminal_step_restores_the_working_points_bit_verbatim() -> N
     while the three ordinary profile steps go through `working_point + offset`
     and come back positive.
     """
-    devices = _bump_devices(hcm1=_NegativeZeroMotor("hcm1", initial_value=0.0))
+    devices = _bump_devices(hcm1=_NegativeZeroSettable("hcm1", initial_value=0.0))
 
     commands: list[tuple[str, float]] = []
     RE = RunEngine(context_managers=[])

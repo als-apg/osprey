@@ -19,7 +19,7 @@ What is load-bearing about an `orbit_bump_sweep` figure, and gets pinned here:
 
 Rows are hand-built to the shape `build_plan` emits -- ``baseline_reads``
 baseline rows, then exactly one row per amplitude step in profile order, every
-row carrying every corrector, BPM, and detector the parameters name.
+row carrying every corrector, BPM, and monitor the parameters name.
 """
 
 from __future__ import annotations
@@ -42,9 +42,9 @@ _MONITOR_SHIFT = 0.05
 def _params(**overrides: Any) -> bump.PARAMS:
     defaults: dict[str, Any] = {
         "correctors": ["c1", "c2", "c3"],
-        "targets": [{"bpm": "bpm_t", "value": 0.3}],
-        "closure_bpms": ["bpm_c1", "bpm_c2"],
-        "bpms": ["bpm_m1"],
+        "targets": [{"readback": "bpm_t", "value": 0.3}],
+        "closure_readbacks": ["bpm_c1", "bpm_c2"],
+        "readbacks": ["bpm_m1"],
         "num": 4,
         "baseline_reads": 5,
         "probe_amplitude": 0.01,
@@ -58,9 +58,9 @@ def _params(**overrides: Any) -> bump.PARAMS:
 def _bpm_names(params: bump.PARAMS) -> list[str]:
     """Every requested BPM, named once, in request order -- `_prepare`'s own order."""
     names: list[str] = []
-    for name in [target.bpm for target in params.targets] + [
-        *params.closure_bpms,
-        *params.bpms,
+    for name in [target.readback for target in params.targets] + [
+        *params.closure_readbacks,
+        *params.readbacks,
     ]:
         if name not in names:
             names.append(name)
@@ -107,12 +107,12 @@ def _rows(
     # actually makes is measured from the reference -- the same conversion
     # `build_plan` does once, before the profile walk.
     desired: dict[str, float] = {
-        target.bpm: (
-            target.value - reference[target.bpm] if params.mode == "absolute" else target.value
+        target.readback: (
+            target.value - reference[target.readback] if params.mode == "absolute" else target.value
         )
         for target in params.targets
     }
-    desired.update(dict.fromkeys(params.closure_bpms, 0.0))
+    desired.update(dict.fromkeys(params.closure_readbacks, 0.0))
 
     def _row(values: dict[str, float]) -> dict[str, Any]:
         return {key(name): value for name, value in values.items() if name not in drop}
@@ -121,7 +121,7 @@ def _rows(
     for _ in range(params.baseline_reads):
         baseline = dict(reference)
         baseline.update(working)
-        baseline.update(dict.fromkeys(params.detectors, 0.0))
+        baseline.update(dict.fromkeys(params.monitors, 0.0))
         rows.append(_row(baseline))
 
     for index, scale in enumerate(scales):
@@ -133,7 +133,7 @@ def _rows(
             values[name] = against + shift
         for position, name in enumerate(params.correctors):
             values[name] = working[name] + scale * 0.1 * (position + 1)
-        for position, name in enumerate(params.detectors):
+        for position, name in enumerate(params.monitors):
             # `0.001 * index` makes the descent leg sit off the ascent at the
             # same amplitude: a hysteresis the per-leg lines have to keep apart.
             values[name] = scale + 0.001 * index + 0.01 * position
@@ -166,17 +166,17 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     """Titles, axes, and units are the contract the panel and the agent read.
 
     The order is stable, so a live figure grows instead of rearranging: the
-    detector panel appears last because it is the only one a bump run may
+    monitor panel appears last because it is the only one a bump run may
     legitimately not have.
     """
-    params = _params(detectors=["det1"])
+    params = _params(monitors=["det1"])
     figure = bump.render(_rows(params), params)
 
     assert [panel.title for panel in figure.panels] == [
         "Orbit shift across BPMs",
         "Band residual at constrained BPMs",
         "Corrector offsets",
-        "Detector response",
+        "Monitor response",
     ]
 
     orbit = _panel(figure, "Orbit shift across BPMs")
@@ -203,10 +203,10 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     # Three or four correctors is the whole schema: nothing to pick between.
     assert offsets.series_picker is False
 
-    detectors = _panel(figure, "Detector response")
-    assert (detectors.x_label, detectors.y_label, detectors.y_units) == (
+    monitors = _panel(figure, "Monitor response")
+    assert (monitors.x_label, monitors.y_label, monitors.y_units) == (
         "Bump amplitude (fraction of requested)",
-        "Detector reading",
+        "Monitor reading",
         None,
     )
 
@@ -299,12 +299,12 @@ def test_corrector_offsets_are_measured_against_the_baseline_working_point() -> 
         assert series.points[-1].y == pytest.approx(0.0, abs=1e-12)
 
 
-def test_detector_response_is_drawn_per_leg_against_signed_amplitude() -> None:
+def test_monitor_response_is_drawn_per_leg_against_signed_amplitude() -> None:
     """One line per leg: plotted against amplitude the profile doubles back, and
     a single line through both legs would close the hysteresis into a scribble."""
-    params = _params(detectors=["det1", "det2"])
+    params = _params(monitors=["det1", "det2"])
     figure = bump.render(_rows(params), params)
-    mark = _lines(figure, "Detector response")
+    mark = _lines(figure, "Monitor response")
 
     assert [series.label for series in mark.series] == [
         "det1 (ascent)",
@@ -324,7 +324,7 @@ def test_detector_response_is_drawn_per_leg_against_signed_amplitude() -> None:
 
 def test_a_bidirectional_run_draws_all_four_legs() -> None:
     """The negative side is not a special case: same panels, four legs."""
-    params = _params(num=3, sweep="bidirectional", detectors=["det1"])
+    params = _params(num=3, sweep="bidirectional", monitors=["det1"])
     rows = _rows(params)
     assert len(rows) == params.baseline_reads + 4 * params.num
 
@@ -340,7 +340,7 @@ def test_a_bidirectional_run_draws_all_four_legs() -> None:
         + ["descent, negative side"] * 3
     )
 
-    assert _labels(figure, "Detector response") == [
+    assert _labels(figure, "Monitor response") == [
         "det1 (ascent)",
         "det1 (descent)",
         "det1 (ascent, negative side)",
@@ -363,7 +363,7 @@ def test_a_bidirectional_run_draws_all_four_legs() -> None:
 def test_absolute_targets_are_converted_against_the_baseline_reference() -> None:
     """`absolute` names an orbit position; the panels are all reference-relative,
     so the demand is converted once, exactly as `build_plan` converts it."""
-    params = _params(mode="absolute", targets=[{"bpm": "bpm_t", "value": 0.8}])
+    params = _params(mode="absolute", targets=[{"readback": "bpm_t", "value": 0.8}])
     # bpm_t's reference is 0.5, so the run is asking for a 0.3 displacement --
     # the same bump the relative fixtures above ask for outright.
     figure = bump.render(_rows(params), params)
@@ -414,7 +414,7 @@ def test_a_bpm_the_panel_capped_away_is_still_checked_for_misses() -> None:
     is a miss: a capped panel that also capped its checking would report a
     converged sweep over a machine that missed at BPM 13."""
     closure = [f"bpm_c{index}" for index in range(1, 14)]
-    params = _params(best_effort=True, closure_bpms=closure)
+    params = _params(best_effort=True, closure_readbacks=closure)
     hidden = closure[-1]  # constrained index 13, past `_MAX_BAND_SERIES`
 
     rows = _rows(
@@ -483,24 +483,24 @@ def test_a_long_profile_thins_its_step_series_and_keeps_both_ends() -> None:
     assert len(band.series[0].points) == 16
 
 
-def test_the_detector_budget_is_spent_across_legs_not_per_leg() -> None:
-    """Each detector is drawn once per leg, so twelve series is six detectors on
+def test_the_monitor_budget_is_spent_across_legs_not_per_leg() -> None:
+    """Each monitor is drawn once per leg, so twelve series is six monitors on
     a two-leg profile and three on a four-leg one."""
-    detectors = [f"det{index}" for index in range(1, 11)]
+    monitor_names = [f"det{index}" for index in range(1, 11)]
 
-    mono = _params(detectors=detectors)
-    mono_labels = _labels(bump.render(_rows(mono), mono), "Detector response")
-    assert len(mono_labels) == bump._MAX_DETECTOR_SERIES
+    mono = _params(monitors=monitor_names)
+    mono_labels = _labels(bump.render(_rows(mono), mono), "Monitor response")
+    assert len(mono_labels) == bump._MAX_MONITOR_SERIES
     assert mono_labels[-1] == "det6 (descent)"
 
-    bidi = _params(num=3, sweep="bidirectional", detectors=detectors)
-    bidi_labels = _labels(bump.render(_rows(bidi), bidi), "Detector response")
-    assert len(bidi_labels) == bump._MAX_DETECTOR_SERIES
+    bidi = _params(num=3, sweep="bidirectional", monitors=monitor_names)
+    bidi_labels = _labels(bump.render(_rows(bidi), bidi), "Monitor response")
+    assert len(bidi_labels) == bump._MAX_MONITOR_SERIES
     assert bidi_labels[-1] == "det3 (descent, negative side)"
 
     assert any(
-        "Showing the first 6 of 10 detectors" in note
-        for note in _panel(bump.render(_rows(mono), mono), "Detector response").annotations
+        "Showing the first 6 of 10 monitors" in note
+        for note in _panel(bump.render(_rows(mono), mono), "Monitor response").annotations
     )
 
 
@@ -508,7 +508,7 @@ def test_the_correctors_are_never_capped() -> None:
     """`PARAMS` admits three or four and nothing else, so there is nothing to cap
     -- and dropping one would hide a corrector the run left off its working point."""
     params = _params(
-        correctors=["c1", "c2", "c3", "c4"], closure_bpms=["bpm_c1", "bpm_c2", "bpm_c3"]
+        correctors=["c1", "c2", "c3", "c4"], closure_readbacks=["bpm_c1", "bpm_c2", "bpm_c3"]
     )
     figure = bump.render(_rows(params), params)
 
@@ -521,7 +521,7 @@ def test_every_series_is_decimated_including_the_flat_band_lines() -> None:
     A flat line looks free and is not: two of them at full length is a fifth of
     the point budget spent on a number the annotation already states.
     """
-    params = _params(num=1001, bpms=[])  # 2002 amplitude steps
+    params = _params(num=1001, readbacks=[])  # 2002 amplitude steps
     figure = bump.render(_rows(params), params)
     mark = _lines(figure, "Band residual at constrained BPMs")
 
@@ -633,12 +633,12 @@ def test_a_panel_with_nothing_finite_is_dropped_not_drawn_empty() -> None:
     ]
 
 
-def test_the_detector_panel_is_absent_when_no_detectors_were_requested() -> None:
-    """Detectors are optional, and an empty panel is not a view of nothing."""
+def test_the_monitor_panel_is_absent_when_no_monitors_were_requested() -> None:
+    """Monitors are optional, and an empty panel is not a view of nothing."""
     params = _params()
     titles = [panel.title for panel in bump.render(_rows(params), params).panels]
 
-    assert "Detector response" not in titles
+    assert "Monitor response" not in titles
     assert len(titles) == 3
 
 
@@ -650,13 +650,13 @@ def test_one_panel_failing_does_not_take_the_figure_with_it(monkeypatch) -> None
 
     monkeypatch.setattr(bump, "_misses", _boom)
 
-    params = _params(detectors=["det1"])
+    params = _params(monitors=["det1"])
     figure = bump.render(_rows(params), params)
 
     assert [panel.title for panel in figure.panels] == [
         "Orbit shift across BPMs",
         "Corrector offsets",
-        "Detector response",
+        "Monitor response",
     ]
 
 
@@ -725,7 +725,7 @@ def test_partial_and_source_are_placeholders_the_route_overwrites() -> None:
     path. `True` is the honest direction for the placeholder: a forgotten
     overwrite costs a client extra polling, never a false "settled".
     """
-    params = _params(detectors=["det1"])
+    params = _params(monitors=["det1"])
     finished = _rows(params)
     mid_flight = _rows(params, limit=params.baseline_reads + 2)
     degraded = [{"motor": 1.0}]
@@ -739,7 +739,7 @@ def test_partial_and_source_are_placeholders_the_route_overwrites() -> None:
 
 def test_figure_round_trips_through_model_validate() -> None:
     """What the route dumps to JSON validates back to the same marks."""
-    params = _params(detectors=["det1"])
+    params = _params(monitors=["det1"])
     figure = bump.render(_rows(params), params)
 
     assert Figure.model_validate(figure.model_dump()) == figure

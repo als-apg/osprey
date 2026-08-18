@@ -31,13 +31,13 @@ A ring running a corrected orbit idles with nonzero corrector currents and a
 nonzero orbit, and neither is knowable in advance -- which is exactly why the
 plan measures both instead of assuming them.
 
-BPM-key matching (`_match_value`, imported from `orm_analysis` so there is one
-implementation of the rule) is deliberately name-fuzzy: ophyd-async's
-`StandardReadable` keys a hinted signal's document entry as either the bare
-device name or `f"{device_name}-{signal}"` depending on how many readable
-children the device exposes (see `devices/mock.py`/`devices/epics.py`, neither
-of which this module imports), so device names are matched by exact key first,
-then by `f"{name}-"` prefix.
+BPM-key matching goes through the one shared resolver,
+`plan_fields.resolve_column`: ophyd-async's `StandardReadable` keys a hinted
+signal's document entry as either the bare channel name or
+`f"{name}-{signal}"` depending on how many readable children the device
+exposes (see `devices/mock.py`/`devices/epics.py`, neither of which this
+module imports), so channel names resolve by exact key first, then by
+`f"{name}-"` prefix.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ from typing import Any
 
 import numpy as np
 
-from osprey.services.bluesky_bridge.orm_analysis import _match_value
+from osprey.services.bluesky_bridge.plan_fields import resolve_column
 
 
 class DegenerateBumpError(ValueError):
@@ -107,14 +107,20 @@ def fit_probe_response(
     connector's limits check clamped breaks it, which is why the plan guards
     every probe write instead of handing a clamped pair here.
 
-    Two correctors that share a response direction -- the same phase advance,
-    or one of them dead -- leave the fitted matrix rank-deficient, and any bump
-    solved through it would be arbitrary along the null direction, so that
-    raises. The single exception is a matrix that is identically zero: no BPM
-    moved at all, which is what a physics-free mock connector reads back, and
-    which is a fault only if something is actually being demanded. That call
-    belongs to `demand_is_negligible`, which the plan consults next and which
-    alone sees the reference orbit and the noise.
+    The fit is a measurement, and it deliberately passes no judgment on the
+    matrix it measured. Two correctors that share a response direction -- the
+    same phase advance, or one of them dead -- leave it rank-deficient, and a
+    bump solved through that would be arbitrary along the null direction; but
+    whether a solve happens at all is decided *after* this fit, by
+    `demand_is_negligible`, which alone sees the reference orbit and the
+    noise. A run that asks for nothing walks its profile without solving, and
+    refusing it here would also refuse every physics-free dry run: a mock
+    readback that merely drifts between the `+a` and `-a` reads aliases into
+    a phantom rank-one "response", the same way it would on any machine whose
+    BPMs move for reasons other than the kick. The refusal lives in
+    `solve_offsets`, the one place a degenerate response is actually asked to
+    answer for a demand -- and every solve, the per-step first pass and every
+    trim, goes through it.
 
     Args:
         probe_rows: `2 * len(correctors)` event `data` dicts, `(+probe,
@@ -127,9 +133,8 @@ def fit_probe_response(
     Raises:
         DegenerateBumpError: no correctors or no BPMs were given; the row
             count is not one pair per corrector; the probe amplitude is not
-            finite and positive; a BPM is missing from a probe row or read
-            back a non-finite value; or the fitted response is rank-deficient
-            without being identically zero.
+            finite and positive; or a BPM is missing from a probe row or read
+            back a non-finite value.
     """
     n_corr = len(correctors)
     n_bpm = len(bpm_names)
@@ -153,15 +158,15 @@ def fit_probe_response(
         plus_row = probe_rows[2 * j]
         minus_row = probe_rows[2 * j + 1]
         for i, bpm in enumerate(bpm_names):
-            plus = _match_value(plus_row, bpm)
-            minus = _match_value(minus_row, bpm)
-            if plus is None or minus is None:
+            plus_column = resolve_column(bpm, plus_row)
+            minus_column = resolve_column(bpm, minus_row)
+            if plus_column is None or minus_column is None:
                 raise DegenerateBumpError(
                     f"BPM {bpm!r} did not report in both of corrector {corrector!r}'s probe "
                     f"rows -- a half-measured column cannot be fitted"
                 )
-            plus_value = float(plus)
-            minus_value = float(minus)
+            plus_value = float(plus_row[plus_column])
+            minus_value = float(minus_row[minus_column])
             if not (np.isfinite(plus_value) and np.isfinite(minus_value)):
                 raise DegenerateBumpError(
                     f"BPM {bpm!r} read back a non-finite value during corrector "
@@ -169,22 +174,9 @@ def fit_probe_response(
                 )
             matrix[i, j] = (plus_value - minus_value) / (2.0 * probe_amplitude)
 
-    if not np.any(matrix):
-        # The probe moved nothing anywhere: not a degenerate corrector set, but
-        # an unresponsive one. See the class docstring -- the demand gate owns
-        # this call, because only it can tell "nothing was asked" from
-        # "something was asked and the machine cannot deliver it".
-        return matrix
-
-    rank = int(np.linalg.matrix_rank(matrix))
-    if rank < n_corr:
-        raise DegenerateBumpError(
-            f"the probed response spans only {rank} independent orbit direction(s) for "
-            f"{n_corr} correctors {list(correctors)!r}: at least two of them move the beam the "
-            f"same way (equal phase advance, or one of them is dead), so a bump solved through "
-            f"this response would be arbitrary along the unconstrained direction"
-        )
-
+    # No rank judgment here -- see the docstring. The demand gate owns the
+    # "was anything asked" call, and `solve_offsets` refuses a response that
+    # cannot answer what was asked, on every solve including the trims.
     return matrix
 
 
@@ -224,9 +216,10 @@ def solve_offsets(
     satisfy every listed constraint exactly and differ from each other at every
     BPM nobody listed. The run would report "converged" at each target and
     closure BPM while an unconstrained orbit distortion rides along ring-wide.
-    So the plan's PARAMS validator rejects `len(targets) + len(closure_bpms) <
-    len(correctors)` at enqueue time, where it is a legible 400 against the
-    request instead of a silent success in the middle of a run.
+    So the plan's PARAMS validator rejects `len(targets) +
+    len(closure_readbacks) < len(correctors)` at enqueue time, where it is a
+    legible 400 against the request instead of a silent success in the middle
+    of a run.
 
     That validator counts constraints; it cannot know their rank. Two closure
     BPMs at the same phase advance see the same orbit and contribute one

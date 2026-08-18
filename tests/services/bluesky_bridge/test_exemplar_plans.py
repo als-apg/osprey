@@ -163,21 +163,20 @@ def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) ->
 
 @pytest.fixture
 def bump_devices() -> dict:
-    """Every device the bump touches, all as mock motors.
+    """Every channel the bump touches, all as mock settables.
 
-    The BPMs are motors, not detectors, deliberately: `MockDetector` counts up
-    on every trigger, so a "BPM" built from one would read a different value on
-    each of the baseline reads and the plan would (rightly) refuse the run as
-    unverifiable at the noise floor. `MockMotor`'s readback is constant, which
-    is the only mock orbit a physics-free dry run can honestly claim. It is
-    also how `plan_validation._collect_device_names` buckets these same names
-    for its own stage-3 dry run, so both doctrine sites drive the plan against
-    the same device set.
+    The BPMs are settables, not readables, deliberately: `MockReadable` counts
+    up on every trigger, so a "BPM" built from one drifts on every read and
+    each step lands out of band — a fine device set for proving the noise
+    gate (the validator's role-built dry run does exactly that), but this
+    test's subject is the converged path's exact row layout and the verified
+    restore, and only `MockSettable`'s constant readback makes "converged"
+    exact rather than best-effort.
     """
     return asyncio.run(
         build_devices(
-            motor_names=["hcm1", "hcm2", "hcm3", "bpm1", "bpm2", "bpm3"],
-            detector_names=[],
+            settable_names=["hcm1", "hcm2", "hcm3", "bpm1", "bpm2", "bpm3"],
+            readable_names=[],
         )
     )
 
@@ -196,9 +195,9 @@ def test_orbit_bump_sweep_plan_runs_to_completion_and_buffers_rows(bump_devices:
         "orbit_bump_sweep",
         {
             "correctors": ["hcm1", "hcm2", "hcm3"],
-            "targets": [{"bpm": "bpm1", "value": 0.0}],
-            "closure_bpms": ["bpm2", "bpm3"],
-            "bpms": [],
+            "targets": [{"readback": "bpm1", "value": 0.0}],
+            "closure_readbacks": ["bpm2", "bpm3"],
+            "readbacks": [],
             "num": 2,
             "baseline_reads": 3,
             "probe_amplitude": 0.1,

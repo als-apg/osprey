@@ -16,14 +16,14 @@ that is delivering beam.
 
 **Parameterized in orbit space, not corrector space.** An operator asks for a
 displacement *at BPMs* — "this much at these ``targets``, nothing at these
-``closure_bpms``" — and the plan is what finds the kicks that produce it.
+``closure_readbacks``" — and the plan is what finds the kicks that produce it.
 That is the only parameterization that means the same thing at two facilities,
 or at one facility after a lattice change: a set of corrector currents is a
 statement about one machine on one day, whereas "300 microns at BPM 7 and
 closure at BPMs 12 and 13" is a statement about the beam.
 
 Solving for ``len(correctors)`` kicks needs at least that many independent
-orbit constraints, which is why ``len(targets) + len(closure_bpms)`` must be at
+orbit constraints, which is why ``len(targets) + len(closure_readbacks)`` must be at
 least ``len(correctors)``: fewer rows than unknowns is an underdetermined solve
 whose answer is a direction in kick space, not a bump, and this schema refuses
 it rather than letting the runtime pick one of infinitely many.
@@ -36,9 +36,12 @@ connector's reference monitor checks every setpoint against the project's own
 machine will not take. A literal bound here would only ever be one facility's
 number.
 
-Device-agnostic: every device is resolved by string name against whatever
+Device-agnostic: every channel is resolved by string name against whatever
 ``devices`` dict the bridge passes in; nothing here names a facility PV or a
-fixed device set.
+fixed device set. Every channel field declares its role, so every consumer —
+the load gate, the enqueue pre-check, the dry run, the pre-flight trajectory —
+reads what this plan drives and what it reads rather than guessing it from a
+field name.
 """
 
 from __future__ import annotations
@@ -72,7 +75,14 @@ from osprey.services.bluesky_bridge.figure import (
     Series,
     decimate,
 )
-from osprey.services.bluesky_bridge.orm_analysis import _match_value
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannels,
+    OptionalReadableChannel,
+    ReadableChannel,
+    ReadableChannels,
+    resolve_column,
+    scan_metadata,
+)
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep")
 
@@ -84,14 +94,6 @@ PLAN_METADATA = {
         "the beam at the target BPMs while the closure BPMs stay put. Every "
         "corrector is returned to its pre-scan working point."
     ),
-    "category": "accelerator",
-    "required_devices": [
-        "correctors",
-        "bpms",
-        "closure_bpms",
-        "detectors",
-        "beam_current_devices",
-    ],
     "writes": True,
 }
 
@@ -106,7 +108,9 @@ class TargetPoint(BaseModel):
     settle timeout.
     """
 
-    bpm: str = Field(..., description="BPM device name this displacement is asked for.")
+    readback: ReadableChannel = Field(
+        ..., description="BPM channel name this displacement is asked for."
+    )
     value: float = Field(
         ...,
         allow_inf_nan=False,
@@ -118,11 +122,11 @@ class PARAMS(BaseModel):
     """Parameters for ``orbit_bump_sweep``: the bump's correctors and its orbit goal.
 
     The bump is defined by what it should do to the orbit — ``targets`` say
-    where the beam should move and by how much, ``closure_bpms`` say where it
-    must not move at all — and by which ``correctors`` are allowed to do it.
-    ``bpms`` and ``detectors`` are recorded at every point without taking part
-    in the solve, so a run carries the surrounding orbit and any other
-    instrument the operator wants alongside it.
+    where the beam should move and by how much, ``closure_readbacks`` say
+    where it must not move at all — and by which ``correctors`` are allowed to
+    do it. ``readbacks`` and ``monitors`` are recorded at every point without
+    taking part in the solve, so a run carries the surrounding orbit and any
+    other instrument the operator wants alongside it.
 
     ``mode`` reads the target values either as a displacement *from the orbit
     the machine is already on* (``relative``) or as an absolute orbit position
@@ -147,13 +151,13 @@ class PARAMS(BaseModel):
     as two-way segmented controls — without changing what this model validates.
     """
 
-    correctors: list[str] = Field(
+    correctors: MovableChannels = Field(
         ...,
         min_length=3,
         max_length=4,
         title="Correctors",
         description=(
-            "The three or four corrector device names forming the bump. Fewer "
+            "The three or four corrector channel names forming the bump. Fewer "
             "cannot close a bump; more is a different diagnostic."
         ),
         json_schema_extra={"x-widget": "channel-list"},
@@ -164,7 +168,7 @@ class PARAMS(BaseModel):
         title="Bump targets",
         description="BPMs the bump should displace, and by how much.",
     )
-    closure_bpms: list[str] = Field(
+    closure_readbacks: ReadableChannels = Field(
         ...,
         title="Closure BPMs",
         description=(
@@ -173,7 +177,7 @@ class PARAMS(BaseModel):
         ),
         json_schema_extra={"x-widget": "channel-list"},
     )
-    bpms: list[str] = Field(
+    readbacks: ReadableChannels = Field(
         ...,
         title="Monitor BPMs",
         description=(
@@ -263,11 +267,11 @@ class PARAMS(BaseModel):
         title="Settle time (s)",
         description="Wait after each move before reading, in seconds.",
     )
-    beam_current_device: str | None = Field(
+    beam_current_readback: OptionalReadableChannel = Field(
         default=None,
-        title="Beam current device",
+        title="Beam current",
         description=(
-            "Device whose reading guards the sweep against running on lost "
+            "Channel whose reading guards the sweep against running on lost "
             "beam. Paired with min_beam_current."
         ),
     )
@@ -276,14 +280,14 @@ class PARAMS(BaseModel):
         title="Minimum beam current",
         description="Reading below which the sweep must not proceed.",
     )
-    detectors: list[str] = Field(
+    monitors: ReadableChannels = Field(
         default_factory=list,
-        title="Detectors",
-        description="Any other devices to record at every point.",
+        title="Monitors",
+        description="Any other channels to record at every point.",
         json_schema_extra={"x-widget": "channel-list"},
     )
 
-    @field_validator("correctors", "closure_bpms", "bpms", "detectors")
+    @field_validator("correctors", "closure_readbacks", "readbacks", "monitors")
     @classmethod
     def _names_unique(cls, value: list[str], info: ValidationInfo) -> list[str]:
         """Reject a device named twice in one list.
@@ -300,21 +304,21 @@ class PARAMS(BaseModel):
 
     @field_validator("targets")
     @classmethod
-    def _target_bpms_unique(cls, value: list[TargetPoint]) -> list[TargetPoint]:
+    def _target_readbacks_unique(cls, value: list[TargetPoint]) -> list[TargetPoint]:
         """Reject two demands on the same BPM — they are two answers to one question."""
-        names = [target.bpm for target in value]
+        names = [target.readback for target in value]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             raise ValueError(f"targets must name each BPM at most once (repeated: {duplicates})")
         return value
 
     @model_validator(mode="after")
-    def _closure_bpms_disjoint_from_targets(self) -> PARAMS:
+    def _closure_disjoint_from_targets(self) -> PARAMS:
         """Reject a BPM asked to move and to stay still at the same time."""
-        overlap = {target.bpm for target in self.targets} & set(self.closure_bpms)
+        overlap = {target.readback for target in self.targets} & set(self.closure_readbacks)
         if overlap:
             raise ValueError(
-                "closure_bpms and target bpms must be disjoint "
+                "closure_readbacks and target readbacks must be disjoint "
                 f"(overlap: {sorted(overlap)}) — a BPM cannot both be bumped "
                 "and held at the reference orbit"
             )
@@ -330,11 +334,11 @@ class PARAMS(BaseModel):
         and any point of it is as good an answer as any other. Refusing here
         means the operator picks, rather than the numerics.
         """
-        rows = len(self.targets) + len(self.closure_bpms)
+        rows = len(self.targets) + len(self.closure_readbacks)
         if rows < len(self.correctors):
             raise ValueError(
                 f"underdetermined bump: {rows} orbit constraint(s) "
-                f"(targets + closure_bpms) for {len(self.correctors)} correctors; "
+                f"(targets + closure_readbacks) for {len(self.correctors)} correctors; "
                 "add closure BPMs or drop a corrector"
             )
         return self
@@ -343,16 +347,16 @@ class PARAMS(BaseModel):
     def _beam_current_guard_is_paired(self) -> PARAMS:
         """Reject half a beam-current guard.
 
-        A device with no threshold has nothing to compare against, and a
-        threshold with no device has nothing to read — either alone reads as a
+        A channel with no threshold has nothing to compare against, and a
+        threshold with no channel has nothing to read — either alone reads as a
         guard that is on while being inert, which is the worst of the three
         states. Both or neither.
         """
-        has_device = self.beam_current_device is not None
+        has_readback = self.beam_current_readback is not None
         has_minimum = self.min_beam_current is not None
-        if has_device != has_minimum:
+        if has_readback != has_minimum:
             raise ValueError(
-                "beam_current_device and min_beam_current must be given together or not at all"
+                "beam_current_readback and min_beam_current must be given together or not at all"
             )
         return self
 
@@ -373,22 +377,22 @@ class PARAMS(BaseModel):
         return self
 
 
-def _read_device_names(params: PARAMS) -> list[str]:
-    """Every device read at each point, in a stable order and named once.
+def _read_channel_names(params: PARAMS) -> list[str]:
+    """Every channel read at each point, in a stable order and named once.
 
-    Targets, closure BPMs, and monitor BPMs are separate roles a single device
+    Targets, closure BPMs, and monitor BPMs are separate roles a single channel
     may hold more than one of (a monitor list is often just "all of them"), and
     ``trigger_and_read`` must be handed each device once — a repeat triggers it
     twice for one event.
     """
     names = [
-        *(target.bpm for target in params.targets),
-        *params.closure_bpms,
-        *params.bpms,
-        *params.detectors,
+        *(target.readback for target in params.targets),
+        *params.closure_readbacks,
+        *params.readbacks,
+        *params.monitors,
     ]
-    if params.beam_current_device is not None:
-        names.append(params.beam_current_device)
+    if params.beam_current_readback is not None:
+        names.append(params.beam_current_readback)
 
     seen: set[str] = set()
     ordered: list[str] = []
@@ -408,7 +412,7 @@ def _constrained_names(params: PARAMS) -> list[str]:
     ``PARAMS`` already rejects a BPM appearing in both lists, so this needs no
     deduplication of its own.
     """
-    return [target.bpm for target in params.targets] + list(params.closure_bpms)
+    return [target.readback for target in params.targets] + list(params.closure_readbacks)
 
 
 def _profile_scales(num: int, sweep: str) -> list[float]:
@@ -435,16 +439,26 @@ def _profile_scales(num: int, sweep: str) -> list[float]:
     return up + down + [0.0 - scale for scale in up] + [0.0 - scale for scale in down]
 
 
+def _row_value(row: Mapping[str, Any], name: str) -> Any:
+    """The entry in *row* keyed for channel *name*, or ``None``.
+
+    The exact-then-prefix rule is `plan_fields.resolve_column`'s; this only
+    adds the lookup, so every caller holding a row can ask for a value.
+    """
+    column = resolve_column(name, row)
+    return None if column is None else row[column]
+
+
 def _finite_values(
     readings: Mapping[str, Any], names: Iterable[str], context: str
 ) -> dict[str, float]:
-    """Extract one finite float per device name from a readings mapping.
+    """Extract one finite float per channel name from a readings mapping.
 
     *readings* is what ``bps.read``/``bps.trigger_and_read`` hand back — event
     keys mapped to ``{"value": ..., "timestamp": ...}`` readings, where a key
-    is the bare device name or ``f"{name}-{signal}"`` depending on how many
-    readable children the device exposes (the same fuzziness `_match_value`
-    exists for).
+    is the bare channel name or ``f"{name}-{signal}"`` depending on how many
+    readable children the device exposes (the same fuzziness
+    `plan_fields.resolve_column` exists for).
 
     Raises:
         ValueError: A named device is absent from *readings* or read back a
@@ -455,7 +469,7 @@ def _finite_values(
     """
     values: dict[str, float] = {}
     for name in names:
-        entry = _match_value(readings, name)
+        entry = _row_value(readings, name)
         if entry is None:
             raise ValueError(
                 f"orbit_bump_sweep plan: device {name!r} reported no reading during {context}"
@@ -480,7 +494,7 @@ def _snapshot(devices_to_read: list[Any]) -> Any:
     — the pinned row layout is ``baseline_reads`` baseline rows then exactly
     one row per amplitude step — so this reads outside any event bundle:
     trigger whatever is triggerable (mirroring ``bps.trigger_and_read``'s
-    treatment, so a triggered detector here reads the same way it does in a
+    treatment, so a triggered device here reads the same way it does in a
     data row), then plain ``read`` messages with no ``create``/``save`` pair
     around them, which the RunEngine answers without emitting a document.
     """
@@ -603,27 +617,41 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    read_devices = [devices[name] for name in _read_device_names(params)]
+    read_names = _read_channel_names(params)
+    read_devices = [devices[name] for name in read_names]
     all_devices = corrector_devices + read_devices
+
+    # This plan opens its own run, so it stamps its own run metadata: the
+    # channels it moves and reads, and the total data-row count — the baseline
+    # rows plus one row per amplitude step. Probe and convergence reads are
+    # off the record and add no rows.
+    scales = _profile_scales(params.num, params.sweep)
+    run_md = scan_metadata(
+        movable=params.correctors,
+        readable=read_names,
+        points=params.baseline_reads + len(scales),
+    )
 
     # The fit's own row axis is the constrained rows plus whatever monitor BPMs
     # aren't already in them, so the constraint rows are always the leading
     # `len(constrained_names)`.
     constrained_names = _constrained_names(params)
-    fit_names = constrained_names + [name for name in params.bpms if name not in constrained_names]
+    fit_names = constrained_names + [
+        name for name in params.readbacks if name not in constrained_names
+    ]
     fit_devices = [devices[name] for name in fit_names]
     constrained_devices = [devices[name] for name in constrained_names]
     beam_device = (
-        devices[params.beam_current_device] if params.beam_current_device is not None else None
+        devices[params.beam_current_readback] if params.beam_current_readback is not None else None
     )
 
     def _guard(context: str) -> Any:
         """The beam-current gate, run before every write batch."""
         if beam_device is None:
             return
-        assert params.beam_current_device is not None and params.min_beam_current is not None
-        values = yield from _snapshot_values([beam_device], [params.beam_current_device], context)
-        current = values[params.beam_current_device]
+        assert params.beam_current_readback is not None and params.min_beam_current is not None
+        values = yield from _snapshot_values([beam_device], [params.beam_current_readback], context)
+        current = values[params.beam_current_readback]
         if current < params.min_beam_current:
             raise RuntimeError(
                 f"orbit_bump_sweep plan: beam current {current} is below "
@@ -661,7 +689,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
         return [(first[name] + second[name]) / 2.0 - reference[name] for name in constrained_names]
 
     @bpp.stage_decorator(all_devices)
-    @bpp.run_decorator()
+    @bpp.run_decorator(md=run_md)
     def _bump():
         working_points: list[float] = []
         for name, corrector in correctors:
@@ -702,9 +730,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
             # constraint rows. `absolute` targets are converted exactly once,
             # here — every later use is `scale * desired`.
             desired = [
-                target.value - reference[target.bpm] if params.mode == "absolute" else target.value
+                target.value - reference[target.readback]
+                if params.mode == "absolute"
+                else target.value
                 for target in params.targets
-            ] + [0.0] * len(params.closure_bpms)
+            ] + [0.0] * len(params.closure_readbacks)
 
             # --- Probe: measure each corrector's own response, one at a time.
             probe_rows: list[dict[str, float]] = []
@@ -731,8 +761,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
             # verification the profile exists to do.
             trivial = demand_is_negligible(desired, constraint_response, sigma, params.tolerance)
 
-            # --- Profile walk: one data row per amplitude step.
-            scales = _profile_scales(params.num, params.sweep)
+            # --- Profile walk: one data row per amplitude step, over the
+            # `scales` the run metadata already counted.
             for index, scale in enumerate(scales):
                 terminal = index == len(scales) - 1
                 step_label = f"amplitude step {index + 1}/{len(scales)} (scale {scale:+g})"
@@ -851,9 +881,9 @@ _MAX_BAND_SERIES = 12
 requested order (targets, then closure), not the N worst: a "worst" selection
 would swap lines in and out as the sweep fills in."""
 
-_MAX_DETECTOR_SERIES = 12
-"""Most detector traces in the response panel, counted across every leg — each
-detector is drawn once per leg, so this is what the per-leg detector count is
+_MAX_MONITOR_SERIES = 12
+"""Most monitor traces in the response panel, counted across every leg — each
+monitor is drawn once per leg, so this is what the per-leg monitor count is
 divided out of."""
 
 _MAX_MISS_NOTES = 6
@@ -883,7 +913,7 @@ def _column_mean(rows: list[dict[str, Any]], name: str) -> float | None:
     Over the baseline rows this is the two references every panel is drawn
     against: a BPM's reference orbit, and a corrector's pre-scan working point.
     """
-    values = [value for row in rows if (value := _finite(_match_value(row, name))) is not None]
+    values = [value for row in rows if (value := _finite(_row_value(row, name))) is not None]
     return statistics.fmean(values) if values else None
 
 
@@ -937,7 +967,10 @@ def _prepare(rows: list[dict[str, Any]], params: PARAMS) -> _Sweep | None:
         return None
 
     bpm_order: list[str] = []
-    for name in [target.bpm for target in params.targets] + [*params.closure_bpms, *params.bpms]:
+    for name in [target.readback for target in params.targets] + [
+        *params.closure_readbacks,
+        *params.readbacks,
+    ]:
         if name not in bpm_order:
             bpm_order.append(name)
 
@@ -946,11 +979,11 @@ def _prepare(rows: list[dict[str, Any]], params: PARAMS) -> _Sweep | None:
     desired: dict[str, float | None] = {}
     for target in params.targets:
         if params.mode == "absolute":
-            against = reference.get(target.bpm)
-            desired[target.bpm] = None if against is None else target.value - against
+            against = reference.get(target.readback)
+            desired[target.readback] = None if against is None else target.value - against
         else:
-            desired[target.bpm] = target.value
-    for name in params.closure_bpms:
+            desired[target.readback] = target.value
+    for name in params.closure_readbacks:
         desired[name] = 0.0
 
     return _Sweep(
@@ -1054,7 +1087,7 @@ def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         points: list[Point] = []
         for position, name in enumerate(sweep.bpm_order):
             against = sweep.reference.get(name)
-            value = _finite(_match_value(row, name))
+            value = _finite(_row_value(row, name))
             points.append(
                 Point(
                     x=float(position + 1),
@@ -1074,8 +1107,8 @@ def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
     if not _drawn(series):
         return None
 
-    targets = [sweep.bpm_order.index(target.bpm) + 1 for target in params.targets]
-    closure = [sweep.bpm_order.index(name) + 1 for name in params.closure_bpms]
+    targets = [sweep.bpm_order.index(target.readback) + 1 for target in params.targets]
+    closure = [sweep.bpm_order.index(name) + 1 for name in params.closure_readbacks]
     annotations = [
         "Each line is one amplitude step's orbit, measured against the "
         "baseline reference orbit. A closed bump is displaced across the "
@@ -1107,7 +1140,7 @@ def _step_offsets(sweep: _Sweep, name: str) -> list[float | None]:
     against = sweep.reference.get(name)
     if against is None:
         return [None] * len(sweep.steps)
-    values = [_finite(_match_value(row, name)) for row in sweep.steps]
+    values = [_finite(_row_value(row, name)) for row in sweep.steps]
     return [None if value is None else value - against for value in values]
 
 
@@ -1242,7 +1275,7 @@ def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
     series: list[Series] = []
     for name in params.correctors:
         start = sweep.working.get(name)
-        values = [_finite(_match_value(row, name)) for row in sweep.steps]
+        values = [_finite(_row_value(row, name)) for row in sweep.steps]
         points = [
             Point(
                 x=float(index + 1),
@@ -1273,21 +1306,21 @@ def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
     )
 
 
-def _detector_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
-    """Detector readings against bump amplitude, one line per leg.
+def _monitor_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+    """Monitor readings against bump amplitude, one line per leg.
 
-    Amplitude rather than step number, because what a detector has to say about
+    Amplitude rather than step number, because what a monitor has to say about
     a bump is how it responds to the excursion's size. Each leg is its own line:
     plotted against amplitude the profile doubles back on itself, and a single
     line through both legs would close a loop that is real — the hysteresis —
     into a scribble.
     """
-    if not params.detectors:
+    if not params.monitors:
         return None
 
     legs = _legs(params)
-    per_leg = max(1, _MAX_DETECTOR_SERIES // max(1, len(legs)))
-    shown = params.detectors[:per_leg]
+    per_leg = max(1, _MAX_MONITOR_SERIES // max(1, len(legs)))
+    shown = params.monitors[:per_leg]
 
     series: list[Series] = []
     for name in shown:
@@ -1298,7 +1331,7 @@ def _detector_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
             points = [
                 Point(
                     x=sweep.scales[index],
-                    y=_finite(_match_value(sweep.steps[index], name)),
+                    y=_finite(_row_value(sweep.steps[index], name)),
                 )
                 for index in indices
             ]
@@ -1313,13 +1346,13 @@ def _detector_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         "each leg is drawn separately, so an ascent and a descent that do not "
         "lie on top of each other are a hysteresis the sweep measured.",
     ]
-    if len(shown) < len(params.detectors):
-        annotations.append(f"Showing the first {len(shown)} of {len(params.detectors)} detectors.")
+    if len(shown) < len(params.monitors):
+        annotations.append(f"Showing the first {len(shown)} of {len(params.monitors)} monitors.")
 
     return Panel(
-        title="Detector response",
+        title="Monitor response",
         x_label="Bump amplitude (fraction of requested)",
-        y_label="Detector reading",
+        y_label="Monitor reading",
         annotations=annotations,
         series_picker=True,
         mark=_lines(series),
@@ -1351,7 +1384,7 @@ def _build(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
             _panel_or_none(lambda: _orbit_shift_panel(sweep, params), "orbit shift"),
             _panel_or_none(lambda: _band_residual_panel(sweep, params), "band residual"),
             _panel_or_none(lambda: _corrector_offset_panel(sweep, params), "corrector offset"),
-            _panel_or_none(lambda: _detector_panel(sweep, params), "detector response"),
+            _panel_or_none(lambda: _monitor_panel(sweep, params), "monitor response"),
         )
         if panel is not None
     ]
@@ -1394,7 +1427,7 @@ def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
     3. **Corrector offsets** — each corrector's readback against its own
        pre-scan working point, so the terminal step's return to zero is
        visible.
-    4. **Detector response** — only when detectors were requested: their
+    4. **Monitor response** — only when monitors were requested: their
        readings against bump amplitude, one line per leg of the sweep.
 
     Rows carry no step number, so steps are attributed by position:

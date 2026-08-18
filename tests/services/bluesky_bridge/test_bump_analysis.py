@@ -23,8 +23,8 @@ BPMS = ["bpm1", "bpm2", "bpm3", "bpm4", "bpm5"]
 PROBE_AMPLITUDE = 0.02
 
 # A known [n_bpm, n_corr] response the synthetic probe rows below reproduce
-# exactly (no noise). Full column rank, so the fit's degeneracy check stays
-# quiet on it.
+# exactly (no noise). Full column rank, so `solve_offsets`' degeneracy check
+# stays quiet on it.
 KNOWN_RESPONSE = np.array(
     [
         [0.5, -1.2, 0.3],
@@ -108,19 +108,24 @@ def test_fit_matches_bpm_keys_by_device_name_prefix() -> None:
     assert np.allclose(result, KNOWN_RESPONSE)
 
 
-def test_fit_raises_when_two_correctors_share_a_response_direction() -> None:
+def test_fit_measures_a_degenerate_response_and_the_solve_refuses_it() -> None:
     """Two correctors at the same phase advance (here literally the same
-    column) span one direction, not two: every bump solved through that
-    response is arbitrary along the null direction, so the fit refuses it
-    rather than handing the solve an unconstrained answer.
+    column) span one direction, not two. The fit is a measurement, so it
+    hands the rank-deficient matrix back untouched — refusing there would
+    also refuse a run that never solves, like a zero-demand dry run over a
+    drifting mock readback. The refusal belongs to `solve_offsets`, the one
+    place that response is asked to answer for a demand.
     """
     degenerate = KNOWN_RESPONSE.copy()
     degenerate[:, 2] = degenerate[:, 0]
 
     rows = _probe_rows(degenerate, CORRECTORS, BPMS, PROBE_AMPLITUDE)
 
-    with pytest.raises(DegenerateBumpError, match="independent orbit direction"):
-        fit_probe_response(rows, CORRECTORS, BPMS, PROBE_AMPLITUDE)
+    fitted = fit_probe_response(rows, CORRECTORS, BPMS, PROBE_AMPLITUDE)
+    assert np.allclose(fitted, degenerate)
+
+    with pytest.raises(DegenerateBumpError, match="resolve only"):
+        solve_offsets(fitted, np.array([1e-4, 0.0, 0.0, 0.0, 0.0]))
 
 
 def test_fit_of_an_unresponsive_machine_is_all_zero_rather_than_an_error() -> None:

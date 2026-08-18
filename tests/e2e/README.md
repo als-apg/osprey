@@ -208,12 +208,12 @@ took a measurement has nothing to conclude from.
 It grades in the two layers described under [Best Practices](#best-practices) —
 a deterministic floor over the tool trace, plus one judge criterion over the
 prose. The floor is a **plan-class predicate**, never a plan name: correctors
-driven against BPM detectors is the orbit-response class, two or more distinct
+driven against BPM readbacks is the orbit-response class, two or more distinct
 setpoint axes is the grid class, and correctors driven toward per-BPM
 `targets` within a `tolerance` band is the orbit-bump class. A bump draft may
-legitimately carry `detectors` alongside its correctors — which is precisely
-the orbit-response shape — so the orbit-response predicate excludes any state
-carrying `targets`. A structurally equivalent plan under a different name
+legitimately carry monitor readbacks alongside its correctors — which is
+precisely the orbit-response shape — so the orbit-response predicate excludes
+any state carrying `targets`. A structurally equivalent plan under a different name
 still passes, and the predicates are pairwise exclusive, so no live test can
 be satisfied by another class's run.
 

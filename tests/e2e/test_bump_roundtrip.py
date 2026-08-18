@@ -133,20 +133,20 @@ pytestmark = [
 #               18103 test_bluesky_catalog_e2e · 18104 test_grid_scan_roundtrip
 #               18105 test_bluesky_sandbox_escape_e2e
 #               18106 test_bluesky_panels_deploy · 18108 test_bluesky_queue_e2e
-#               18109 test_scan_stack_agentic
+#               18109 test_plan_stack_agentic
 #               (18107 is test_nextcloud_talk_bridge_e2e's Nextcloud)
 #               (no panels port: this deploy drops the panel sidecar entirely,
 #               see EXTRA_CONFIG)
 #   tiled       18191 test_bluesky_queue_e2e · 18192 test_tiled_roundtrip
-#               18193 test_scan_stack_agentic
+#               18193 test_plan_stack_agentic
 #   VA (CA)     15064 test_bluesky_queue_e2e · 15065 test_tiled_roundtrip
-#               15066 test_scan_stack_agentic
+#               15066 test_plan_stack_agentic
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
-#               25434 test_bluesky_panels_deploy · 25435 test_scan_stack_agentic
+#               25434 test_bluesky_panels_deploy · 25435 test_plan_stack_agentic
 #   openobserve 25080 test_bluesky_queue_e2e · 25081 test_bluesky_deploy
 #               25082 test_tiled_roundtrip · 25083 test_bluesky_panels_deploy
-#               25084 test_scan_stack_agentic
-#   mongodb     27117 test_scan_stack_agentic
+#               25084 test_plan_stack_agentic
+#   mongodb     27117 test_plan_stack_agentic
 # ---------------------------------------------------------------------------
 BRIDGE_PORT = 18110
 TILED_PORT = 18194
@@ -355,7 +355,7 @@ PARITY_RTOL = 1e-9
 PARITY_ATOL = 1e-12
 
 #: Panels the plan's render draws for THIS run, in the order it draws them. No
-#: "Detector response" panel: that one is built only when ``detectors`` were
+#: "Monitor response" panel: that one is built only when ``monitors`` were
 #: requested, and this run requests none -- every device it reads is a BPM or a
 #: corrector, both of which already have a panel that says something about
 #: them.
@@ -404,14 +404,14 @@ class DeployedBumpStack:
         repo: Path,
         correctors: list[str],
         target_bpm: str,
-        closure_bpms: list[str],
+        closure_readbacks: list[str],
         span_monitor: str,
         closure_monitor: str,
     ):
         self.repo = repo
         self.correctors = correctors
         self.target_bpm = target_bpm
-        self.closure_bpms = closure_bpms
+        self.closure_readbacks = closure_readbacks
         self.span_monitor = span_monitor
         self.closure_monitor = closure_monitor
 
@@ -423,7 +423,7 @@ class DeployedBumpStack:
     def constrained_bpms(self) -> list[str]:
         """Targets then closure -- the row order the plan's solve, and every
         band assertion below, share."""
-        return [self.target_bpm, *self.closure_bpms]
+        return [self.target_bpm, *self.closure_readbacks]
 
     @property
     def all_bpms(self) -> list[str]:
@@ -498,7 +498,7 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         repo=repo,
         correctors=[available_correctors[index] for index in CORRECTOR_INDICES],
         target_bpm=available_bpms[TARGET_BPM_INDEX],
-        closure_bpms=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
+        closure_readbacks=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
         span_monitor=available_bpms[SPAN_MONITOR_BPM_INDEX],
         closure_monitor=available_bpms[CLOSURE_MONITOR_BPM_INDEX],
     )
@@ -795,9 +795,9 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
 
     plan_args = {
         "correctors": stack.correctors,
-        "targets": [{"bpm": stack.target_bpm, "value": TARGET_BUMP_M}],
-        "closure_bpms": stack.closure_bpms,
-        "bpms": stack.monitors,
+        "targets": [{"readback": stack.target_bpm, "value": TARGET_BUMP_M}],
+        "closure_readbacks": stack.closure_readbacks,
+        "readbacks": stack.monitors,
         "mode": "relative",
         "sweep": "monodirectional",
         "num": NUM_STEPS,
@@ -815,7 +815,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
         # No beam-current guard: this VA has no beam-current channel in its
         # pyat-coupled partition, and the plan's schema refuses half a guard
         # (a device with no threshold, or a threshold with no device).
-        "detectors": [],
+        "monitors": [],
     }
 
     # The module fixture waits for the RE worker environment once, which covers
@@ -945,7 +945,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
     # --- (c continued) every step landed inside the band ---------------------
     # Targets and closure BPMs alike, against what THAT step asked for. This is
     # the plan's own convergence contract, re-checked from the recorded rows.
-    desired = {stack.target_bpm: TARGET_BUMP_M, **dict.fromkeys(stack.closure_bpms, 0.0)}
+    desired = {stack.target_bpm: TARGET_BUMP_M, **dict.fromkeys(stack.closure_readbacks, 0.0)}
     for step, scale in enumerate(EXPECTED_SCALES):
         for bpm in stack.constrained_bpms:
             asked = scale * desired[bpm]

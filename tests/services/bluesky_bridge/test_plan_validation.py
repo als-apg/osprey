@@ -1233,11 +1233,13 @@ class TestShippedExemplarsPassValidation:
         before the gate is evaluated), all `2 * num` amplitude steps, the
         terminal working-point verification, and the restore.
 
-        The device names land in the mock factory's buckets exactly as
-        `_collect_device_names` sorts them: every BPM name here sits under a
-        field whose name has no "detect" in it, so all of them are built as
-        `MockMotor`s, whose constant readback is what makes the baseline noise
-        σ = 0 and any positive `tolerance` verifiable.
+        The mock factory builds one device per declared channel, split by the
+        roles the plan's `PARAMS` declares (`collect_channels`): the correctors
+        are the movables, every BPM name a readable. A mock readable counts up
+        on every trigger, so the three baseline reads carry σ = 1.0 — real
+        noise the plan's own floor gate measures — which is why the sample
+        `tolerance` sits above twice that, and why `best_effort` records the
+        counter's drift at each step instead of failing the sweep on it.
         """
         source = (_PLANS_CORE_DIR / "orbit_bump_sweep.py").read_text(encoding="utf-8")
         result = await validate_plan(
@@ -1245,13 +1247,13 @@ class TestShippedExemplarsPassValidation:
             plan_name="orbit_bump_sweep",
             sample_args={
                 "correctors": ["hcm1", "hcm2", "hcm3"],
-                "targets": [{"bpm": "bpm1", "value": 0.0}],
-                "closure_bpms": ["bpm2", "bpm3"],
-                "bpms": [],
+                "targets": [{"readback": "bpm1", "value": 0.0}],
+                "closure_readbacks": ["bpm2", "bpm3"],
+                "readbacks": [],
                 "num": 2,
                 "baseline_reads": 3,
                 "probe_amplitude": 0.1,
-                "tolerance": 0.01,
+                "tolerance": 10.0,
                 "max_trim_iterations": 1,
                 "best_effort": True,
                 "settle_s": 0.0,

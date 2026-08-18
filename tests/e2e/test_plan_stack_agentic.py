@@ -285,7 +285,7 @@ def is_orbit_response_state(state: dict[str, Any]) -> bool:
     what the correctors DO to the orbit; a state carrying ``targets`` is
     asking for a specific orbit instead — the bump class (see
     :func:`is_orbit_bump_state`) — and a bump draft may legitimately carry
-    ``detectors`` alongside its correctors, which without this clause would
+    ``monitors`` alongside its correctors, which without this clause would
     satisfy both predicates at once. The exclusion is on presence, not
     content: an ``orm`` draft has no notion of a target orbit, so the key
     appearing at all means the state was assembled for a different class.
@@ -358,8 +358,8 @@ def is_orbit_bump_state(state: dict[str, Any]) -> bool:
         return False
     return all(
         isinstance(target, dict)
-        and isinstance(target.get("bpm"), str)
-        and bool(target.get("bpm"))
+        and isinstance(target.get("readback"), str)
+        and bool(target.get("readback"))
         and _is_real_number(target.get("value"))
         for target in targets
     )
@@ -1518,9 +1518,9 @@ def test_grid_floor_accepts_a_grid_assembled_across_two_calls() -> None:
 
 _BUMP_ARGS: dict[str, Any] = {
     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
-    "targets": [{"bpm": "bpm_17", "value": 0.3}],
-    "closure_bpms": ["bpm_23", "bpm_29"],
-    "bpms": ["bpm_01", "bpm_17", "bpm_23", "bpm_29"],
+    "targets": [{"readback": "bpm_17", "value": 0.3}],
+    "closure_readbacks": ["bpm_23", "bpm_29"],
+    "readbacks": ["bpm_01", "bpm_17", "bpm_23", "bpm_29"],
     "tolerance": 0.02,
     "probe_amplitude": 0.5,
     "num": 3,
@@ -1528,11 +1528,11 @@ _BUMP_ARGS: dict[str, Any] = {
 
 #: The case the tightened :func:`is_orbit_response_state` exists for: a bump
 #: draft is free to record extra instruments alongside its orbit goal, and
-#: correctors + detectors is exactly the shape the orbit-response predicate
+#: correctors + readbacks is exactly the shape the orbit-response predicate
 #: used to accept.
-_BUMP_ARGS_WITH_DETECTORS: dict[str, Any] = {
+_BUMP_ARGS_WITH_MONITORS: dict[str, Any] = {
     **_BUMP_ARGS,
-    "detectors": ["bpm_01", "bpm_17"],
+    "monitors": ["bpm_01", "bpm_17"],
 }
 
 # A healthy bump readback: the requested displacement reached at the target
@@ -1615,7 +1615,7 @@ def test_bump_floor_accepts_a_bump_assembled_across_two_calls() -> None:
     traces = [
         _draft(
             plan_name="orbit_bump_sweep",
-            patch={k: _BUMP_ARGS[k] for k in ("correctors", "targets", "closure_bpms")},
+            patch={k: _BUMP_ARGS[k] for k in ("correctors", "targets", "closure_readbacks")},
         ),
         _draft(plan_name=None, patch={"tolerance": 0.02, "probe_amplitude": 0.5, "num": 3}),
         _add(),
@@ -1660,13 +1660,13 @@ _PLAN_CLASS_PREDICATES: dict[str, PlanClassPredicate] = {
 
 #: One representative accumulated draft state per case, labelled with the class
 #: it belongs to. Two bump entries, because the bare bump draft and the one
-#: carrying extra detectors fail differently: only the second one is what the
+#: carrying extra monitors fail differently: only the second one is what the
 #: orbit-response predicate had to be tightened against.
 _REPRESENTATIVE_STATES: dict[str, tuple[str, dict[str, Any]]] = {
     "orbit-response draft": ("orbit-response", _ORM_ARGS),
     "grid draft": ("grid-scan", _GRID_ARGS),
     "bump draft": ("orbit-bump", _BUMP_ARGS),
-    "bump draft with extra detectors": ("orbit-bump", _BUMP_ARGS_WITH_DETECTORS),
+    "bump draft with extra monitors": ("orbit-bump", _BUMP_ARGS_WITH_MONITORS),
 }
 
 
@@ -1678,9 +1678,9 @@ def test_plan_class_predicates_are_pairwise_exclusive(case: str) -> None:
 
     Without this, a live test could pass on another class's run: an agent asked
     for an orbit response that ran a grid scan (or a bump) would still be
-    graded as having taken the right measurement. The bump-with-detectors row
+    graded as having taken the right measurement. The bump-with-monitors row
     is the one that was actually broken — a bump draft recording extra
-    instruments carries correctors AND detectors, which is precisely the
+    instruments carries correctors AND monitor readbacks, which is precisely the
     orbit-response shape.
     """
     expected_class, state = _REPRESENTATIVE_STATES[case]
