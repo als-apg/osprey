@@ -48,6 +48,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `scripts/ci/flake_report.py` ranks flaky CI tests from GitHub Actions re-run
+  history. A test counts as flaky only when it failed and then passed on the
+  identical commit; failures that never went green are listed separately so a
+  branch bug is never filed as a flake.
 - `osprey up` and `osprey restart` warn in Preflight when Docker Desktop's
   "Enable host networking" is off and the deployment has web terminals. The
   post-up probe already caught this, but only after every image was built and

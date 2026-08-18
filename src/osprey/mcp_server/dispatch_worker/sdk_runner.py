@@ -561,6 +561,7 @@ async def run_dispatch(
         # ``__anext__`` is bounded by the inactivity watchdog. A full-window
         # silence means the provider never responded — fail fast with a clear
         # message instead of stalling to the worker's outer DISPATCH_TIMEOUT_SEC.
+        first_message_seen = False
         while True:
             try:
                 message = await asyncio.wait_for(agen.__anext__(), timeout=_INACTIVITY_TIMEOUT_SEC)
@@ -572,15 +573,34 @@ async def run_dispatch(
                 except Exception:
                     logger.debug("agen.aclose() raised after inactivity timeout", exc_info=True)
                 duration_sec = time.monotonic() - t0
-                msg = (
-                    f"No response from the model provider for "
-                    f"{_INACTIVITY_TIMEOUT_SEC:.0f}s — dispatch aborted. This usually "
-                    "means an invalid or expired provider credential, or an "
-                    "unreachable provider base URL."
-                )
+                if first_message_seen:
+                    msg = (
+                        f"No response from the model provider for "
+                        f"{_INACTIVITY_TIMEOUT_SEC:.0f}s — dispatch aborted. This usually "
+                        "means an invalid or expired provider credential, or an "
+                        "unreachable provider base URL."
+                    )
+                else:
+                    # The first window is NOT pure provider time: it also spans
+                    # SDK startup, the CLI spawn, and the MCP-ready barrier — so
+                    # on a cold or overloaded host it can expire without any
+                    # provider traffic having been attempted. Name both causes
+                    # rather than blaming the credential unconditionally.
+                    msg = (
+                        f"No response from the model provider within the first "
+                        f"{_INACTIVITY_TIMEOUT_SEC:.0f}s — dispatch aborted before any "
+                        "message arrived. This can mean an invalid or expired provider "
+                        "credential or an unreachable provider base URL — but this first "
+                        "window also covers local agent-runtime startup (SDK, CLI spawn, "
+                        "MCP servers), so a cold or overloaded host can exhaust it "
+                        "without any provider fault."
+                    )
                 logger.error("Dispatch aborted after %.1fs: %s", duration_sec, msg)
                 await _push({"type": "error", "message": msg})
-                # No bytes from the provider within the window — a provider fault.
+                # Nothing arrived within the window. Classified as a provider
+                # failure either way: mid-stream that is certain, and on the
+                # first window it remains the best single guess — the message
+                # above is what carries the cold-start caveat.
                 return failure_class._stamp(
                     _finalize(
                         {
@@ -598,6 +618,8 @@ async def run_dispatch(
                     failure_class.FAILURE_PROVIDER,
                     _num_calls(),
                 )
+
+            first_message_seen = True
 
             # Tool RESULTS arrive as ToolResultBlock inside UserMessage (the
             # SDK's message_parser wraps tool_result content that way), while
