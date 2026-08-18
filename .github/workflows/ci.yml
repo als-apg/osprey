@@ -208,7 +208,13 @@ jobs:
         # minutes later in an unrelated test and EPICS' signal handling turns
         # it into a silent wedge rather than a death. A live CA client/server
         # pair is only safe in a process of its own.
-        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short -n 4 --dist loadgroup $COV_ARGS
+        #
+        # --durations=50: the ubuntu cells run ~2x the macOS wall clock and the
+        # gap is undiagnosed. A per-cell slow-test ranking in every run is what
+        # tells "one group of tests got expensive" apart from "the whole suite
+        # is uniformly slower on this runner" — remove once the unit lane's
+        # runtime question is settled.
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 -n 4 --dist loadgroup $COV_ARGS
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is one line, and on

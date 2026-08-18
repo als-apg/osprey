@@ -93,6 +93,24 @@ with `execution_mode: "write"` —
 the `execute` tool defaults to readonly mode, which blocks write operations.
 {% if "bluesky" in enabled_servers | default([]) %}
 
+## Measurements Go Through the Queue, Not Through Repeated Writes
+
+A request that needs the machine set to **more than one value** is a plan, and
+plans run through the Bluesky queue. This holds however the request was worded:
+"step a corrector across a few settings and record where the beam sits",
+"sweep this setpoint and read the response back", and "run a scan" are the same
+operation, and none of them is a loop of `channel_write` calls.
+
+Stepping a setpoint by hand instead costs the operator one approval for every
+write rather than one for the whole measurement, produces no run — so nothing
+reaches the queue panel, the data store, or `get_run_data` — and parks the
+setpoint wherever the last accepted write left it if the sequence stops part
+way. Use the `operating-bluesky-plans` skill; it owns this path.
+
+`channel_read` is unrestricted, and a single `channel_write` the operator asked
+for by name is a legitimate operation. It is a *sequence* of writes standing in
+for a plan that is not.
+
 ## Starting a Bluesky Queue
 
 Starting a queue moves accelerator hardware. Arming a start needs
