@@ -36,7 +36,7 @@ _HTTP_SERVICES = {
     "event-dispatcher",
     "bluesky-bridge",
     "tiled",
-    "bluesky-panels",
+    "bluesky-web",
 }
 
 

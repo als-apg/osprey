@@ -3,7 +3,7 @@
 The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-``bluesky_panels``, ``nextcloud_bridge``, ``gchat_bridge``) plus the environment-variable name
+``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``) plus the environment-variable name
 pattern their validators share. Parsing, inheritance merging, and validation live in
 :mod:`osprey.cli.build_profile_load`, :mod:`osprey.cli.build_profile_merge`,
 and :mod:`osprey.cli.build_profile_model`, respectively; this module is a
@@ -316,13 +316,13 @@ class VAConfig:
 
 
 @dataclass
-class BlueskyPanelsConfig:
-    """Scan-panels sidecar configuration for a build profile (opt-in via the
-    ``bluesky_panels:`` key).
+class BlueskyWebConfig:
+    """Scan-bluesky-web sidecar configuration for a build profile (opt-in via the
+    ``bluesky_web:`` key).
 
-    Consumed by the build pipeline's bluesky-panels-injection step
-    (``_inject_bluesky_panels`` in ``build_cmd.py``) to deploy the single
-    ``bluesky_panels`` FastAPI sidecar (compose service ``bluesky-panels``) that
+    Consumed by the build pipeline's bluesky-web-injection step
+    (``_inject_bluesky_web`` in ``build_cmd.py``) to deploy the single
+    ``bluesky_web`` FastAPI sidecar (compose service ``bluesky-web``) that
     serves the three operator web panels (``plan``, ``results``,
     ``health``) and read-proxies the bluesky bridge. Port is validated
     by :meth:`BuildProfile.validate`.
@@ -330,7 +330,7 @@ class BlueskyPanelsConfig:
 
     port: int = 8095
     """Host/container port the sidecar's uvicorn process binds and publishes
-    (see ``templates/services/bluesky_panels/docker-compose.yml.j2``)."""
+    (see ``templates/services/bluesky_web/docker-compose.yml.j2``)."""
 
 
 @dataclass

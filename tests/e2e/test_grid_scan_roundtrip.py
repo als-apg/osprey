@@ -36,7 +36,9 @@ logic.
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
 Teardown goes through ``osprey down``, matching every other e2e in
-this directory.
+this directory, followed by exact-named removal of this project's own volumes
+(``tests/e2e/_volumes.py``): ``down`` keeps them by design, and a rerun must
+not inherit their state.
 
 Gating: needs Docker; the VA image builds natively for the host arch, so on
 Apple Silicon PyAT/softioc compile from source (no prebuilt aarch64 wheels) --
@@ -61,6 +63,7 @@ import pytest
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
     pytest.mark.e2e,
@@ -76,7 +79,7 @@ pytestmark = [
 # Distinct from every other e2e module's pinned bridge port (_orm_stack.py's
 # 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
 # 18099, test_tiled_roundtrip.py's 18101, test_bluesky_catalog_e2e.py's
-# 18103, test_bluesky_sandbox_escape_e2e.py's 18105, test_bluesky_panels_deploy.py's
+# 18103, test_bluesky_sandbox_escape_e2e.py's 18105, test_bluesky_web_deploy.py's
 # 18106) so this can run concurrently with any of them on a shared dev
 # machine without a port collision.
 BRIDGE_PORT = 18104
@@ -205,6 +208,9 @@ def deployed_grid_scan_stack(
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])

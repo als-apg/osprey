@@ -47,7 +47,7 @@ export default [
   // must not grow without bound either. Cap at the current high-water mark
   // (schema-form.js) rounded up; lower toward 450 if files shrink.
   {
-    files: ['src/osprey/interfaces/bluesky_panels/panels/**/*.js'],
+    files: ['src/osprey/interfaces/bluesky_web/panels/**/*.js'],
     ignores: ['**/*.test.*'],
     rules: {
       'max-lines': ['error', { max: 700, skipComments: true, skipBlankLines: true }],
@@ -71,7 +71,7 @@ export default [
   {
     files: [
       'src/osprey/interfaces/**/static/js/**/*.js',
-      'src/osprey/interfaces/bluesky_panels/panels/**/*.js',
+      'src/osprey/interfaces/bluesky_web/panels/**/*.js',
       'tests/**/*.{js,mjs}',
     ],
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },

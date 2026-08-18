@@ -1,4 +1,4 @@
-# Image for the Bluesky Panels sidecar service (osprey.interfaces.bluesky_panels): a
+# Image for the bluesky-web sidecar service (osprey.interfaces.bluesky_web): a
 # FastAPI process serving the operator web panels and same-origin read-proxying
 # the bluesky bridge, reached by the web-terminal reverse proxy at /panel/{id}.
 #
@@ -13,7 +13,7 @@
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). With no wheel staged it is a no-op.
 # This image is built locally by `osprey up`; override with
-# OSPREY_BLUESKY_PANELS_IMAGE to use a prebuilt/published image.
+# OSPREY_BLUESKY_WEB_IMAGE to use a prebuilt/published image.
 
 FROM python:3.11-slim
 

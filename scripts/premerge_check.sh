@@ -123,7 +123,7 @@ fi
 # people learn to skip.
 echo -e "\n=== MANUAL (containers) ==="
 scan_stack_touched=$(git diff $BASE...HEAD --name-only | grep -E \
-  "^(src/osprey/services/bluesky_bridge/|src/osprey/interfaces/bluesky_panels/|src/osprey/templates/services/bluesky|src/osprey/mcp_server/bluesky/|tests/e2e/test_bluesky|tests/e2e/test_tiled_roundtrip|tests/e2e/test_grid_scan_roundtrip|tests/e2e/_orm_stack|tests/e2e/_queue_drive)" || true)
+  "^(src/osprey/services/bluesky_bridge/|src/osprey/interfaces/bluesky_web/|src/osprey/templates/services/bluesky|src/osprey/mcp_server/bluesky/|tests/e2e/test_bluesky|tests/e2e/test_tiled_roundtrip|tests/e2e/test_grid_scan_roundtrip|tests/e2e/_orm_stack|tests/e2e/_queue_drive)" || true)
 if [ -n "$scan_stack_touched" ]; then
   echo "⚠ This diff touches the Bluesky scan stack — run the container e2e by hand"
   echo "  (needs Docker; none of these run in this script). In this order:"
@@ -141,7 +141,7 @@ if [ -n "$scan_stack_touched" ]; then
   echo "  uv run pytest tests/e2e/test_tiled_roundtrip.py -v"
   echo ""
   echo "  # 4. the sidecar hop: a scan driven entirely through the panels relay"
-  echo "  uv run pytest tests/e2e/test_bluesky_panels_deploy.py -v"
+  echo "  uv run pytest tests/e2e/test_bluesky_web_deploy.py -v"
   echo ""
   echo "  # 5. layered plan catalog served by a deployed container (browse-only)"
   echo "  uv run pytest tests/e2e/test_bluesky_catalog_e2e.py -v"

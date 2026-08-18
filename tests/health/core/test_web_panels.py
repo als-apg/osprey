@@ -100,7 +100,7 @@ class TestTargetResolution:
         assert "http://localhost:8020/health" in seen
 
     async def test_custom_panel_without_health_endpoint_falls_back_to_its_path(self):
-        """plan/results declare no health endpoint — probe the entry path instead."""
+        """A URL panel with no health endpoint is probed at its entry path instead."""
         seen: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:

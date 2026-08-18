@@ -1,4 +1,4 @@
-# Build-context hygiene for the bluesky-panels image.
+# Build-context hygiene for the bluesky-web image.
 #
 # The Dockerfile only needs the locally-built osprey wheel (*.whl) from this
 # context — and this `.dockerignore`, which the wheel COPY always names as its

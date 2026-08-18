@@ -48,6 +48,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `scripts/ci/flake_report.py` ranks flaky CI tests from GitHub Actions re-run
+  history. A test counts as flaky only when it failed and then passed on the
+  identical commit; failures that never went green are listed separately so a
+  branch bug is never filed as a flake.
 - `osprey up` and `osprey restart` warn in Preflight when Docker Desktop's
   "Enable host networking" is off and the deployment has web terminals. The
   post-up probe already caught this, but only after every image was built and
@@ -63,6 +67,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   something to check.
 
 ### Changed
+
+- The browser-facing bluesky sidecar is now the `bluesky-web` service (was
+  `bluesky-panels`): it is named for its role — the web half of the bluesky
+  stack, beside `bluesky-bridge` — rather than for the one panel it serves.
+  Everything moves with it: the `bluesky_web:` build-profile block, the
+  `services.bluesky_web.*` config keys, the compose service and image names,
+  and the `OSPREY_BLUESKY_WEB_IMAGE` / `BLUESKY_WEB_URL` variables. Rebuild
+  and redeploy to pick up the new names; nothing keeps the old spellings
+  alive.
 
 - Osprey now calls a bluesky plan a plan, not a scan. A plan is any bluesky
   generator — a scan is only one kind — so the word is gone from the operator
@@ -393,10 +406,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The **PLAN** and **BLUESKY** tabs are now one **BLUESKY** panel with three
   views — Plans, Queue, Results. The queue's state and its two halts (**Stop
   after current item**, **Abort running plan**) stay on screen across all
-  three, and picking a run in Queue opens it under Results. Projects that
-  still register a `plan` panel keep working for one release: the sidecar
-  serves the merged panel at `/plan/` too. Drop `plan` from your profile's
-  `web_panels` and remove any `web.panels.plan.*` override.
+  three, and picking a run in Queue opens it under Results. Drop `plan` from
+  your profile's `web_panels` and remove any `web.panels.plan.*` override.
 - `osprey -v` (`--verbose`) shows debug output, including every container
   command a deploy runs. Normal runs no longer echo those commands, so a
   deploy reads as a report — ending in the endpoint summary — rather than a
@@ -641,10 +652,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   browse-only — plans compose and validate, but the queue will not hold them.
   Switch with `osprey set connector=mock`.
 - The Bluesky **RESULTS** panel is now **BLUESKY**, and holds the scan queue as
-  well as the selected run's results. The sidecar serves the same bundle at
-  `/results/` for one more release so existing bookmarks and panel entries keep
-  resolving; move your own `web.panels.results.*` entries to
-  `web.panels.bluesky.*` before then. The preset rename changes its resolved
+  well as the selected run's results. Move your own `web.panels.results.*`
+  entries to `web.panels.bluesky.*`. The preset rename changes its resolved
   content, so an already-deployed project reports staleness on its next
   `osprey up`. That is the correct signal rather than noise — the tab a
   user sees is renamed — and rebuilding picks it up.

@@ -1,4 +1,4 @@
-"""Shared constants and helpers for the Bluesky panels sidecar routers.
+"""Shared constants and helpers for the bluesky-web sidecar routers.
 
 The three bridge-facing routers (``read_proxy``, ``draft_relay``, ``launch``)
 each translate a connection-level bridge failure into the same 502 body and

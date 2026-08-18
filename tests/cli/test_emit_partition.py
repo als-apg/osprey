@@ -231,7 +231,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
         "bluesky",
         "virtual_accelerator",
         "va_archiver",
-        "bluesky_panels",
+        "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
     }

@@ -123,8 +123,8 @@ def va_image(project_name: str) -> str:
 
 
 def panels_image(project_name: str) -> str:
-    """``<project>-bluesky-panels:local`` for ``project_name``."""
-    return _service_image(project_name, "bluesky-panels")
+    """``<project>-bluesky-web:local`` for ``project_name``."""
+    return _service_image(project_name, "bluesky-web")
 
 
 def force_image_rebuild(*images: str) -> None:
@@ -200,7 +200,7 @@ def override_yaml() -> str:
     ``VA_ARCHIVER_CI_KNOBS`` shrinks the archive the preset's ``va_archiver:``
     block declares to a CI-sized one -- see the constant for why. It trails
     ``dispatch: null`` so it stays outside the ``config:`` block (both are
-    top-level profile keys, and ``test_bluesky_panels_deploy`` splices its port
+    top-level profile keys, and ``test_bluesky_web_deploy`` splices its port
     moves in ahead of that line).
 
     Written as flat dotted-string keys under ``config:`` (matching the
@@ -295,7 +295,7 @@ def init_args(
     Writing rather than appending another CLI flag keeps a single ``--override``
     file, which is what ``osprey build`` wants. That rewrite OVERWRITES whatever
     the caller previously wrote to ``override_path``, so a caller that hand-rolls
-    its own override text (as the bluesky-panels e2e does) must pass its
+    its own override text (as the bluesky-web e2e does) must pass its
     additions here rather than pre-writing them. Empty or ``None`` is a no-op:
     ``override_path`` is left exactly as the caller wrote it, byte for byte.
     """
@@ -615,7 +615,7 @@ def restart_bridge(
 
     # --no-deps is what makes "only the bridge" structural rather than
     # incidental: compose's default service selection follows depends_on edges
-    # whose `restart: true` flag is set, and the bluesky-panels template
+    # whose `restart: true` flag is set, and the bluesky-web template
     # declares `depends_on: bluesky-bridge` in this same project. No template
     # sets that flag today, so the selection happens to be one service -- an
     # accident this flag stops depending on.

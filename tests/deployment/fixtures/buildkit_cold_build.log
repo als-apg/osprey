@@ -269,7 +269,28 @@ Compose can now delegate builds to bake for better performance.
 #17 [virtual-accelerator 6/8] RUN [ -n "2026.6.2.post1145+gfce915d02" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; }     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt     && apt-get update     && apt-get install -y --no-install-recommends build-essential python3-dev     && { pip install --no-cache-dir "osprey-framework[virtual-accelerator]==2026.6.2.post1145+gfce915d02" --only-binary pcaspy          || if [ "1" = "1" ]; then                 echo "WARNING: pin unreleased, priming with latest"                 && pip install --no-cache-dir "osprey-framework[virtual-accelerator]" --only-binary pcaspy ;             else                 exit 1 ;             fi ; }     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then            pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt ;        fi     && apt-get purge -y build-essential python3-dev     && apt-get autoremove -y     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 #17 8.411 Fetched 98.1 MB in 2s (46.4 MB/s)
 #17 8.493 Selecting previously unselected package libexpat1:amd64.
-#17 8.494 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5645 files and directories currently installed.)
+#17 8.494 (Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 5645 files and directories currently installed.)
 #17 8.497 Preparing to unpack .../libexpat1_2.8.2-1~deb13u1_amd64.deb ...
 #17 8.501 Unpacking libexpat1:amd64 (2.8.2-1~deb13u1) ...
 #17 8.608 Selecting previously unselected package libpython3.13-minimal:amd64.
@@ -282,7 +303,28 @@ Compose can now delegate builds to bake for better performance.
 #17 8.975 Setting up libexpat1:amd64 (2.8.2-1~deb13u1) ...
 #17 8.978 Setting up python3.13-minimal (3.13.5-2+deb13u4) ...
 #17 9.969 Selecting previously unselected package python3-minimal.
-#17 9.970 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5979 files and directories currently installed.)
+#17 9.970 (Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 5979 files and directories currently installed.)
 #17 9.973 Preparing to unpack .../python3-minimal_3.13.5-1_amd64.deb ...
 #17 9.977 Unpacking python3-minimal (3.13.5-1) ...
 #17 10.08 Selecting previously unselected package media-types.
@@ -299,7 +341,28 @@ Compose can now delegate builds to bake for better performance.
 #17 10.47 Unpacking libpython3-stdlib:amd64 (3.13.5-1) ...
 #17 10.54 Setting up python3-minimal (3.13.5-1) ...
 #17 11.07 Selecting previously unselected package python3.
-#17 11.07 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6433 files and directories currently installed.)
+#17 11.07 (Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 6433 files and directories currently installed.)
 #17 11.07 Preparing to unpack .../00-python3_3.13.5-1_amd64.deb ...
 #17 11.12 Unpacking python3 (3.13.5-1) ...
 #17 11.22 Selecting previously unselected package bzip2.
@@ -750,38 +813,38 @@ Compose can now delegate builds to bake for better performance.
 #39 [bluesky-bridge] resolving provenance for metadata file
 #39 DONE 0.0s
 
-#40 [bluesky-panels internal] load build definition from Dockerfile
+#40 [bluesky-web internal] load build definition from Dockerfile
 #40 transferring dockerfile: 5.33kB done
 #40 DONE 0.0s
 
-#41 [bluesky-panels auth] library/python:pull token for registry-1.docker.io
+#41 [bluesky-web auth] library/python:pull token for registry-1.docker.io
 #41 DONE 0.0s
 
-#4 [bluesky-panels internal] load metadata for docker.io/library/python:3.11-slim
+#4 [bluesky-web internal] load metadata for docker.io/library/python:3.11-slim
 #4 DONE 2.3s
 
-#42 [bluesky-panels internal] load .dockerignore
+#42 [bluesky-web internal] load .dockerignore
 #42 transferring context: 635B done
 #42 DONE 0.0s
 
-#7 [bluesky-panels 1/7] FROM docker.io/library/python:3.11-slim@sha256:a630a63cdb314e2d138a2fca3e375e319e8568346ffafac5b980f888630ac4f1
+#7 [bluesky-web 1/7] FROM docker.io/library/python:3.11-slim@sha256:a630a63cdb314e2d138a2fca3e375e319e8568346ffafac5b980f888630ac4f1
 #7 resolve docker.io/library/python:3.11-slim@sha256:a630a63cdb314e2d138a2fca3e375e319e8568346ffafac5b980f888630ac4f1 done
 #7 DONE 1.1s
 
-#43 [bluesky-panels internal] load build context
+#43 [bluesky-web internal] load build context
 #43 transferring context: 5.06MB 0.0s done
 #43 DONE 0.0s
 
-#30 [bluesky-panels 2/7] WORKDIR /app
+#30 [bluesky-web 2/7] WORKDIR /app
 #30 CACHED
 
-#32 [bluesky-panels 3/7] RUN find /etc/apt ( -name '*.sources' -o -name '*.list' )     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} +  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
+#32 [bluesky-web 3/7] RUN find /etc/apt ( -name '*.sources' -o -name '*.list' )     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} +  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 #32 CACHED
 
-#44 [bluesky-panels 4/7] COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+#44 [bluesky-web 4/7] COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 #44 DONE 0.8s
 
-#45 [bluesky-panels 5/7] RUN [ -n "2026.6.2.post1145+gfce915d02" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; }     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt     && apt-get update     && apt-get install -y --no-install-recommends build-essential python3-dev     && { pip install --no-cache-dir "osprey-framework==2026.6.2.post1145+gfce915d02"          || if [ "1" = "1" ]; then                 echo "WARNING: pin unreleased, priming with latest"                 && pip install --no-cache-dir "osprey-framework" ;             else                 exit 1 ;             fi ; }     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then            pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt ;        fi     && apt-get purge -y build-essential python3-dev     && apt-get autoremove -y     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
+#45 [bluesky-web 5/7] RUN [ -n "2026.6.2.post1145+gfce915d02" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; }     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt     && apt-get update     && apt-get install -y --no-install-recommends build-essential python3-dev     && { pip install --no-cache-dir "osprey-framework==2026.6.2.post1145+gfce915d02"          || if [ "1" = "1" ]; then                 echo "WARNING: pin unreleased, priming with latest"                 && pip install --no-cache-dir "osprey-framework" ;             else                 exit 1 ;             fi ; }     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then            pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt ;        fi     && apt-get purge -y build-essential python3-dev     && apt-get autoremove -y     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 #45 0.282 Hit:1 https://deb.debian.org/debian trixie InRelease
 #45 0.297 Get:2 https://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
 #45 0.342 Get:3 https://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
@@ -809,10 +872,10 @@ Compose can now delegate builds to bake for better performance.
 #45 140.8 Processing triggers for libc-bin (2.41-12+deb13u3) ...
 #45 DONE 141.3s
 
-#46 [bluesky-panels 6/7] COPY .dockerignore *.wh[l] /tmp/ctx/
+#46 [bluesky-web 6/7] COPY .dockerignore *.wh[l] /tmp/ctx/
 #46 DONE 0.2s
 
-#47 [bluesky-panels 7/7] RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then         echo "Overlaying locally-built osprey wheel (dev build)"         && pip install --no-cache-dir /tmp/ctx/*.whl         && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl         && pip check ;     fi     && rm -rf /tmp/ctx
+#47 [bluesky-web 7/7] RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then         echo "Overlaying locally-built osprey wheel (dev build)"         && pip install --no-cache-dir /tmp/ctx/*.whl         && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl         && pip check ;     fi     && rm -rf /tmp/ctx
 #47 0.090 Overlaying locally-built osprey wheel (dev build)
 #47 0.317 Processing /tmp/ctx/osprey_connectors-0.1.0-py3-none-any.whl
 #47 0.321 Processing /tmp/ctx/osprey_framework-2026.6.2.post1145+gfce915d02-py3-none-any.whl
@@ -840,21 +903,21 @@ Compose can now delegate builds to bake for better performance.
 #47 7.445 No broken requirements found.
 #47 DONE 7.8s
 
-#48 [bluesky-panels] exporting to image
+#48 [bluesky-web] exporting to image
 #48 exporting layers
 #48 exporting layers 48.0s done
 #48 exporting manifest sha256:350a93f85b388851235c4bf9a2ae8f91cd33ac975c48d031e8b1091474ec9cdf done
 #48 exporting config sha256:968d20fe5f2608eb12bcf1b38b3938ef39a47e2bac3c35188e3d71db0ff70495 done
 #48 exporting attestation manifest sha256:93941d11790572c4619bad9b5ef5e6f1ee96d359713a8371942769a2286faa6b done
 #48 exporting manifest list sha256:44a3e0f37ceb2e0bb4125aabb58bebfa6dfd6aedfa0c287e35f9ba531b549d42 done
-#48 naming to docker.io/library/my-control-assistant-bluesky-panels:local done
-#48 unpacking to docker.io/library/my-control-assistant-bluesky-panels:local
-#48 unpacking to docker.io/library/my-control-assistant-bluesky-panels:local 9.9s done
+#48 naming to docker.io/library/my-control-assistant-bluesky-web:local done
+#48 unpacking to docker.io/library/my-control-assistant-bluesky-web:local
+#48 unpacking to docker.io/library/my-control-assistant-bluesky-web:local 9.9s done
 #48 DONE 57.9s
 
-#49 [bluesky-panels] resolving provenance for metadata file
+#49 [bluesky-web] resolving provenance for metadata file
 #49 DONE 0.0s
  bluesky-bridge  Built
- bluesky-panels  Built
+ bluesky-web  Built
  event-dispatcher  Built
  virtual-accelerator  Built

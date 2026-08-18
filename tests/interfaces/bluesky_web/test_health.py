@@ -1,6 +1,6 @@
-"""Unit tests for the bluesky panels sidecar app shell.
+"""Unit tests for the bluesky-web sidecar app shell.
 
-Exercises the assembled FastAPI app (`bluesky_panels/app.py`) rather than its
+Exercises the assembled FastAPI app (`bluesky_web/app.py`) rather than its
 helpers directly: the healthcheck route, the two panel static mounts, and
 import-cleanliness (no `bluesky`/`ophyd`/`tiled` at module scope).
 """
@@ -13,7 +13,7 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.bluesky_panels.app import _PANEL_MOUNTS, _PANELS_ROOT, app
+from osprey.interfaces.bluesky_web.app import _PANEL_MOUNTS, _PANELS_ROOT, app
 
 _HEAVY_MODULES = ("bluesky", "ophyd", "tiled")
 
@@ -31,18 +31,7 @@ def test_health_ok(client: TestClient) -> None:
 
 
 def test_panel_mounts_registered() -> None:
-    # ``(mount_path, bundle_dir)`` pairs rather than a dict: one bundle is
-    # served at three paths, since ``/results`` and ``/plan`` are deprecated
-    # aliases of ``/bluesky`` for one release, and a ``{bundle: path}`` dict
-    # cannot say that. Every mount path must be registered — an alias is not a
-    # redirect, it is a second mount of the same directory.
-    bundle_of = dict(_PANEL_MOUNTS)
-    assert [mount_path for mount_path, _ in _PANEL_MOUNTS] == ["/bluesky", "/plan", "/results"]
-    # The alias invariant, asserted without naming the bundle directory: the
-    # BLUESKY bundle is renamed once (panels/results -> panels/bluesky) and
-    # this must keep holding across that rename, not break on it.
-    assert bundle_of["/results"] == bundle_of["/bluesky"]
-    assert bundle_of["/plan"] == bundle_of["/bluesky"]
+    assert [mount_path for mount_path, _ in _PANEL_MOUNTS] == ["/bluesky"]
 
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
     for mount_path, _bundle_dir in _PANEL_MOUNTS:
@@ -100,14 +89,14 @@ def test_import_is_clean_of_heavy_control_system_deps() -> None:
     # Must run in a FRESH interpreter: an in-process ``sys.modules`` check is
     # polluted by any other test in the session that imported bluesky/ophyd/
     # tiled (e.g. the bluesky_bridge suite in a full ``pytest tests/`` run), so
-    # proving bluesky_panels.app's OWN import graph is clean requires isolation.
+    # proving bluesky_web.app's OWN import graph is clean requires isolation.
     check = (
-        "import sys, osprey.interfaces.bluesky_panels.app; "
+        "import sys, osprey.interfaces.bluesky_web.app; "
         f"leaked=[m for m in {_HEAVY_MODULES!r} if m in sys.modules]; "
         "sys.exit('leaked: ' + ','.join(leaked) if leaked else 0)"
     )
     result = subprocess.run([sys.executable, "-c", check], capture_output=True, text=True)
     assert result.returncode == 0, (
-        "osprey.interfaces.bluesky_panels.app must not import a heavy control-system "
+        "osprey.interfaces.bluesky_web.app must not import a heavy control-system "
         f"dependency at module scope: {result.stdout}{result.stderr}"
     )

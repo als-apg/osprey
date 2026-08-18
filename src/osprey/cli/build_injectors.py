@@ -5,7 +5,7 @@ writes the matching ``services.<name>`` block into ``config.yml`` (and
 registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
-``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
+``BlueskyWebConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
 ``GChatBridgeProfileConfig``) plus ``VAArchiverConfig``, whose block lives in
 :mod:`osprey.cli.build_profile_archiver`.
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
@@ -26,7 +26,7 @@ from osprey.utils.logger import get_logger
 if TYPE_CHECKING:
     from osprey.cli.build_profile import (
         BlueskyConfig,
-        BlueskyPanelsConfig,
+        BlueskyWebConfig,
         DispatchConfig,
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
@@ -730,36 +730,6 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     )
 
 
-# The RESULTS panel became BLUESKY when that bundle absorbed the queue view, so
-# the panel id, its label, and its mount path all moved together. A profile (or
-# an already-built config.yml) written before the rename still says ``results``;
-# that keeps working for one release because the sidecar serves the SAME bundle
-# at /results/ and /bluesky/ (the alias row in
-# ``interfaces/bluesky_panels/app.py``'s ``_PANEL_MOUNTS``). One release, because
-# the alias mount goes away with it — a rename the operator never hears about is
-# a tab that disappears on an upgrade.
-_RESULTS_PANEL_DEPRECATION = (
-    "web.panels.results is deprecated: the RESULTS panel is now BLUESKY "
-    "(web.panels.bluesky, served at /bluesky/). The `results` id keeps working for "
-    "ONE release and is removed after that. Until then the sidecar serves the same "
-    "bundle at /results/. Rename `results` to `bluesky` in the build profile's web_panels "
-    "list and in any web.panels.results.* config override."
-)
-
-# The PLAN panel was folded into BLUESKY as its Plans tab, on the same terms as
-# the RESULTS rename above: one bundle, one registration, and a ``/plan/`` alias
-# mount that keeps a config.yml written before the merge resolving for one
-# release rather than 404ing. Registering both ids now would put two rail
-# entries in front of the SAME panel.
-_PLAN_PANEL_DEPRECATION = (
-    "web.panels.plan is deprecated: the PLAN panel is now the Plans tab of BLUESKY "
-    "(web.panels.bluesky, served at /bluesky/). The `plan` id keeps working for "
-    "ONE release and is removed after that. Until then the sidecar serves the same "
-    "bundle at /plan/. Drop `plan` from the build profile's web_panels list, along with "
-    "any web.panels.plan.* config override."
-)
-
-
 def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> None:
     """Fill a partially-specified ``web.panels.<id>`` entry in place.
 
@@ -776,22 +746,19 @@ def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> Non
         anchored_put(panel_cfg, "label", label)
 
 
-def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Path) -> None:
-    """Wire the bluesky-panels sidecar + its web panels into a built project.
+def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> None:
+    """Wire the bluesky-web sidecar + its web panels into a built project.
 
-    1. Copy the bundled ``templates/services/bluesky_panels/`` compose template
-       into ``<project>/services/bluesky_panels/``.
-    2. Write ``services.bluesky_panels`` config + register it in
+    1. Copy the bundled ``templates/services/bluesky_web/`` compose template
+       into ``<project>/services/bluesky_web/``.
+    2. Write ``services.bluesky_web`` config + register it in
        ``deployed_services`` (so ``find_service_config`` resolves it,
        mirroring ``_inject_bluesky``).
     3. Register the ``web.panels.bluesky`` entry pointing at the sidecar's root
        URL, mirroring ``_inject_dispatch``'s ``events`` panel registration: the
        panel points the proxy at the sidecar ROOT and uses ``path`` to select
        the panel's static mount, so the panel HTML loads there while its
-       prefix-relative API fetches reach the sidecar root. A ``results`` or
-       ``plan`` entry left in a profile from before the rename/merge is
-       completed and warned about rather than dropped — see
-       ``_RESULTS_PANEL_DEPRECATION`` and ``_PLAN_PANEL_DEPRECATION``.
+       prefix-relative API fetches reach the sidecar root.
     4. Print a post-build hint (image prerequisite).
 
     Thin mirror of :func:`_inject_va`/:func:`_inject_bluesky` for the compose
@@ -799,7 +766,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     idiom for the panel registration.
 
     Args:
-        bluesky_panels: Validated bluesky-panels configuration from the build profile.
+        bluesky_web: Validated bluesky-web configuration from the build profile.
         project_path: Root of the built project.
     """
     from ruamel.yaml import YAML
@@ -807,21 +774,21 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # 1. Copy the bundled compose template (located the same way as service templates).
     pkg_services = _locate_pkg_services()
 
-    src_dir = pkg_services / "bluesky_panels"
+    src_dir = pkg_services / "bluesky_web"
     if not src_dir.is_dir():
-        logger.warning("No package template for bluesky_panels service at %s", src_dir)
+        logger.warning("No package template for bluesky_web service at %s", src_dir)
         return
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
-    dest_dir = dest_services_root / "bluesky_panels"
-    _refresh_service_dir(src_dir, dest_dir, "bluesky_panels", _user_owned_services(project_path))
+    dest_dir = dest_services_root / "bluesky_web"
+    _refresh_service_dir(src_dir, dest_dir, "bluesky_web", _user_owned_services(project_path))
 
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found. Skipping the bluesky_panels config registration.")
+        logger.warning("config.yml not found. Skipping the bluesky_web config registration.")
         return
 
     yaml = YAML()
@@ -829,25 +796,25 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     with open(config_path) as fh:
         config = yaml.load(fh)
 
-    # No ``image`` key: the service builds the local bluesky-panels image on
-    # first ``osprey up``. Override with OSPREY_BLUESKY_PANELS_IMAGE, or
-    # set ``services.bluesky_panels.image`` here, to use a prebuilt/published image.
+    # No ``image`` key: the service builds the local bluesky-web image on
+    # first ``osprey up``. Override with OSPREY_BLUESKY_WEB_IMAGE, or
+    # set ``services.bluesky_web.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
     anchored_put(
         config["services"],
-        "bluesky_panels",
+        "bluesky_web",
         {
-            "path": "./services/bluesky_panels",
-            "port": bluesky_panels.port,
+            "path": "./services/bluesky_web",
+            "port": bluesky_web.port,
         },
     )
     deployed = config.get("deployed_services", []) or []
-    if "bluesky_panels" not in [str(s) for s in deployed]:
-        anchored_append(deployed, "bluesky_panels")
+    if "bluesky_web" not in [str(s) for s in deployed]:
+        anchored_append(deployed, "bluesky_web")
     config["deployed_services"] = deployed
 
     # 3. Register the web.panels.bluesky entry. Derive its url from
-    # bluesky_panels.port so the port is a single source of truth (mirroring the
+    # bluesky_web.port so the port is a single source of truth (mirroring the
     # events-panel comment in _inject_dispatch), but write only when the
     # profile has not already set an explicit `web.panels.<id>.url` via a
     # config override (merged earlier in the build); explicit overrides take
@@ -857,7 +824,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # `url.rstrip('/') + '/' + path`, so a path baked into `url` would
     # double-prefix sub-routes. `setdefault` on `path`/`label` honors a
     # facility override.
-    default_url = f"${{BLUESKY_PANELS_URL:-http://localhost:{bluesky_panels.port}}}"
+    default_url = f"${{BLUESKY_WEB_URL:-http://localhost:{bluesky_web.port}}}"
     panel_specs = (("bluesky", "/bluesky/", "BLUESKY"),)
     panels = config.setdefault("web", {}).setdefault("panels", {})
     for panel_id, panel_path, label in panel_specs:
@@ -870,35 +837,19 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
             continue
         _fill_panel_defaults(panel_cfg, default_url, panel_path, label)
 
-    # Deprecated ``results``/``plan`` aliases: completed, never created. An
-    # entry only exists here when the profile still declares one (a
-    # `web.panels.<id>.*` override merged earlier in the build, or a config.yml
-    # built before the rename/merge and rebuilt in place), and it keeps
-    # resolving because the sidecar serves the BLUESKY bundle at /results/ and
-    # /plan/ as well.
-    for _deprecated_id, _deprecated_path, _deprecated_label, _notice in (
-        ("results", "/results/", "RESULTS", _RESULTS_PANEL_DEPRECATION),
-        ("plan", "/plan/", "PLAN", _PLAN_PANEL_DEPRECATION),
-    ):
-        if _deprecated_id in panels:
-            logger.warning("  ! %s", _notice)
-            _fill_panel_defaults(
-                panels[_deprecated_id], default_url, _deprecated_path, _deprecated_label
-            )
-
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
 
     # 4. Post-build hint.
-    logger.debug("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
+    logger.debug("  ✓ Injected bluesky-web sidecar (port %d)", bluesky_web.port)
     logger.debug(
         "    Panels:     BLUESKY (Plans | Queue | Results). Reach it through the "
         "web-terminal proxy at /panel/bluesky."
     )
     logger.debug(
-        "    Images:     `osprey up` builds the bluesky-panels image locally "
+        "    Images:     `osprey up` builds the bluesky-web image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
-        "set OSPREY_BLUESKY_PANELS_IMAGE to use a published image."
+        "set OSPREY_BLUESKY_WEB_IMAGE to use a published image."
     )
 
 

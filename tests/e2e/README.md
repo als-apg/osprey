@@ -178,7 +178,7 @@ source of truth.
 | Module | CI lane |
 | --- | --- |
 | `test_bluesky_deploy.py` | `bluesky-deploy-e2e` |
-| `test_bluesky_panels_deploy.py` | `bluesky-panels-deploy-e2e` |
+| `test_bluesky_web_deploy.py` | `bluesky-web-deploy-e2e` |
 | `test_va_substrate_equivalence.py` | `va-substrate-equivalence-e2e` |
 | `test_orm_roundtrip.py`, then `test_grid_scan_roundtrip.py`, then `test_bump_roundtrip.py` | `orm-roundtrip-e2e` (all three, sequentially, one deploy per file) |
 | `test_bluesky_queue_e2e.py` | `bluesky-queue-e2e` |

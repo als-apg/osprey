@@ -108,7 +108,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "bluesky",
         "virtual_accelerator",
         "va_archiver",
-        "bluesky_panels",
+        "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
     }
@@ -353,11 +353,11 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   timeout_sec: 5
 #   host: archive.example.org   # only for an attached project
 """,
-    "bluesky_panels": """
+    "bluesky_web": """
 # --- Bluesky web panels ------------------------------------------------------
 # Scan-monitoring panels for the web terminal (requires the bluesky block).
 #
-# bluesky_panels:
+# bluesky_web:
 #   port: 8095
 """,
     "nextcloud_bridge": """
@@ -422,7 +422,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "bluesky",
     "virtual_accelerator",
     "va_archiver",
-    "bluesky_panels",
+    "bluesky_web",
     "nextcloud_bridge",
     "gchat_bridge",
 )

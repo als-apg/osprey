@@ -8,7 +8,7 @@ LLM, so this test needs no provider API key — ``hello-world``'s bundled
 ``provider``/``model`` defaults are enough for the build to succeed.
 
 **Scope, and how it differs from ``test_bluesky_queue_e2e.py``.** That module
-is the full-stack proof: Virtual Accelerator, Tiled, the panels sidecar, real
+is the full-stack proof: Virtual Accelerator, Tiled, the bluesky-web sidecar, real
 plan runs driven to completion, aborts, restarts. THIS module deliberately deploys
 the smallest thing the ``bluesky:`` profile block can produce — one bridge, one
 ``bluesky-queueserver`` RE Manager, one Redis — on the ``hello-world`` preset,
@@ -51,7 +51,9 @@ Asserts, against the REAL deployed containers:
 CONTAINER SAFETY: every docker/podman invocation below names an exact
 container/image — never a wildcard, never ``system prune``/``--volumes``.
 Teardown goes through ``osprey down`` (the shipped compose teardown path), not
-a raw ``docker rm``/``rmi`` sweep.
+a raw ``docker rm``/``rmi`` sweep, followed by exact-named removal of this
+project's own volumes (``tests/e2e/_volumes.py``): ``down`` keeps them by
+design, and a rerun must not inherit their state.
 
 Gating: needs Docker. Skipped entirely if unavailable. Lives in ``tests/e2e/``
 (not ``tests/integration/``) so the fast lane (``pytest tests/ --ignore=tests/e2e``,
@@ -82,6 +84,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
 )
+from tests.e2e._volumes import remove_project_volumes
 
 # Deliberately NOT the bluesky-bridge default (8090): this is a shared dev
 # machine with other long-running services, and 8090 was observed colliding
@@ -257,6 +260,9 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
 def _wait_for_health(url: str, timeout: float) -> None:

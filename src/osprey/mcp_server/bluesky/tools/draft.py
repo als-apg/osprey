@@ -49,12 +49,9 @@ logger = logging.getLogger("osprey.mcp_server.bluesky.tools.draft")
 _CLIENT_ID = "mcp-agent"
 
 # Canonical id the build registers the panel under (web.panels.bluesky) and the
-# sidecar path segments it is served at, in preference order. ``plan`` is a
-# second mount of the panel's Plans tab serving the same bundle, so a config.yml
-# naming it is still found — but only after the canonical spelling has been
-# looked for.
+# sidecar path segment it is served at.
 _DEFAULT_PLANS_PANEL_ID = "bluesky"
-_PLANS_PANEL_PATH_SEGMENTS = ("bluesky", "plan")
+_PLANS_PANEL_PATH_SEGMENTS = ("bluesky",)
 
 
 def _plans_panel_id() -> str:

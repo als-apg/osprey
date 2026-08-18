@@ -535,7 +535,7 @@ export function createPlansView({ root, api, onOpenRun }) {
         void selectPlan(grouped[0].items[0].name);
       }
     } catch {
-      showRootError('could not reach the bluesky panels sidecar');
+      showRootError('could not reach the bluesky-web sidecar');
       plans = [];
       renderPlanTree();
       detailEmptyEl.hidden = false;
@@ -598,7 +598,7 @@ export function createPlansView({ root, api, onOpenRun }) {
       confirmArmed = false;
       detailEmptyEl.hidden = true;
       detailBodyEl.hidden = false;
-      showQueueOutcome('err', 'could not reach the bluesky panels sidecar');
+      showQueueOutcome('err', 'could not reach the bluesky-web sidecar');
       updateQueueButton();
     }
   }

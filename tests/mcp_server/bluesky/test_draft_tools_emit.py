@@ -100,44 +100,6 @@ async def test_set_draft_panel_id_resolved_from_web_panels_config():
     assert notify.call_args.kwargs["panel"] == "operator-plan"
 
 
-async def test_set_draft_panel_id_falls_back_to_a_pre_merge_plan_mount():
-    """A deployment built before PLAN was folded into BLUESKY still registers a
-    panel at ``/plan/``. The sidecar serves the merged bundle there, so the
-    highlight must land on it rather than on a ``bluesky`` entry the config
-    does not have."""
-    config = {"web": {"panels": {"plan": {"url": "http://localhost:9000", "path": "/plan/"}}}}
-    with (
-        patch(f"{_MOD}._http_patch_json", return_value=(200, _SET_RESP)),
-        patch(f"{_MOD}.notify_agent_activity") as notify,
-        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
-    ):
-        await _set_fn()(plan_name="grid_scan")
-
-    assert notify.call_args.kwargs["panel"] == "plan"
-
-
-async def test_set_draft_panel_id_prefers_the_current_mount_over_the_legacy_one():
-    """A config.yml rebuilt in place can carry BOTH: the new registration and
-    the deprecated alias left over from before the merge. The current spelling
-    wins, or the rebuild would still highlight the retired entry."""
-    config = {
-        "web": {
-            "panels": {
-                "plan": {"url": "http://localhost:9000", "path": "/plan/"},
-                "bluesky": {"url": "http://localhost:9000", "path": "/bluesky/"},
-            }
-        }
-    }
-    with (
-        patch(f"{_MOD}._http_patch_json", return_value=(200, _SET_RESP)),
-        patch(f"{_MOD}.notify_agent_activity") as notify,
-        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
-    ):
-        await _set_fn()(plan_name="grid_scan")
-
-    assert notify.call_args.kwargs["panel"] == "bluesky"
-
-
 # =========================================================================
 # Successful clear_draft → one emit with detail='cleared'
 # =========================================================================

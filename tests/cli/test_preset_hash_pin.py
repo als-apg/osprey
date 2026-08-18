@@ -27,22 +27,24 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     ),
     # A digest here is the resolved content of the preset AND of every preset
     # that extends it, so a change in a base moves all four control-assistant
-    # entries together. Comment rewrites cannot move a digest
+    # entries together. Last moved when the bluesky-web sidecar shed its
+    # panels-era name, a deploy-visible change (the panel's backing service
+    # and its config keys are renamed). Comment rewrites cannot move a digest
     # (`_hash_resolved_profile` hashes resolved canonical JSON and says so);
     # only a key or value change can. Some such changes are behavior-neutral
     # and some are not — a rebuilt project can gain or lose a tab, a hook, a
     # health check or a skill directory — and in either case the deploy-side
     # staleness advisory firing on already-deployed projects is the correct
     # signal, not noise.
-    "control-assistant": "sha256:81eeb1f274b53de03e56faed4326dda3fd3603817615071aecd5870be84476fd",
+    "control-assistant": "sha256:7f34fdf03e254c29b56a50197c3145fad0e3696fc6aba1158389c68d6449772e",
     "control-assistant-ariel": (
-        "sha256:918d17194d33fa517d16a29e8bcd2eab548de895b97ef2da72c7ea714716fefa"
+        "sha256:a19f94f08707b1ae31ee8b552c7b5ae1d64da7a2408c59fc820af89cdaca37ba"
     ),
     "control-assistant-readonly": (
-        "sha256:b50aef9386d7e3f1193154e133df6b124d3a2cd36408e70203bad89b51965250"
+        "sha256:f382bdcd0c14db5a6a6885a3df8af598998a510d6fa28be18608cdd4f2587dd5"
     ),
     "control-assistant-readwrite": (
-        "sha256:a141880a8037ba0afa7b655cdc157b6bbaebc413b61392714ba0ce8671f4c8a3"
+        "sha256:c1abf15d10e77b4cb9b63bd8641cb14d578328558f2b9f3b1b94411711eb7e87"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

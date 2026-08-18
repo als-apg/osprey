@@ -120,25 +120,54 @@ def wait_for_worker_environment(
     on it would be very nearly vacuous. ``worker_environment_exists`` is the
     one field that separates the two.
 
+    ``worker_environment_exists`` alone is necessary but NOT sufficient: it
+    flips true the moment the worker process is up, while ``plans_allowed``
+    is filled in on a separate, later path -- the manager notices the open
+    environment on a poll, downloads the worker's plan and device lists, and
+    only then recomputes what is allowed. An enqueue landing in that window
+    is refused with exactly the 409 this gate exists to prevent. So a second
+    phase polls ``GET /devices`` until it is non-empty: the manager assigns
+    its allowed-plans and allowed-devices lists in one synchronous body
+    (plans first), so a non-empty device list proves ``plans_allowed`` has
+    already landed. Every substrate ships at least one device, so "non-empty"
+    is the right bar.
+
     Returns the manager status document that satisfied the wait. Raises
-    ``AssertionError`` naming the last status seen -- a failure here says the
-    worker environment never came up, which points at the queueserver rather
-    than at the plan the caller was about to run.
+    ``AssertionError`` naming the last thing seen -- a failure here says the
+    worker environment (or its plan list) never came up, which points at the
+    queueserver rather than at the plan the caller was about to run.
     """
     deadline = time.monotonic() + timeout
     last: Any = "(no answer yet)"
+    status_doc: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         http_status, body = request(base_url, "/queue", "GET")
         if http_status == 200 and isinstance(body, dict):
             last = body.get("status") or {}
             if isinstance(last, dict) and last.get("worker_environment_exists"):
-                return dict(last)
+                status_doc = dict(last)
+                break
         else:
             last = body
         time.sleep(poll)
+    if status_doc is None:
+        raise AssertionError(
+            f"the RE worker environment never opened within {timeout:.0f}s -- the queue "
+            f"cannot accept plans until it does (last manager status: {last!r})"
+        )
+    # Phase 2, on the same deadline: the environment is open, but the manager
+    # may not have downloaded the worker's plan list yet (see docstring).
+    last = "(no answer yet)"
+    while time.monotonic() < deadline:
+        http_status, body = request(base_url, "/devices", "GET")
+        if http_status == 200 and isinstance(body, list) and body:
+            return status_doc
+        last = body
+        time.sleep(poll)
     raise AssertionError(
-        f"the RE worker environment never opened within {timeout:.0f}s -- the queue "
-        f"cannot accept plans until it does (last manager status: {last!r})"
+        f"the RE worker environment opened but the manager never published its "
+        f"device list within {timeout:.0f}s -- plans_allowed is filled on the same "
+        f"path, so an enqueue now would be refused 409 (last GET /devices: {last!r})"
     )
 
 

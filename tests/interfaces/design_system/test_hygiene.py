@@ -258,7 +258,7 @@ _KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
         # describes token usage as "var(--…)". This file was always clean — it
         # only entered the fleet-wide scan when the package moved from
         # services/ to interfaces/ (layering fix).
-        ("src/osprey/interfaces/bluesky_panels/panels/bluesky/panel.css", "…"),
+        ("src/osprey/interfaces/bluesky_web/panels/bluesky/panel.css", "…"),
     }
 )
 

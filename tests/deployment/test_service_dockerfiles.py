@@ -1,7 +1,7 @@
 """Layer-split invariants for the four service Dockerfiles.
 
 `osprey up` builds each managed service (event_dispatcher,
-virtual_accelerator, bluesky, bluesky_panels) from a template Dockerfile shipped
+virtual_accelerator, bluesky, bluesky_web) from a template Dockerfile shipped
 under ``osprey/templates/services/<name>/``. This module pins the shared layer
 contract those recipes follow so a fast per-project dev rebuild only re-runs the
 cheap wheel layer, never the expensive framework/deps install:
@@ -38,7 +38,7 @@ PRIMER_SPEC = {
     "event_dispatcher": "osprey-framework==$OSPREY_VERSION",
     "virtual_accelerator": "osprey-framework[virtual-accelerator]==$OSPREY_VERSION",
     "bluesky": "osprey-framework==$OSPREY_VERSION",
-    "bluesky_panels": "osprey-framework==$OSPREY_VERSION",
+    "bluesky_web": "osprey-framework==$OSPREY_VERSION",
 }
 SERVICES = sorted(PRIMER_SPEC)
 

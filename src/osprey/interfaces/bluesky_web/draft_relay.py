@@ -1,7 +1,7 @@
 """Sidecar passthrough relay for the Bluesky bridge's plan-draft endpoints.
 
 This module only defines
-``router``; ``osprey.interfaces.bluesky_panels.app`` mounts it alongside
+``router``; ``osprey.interfaces.bluesky_web.app`` mounts it alongside
 ``read_proxy``/``launch``/``health``, so every route here reads the shared
 ``httpx.AsyncClient`` and resolved bridge base URL from ``request.app.state``
 at request time (set in the app's lifespan) -- exactly the ``read_proxy``
@@ -39,7 +39,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
 from osprey.utils.http_proxy import HOP_BY_HOP
 
 router = APIRouter()

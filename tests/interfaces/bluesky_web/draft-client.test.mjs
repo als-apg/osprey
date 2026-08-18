@@ -2,7 +2,7 @@
  * Unit tests for the plan panel's live draft client (draft-client.js).
  *
  * happy-dom environment (configured globally in vitest.config.js):
- *   npx vitest run tests/interfaces/bluesky_panels/draft-client.test.mjs
+ *   npx vitest run tests/interfaces/bluesky_web/draft-client.test.mjs
  *
  * Two layers are exercised:
  *  - The pure reducers (`reduceFrame`, `reduceReset`, `computeDelta`,
@@ -46,8 +46,8 @@ import {
   REASON_BRIDGE_UNREACHABLE,
   buildLaunchBanner,
   buildAgentDraftBanner,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/draft-client.js';
-import { renderSchemaForm } from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/schema-form.js';
+} from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/draft-client.js';
+import { renderSchemaForm } from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/schema-form.js';
 
 // A small ORM-shaped fixture: one channel-list (container widget, exercises
 // whole-value-replacement flash) and two plain scalars (exercise the
@@ -2074,7 +2074,7 @@ describe('classifyQueueAddResponse', () => {
 
 describe('queueOutcomeBanner', () => {
   test('only a queued outcome reads as success — no refusal may', () => {
-    /** @type {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/draft-client.js').QueueAddOutcome[]} */
+    /** @type {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/draft-client.js').QueueAddOutcome[]} */
     const refusals = [
       { type: 'stale_draft_revision' },
       { type: 'draft_revision_already_launched' },
@@ -2208,7 +2208,7 @@ describe('capabilityBanner', () => {
   /**
    * @param {string} reason
    * @param {string} [detail]
-   * @returns {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/draft-client.js').CapabilityRecord}
+   * @returns {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/draft-client.js').CapabilityRecord}
    */
   const cannot = (reason, detail = 'because') => ({ canExecute: false, reason, detail });
 
@@ -2325,7 +2325,7 @@ describe('plans-view bundle wiring', () => {
   // happy-dom the document's origin is `http://localhost`, so a URL relative
   // to this module is not a file path at all. Vitest always runs from the
   // repo root.
-  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
+  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   test('every element id plans-view.js looks up exists in index.html', () => {
     // The bundle has no build step and is served as authored, so a renamed id

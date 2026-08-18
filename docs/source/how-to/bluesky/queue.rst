@@ -205,8 +205,8 @@ quirks worth knowing:
 
    A project built from the ``control-assistant`` preset brings the whole
    stack up with ``osprey up``: the **bridge** (the HTTP front door,
-   port 8090), the **queue server** with its own storage, the **PLAN /
-   BLUESKY panels** sidecar (port 8095), the **Virtual Accelerator** (the
+   port 8090), the **queue server** with its own storage, the **bluesky-web**
+   sidecar serving the BLUESKY panel (port 8095), the **Virtual Accelerator** (the
    preset's default control system), and — when enabled — **Tiled** (port
    8091). The launch token is minted automatically at deploy time and stored
    in the project's ``.env``.

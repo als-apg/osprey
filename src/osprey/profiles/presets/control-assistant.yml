@@ -105,7 +105,7 @@ virtual_accelerator:
   # changing it moves both.
   port: 5064
 
-bluesky_panels:
+bluesky_web:
   port: 8095
 
 # ── Stored archive (MongoDB) ─────────────────────────────────────────────────

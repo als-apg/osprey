@@ -66,7 +66,7 @@ from osprey.mcp_server.http import notify_agent_activity_async
 # agent the bridge is down when the halt is actually in progress, and inviting a
 # retry race on the emergency path. Per-call, never global: every other bluesky
 # tool must keep failing fast on a dead bridge. Keep in step with
-# ``queue_backend.QueueBackend.abort``'s docstring and the panels sidecar's
+# ``queue_backend.QueueBackend.abort``'s docstring and the bluesky-web sidecar's
 # ``queue_relay._ABORT_TIMEOUT``.
 _ABORT_TIMEOUT = 120.0  # seconds
 

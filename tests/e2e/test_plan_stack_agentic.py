@@ -125,6 +125,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -185,16 +186,16 @@ QUEUE_CONTROL = frozenset(
 #               18101 test_tiled_roundtrip · 18102 _orm_stack's default
 #               18103 test_bluesky_catalog_e2e · 18104 test_grid_scan_roundtrip
 #               18105 test_bluesky_sandbox_escape_e2e
-#               18106 test_bluesky_panels_deploy · 18108 test_bluesky_queue_e2e
+#               18106 test_bluesky_web_deploy · 18108 test_bluesky_queue_e2e
 #               (18107 is test_nextcloud_talk_bridge_e2e's Nextcloud)
-#   panels      18095 test_bluesky_panels_deploy · 18096 test_bluesky_queue_e2e
+#   panels      18095 test_bluesky_web_deploy · 18096 test_bluesky_queue_e2e
 #   tiled       18191 test_bluesky_queue_e2e · 18192 test_tiled_roundtrip
 #   VA (CA)     15064 test_bluesky_queue_e2e · 15065 test_tiled_roundtrip
 #               (5064 is _orm_stack's default, which the tutorial holds)
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
-#               25434 test_bluesky_panels_deploy
+#               25434 test_bluesky_web_deploy
 #   openobserve 25080 test_bluesky_queue_e2e · 25081 test_bluesky_deploy
-#               25082 test_tiled_roundtrip · 25083 test_bluesky_panels_deploy
+#               25082 test_tiled_roundtrip · 25083 test_bluesky_web_deploy
 #   mongodb     no sibling pins one — the archiver's Mongo published the
 #               service default, and a tutorial stack deployed on this host
 #               holds it. The preflight refuses to touch any container when a
@@ -2068,16 +2069,18 @@ async def test_judge_rejects_a_failing_grid_scan_conclusion(control: str) -> Non
 # Docker-free even though the fixtures live in the same file.
 #
 # CONTAINER SAFETY: every docker invocation below names an EXACT image
-# (``<project>-bluesky-bridge:local`` / ``-va:local`` / ``-bluesky-panels:local``,
-# all derived from ``PROJECT_NAME``) — never a wildcard, never a prune, never a
-# volume operation. Teardown goes through ``osprey down``.
+# (``<project>-bluesky-bridge:local`` / ``-va:local`` / ``-bluesky-web:local``,
+# all derived from ``PROJECT_NAME``) — never a wildcard, never a prune. Teardown
+# goes through ``osprey down``, followed by exact-named removal of this
+# project's own volumes (``tests/e2e/_volumes.py``): ``down`` keeps them by
+# design, and a rerun must not inherit their state.
 # ===========================================================================
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 # Cold-cache `osprey up` budget. This stack is the FULL queue shape — VA +
-# bridge + queueserver + Redis + Tiled + the panels sidecar — so it is sized
+# bridge + queueserver + Redis + Tiled + the bluesky-web sidecar — so it is sized
 # against test_bluesky_queue_e2e.py's 2400 s (same service set), not against
-# test_orm_roundtrip.py's 1200 s (no queueserver/panels images to build).
+# test_orm_roundtrip.py's 1200 s (no queueserver/bluesky-web images to build).
 # Measured, not guessed: at 1200 s a cold run on an Apple Silicon host timed
 # out with the VA and bridge images built and the rest still going. The VA
 # image is linux/amd64 ONLY (its Dockerfile refuses aarch64 outright, since no
@@ -2106,7 +2109,7 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: - ``services.postgresql.port_host`` / ``services.openobserve.port`` are
 #:   CONFIG keys — those services are in the preset's config template, so a
 #:   dotted key under ``config:`` edits them in place.
-#: - ``bluesky.tiled_port`` / ``bluesky_panels.port`` / ``va_archiver.port_host``
+#: - ``bluesky.tiled_port`` / ``bluesky_web.port`` / ``va_archiver.port_host``
 #:   are BUILD-PROFILE keys
 #:   (see ``profiles/presets/control-assistant.yml``). Their ``services.*``
 #:   entries are synthesized by the build injectors AFTER the config overlay
@@ -2164,7 +2167,7 @@ _EXTRA_CONFIG: dict[str, Any] = {
         "approval.tools.validate_plan": "skip",
     },
     "bluesky": {"tiled_port": TILED_PORT},
-    "bluesky_panels": {"port": PANELS_PORT},
+    "bluesky_web": {"port": PANELS_PORT},
     "va_archiver": {"port_host": MONGODB_PORT},
 }
 
@@ -2343,6 +2346,9 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 f"osprey down could not complete ({type(exc).__name__}: {exc}) -- "
                 f"containers of project {PROJECT_NAME!r} may still be running"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 def _queue_snapshot() -> dict[str, Any]:
@@ -2385,13 +2391,14 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     runs. ``getfixturevalue`` is what deploys the stack on the first live test.
 
     Why per-test rather than once per module. The queue is Redis-backed and
-    that Redis lives in a compose NAMED VOLUME keyed on the project name, which
-    ``osprey down`` does NOT remove — so a rerun inherits whatever the
-    previous attempt left queued. And these tests are agentic: a rerun (each
-    live test carries ``flaky``) follows an attempt that may have left a run
-    mid-flight. An agent that then queues its own work and arms the queue would
-    put the PREVIOUS attempt's plan on the hardware too, and read back a run it
-    never launched — a floor satisfied by someone else's run.
+    that Redis lives in a compose NAMED VOLUME keyed on the project name that
+    outlives every test in this module (the deploy fixture drops it only at
+    module teardown) — so a rerun inherits whatever the previous attempt left
+    queued. And these tests are agentic: a rerun (each live test carries
+    ``flaky``) follows an attempt that may have left a run mid-flight. An agent
+    that then queues its own work and arms the queue would put the PREVIOUS
+    attempt's plan on the hardware too, and read back a run it never launched —
+    a floor satisfied by someone else's run.
 
     The three steps, and why each is needed:
 
@@ -2502,7 +2509,7 @@ ORM_OPERATOR_REQUEST = (
 
 @pytest.mark.e2e
 @pytest.mark.slow
-# dockerbuild: builds the VA/bridge/panels images and deploys the full queue
+# dockerbuild: builds the VA/bridge/bluesky-web images and deploys the full queue
 # stack — runs in its own CI job, never the shared e2e-tests lane (the
 # marker -> --ignore pairing is enforced by
 # tests/deployment/test_ci_workflow_wiring.py).

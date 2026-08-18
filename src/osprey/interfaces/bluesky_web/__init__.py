@@ -1,4 +1,4 @@
-"""Bluesky panels: a FastAPI sidecar serving the operator-facing plan authoring,
+"""Bluesky web sidecar: a FastAPI app serving the operator-facing plan authoring,
 results, and health panel bundles alongside a thin read-proxy onto the
 Bluesky bridge.
 

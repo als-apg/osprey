@@ -19,7 +19,7 @@ Coverage:
       lands (its badge appears) while the strip stays empty and no other
       badge exists.
   (4) the Plans view's guarded auto-switch, against a real in-process
-      bluesky bridge + panels sidecar: a PATCH /draft with client_id
+      bluesky bridge + bluesky-web sidecar: a PATCH /draft with client_id
       ``mcp-agent`` while the panel is unbound on another plan switches the
       panel to the drafted plan and flashes the applied arg fields
       (``agent-flash``); an operator-origin PATCH does neither.
@@ -450,7 +450,7 @@ def test_malformed_post_422_and_no_dom_change(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 #
 # No hub involved: the guard lives entirely inside the bluesky panel bundle
-# (draft-client.js), which the bluesky panels sidecar serves at /bluesky/ with
+# (draft-client.js), which the bluesky-web sidecar serves at /bluesky/ with
 # the shared design-system assets mounted — so the page is loaded directly
 # from the sidecar, exactly as the visual-regression suite loads panels. The
 # sidecar's /draft relay and /draft/events SSE hop run against the REAL
@@ -470,7 +470,7 @@ _PLAN_ARGS: dict[str, dict] = {
 
 @contextmanager
 def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
-    """Launch the real bridge + panels sidecar on live ports; yield sidecar URL.
+    """Launch the real bridge + bluesky-web sidecar on live ports; yield sidecar URL.
 
     Env isolation mirrors tests/services/test_draft_roundtrip.py: shipped-tier
     plans only (no facility dirs/module, no config file), plus the bridge
@@ -479,7 +479,7 @@ def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
     bridge via BLUESKY_BRIDGE_URL, set here to the live bridge's port before
     the sidecar's lifespan runs.
     """
-    from osprey.interfaces.bluesky_panels.app import app as sidecar_app
+    from osprey.interfaces.bluesky_web.app import app as sidecar_app
     from osprey.services.bluesky_bridge import draft as bridge_draft
     from osprey.services.bluesky_bridge import plan_loader
     from osprey.services.bluesky_bridge.app import app as bridge_app

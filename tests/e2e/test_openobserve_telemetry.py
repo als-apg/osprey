@@ -17,7 +17,10 @@ appended and ``skipif``-gated on a provider key for when one is present.
 
 CONTAINER SAFETY: every docker/podman invocation names an EXACT container/image
 — never a wildcard, never ``system prune``/``--volumes``. Teardown goes through
-``osprey down`` (the shipped compose teardown), not a raw ``docker rm`` sweep.
+``osprey down`` (the shipped compose teardown), not a raw ``docker rm`` sweep,
+followed by exact-named removal of this project's own volumes
+(``tests/e2e/_volumes.py``): ``down`` keeps them by design, and a rerun must
+not inherit their state.
 
 Gating: needs Docker; skipped entirely if unavailable. Lives in ``tests/e2e/``
 so the fast lane never collects this real-container build+deploy; run via
@@ -42,6 +45,7 @@ import pytest
 import yaml
 
 from osprey.build.claude_code_telemetry import _build_telemetry_env
+from tests.e2e._volumes import remove_project_volumes
 
 # Deliberately NOT OpenObserve's 5080 default: this is a shared dev machine and
 # 5080 can collide with an unrelated process. Pinned through the SOURCE zone at
@@ -66,10 +70,11 @@ OO_CONTAINER = f"{OO_PROJECT}-openobserve"  # matches the rendered container_nam
 # fixture's own reruns included — ``osprey down`` keeps volumes) would pin
 # whatever creds that attempt initialized with. The fixture removes it before
 # deploy and on teardown so the store always initializes with THIS test's
-# credentials. The pre-project-pinning deploys derived the compose project from
-# the compose files' directory (``services``), so the legacy host-global name
-# is removed too — a dev machine can still carry one.
-OO_DATA_VOLUME = f"{OO_PROJECT}_openobserve_data"
+# credentials. The project-named volume is removed by the shared label-scoped
+# sweep (``tests/e2e/_volumes.py``); the pre-project-pinning deploys derived
+# the compose project from the compose files' directory (``services``), so
+# that legacy host-global name is removed by exact name too — a dev machine
+# can still carry one, and it carries no project label the sweep could find.
 OO_LEGACY_DATA_VOLUME = "services_openobserve_data"
 OO_ORG = "default"
 
@@ -131,25 +136,25 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def _remove_oo_data_volume() -> None:
-    """Remove this project's OpenObserve data volume by EXACT name, if present.
+def _remove_oo_data_volumes() -> None:
+    """Remove this project's volumes, the OpenObserve data volume included.
 
     OpenObserve pins its root credentials on the volume's first init, so a volume
     left behind by an earlier deploy (including this fixture's own prior rerun
     attempt) would reject this test's credentials (401). Removing it guarantees a
     clean init. Exact-named and failure-tolerant — never a wildcard, never a
     prune; a missing/in-use volume is a no-op. The legacy directory-derived name
-    is removed alongside for dev machines that predate project-pinned compose
-    namespacing.
+    is removed by exact name for dev machines that predate project-pinned compose
+    namespacing — it carries no project label, so the shared sweep cannot see it.
     """
-    for volume in (OO_DATA_VOLUME, OO_LEGACY_DATA_VOLUME):
-        subprocess.run(
-            ["docker", "volume", "rm", volume],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
+    remove_project_volumes(OO_PROJECT)
+    subprocess.run(
+        ["docker", "volume", "rm", OO_LEGACY_DATA_VOLUME],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
 
 
 def _write_port_override(base: Path) -> Path:
@@ -253,11 +258,11 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
     # before the deploy — compose interpolates it at up time.
     _write_credentials(repo)
 
-    # Guarantee a clean store: the data volume is host-global (see OO_DATA_VOLUME),
-    # so a volume left by another deployment's openobserve — common because
-    # telemetry is on by default — would pin foreign credentials and 401 this test.
-    # Remove it before deploy so OpenObserve initializes with THIS test's credentials.
-    _remove_oo_data_volume()
+    # Guarantee a clean store: a volume left by an earlier deploy under this
+    # project name (or the legacy ``services`` namespace) would pin foreign
+    # credentials and 401 this test. Remove them before deploy so OpenObserve
+    # initializes with THIS test's credentials (see _remove_oo_data_volumes).
+    _remove_oo_data_volumes()
 
     try:
         up = _run(
@@ -278,9 +283,10 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
-        # ``osprey down`` keeps volumes; drop the host-global data volume so this
-        # test never leaves foreign credentials pinned for a later deploy.
-        _remove_oo_data_volume()
+        # ``osprey down`` keeps volumes; drop this project's own (legacy name
+        # included) so this test never leaves foreign credentials pinned for a
+        # later deploy (see _remove_oo_data_volumes).
+        _remove_oo_data_volumes()
 
 
 def _container_cred_diagnosis() -> str:
