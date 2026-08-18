@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The `orbit_bump_sweep` plan can now assert bump closure at its monitor BPMs:
+  an optional `leakage_tolerance` band judges every `readbacks` BPM against the
+  reference orbit at each settled step, failing the run (or recording the miss
+  under `best_effort`) when the bump leaks beyond it. Unset, monitors stay
+  recorded-only as before.
 - Web-terminal roster entries can opt out of the login wall with `login:
   false` — the entry is served without authentication while every other
   terminal stays gated, and no password is provisioned for it. Meant for

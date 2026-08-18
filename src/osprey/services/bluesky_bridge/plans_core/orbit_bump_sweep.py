@@ -62,6 +62,7 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_va
 # load time and quarantines the plan.
 from osprey.services.bluesky_bridge.bump_analysis import (
     band_converged,
+    band_violations,
     demand_is_negligible,
     fit_probe_response,
     noise_floor_violations,
@@ -128,6 +129,13 @@ class PARAMS(BaseModel):
     do it. ``readbacks`` and ``monitors`` are recorded at every point without
     taking part in the solve, so a run carries the surrounding orbit and any
     other instrument the operator wants alongside it.
+
+    With ``leakage_tolerance`` set, the monitor BPMs are additionally *judged*:
+    a step that moves any of them further than that band from the reference
+    orbit is a leaking bump, surfaced exactly like a convergence miss. They
+    still take no part in the solve — they are watched, not asked for — so a
+    leak is a finding about the bump's constraint set, not something a trim
+    pass could remove.
 
     ``mode`` reads the target values either as a displacement *from the orbit
     the machine is already on* (``relative``) or as an absolute orbit position
@@ -253,6 +261,15 @@ class PARAMS(BaseModel):
             "at one amplitude before the plan gives up on that point."
         ),
     )
+    leakage_tolerance: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = Field(
+        default=None,
+        title="Leakage tolerance",
+        description=(
+            "Band, in BPM units, the monitor BPMs must stay inside relative "
+            "to the reference orbit at every step. Unset, they are recorded "
+            "but never judged."
+        ),
+    )
     best_effort: bool = Field(
         default=False,
         title="Best effort",
@@ -341,6 +358,28 @@ class PARAMS(BaseModel):
                 f"underdetermined bump: {rows} orbit constraint(s) "
                 f"(targets + closure_readbacks) for {len(self.correctors)} correctors; "
                 "add closure BPMs or drop a corrector"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _leakage_check_has_monitors_to_judge(self) -> PARAMS:
+        """Reject a leakage band with no BPM it could apply to.
+
+        The leakage check judges the monitor BPMs (``readbacks``) that are not
+        already constraint rows — a target or closure BPM is asserted more
+        strictly by the solve's own band. A ``leakage_tolerance`` whose every
+        candidate is already constrained (or that has no ``readbacks`` at all)
+        would be a guard that is on while judging nothing, the same inert-guard
+        state the beam-current pairing below refuses.
+        """
+        if self.leakage_tolerance is None:
+            return self
+        constrained = {target.readback for target in self.targets} | set(self.closure_readbacks)
+        if not (set(self.readbacks) - constrained):
+            raise ValueError(
+                "leakage_tolerance needs at least one readbacks BPM that is "
+                "not already a target or closure BPM — there is nothing else "
+                "for it to judge"
             )
         return self
 
@@ -556,7 +595,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
        the residual, re-apply, re-check — at most ``max_trim_iterations``
        times; a step that still misses raises (the ``finally`` below
        restores) unless ``best_effort`` is set, in which case the achieved
-       orbit is recorded and the sweep continues. Every step then emits
+       orbit is recorded and the sweep continues. With ``leakage_tolerance``
+       set, each settled step is then also judged at the monitor BPMs — the
+       ``readbacks`` not already constrained — against ``±leakage_tolerance``
+       around the reference orbit, with the same miss handling; no trim, since
+       the monitors are not in the solve. Every step then emits
        exactly one data row, so a run's rows are ``baseline_reads`` baseline
        rows followed by one row per scale, in profile order.
     4. **Terminal step.** The last step of the profile is scale ``0``, and it
@@ -611,8 +654,10 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
             BPM.
         RuntimeError: The beam current fell below ``min_beam_current`` before
             a write batch; a step could not be trimmed inside ``tolerance``
-            (with ``best_effort`` unset); or, on an otherwise clean run, a
-            corrector could not be restored to its working point.
+            (with ``best_effort`` unset); a settled step moved a monitor BPM
+            outside ``±leakage_tolerance`` (with ``best_effort`` unset); or,
+            on an otherwise clean run, a corrector could not be restored to
+            its working point.
         DegenerateBumpError: The measured machine cannot answer the bump asked
             of it — see ``bump_analysis``.
     """
@@ -642,6 +687,13 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     ]
     fit_devices = [devices[name] for name in fit_names]
     constrained_devices = [devices[name] for name in constrained_names]
+    # The leakage-judged BPMs: the monitor readbacks that are not already
+    # constraint rows (a constrained BPM is asserted more strictly by the
+    # solve's own band; the PARAMS validator guarantees this set is non-empty
+    # whenever the band is set). `fit_names` is constrained + the rest of
+    # `readbacks`, so this is exactly its tail.
+    leak_names = fit_names[len(constrained_names) :] if params.leakage_tolerance is not None else []
+    leak_devices = [devices[name] for name in leak_names]
     beam_device = (
         devices[params.beam_current_readback] if params.beam_current_readback is not None else None
     )
@@ -674,20 +726,19 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
             pairs.extend((corrector, working_point if solution is None else working_point + offset))
         yield from bps.mv(*pairs)
 
-    def _measure_offsets(reference: dict[str, float]) -> Any:
-        """The constrained orbit relative to *reference*: the mean of two reads.
+    def _measure_offsets(
+        devices_to_read: list[Any], names: list[str], reference: dict[str, float], context: str
+    ) -> Any:
+        """*names*' orbit relative to *reference*: the mean of two reads.
 
-        Two reads because the band check compares a mean against ``tolerance``
-        with no noise term of its own — see ``band_converged`` on why σ/√2 is
-        part of that band's honesty.
+        Two reads because both band checks compare a mean against their band
+        with no noise term of their own — see ``band_converged`` on why σ/√2
+        is part of that band's honesty. The convergence check runs this over
+        the constrained BPMs, the leakage check over the monitor BPMs.
         """
-        first = yield from _snapshot_values(
-            constrained_devices, constrained_names, "a convergence check"
-        )
-        second = yield from _snapshot_values(
-            constrained_devices, constrained_names, "a convergence check"
-        )
-        return [(first[name] + second[name]) / 2.0 - reference[name] for name in constrained_names]
+        first = yield from _snapshot_values(devices_to_read, names, context)
+        second = yield from _snapshot_values(devices_to_read, names, context)
+        return [(first[name] + second[name]) / 2.0 - reference[name] for name in names]
 
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator(md=run_md)
@@ -710,9 +761,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                 readings = yield from bps.trigger_and_read(all_devices)
                 baseline_rows.append(_finite_values(readings, fit_names, "the baseline"))
 
+            # The reference covers the leakage-judged BPMs too (`fit_names` is
+            # the constrained rows plus the remaining monitors), so both band
+            # checks measure against the same baseline.
             reference = {
-                name: statistics.fmean(row[name] for row in baseline_rows)
-                for name in constrained_names
+                name: statistics.fmean(row[name] for row in baseline_rows) for name in fit_names
             }
             sigma = [
                 statistics.stdev([row[name] for row in baseline_rows]) for name in constrained_names
@@ -726,6 +779,22 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                     "falls outside of by chance alone cannot be converged into; widen the "
                     "tolerance or fix the BPM(s)"
                 )
+            if params.leakage_tolerance is not None:
+                # The leakage band is held to the same standard as the
+                # convergence band, for the same reason: a monitor whose noise
+                # exceeds it would read as leaking by chance alone.
+                leak_sigma = [
+                    statistics.stdev([row[name] for row in baseline_rows]) for name in leak_names
+                ]
+                leak_floor = noise_floor_violations(leak_sigma, params.leakage_tolerance)
+                if leak_floor:
+                    offenders = [leak_names[index] for index in leak_floor]
+                    raise ValueError(
+                        f"orbit_bump_sweep plan: leakage_tolerance {params.leakage_tolerance} "
+                        f"is narrower than twice the measured baseline noise at {offenders} — "
+                        "a leakage band the orbit falls outside of by chance alone cannot be "
+                        "certified; widen it or fix the BPM(s)"
+                    )
 
             # The run-level demand, as reference-relative offsets over the
             # constraint rows. `absolute` targets are converted exactly once,
@@ -778,7 +847,9 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                 yield from _guard(step_label)
                 yield from _apply(working_points, None if terminal else solution)
                 yield from bps.sleep(params.settle_s)
-                measured = yield from _measure_offsets(reference)
+                measured = yield from _measure_offsets(
+                    constrained_devices, constrained_names, reference, "a convergence check"
+                )
                 converged = band_converged(measured, desired_step, params.tolerance)
 
                 # Trim only where a solve is allowed: never on the terminal
@@ -797,7 +868,9 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                         ]
                         yield from _apply(working_points, solution)
                         yield from bps.sleep(params.settle_s)
-                        measured = yield from _measure_offsets(reference)
+                        measured = yield from _measure_offsets(
+                            constrained_devices, constrained_names, reference, "a convergence check"
+                        )
                         converged = band_converged(measured, desired_step, params.tolerance)
                         if converged:
                             break
@@ -825,6 +898,46 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                                 else f" after {params.max_trim_iterations} trim pass(es)"
                             )
                         )
+
+                # The leakage check: after the constrained rows have settled
+                # (post-trim), the monitor BPMs must still be on the reference
+                # orbit. Measured the same way the convergence band is (the
+                # mean of two reads), judged after the trim loop because a
+                # trim moves the correctors and so moves the leakage too.
+                if params.leakage_tolerance is not None:
+                    leak_measured = yield from _measure_offsets(
+                        leak_devices, leak_names, reference, "a leakage check"
+                    )
+                    leaks = band_violations(
+                        leak_measured, [0.0] * len(leak_names), params.leakage_tolerance
+                    )
+                    if leaks:
+                        offenders = ", ".join(
+                            f"{leak_names[index]} ({leak_measured[index]:+.4g})" for index in leaks
+                        )
+                        if params.best_effort:
+                            logger.warning(
+                                "orbit_bump_sweep plan: %s leaked outside ±%g BPM units at "
+                                "monitor BPM(s) %s relative to the reference orbit; "
+                                "best_effort is set, recording the step and continuing",
+                                step_label,
+                                params.leakage_tolerance,
+                                offenders,
+                            )
+                        else:
+                            raise RuntimeError(
+                                f"orbit_bump_sweep plan: {step_label} leaked outside "
+                                f"±{params.leakage_tolerance:g} BPM units at monitor BPM(s) "
+                                f"{offenders} relative to the reference orbit"
+                                + (
+                                    " at the terminal working-point step — the machine did "
+                                    "not come back to its reference orbit"
+                                    if terminal
+                                    else " — the monitors are watched, not solved for, so a "
+                                    "trim cannot remove this; add them as closure BPMs to "
+                                    "constrain them"
+                                )
+                            )
 
                 yield from bps.trigger_and_read(all_devices)
         except BaseException:
@@ -1110,12 +1223,19 @@ def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
 
     targets = [sweep.bpm_order.index(target.readback) + 1 for target in params.targets]
     closure = [sweep.bpm_order.index(name) + 1 for name in params.closure_readbacks]
+    beyond = (
+        "anything beyond them is recorded, not constrained."
+        if params.leakage_tolerance is None
+        else (
+            f"the remaining monitor BPMs are held inside ±{params.leakage_tolerance:g} "
+            "BPM units of the reference — the leakage band — without joining the solve."
+        )
+    )
     annotations = [
         "Each line is one amplitude step's orbit, measured against the "
         "baseline reference orbit. A closed bump is displaced across the "
         f"target BPMs (index {_index_list(targets)}) and back on the reference "
-        f"orbit at the closure BPMs (index {_index_list(closure)}); anything "
-        "beyond them is recorded, not constrained.",
+        f"orbit at the closure BPMs (index {_index_list(closure)}); {beyond}",
         "BPMs are in the order they were requested, which is not their order "
         "around the ring — this plan carries no lattice positions.",
     ]

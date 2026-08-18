@@ -740,8 +740,31 @@ def test_bump_params_accepts_a_complete_beam_current_guard() -> None:
     assert params.min_beam_current == 50.0
 
 
+def test_bump_params_leakage_band_defaults_off_and_accepts_a_free_monitor() -> None:
+    """Unset, the monitors stay recorded-only; set, the payload's `bpm4` — a
+    readback that is neither target nor closure — is what the band judges."""
+    assert BumpParams(**_bump_payload()).leakage_tolerance is None
+    assert BumpParams(**_bump_payload(leakage_tolerance=0.002)).leakage_tolerance == 0.002
+
+
+@pytest.mark.parametrize(
+    "readbacks",
+    [[], ["bpm2"]],
+    ids=["no-monitors", "all-already-constrained"],
+)
+def test_bump_params_rejects_a_leakage_band_with_nothing_to_judge(readbacks: list[str]) -> None:
+    """A leakage band whose every candidate is already a constraint row (or
+    that has no monitors at all) is a guard that is on while judging nothing —
+    the same inert state the half-a-beam-guard case refuses."""
+    with pytest.raises(ValidationError, match="nothing else"):
+        BumpParams(**_bump_payload(leakage_tolerance=0.002, readbacks=readbacks))
+
+
 @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
-@pytest.mark.parametrize("field", ["probe_amplitude", "tolerance", "settle_s", "min_beam_current"])
+@pytest.mark.parametrize(
+    "field",
+    ["probe_amplitude", "tolerance", "settle_s", "min_beam_current", "leakage_tolerance"],
+)
 def test_bump_params_rejects_a_non_finite_float(field: str, value: float) -> None:
     """A non-finite demand cannot be refused by a limits check (`nan < low` and
     `nan > high` are both false), so it would reach the machine and fail only
@@ -809,6 +832,7 @@ def test_bump_params_rejects_too_few_baseline_reads() -> None:
         ("tolerance", 0.0),
         ("settle_s", -0.1),
         ("max_trim_iterations", 0),
+        ("leakage_tolerance", 0.0),
     ],
 )
 def test_bump_params_rejects_a_non_positive_bound(field: str, value: float) -> None:
@@ -1443,3 +1467,98 @@ def test_bump_plan_does_not_trim_the_terminal_restore_step() -> None:
     assert after_arming[-3:] == _bump_restore_writes()
     for name, working_point in _BUMP_WORKING_POINTS.items():
         assert asyncio.run(devices[name].readback.get_value()) == working_point
+
+
+def _arm_after_baseline(bpm: _ArmableBpm, baseline_reads: int) -> Callable[[Any], None]:
+    """A `msg_hook` arming *bpm* the moment the baseline's last row is saved,
+    so the first off-reference reading lands in the first amplitude step."""
+    saves: list[int] = []
+
+    def _hook(msg: Any) -> None:
+        if msg.command == "save":
+            saves.append(1)
+            bpm.armed = len(saves) >= baseline_reads
+
+    return _hook
+
+
+def test_bump_plan_leakage_violation_aborts_and_restores() -> None:
+    """With `leakage_tolerance` set, a monitor BPM knocked off the reference
+    orbit fails the step — naming the BPM — and the correctors come back.
+
+    `bpm4` is the payload's one free monitor: recorded at every point, never a
+    solve row. Without the band this run completes and the excursion is only
+    visible in the data; the band is what turns it into a finding. It is armed
+    after the baseline, so the reference is clean and the first step is the
+    first to see the leak.
+    """
+    bpm4 = _ArmableBpm("bpm4", initial_value=_BUMP_BPM_VALUE, armed_value=_BUMP_BPM_VALUE + 5.0)
+    devices = _bump_devices(bpm4=bpm4)
+    params = _bump_run_params(leakage_tolerance=0.01)
+
+    commands: list[tuple[str, float]] = []
+    record = _record_writes(commands)
+    arm = _arm_after_baseline(bpm4, params.baseline_reads)
+
+    def _hook(msg: Any) -> None:
+        record(msg)
+        arm(msg)
+
+    RE = RunEngine(context_managers=[])
+    RE.msg_hook = _hook
+    with pytest.raises(RuntimeError, match="leaked outside") as excinfo:
+        RE(bump_plan(devices, params))
+
+    assert "bpm4" in str(excinfo.value)
+    assert "closure" in str(excinfo.value)  # the remedy: constrain the monitor
+    assert commands[-3:] == _bump_restore_writes()
+    for name, working_point in _BUMP_WORKING_POINTS.items():
+        assert asyncio.run(devices[name].readback.get_value()) == working_point
+
+
+def test_bump_plan_leakage_violation_under_best_effort_warns_and_completes(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`best_effort` gives leakage the same treatment as a convergence miss:
+    the step is recorded, the sweep continues to its full row layout, and the
+    finding lands in the log instead of ending the run."""
+    bpm4 = _ArmableBpm("bpm4", initial_value=_BUMP_BPM_VALUE, armed_value=_BUMP_BPM_VALUE + 5.0)
+    devices = _bump_devices(bpm4=bpm4)
+    params = _bump_run_params(leakage_tolerance=0.01, best_effort=True)
+
+    rows: list[str] = []
+    RE = RunEngine(context_managers=[])
+    RE.msg_hook = _arm_after_baseline(bpm4, params.baseline_reads)
+    with caplog.at_level(logging.WARNING, logger=_BUMP_LOGGER):
+        RE(
+            bump_plan(devices, params),
+            lambda name, doc: rows.append(name) if name == "event" else None,
+        )
+
+    assert "leaked outside" in caplog.text
+    assert "bpm4" in caplog.text
+    assert len(rows) == params.baseline_reads + 2 * params.num
+    for name, working_point in _BUMP_WORKING_POINTS.items():
+        assert asyncio.run(devices[name].readback.get_value()) == working_point
+
+
+def test_bump_plan_fail_fast_refuses_a_leakage_band_below_the_monitor_noise() -> None:
+    """A leakage band narrower than twice a monitor's baseline noise fails the
+    run before the first probe write, exactly as the convergence band does at
+    the constrained BPMs — a monitor that leaves it by chance alone would read
+    as a leak the machine never had.
+
+    Only `bpm4` counts: the constrained BPMs stay quiet, so the run passes the
+    convergence-band floor and the refusal below is the leakage floor's own.
+    """
+    devices = _bump_devices(bpm4=MockReadable("bpm4"))
+    params = _bump_run_params(leakage_tolerance=0.01)
+
+    commands: list[tuple[str, float]] = []
+    RE = RunEngine(context_managers=[])
+    RE.msg_hook = _record_writes(commands)
+    with pytest.raises(ValueError, match="leakage_tolerance") as excinfo:
+        RE(bump_plan(devices, params))
+
+    assert "bpm4" in str(excinfo.value)
+    assert commands == _bump_restore_writes()
