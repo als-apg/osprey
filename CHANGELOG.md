@@ -33,6 +33,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The `osprey` command no longer prints a Python traceback when something goes
+  wrong. Its console script was wired straight to the Click group, past the
+  handler that turns an error into a `✗` line with a cause and a remedy, so
+  every failure no verb caught reached the terminal as a stack trace ending in
+  installed-package paths. Affects every verb.
 - `osprey init --reset` no longer crashes with a Python traceback when the
   containers it would remove belong to another copy of this repo. `osprey
   reset` has always caught that refusal and rendered it; this path never did,
