@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from osprey.services.bluesky_bridge.figure import DEFAULT_MAX_POINTS, Figure, LinesMark
+from osprey.services.bluesky_bridge.figure import DEFAULT_MAX_POINTS, Figure, LinesMark, RowWindow
 from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep as bump
 
 # =========================================================================
@@ -143,6 +143,29 @@ def _rows(
     return rows if limit is None else rows[:limit]
 
 
+def _render(
+    rows: list[dict[str, Any]],
+    params: bump.PARAMS,
+    *,
+    complete: bool = True,
+    total: int | None = None,
+) -> Figure:
+    """`bump.render` over a `RowWindow`, complete unless told otherwise.
+
+    The figure route hands every render a window rather than a bare row list;
+    these tests build the same shape, defaulting to "these rows are the whole
+    run" so each case stays about its own subject.
+    """
+    columns = sorted({name for row in rows for name in row})
+    window = RowWindow(
+        rows=rows,
+        columns=columns,
+        rows_complete=complete,
+        total_seen=len(rows) if total is None else total,
+    )
+    return bump.render(window, params)
+
+
 def _panel(figure: Figure, title: str):
     return next(panel for panel in figure.panels if panel.title == title)
 
@@ -170,7 +193,7 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     legitimately not have.
     """
     params = _params(monitors=["det1"])
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
 
     assert [panel.title for panel in figure.panels] == [
         "Orbit shift across BPMs",
@@ -223,7 +246,7 @@ def test_orbit_shift_draws_one_line_per_step_across_the_requested_bpms() -> None
     to zero.
     """
     params = _params()
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
     mark = _lines(figure, "Orbit shift across BPMs")
 
     scales = bump._profile_scales(params.num, params.sweep)
@@ -259,7 +282,7 @@ def test_orbit_shift_draws_one_line_per_step_across_the_requested_bpms() -> None
 def test_band_residual_traces_every_constrained_bpm_between_two_band_lines() -> None:
     """The residual, plus the band it has to stay in, drawn rather than described."""
     params = _params()
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
     mark = _lines(figure, "Band residual at constrained BPMs")
 
     assert [series.label for series in mark.series] == [
@@ -286,7 +309,7 @@ def test_band_residual_traces_every_constrained_bpm_between_two_band_lines() -> 
 def test_corrector_offsets_are_measured_against_the_baseline_working_point() -> None:
     """Zero means "back where the run found it", which the last step must read."""
     params = _params()
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
     mark = _lines(figure, "Corrector offsets")
 
     scales = bump._profile_scales(params.num, params.sweep)
@@ -303,7 +326,7 @@ def test_monitor_response_is_drawn_per_leg_against_signed_amplitude() -> None:
     """One line per leg: plotted against amplitude the profile doubles back, and
     a single line through both legs would close the hysteresis into a scribble."""
     params = _params(monitors=["det1", "det2"])
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
     mark = _lines(figure, "Monitor response")
 
     assert [series.label for series in mark.series] == [
@@ -328,7 +351,7 @@ def test_a_bidirectional_run_draws_all_four_legs() -> None:
     rows = _rows(params)
     assert len(rows) == params.baseline_reads + 4 * params.num
 
-    figure = bump.render(rows, params)
+    figure = _render(rows, params)
 
     step_legs = [
         label.split("(")[-1].rstrip(")") for label in _labels(figure, "Orbit shift across BPMs")
@@ -366,7 +389,7 @@ def test_absolute_targets_are_converted_against_the_baseline_reference() -> None
     params = _params(mode="absolute", targets=[{"readback": "bpm_t", "value": 0.8}])
     # bpm_t's reference is 0.5, so the run is asking for a 0.3 displacement --
     # the same bump the relative fixtures above ask for outright.
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
 
     band = _lines(figure, "Band residual at constrained BPMs")
     assert [point.y for point in band.series[0].points] == pytest.approx([0.0] * 8, abs=1e-12)
@@ -385,7 +408,7 @@ def test_an_unconverged_step_is_named_with_what_it_reached() -> None:
         params, residual=lambda index, name: 0.5 if (index == 2 and name == "bpm_c1") else 0.0
     )
 
-    figure = bump.render(rows, params)
+    figure = _render(rows, params)
     annotations = _panel(figure, "Band residual at constrained BPMs").annotations
 
     assert (
@@ -402,7 +425,7 @@ def test_the_named_bpm_is_the_worst_one_at_that_step() -> None:
     misses = {"bpm_c1": 0.3, "bpm_c2": 0.5}
     rows = _rows(params, residual=lambda index, name: misses.get(name, 0.0) if index == 1 else 0.0)
 
-    annotations = _panel(bump.render(rows, params), "Band residual at constrained BPMs").annotations
+    annotations = _panel(_render(rows, params), "Band residual at constrained BPMs").annotations
     step_notes = [note for note in annotations if note.startswith("Step ")]
 
     assert len(step_notes) == 1
@@ -420,7 +443,7 @@ def test_a_bpm_the_panel_capped_away_is_still_checked_for_misses() -> None:
     rows = _rows(
         params, residual=lambda index, name: 0.4 if (index == 0 and name == hidden) else 0.0
     )
-    figure = bump.render(rows, params)
+    figure = _render(rows, params)
     panel = _panel(figure, "Band residual at constrained BPMs")
 
     drawn = [series.label for series in _lines(figure, "Band residual at constrained BPMs").series]
@@ -437,7 +460,7 @@ def test_past_six_misses_the_notes_stop_listing_and_start_counting() -> None:
         params, residual=lambda index, name: 0.4 if (index < 8 and name == "bpm_c1") else 0.0
     )
 
-    annotations = _panel(bump.render(rows, params), "Band residual at constrained BPMs").annotations
+    annotations = _panel(_render(rows, params), "Band residual at constrained BPMs").annotations
 
     assert len([note for note in annotations if note.startswith("Step ")]) == bump._MAX_MISS_NOTES
     assert "2 further step(s) are outside the band." in annotations
@@ -447,7 +470,7 @@ def test_a_converged_run_carries_no_miss_notes() -> None:
     """The negative control: the format above only appears when something missed."""
     params = _params()
     annotations = _panel(
-        bump.render(_rows(params), params), "Band residual at constrained BPMs"
+        _render(_rows(params), params), "Band residual at constrained BPMs"
     ).annotations
 
     assert not [note for note in annotations if note.startswith("Step ")]
@@ -467,7 +490,7 @@ def test_a_long_profile_thins_its_step_series_and_keeps_both_ends() -> None:
     because the first and last steps are the ones with something to prove.
     """
     params = _params(num=8)  # 16 steps
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
     labels = _labels(figure, "Orbit shift across BPMs")
 
     assert len(labels) == bump._MAX_STEP_SERIES
@@ -489,18 +512,18 @@ def test_the_monitor_budget_is_spent_across_legs_not_per_leg() -> None:
     monitor_names = [f"det{index}" for index in range(1, 11)]
 
     mono = _params(monitors=monitor_names)
-    mono_labels = _labels(bump.render(_rows(mono), mono), "Monitor response")
+    mono_labels = _labels(_render(_rows(mono), mono), "Monitor response")
     assert len(mono_labels) == bump._MAX_MONITOR_SERIES
     assert mono_labels[-1] == "det6 (descent)"
 
     bidi = _params(num=3, sweep="bidirectional", monitors=monitor_names)
-    bidi_labels = _labels(bump.render(_rows(bidi), bidi), "Monitor response")
+    bidi_labels = _labels(_render(_rows(bidi), bidi), "Monitor response")
     assert len(bidi_labels) == bump._MAX_MONITOR_SERIES
     assert bidi_labels[-1] == "det3 (descent, negative side)"
 
     assert any(
         "Showing the first 6 of 10 monitors" in note
-        for note in _panel(bump.render(_rows(mono), mono), "Monitor response").annotations
+        for note in _panel(_render(_rows(mono), mono), "Monitor response").annotations
     )
 
 
@@ -510,7 +533,7 @@ def test_the_correctors_are_never_capped() -> None:
     params = _params(
         correctors=["c1", "c2", "c3", "c4"], closure_readbacks=["bpm_c1", "bpm_c2", "bpm_c3"]
     )
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
 
     assert _labels(figure, "Corrector offsets") == ["c1", "c2", "c3", "c4"]
 
@@ -522,7 +545,7 @@ def test_every_series_is_decimated_including_the_flat_band_lines() -> None:
     the point budget spent on a number the annotation already states.
     """
     params = _params(num=1001, readbacks=[])  # 2002 amplitude steps
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
     mark = _lines(figure, "Band residual at constrained BPMs")
 
     assert mark.decimated is True
@@ -551,7 +574,7 @@ def test_a_run_still_walking_the_profile_draws_its_prefix_and_says_so() -> None:
     params = _params()
     rows = _rows(params, limit=params.baseline_reads + 3)
 
-    figure = bump.render(rows, params)
+    figure = _render(rows, params)
     lead = figure.panels[0].annotations
 
     assert lead[0] == (
@@ -566,10 +589,32 @@ def test_a_run_still_walking_the_profile_draws_its_prefix_and_says_so() -> None:
     assert not any("terminal working-point verification" in note for note in band_notes)
 
 
+def test_a_capped_window_keeps_its_attribution_and_quotes_the_undrawn_tail() -> None:
+    """A window with ``rows_complete`` false is a PREFIX of the run (no figure
+    source ever hands a plan a middle or a tail), so the positional step
+    attribution holds for what is drawn, and the lead annotation quotes
+    ``total_seen`` for what is not."""
+    params = _params()
+    rows = _rows(params, limit=params.baseline_reads + 3)
+
+    figure = _render(rows, params, complete=False, total=len(rows) + 40)
+    lead = figure.panels[0].annotations
+
+    assert lead[0] == (
+        f"This run has produced more rows than are being drawn ({len(rows):,} of "
+        f"{len(rows) + 40:,}); the drawn steps keep their attribution, and the "
+        "run's tail is not in this figure."
+    )
+    assert lead[1] == (
+        "3 of 8 amplitude steps recorded so far; the rest of the profile is not in this figure."
+    )
+    assert len(_labels(figure, "Orbit shift across BPMs")) == 3
+
+
 def test_rows_past_the_end_of_the_profile_are_annotated_not_drawn() -> None:
     """Never expected -- but drawing them would attribute them to a step."""
     params = _params()
-    figure = bump.render(_rows(params, extra_rows=2), params)
+    figure = _render(_rows(params, extra_rows=2), params)
 
     assert figure.panels[0].annotations[0] == (
         "This run produced 2 row(s) past the end of its amplitude profile, which are not drawn."
@@ -581,7 +626,7 @@ def test_baseline_rows_alone_draw_nothing() -> None:
     """Every panel is a statement about an amplitude step. Before the first one
     there is no honest partial view, only an empty figure that keeps polling."""
     params = _params()
-    figure = bump.render(_rows(params, limit=params.baseline_reads), params)
+    figure = _render(_rows(params, limit=params.baseline_reads), params)
 
     assert figure.panels == []
 
@@ -589,7 +634,7 @@ def test_baseline_rows_alone_draw_nothing() -> None:
 def test_fewer_rows_than_the_baseline_draw_nothing() -> None:
     """The reference orbit is the baseline mean; an incomplete baseline is not one."""
     params = _params()
-    figure = bump.render(_rows(params, limit=params.baseline_reads - 1), params)
+    figure = _render(_rows(params, limit=params.baseline_reads - 1), params)
 
     assert figure.panels == []
 
@@ -598,7 +643,7 @@ def test_a_missing_bpm_key_is_a_gap_that_keeps_the_axis_aligned() -> None:
     """The BPM axis is positional, so a BPM that never reported keeps its slot --
     dropping it would shift every BPM after it onto the wrong index."""
     params = _params()
-    figure = bump.render(_rows(params, drop=("bpm_c2",)), params)
+    figure = _render(_rows(params, drop=("bpm_c2",)), params)
 
     orbit = _lines(figure, "Orbit shift across BPMs")
     for series in orbit.series:
@@ -616,8 +661,8 @@ def test_a_hyphenated_event_key_resolves_to_its_device() -> None:
     """ophyd keys a multi-signal device as `f"{name}-{signal}"`; render resolves
     exact-then-prefix, so both spellings draw the same figure."""
     params = _params()
-    bare = bump.render(_rows(params), params)
-    hyphenated = bump.render(_rows(params, key=lambda name: f"{name}-readback"), params)
+    bare = _render(_rows(params), params)
+    hyphenated = _render(_rows(params, key=lambda name: f"{name}-readback"), params)
 
     assert bare == hyphenated
 
@@ -625,7 +670,7 @@ def test_a_hyphenated_event_key_resolves_to_its_device() -> None:
 def test_a_panel_with_nothing_finite_is_dropped_not_drawn_empty() -> None:
     """The correctors never reported: three flat gap lines say less than no panel."""
     params = _params()
-    figure = bump.render(_rows(params, drop=("c1", "c2", "c3")), params)
+    figure = _render(_rows(params, drop=("c1", "c2", "c3")), params)
 
     assert [panel.title for panel in figure.panels] == [
         "Orbit shift across BPMs",
@@ -636,7 +681,7 @@ def test_a_panel_with_nothing_finite_is_dropped_not_drawn_empty() -> None:
 def test_the_monitor_panel_is_absent_when_no_monitors_were_requested() -> None:
     """Monitors are optional, and an empty panel is not a view of nothing."""
     params = _params()
-    titles = [panel.title for panel in bump.render(_rows(params), params).panels]
+    titles = [panel.title for panel in _render(_rows(params), params).panels]
 
     assert "Monitor response" not in titles
     assert len(titles) == 3
@@ -651,7 +696,7 @@ def test_one_panel_failing_does_not_take_the_figure_with_it(monkeypatch) -> None
     monkeypatch.setattr(bump, "_misses", _boom)
 
     params = _params(monitors=["det1"])
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
 
     assert [panel.title for panel in figure.panels] == [
         "Orbit shift across BPMs",
@@ -666,14 +711,14 @@ def test_one_panel_failing_does_not_take_the_figure_with_it(monkeypatch) -> None
 
 
 def test_no_rows_render_an_empty_figure() -> None:
-    assert bump.render([], _params()).panels == []
+    assert _render([], _params()).panels == []
 
 
 def test_rows_from_a_different_plan_do_not_raise() -> None:
     """None of the named devices appear: nothing to draw, still a figure."""
     rows = [{"motor": float(index), "det": float(index) ** 2} for index in range(20)]
 
-    assert bump.render(rows, _params()).panels == []
+    assert _render(rows, _params()).panels == []
 
 
 def test_non_numeric_rows_do_not_raise() -> None:
@@ -684,7 +729,7 @@ def test_non_numeric_rows_do_not_raise() -> None:
         for _ in range(params.baseline_reads + 8)
     ]
 
-    assert bump.render(rows, params).panels == []
+    assert _render(rows, params).panels == []
 
 
 def test_a_non_finite_reading_is_a_gap_not_a_raise() -> None:
@@ -695,7 +740,7 @@ def test_a_non_finite_reading_is_a_gap_not_a_raise() -> None:
     rows[params.baseline_reads + 2]["bpm_t"] = float("nan")
     rows[params.baseline_reads + 3]["bpm_t"] = float("inf")
 
-    figure = bump.render(rows, params)
+    figure = _render(rows, params)
     band = _lines(figure, "Band residual at constrained BPMs")
     target = next(series for series in band.series if series.label == "bpm_t")
 
@@ -712,7 +757,7 @@ def test_a_failure_below_every_panel_serves_an_empty_figure(monkeypatch) -> None
 
     monkeypatch.setattr(bump, "_prepare", _boom)
 
-    figure = bump.render(_rows(_params()), _params())
+    figure = _render(_rows(_params()), _params())
     assert figure.panels == []
     assert figure.partial is True
 
@@ -731,7 +776,7 @@ def test_partial_and_source_are_placeholders_the_route_overwrites() -> None:
     degraded = [{"motor": 1.0}]
 
     for rows in (finished, mid_flight, degraded, []):
-        figure = bump.render(rows, params)
+        figure = _render(rows, params)
         assert figure.partial is True
         assert figure.source == "live"
         assert figure.reason is None
@@ -740,7 +785,7 @@ def test_partial_and_source_are_placeholders_the_route_overwrites() -> None:
 def test_figure_round_trips_through_model_validate() -> None:
     """What the route dumps to JSON validates back to the same marks."""
     params = _params(monitors=["det1"])
-    figure = bump.render(_rows(params), params)
+    figure = _render(_rows(params), params)
 
     assert Figure.model_validate(figure.model_dump()) == figure
 

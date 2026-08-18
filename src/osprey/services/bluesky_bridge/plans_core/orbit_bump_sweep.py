@@ -72,6 +72,7 @@ from osprey.services.bluesky_bridge.figure import (
     LinesMark,
     Panel,
     Point,
+    RowWindow,
     Series,
     decimate,
 )
@@ -1372,9 +1373,9 @@ def _panel_or_none(build: Callable[[], Panel | None], what: str) -> Panel | None
         return None
 
 
-def _build(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
+def _build(window: RowWindow, params: PARAMS) -> Figure:
     """Assemble the figure. Individual panels degrade; `render` catches the rest."""
-    sweep = _prepare(rows, params)
+    sweep = _prepare(window.rows, params)
     if sweep is None:
         return Figure(panels=[], partial=True, source="live")
 
@@ -1390,6 +1391,16 @@ def _build(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
     ]
 
     lead: list[str] = []
+    if not window.rows_complete:
+        # A capped window is always a PREFIX of the run (no figure source ever
+        # hands a plan a middle or a tail), so the positional step attribution
+        # below stays sound — the drawn rows keep meaning what they mean, and
+        # only the tail is missing.
+        lead.append(
+            f"This run has produced more rows than are being drawn "
+            f"({len(window.rows):,} of {window.total_seen:,}); the drawn steps keep "
+            "their attribution, and the run's tail is not in this figure."
+        )
     if len(sweep.steps) < len(sweep.scales):
         lead.append(
             f"{len(sweep.steps)} of {len(sweep.scales)} amplitude steps recorded so "
@@ -1410,7 +1421,7 @@ def _build(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
     return Figure(panels=panels, partial=True, source="live")
 
 
-def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
+def render(window: RowWindow, params: PARAMS) -> Figure:
     """The `orbit_bump_sweep` plan's own view of a run: the bump, and what it cost.
 
     Panel order is stable, so a live figure grows rather than rearranging:
@@ -1435,7 +1446,10 @@ def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
     profile in profile order. A row set that stops short is a run still walking
     the profile (or one that aborted): the leading rows still mean what they
     mean, so they are drawn and the figure says how much of the profile is
-    missing.
+    missing. A capped window (``window.rows_complete`` false) is the same
+    story told by the source instead of the run — the rows are a prefix, the
+    attribution holds, and an annotation quotes ``window.total_seen`` for how
+    much went undrawn.
 
     **Never raises.** A figure is a view, not a result: a missing device key, a
     row set with no steps in it yet, an unreadable baseline — each degrades to
@@ -1449,21 +1463,21 @@ def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
     forgotten overwrite costs a client extra polling, never a false "settled".
 
     Args:
-        rows: The run's event `data` dicts in emission order — the run's whole
-            stored set, never a window of it.
+        window: The run's event `data` dicts in emission order, and whether
+            they are all of them (`RowWindow`).
         params: The parameters the run was launched with.
 
     Returns:
         A `Figure` whose panels are as complete as the rows allow.
     """
     try:
-        return _build(rows, params)
+        return _build(window, params)
     except Exception:
         logger.warning("orbit_bump_sweep render failed; serving an empty figure", exc_info=True)
         return Figure(panels=[], partial=True, source="live")
 
 
-_RENDER_CONFORMANCE: Callable[[list[dict[str, Any]], PARAMS], Figure] = render
+_RENDER_CONFORMANCE: Callable[[RowWindow, PARAMS], Figure] = render
 """Static proof that `render` matches `PlanSpec.render`'s signature.
 
 The loader holds `PlanSpec[Any]`, so a module-level `render` is not type-checked
