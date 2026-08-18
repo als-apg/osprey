@@ -38,11 +38,13 @@ ARG OSPREY_OFFLINE="0"
 # broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
 # bounded apt retries with backoff so a transient network blip mid-build does
 # not fail the whole image.
-RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
-RUN apt-get update \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    apt-get update \
  && apt-get install -y --no-install-recommends curl git procps ca-certificates gnupg \
  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
@@ -53,7 +55,8 @@ RUN apt-get update \
 # Claude Code CLI, pinned via CLAUDE_CLI_VERSION (npm global install) so an
 # upstream release cannot silently change agent behavior between image
 # builds — mirrors the dispatch-worker image's pinned install.
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
 
 # OSPREY + profile dependencies (deps layer). A C toolchain (build-essential +
 # python3-dev) is needed at install time to compile native deps (e.g.
@@ -79,7 +82,8 @@ COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # reaches pip's isolated build environments, where a plain requirement pin
 # would not. Drop the constraint once a fixed setuptools or setuptools_dso
 # release is out.
-RUN export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \

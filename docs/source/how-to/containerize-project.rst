@@ -13,6 +13,7 @@ every project.
    - How to keep a customized Dockerfile across rebuilds
    - Building and running the image (ports, secrets, volumes)
    - The three build-arg extension points for site-specific installs
+   - Building behind a proxy
    - Path relocation with ``osprey build --runtime-root``
    - Air-gapped images, the non-root requirement, and Kubernetes notes
 
@@ -122,6 +123,45 @@ vendored assets for an air-gapped host:
    distribute — prefer `Docker build secrets
    <https://docs.docker.com/build/building/secrets/>`_ or a credential-free
    internal mirror.
+
+Building Behind a Proxy
+-----------------------
+
+Two things have to line up for a build on a proxied network: the proxy values
+have to reach the build, and the tools inside it have to find them under the
+names they actually read.
+
+**Getting the values in.** Docker takes them as build arguments —
+``docker build --build-arg HTTP_PROXY=... --build-arg HTTPS_PROXY=...``. The
+uppercase spellings are predeclared by the builder, so no ``ARG`` line is needed
+for them. Podman does this for you: it forwards the host's proxy environment
+into every build unless you pass ``--http-proxy=false``.
+
+**Finding them inside a build step.** ``apt`` and ``pip`` read only the
+lowercase ``http_proxy`` / ``https_proxy`` / ``no_proxy``, and an uppercase
+build argument does not answer to a lowercase name. So every ``RUN`` that
+reaches the network in a generated Dockerfile opens with a bridge line:
+
+.. code-block:: dockerfile
+
+   RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" \
+              https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" \
+              no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+       apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates
+
+Each expansion prefers a lowercase value that is already set, falls back to the
+uppercase one, and otherwise defaults to empty — so a build with no proxy
+exports three empty variables and behaves exactly as it did before.
+
+The two mechanisms answer different questions and work together: the build
+arguments (or Podman's forwarding) deliver the values, and the bridge closes the
+upper/lowercase gap inside the step. ``PIP_NO_PROXY`` remains the knob for the
+other half — which hosts to *skip* the proxy for. In the project image's
+dependency layer the bridge runs first and the existing
+``NO_PROXY="$PIP_NO_PROXY"`` export follows it, so a site that needs an
+exemption there sets ``PIP_NO_PROXY`` exactly as before while ``http_proxy`` and
+``https_proxy`` are bridged normally.
 
 Path Relocation
 ===============

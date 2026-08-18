@@ -2582,6 +2582,169 @@ jobs:
         # secret is ever absent, so this stays advisory and self-gating.
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
+
+    # ── the proxied build ────────────────────────────────────────────────────
+    # Every template Dockerfile opens each apt-using RUN with
+    #   export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" …
+    # because apt reads only the lowercase names, while a facility hands its
+    # proxy to a build as the uppercase ones. The steps below are the
+    # empirical proof that this bridge works, and what they assert is the
+    # PROXY'S ACCESS LOG, never the build's exit status: this runner has open
+    # egress, so a build whose bridge was deleted would quietly fetch straight
+    # past the proxy and still exit 0.
+    #
+    # `set -euo pipefail` is spelled out in every step: GitHub's default shell
+    # is `bash -e`, without pipefail, so a masked failure inside a pipeline
+    # would report the last command's status and green the lane.
+    - name: Start a logging forward proxy (tinyproxy)
+      # No Allow/Deny lines: with no ACL at all tinyproxy accepts every client,
+      # which is what a single-use proxy on an ephemeral runner wants and keeps
+      # a CIDR out of the parse path. No Listen either — the default is every
+      # interface. `LogLevel Info` is load-bearing rather than chatty: the
+      # request line that names the TARGET host ("Request (fd N): CONNECT
+      # deb.debian.org:443") is logged at Info, and the assertion below reads
+      # exactly that. The log file is pre-created by this (unprivileged) user
+      # so the root process inside the container appends to a file the later
+      # grep can still read.
+      run: |
+        set -euo pipefail
+        rm -rf /tmp/osprey-proxy
+        mkdir -p /tmp/osprey-proxy
+        cat > /tmp/osprey-proxy/tinyproxy.conf <<'CONF'
+        Port 8888
+        Timeout 600
+        MaxClients 100
+        LogLevel Info
+        LogFile "/proxy/access.log"
+        CONF
+        : > /tmp/osprey-proxy/access.log
+        chmod 666 /tmp/osprey-proxy/access.log
+        docker run -d --name osprey-ci-proxy --network host \
+          -v /tmp/osprey-proxy:/proxy debian:bookworm-slim \
+          sh -c 'apt-get update -qq \
+                 && apt-get install -y -qq --no-install-recommends tinyproxy \
+                 && exec tinyproxy -d -c /proxy/tinyproxy.conf'
+        # Readiness is a bare TCP connect, deliberately: a probe that FETCHED
+        # anything through the proxy would write that host into the access log
+        # the assertion step reads, and could satisfy it on its own.
+        for _ in $(seq 60); do
+          if (exec 3<>/dev/tcp/127.0.0.1/8888) 2>/dev/null; then
+            echo "✅ tinyproxy is listening on 127.0.0.1:8888"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "❌ tinyproxy never came up on 127.0.0.1:8888"
+        docker logs osprey-ci-proxy || true
+        exit 1
+
+    - name: Assert the uppercase-only proxy contract reaches the build
+      # The bridge is only worth proving on a runtime that does NOT already
+      # hand the RUN step a lowercase copy of its own. Docker's BuildKit does
+      # exactly that — measured: `--build-arg HTTP_PROXY=…` arrives inside RUN
+      # as BOTH `HTTP_PROXY` and `http_proxy` — so a docker build would satisfy
+      # the log assertion below with the bridge deleted. Podman (buildah)
+      # passes the names it is given, which is why the build step uses podman;
+      # this probe pins that property on the runner instead of trusting it. If
+      # a future podman starts duplicating the case, the lane fails HERE rather
+      # than greening over a proof that no longer proves anything.
+      #
+      # The probe Dockerfile deliberately declares no ARG: the proxy names are
+      # predeclared build args, and that is the shape the real Dockerfile
+      # relies on. Its base image is fully qualified so nothing here depends on
+      # podman's short-name resolution.
+      run: |
+        set -euo pipefail
+        rm -rf /tmp/osprey-proxy-probe
+        mkdir -p /tmp/osprey-proxy-probe
+        cat > /tmp/osprey-proxy-probe/Dockerfile <<'PROBE'
+        FROM docker.io/library/busybox
+        RUN env | sort | grep -i proxy || echo "NO-PROXY-ENV"
+        PROBE
+        out="$(podman build --no-cache --http-proxy=false \
+          --build-arg HTTP_PROXY=http://127.0.0.1:8888 \
+          --build-arg HTTPS_PROXY=http://127.0.0.1:8888 \
+          /tmp/osprey-proxy-probe 2>&1)"
+        printf '%s\n' "$out"
+        if ! grep -q 'HTTP_PROXY=http://127.0.0.1:8888' <<<"$out"; then
+          echo "❌ the uppercase HTTP_PROXY build-arg never reached the RUN environment"
+          exit 1
+        fi
+        if grep -q 'http_proxy=' <<<"$out"; then
+          echo "❌ this build runtime injects a lowercase proxy variable of its own —"
+          echo "   the access-log assertion would then pass with the Dockerfile's"
+          echo "   lowercase bridge deleted, i.e. it would prove nothing."
+          exit 1
+        fi
+        echo "✅ uppercase in, uppercase only — the bridge is the sole path to apt"
+
+    - name: Build the web-terminal auth sidecar through the proxy
+      # A staged copy of the template directory, not the directory in place:
+      # `osprey up --dev` stages an `osprey-local-requirements.txt` beside the
+      # Dockerfile and the COPY that picks it up is an optional glob. Staging an
+      # empty one keeps that glob's cross-runtime behaviour out of this lane, so
+      # the proxy bridge stays the only thing that can fail here.
+      #
+      # OSPREY_VERSION is required by the Dockerfile (it exits non-zero when
+      # empty) and OSPREY_DEV=1 is what lets a branch version that is not on
+      # PyPI fall back to an unpinned prime — the same pair `osprey up --dev`
+      # passes. Either way pip talks to PyPI, which is the second half of the
+      # assertion below.
+      #
+      # `--http-proxy=false` turns off buildah's copy of the HOST's proxy
+      # variables, so the two build-args are the only proxy values in the
+      # build. That, and their case, is the contract under test.
+      timeout-minutes: 15
+      run: |
+        set -euo pipefail
+        version="$(uv run --no-sync python -c 'import osprey; print(osprey.__version__)')"
+        echo "OSPREY_VERSION=$version"
+        rm -rf /tmp/osprey-sidecar-ctx
+        mkdir -p /tmp/osprey-sidecar-ctx
+        cp -a src/osprey/templates/modules/web_terminals/auth_sidecar/. /tmp/osprey-sidecar-ctx/
+        : > /tmp/osprey-sidecar-ctx/osprey-local-requirements.txt
+        podman build --no-cache --network=host --http-proxy=false \
+          --build-arg HTTP_PROXY=http://127.0.0.1:8888 \
+          --build-arg HTTPS_PROXY=http://127.0.0.1:8888 \
+          --build-arg OSPREY_VERSION="$version" \
+          --build-arg OSPREY_DEV=1 \
+          --tag osprey-auth-sidecar:proxied-ci \
+          /tmp/osprey-sidecar-ctx
+
+    - name: Assert apt and pip traffic went through the proxy
+      # The point of the whole sequence. Two host classes, checked separately
+      # because they prove different things: the apt host proves the lowercase
+      # bridge (apt reads no uppercase name, so its traffic can only be proxied
+      # via the export), and the pip host proves the proxy was engaged for the
+      # framework install as well. Matched lines are printed for the job log.
+      # Every grep is a plain file read into a variable — no pipelines whose
+      # status could be swallowed, and no `head` downstream of a producer.
+      run: |
+        set -euo pipefail
+        log=/tmp/osprey-proxy/access.log
+        if [ ! -s "$log" ]; then
+          echo "❌ proxy access log missing or empty at $log — nothing was proxied at all"
+          docker logs osprey-ci-proxy || true
+          exit 1
+        fi
+        apt_hits="$(grep -F 'deb.debian.org' "$log" || true)"
+        pip_hits="$(grep -E 'pypi\.org|files\.pythonhosted\.org' "$log" || true)"
+        echo "── apt traffic seen by the proxy ──────────────────────────────"
+        head -n 20 <<<"${apt_hits:-<none>}"
+        echo "── pip traffic seen by the proxy ──────────────────────────────"
+        head -n 20 <<<"${pip_hits:-<none>}"
+        if [ -z "$apt_hits" ]; then
+          echo "❌ no deb.debian.org request reached the proxy: the lowercase-proxy"
+          echo "   bridge in the auth-sidecar Dockerfile is not doing its job."
+          exit 1
+        fi
+        if [ -z "$pip_hits" ]; then
+          echo "❌ no pypi.org / files.pythonhosted.org request reached the proxy:"
+          echo "   the framework install bypassed it."
+          exit 1
+        fi
+        echo "✅ both apt and pip traffic went through the proxy"
+
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
     # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
     - name: Capture failure diagnostics
@@ -2590,6 +2753,24 @@ jobs:
       with:
         name: dockerfile-e2e
         engine: docker
+
+    - name: Stop the forward proxy
+      # `always()`: the proxy is a fixed-name container on a shared runner, and
+      # a failed assertion above must not leave it holding port 8888 for
+      # whatever runs next. The log tail is printed here because it is the one
+      # diagnostic that explains any failure in this sequence.
+      #
+      # Last, deliberately — AFTER the capture step above. Teardown removes the
+      # container whose logs that step exists to collect, so the order is the
+      # difference between a diagnosable red lane and an empty artifact.
+      if: always()
+      run: |
+        set -euo pipefail
+        if [ -f /tmp/osprey-proxy/access.log ]; then
+          echo "── last 40 proxy access-log lines ─────────────────────────────"
+          tail -n 40 /tmp/osprey-proxy/access.log || true
+        fi
+        docker rm -f osprey-ci-proxy > /dev/null 2>&1 || true
 
 
   execution-environment-parity-e2e:

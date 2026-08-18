@@ -18,7 +18,8 @@ FROM node:22-bookworm-slim
 # with no ca-certificates at all, so this first fetch has to go over plain HTTP
 # — switching the mirror to HTTPS before the CA bundle exists fails apt with
 # "certificate issuer is unknown".
-RUN printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
  && apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -34,7 +35,8 @@ RUN printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
 #         its own network namespace. The entrypoint runs qmd on internal
 #         [::1]:<internal port> and forwards the routable port to it. This keeps
 #         the security posture: qmd itself never listens on a routable address.
-RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
  && apt-get update \
  && apt-get install -y --no-install-recommends curl socat \
@@ -52,7 +54,8 @@ RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
 # so it does not bloat the image. This also means the image is architecture-
 # specific: build it for the architecture it will run on.
 ARG QMD_VERSION=2.5.3
-RUN apt-get update \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    apt-get update \
  && apt-get install -y --no-install-recommends build-essential python3 \
  && npm install -g "@tobilu/qmd@${QMD_VERSION}" \
  && npm cache clean --force \

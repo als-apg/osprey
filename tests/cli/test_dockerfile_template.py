@@ -27,6 +27,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
 
 # The site-extension contract: exactly these quoted build ARGs, with these
 # defaults. (CLAUDE_CLI_VERSION is rendered without quotes and is not captured.)
@@ -98,6 +99,18 @@ class TestDockerfileContent:
             text = (hello_project / name).read_text()
             assert "{{" not in text, f"unrendered Jinja in {name}"
             assert "{%" not in text, f"unrendered Jinja in {name}"
+
+    def test_apt_runs_deliver_the_proxy_settings(self, hello_project):
+        """Every apt-using RUN hands apt the proxy settings before it fetches.
+
+        The rendered project image is the ninth recipe under the same rule as
+        the eight on-disk ones in
+        :mod:`tests.deployment.test_service_dockerfiles`; the idiom itself is
+        spelled once, in :mod:`tests.deployment._proxy_idiom`.
+        """
+        assert_apt_runs_carry_proxy_idiom(
+            (hello_project / "Dockerfile").read_text(), "rendered project template"
+        )
 
     @classmethod
     def _deps_run_body(cls, text: str) -> str:
