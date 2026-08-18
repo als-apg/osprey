@@ -3,10 +3,14 @@
 # The build context is the rendered service directory. The Dockerfile needs
 # exactly one file from it — entrypoint.sh — plus this file, which doubles as
 # the guaranteed COPY sibling that keeps the optional `entrypoint.s[h]` glob
-# matching. Everything else is a deploy artifact or a runtime bind-mount and
-# must not be baked into the image.
+# matching. Nothing else in the directory is an image input, so every rule
+# below is defensive: it keeps a file that shows up next to a rendered service
+# — a deploy artifact, a bind-mount target, or a volume someone materialised by
+# hand — from being uploaded as build context.
+# Byte-code left behind by anything run inside the service directory.
 **/__pycache__/
 *.pyc
+# History and secrets, neither of which belong in an image.
 .git/
 .env
 # Compose files + templates are runtime/deploy artifacts, not image inputs.
@@ -20,4 +24,9 @@ corpus/
 index/
 *.db
 *.sqlite*
-*.gguf
+# Model files reach the container either from the pinned fetches in the
+# Dockerfile or over the read-only mount `services.qmd.models_dir` configures —
+# never through the build context. `**/` because the bare `*.gguf` this
+# replaces matched only the context root, leaving a subdirectory of models
+# (2.1 GB of them) free to be uploaded.
+**/*.gguf

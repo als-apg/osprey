@@ -130,6 +130,20 @@ keys:
       Fallback corpus-sweep period, not the freshness lag — `.qmd-touch` is the
       primary trigger. Default 30 s; a no-op sweep costs ~12.5 s at 135k
       documents, so a large corpus should raise it.
+  services.qmd.models_dir:
+    rendered: false
+    evidence: '_absolute_path\(block\.get\("models_dir"\)'
+    note: >-
+      Hidden key, unset in all five templates. Names a host directory holding
+      the three GGUF models the sidecar image otherwise downloads at build
+      time; setting it skips the downloads and delivers them over a read-only
+      mount instead, which is what makes the sidecar buildable on a network
+      with no route to huggingface.co. Subject-named after what the directory
+      holds, like `path`/`mirror_path`, not after the mount that carries it.
+      `preflight_qmd_models_dir` refuses the deploy when the directory is
+      missing or lacks a model under its exact `hf_<org>_<basename>` cache
+      name — the one operator error that would otherwise surface only as an
+      unhealthy container an hour later.
   # `services.qmd.bind_address` is deliberately absent: the sidecar publishes on
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.

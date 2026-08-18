@@ -13,7 +13,7 @@ every project.
    - How to keep a customized Dockerfile across rebuilds
    - Building and running the image (ports, secrets, volumes)
    - The three build-arg extension points for site-specific installs
-   - Building behind a proxy
+   - Building behind a proxy, and staging model files for the search sidecar
    - Path relocation with ``osprey build --runtime-root``
    - Air-gapped images, the non-root requirement, and Kubernetes notes
 
@@ -162,6 +162,71 @@ dependency layer the bridge runs first and the existing
 ``NO_PROXY="$PIP_NO_PROXY"`` export follows it, so a site that needs an
 exemption there sets ``PIP_NO_PROXY`` exactly as before while ``http_proxy`` and
 ``https_proxy`` are bridged normally.
+
+Prefetched Models for the Search Sidecar
+========================================
+
+A deployment that includes the qmd search sidecar builds a second image, and
+that one downloads three model files from ``huggingface.co`` during its build.
+On a network with no route there, stage the files on the host once and name that
+directory of prefetched models in the project's ``config.yml``:
+
+.. code-block:: yaml
+
+   services:
+     qmd:
+       models_dir: /srv/osprey/qmd-models   # absolute host path
+
+That one key does both halves of the job: the build skips the downloads, and the
+directory is bind-mounted read-only into the container at the location the image
+looks for models. The container-side path is fixed by the image and is not
+configurable.
+
+Staging the files
+-----------------
+
+The three files must sit in that directory under exactly these names:
+
+.. code-block:: text
+
+   hf_ggml-org_embeddinggemma-300M-Q8_0.gguf
+   hf_ggml-org_qwen3-reranker-0.6b-q8_0.gguf
+   hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf
+
+These are cache names, not the names the files download under. The model loader
+recognizes a staged file only in this form; under any other name it reads as
+**absent**, and the sidecar tries to fetch it again — into a read-only mount, on
+a network that cannot reach the model host.
+
+Copy the files from a machine that can reach ``huggingface.co`` (or from the
+model cache of one that has already built the sidecar image), rename them, and
+check them before setting the key:
+
+.. code-block:: bash
+
+   sha256sum /srv/osprey/qmd-models/*.gguf
+
+Compare the three digests against the pins in the qmd service's Dockerfile
+(``services/qmd/Dockerfile`` in the rendered deployment), which carries both the
+source URL and the expected SHA256 of each file.
+
+What gets checked
+-----------------
+
+- **Before anything starts.** If ``services.qmd.models_dir`` is set but the
+  directory is missing, or a model is absent, misnamed, or zero bytes, the
+  deploy refuses up front and prints the expected filenames along with the
+  staging steps. Nothing has been started at that point.
+- **At container start.** The entrypoint verifies all three SHA256 digests
+  against the pins the image was built with, every time, and fails with a clear
+  message rather than letting the sidecar crash-loop unnoticed. A stamp file
+  records what it already verified, so ordinary restarts stay fast.
+
+Leaving ``models_dir`` unset keeps the default: the models are baked into the
+image at build time, which needs a build host that can reach ``huggingface.co``.
+Those downloads use ``curl``, which reads the uppercase ``HTTPS_PROXY``
+directly, so an online build behind a proxy needs nothing beyond the build
+arguments described above.
 
 Path Relocation
 ===============

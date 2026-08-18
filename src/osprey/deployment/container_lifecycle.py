@@ -51,6 +51,7 @@ from osprey.deployment.host_ports import (
     format_conflict_report,
     parse_host_port_bindings,
 )
+from osprey.deployment.qmd_service import preflight_qmd_models_dir
 from osprey.deployment.runtime_helper import (
     ComposeProvider,
     UnsupportedComposeProviderError,
@@ -3795,6 +3796,14 @@ def _start_stack(
     # plain services branch further down rather than duplicating the check
     # in each.
     _check_shared_disk_preflight(config)
+
+    # Same shape, for the other configured host path: when services.qmd.models_dir
+    # is set, the sidecar's models come from that directory over a read-only mount
+    # instead of from the image. A missing or mis-named file there does not fail
+    # the deploy — it makes the sidecar try to download the model it cannot find,
+    # on a host that was configured this way because it has no route out. Checked
+    # here, before the build the setting is meant to shorten.
+    preflight_qmd_models_dir(config)
 
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
