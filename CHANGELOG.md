@@ -33,6 +33,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Agents now route a measurement that needs more than one setting through the
+  Bluesky queue instead of stepping a setpoint with repeated `channel_write`
+  calls. The `operating-bluesky-plans` skill also triggers on requests phrased
+  as physics ("step a corrector across a few settings and record the beam")
+  rather than only on the words *plan*, *run*, *queue* and *start*, and the
+  control-system safety rule states the routing directly. Hand-stepping cost
+  the operator one approval per write instead of one per measurement and left
+  no run behind.
 - `osprey up` now refuses as a precondition, rather than failing with a generic
   "Deployment failed", when a project deploys the archiver store and pymongo is
   missing. The refusal names the interpreter it is missing from — OSPREY seeds

@@ -5,7 +5,12 @@ description: >
   the plan/queue panels: stage the complete configuration in one set_draft,
   let the human review it live in the plan panel, add that pinned revision to
   the queue, start the queue, and watch the run. Use when asked to run, queue,
-  or start a plan that already exists. NOT for authoring a new plan file (use
+  or start a plan that already exists, AND whenever a measurement is asked for
+  in prose that never says "plan": step or sweep a setpoint across a range and
+  record a readback, take readings at several settings, vary a corrector and
+  watch the orbit, characterise how one channel responds to another. Any
+  measurement that needs more than one setting goes through the queue, never
+  through repeated channel_write. NOT for authoring a new plan file (use
   writing-bluesky-plans first).
 summary: Stage, queue, start, and watch a registered plan through the shared draft
 ---
@@ -22,6 +27,40 @@ never a hidden, agent-only path to hardware.
 This skill operates plans that already exist. To author a brand-new plan
 file, use the `writing-bluesky-plans` skill first, then come back here to run
 it.
+
+---
+
+## A multi-point measurement is a plan, whatever the operator called it
+
+Operators ask for measurements in physics prose, not in tool names. "Step one
+of the correctors across a few settings inside its allowed range and record
+where the beam sits", "sweep this setpoint and read the response back", "take
+a few readings at different settings" — none of those sentences contains the
+word *plan*, *scan* or *queue*, and every one of them is this skill's job.
+
+**The rule: if reaching the answer needs more than one setting, it goes through
+the queue.** Stage it in the draft, add it, start it. The alternative — a run
+of `channel_write` calls stepping the setpoint by hand, with reads in between —
+is the wrong path for three reasons, and none of them is a matter of taste:
+
+- **It costs the operator one approval per write instead of one per
+  measurement.** A ten-point sweep becomes ten consent prompts, and consent
+  asked ten times is consent nobody reads.
+- **It leaves no run.** There is no `run_id`, so nothing lands in the queue
+  panel, nothing reaches the data store, and `get_run_data` / `get_run_figure`
+  have nothing to read. The numbers exist only in the transcript.
+- **It leaves the machine wherever the last write put it.** A plan restores
+  what it moved and records what it did; a hand-stepped loop that stops
+  half-way — refused, errored, interrupted — simply stops, with the setpoint
+  parked at whatever the last accepted write set it to.
+
+`channel_read` is fine at any time, and a **single** deliberate `channel_write`
+that the operator asked for by name is fine too. What does not belong here is a
+*sequence* of writes standing in for a plan.
+
+If no registered plan fits the measurement, that is a `list_plans()` finding to
+report — and possibly a job for `writing-bluesky-plans` — not a licence to
+hand-step. Say which plan you are using and why, or say that none fits.
 
 ---
 
@@ -447,6 +486,10 @@ know why it was requested.
 
 ## Anti-patterns
 
+- **Never** hand-step a measurement with repeated `channel_write` because the
+  request was phrased as physics rather than as a plan — more than one setting
+  means the queue, which costs one approval instead of one per write and leaves
+  a run behind.
 - **Never** stage a plan across multiple `set_draft` calls that each leave an
   incomplete draft in front of the human's Add-to-queue button — assemble the
   full `plan_args` and stage it in one call.
