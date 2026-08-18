@@ -107,7 +107,7 @@ Step 2 — Trim the profile to this facility's stack
 Open ``profile.yml``. The ``control-assistant`` preset ships a fuller
 stack than Demo Facility runs, so the first edit is subtraction. Delete:
 
-* the top-level ``bluesky:``, ``bluesky_panels:`` and ``dispatch:`` blocks. Each
+* the top-level ``bluesky:``, ``bluesky_web:`` and ``dispatch:`` blocks. Each
   of these is a trigger: leaving one in place adds its service to the
   deployment, whatever else you write below.
 * from ``skills:`` — ``writing-bluesky-plans`` and ``operating-bluesky-plans``.

@@ -1,6 +1,6 @@
 """Sidecar relay for the Bluesky bridge's plan-queue endpoints.
 
-This module defines ``router`` only; ``osprey.interfaces.bluesky_panels.app``
+This module defines ``router`` only; ``osprey.interfaces.bluesky_web.app``
 mounts it alongside ``read_proxy`` and ``draft_relay``, so every route here
 reads the shared ``httpx.AsyncClient`` and resolved bridge base URL from
 ``request.app.state`` at request time (set in the app's lifespan) -- the same
@@ -85,7 +85,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from osprey.bluesky_bridge_connection import resolve_launch_token
-from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
 
 # The queue's read routes reuse ``read_proxy``'s single GET passthrough rather
 # than growing a second one: that helper IS the sidecar's GET relay semantics
@@ -93,14 +93,14 @@ from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
 # bridge), and a private-but-same-package import keeps the two from drifting.
 # The write routes live here instead of there because ``read_proxy`` is
 # GET-only by documented invariant.
-from osprey.interfaces.bluesky_panels.read_proxy import _forward_get
+from osprey.interfaces.bluesky_web.read_proxy import _forward_get
 from osprey.utils.http_proxy import HOP_BY_HOP
 
 router = APIRouter()
 
 _LAUNCH_TOKEN_HEADER = "X-Launch-Token"
 
-logger = logging.getLogger("osprey.interfaces.bluesky_panels.queue_relay")
+logger = logging.getLogger("osprey.interfaces.bluesky_web.queue_relay")
 
 
 def _resolve_token_or_none() -> str | None:

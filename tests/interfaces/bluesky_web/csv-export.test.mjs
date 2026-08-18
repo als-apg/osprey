@@ -2,7 +2,7 @@
  * Unit tests for the BLUESKY panel's CSV export.
  *
  * happy-dom environment (configured globally in vitest.config.js):
- *   npx vitest run tests/interfaces/bluesky_panels/csv-export.test.mjs
+ *   npx vitest run tests/interfaces/bluesky_web/csv-export.test.mjs
  *
  * Two layers:
  *  - The pure builders (`csvField`, `toCsv`, `exportFilename`) against literal
@@ -22,7 +22,7 @@ import {
   exportFilename,
   saveCsv,
   toCsv,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/csv-export.js';
+} from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/csv-export.js';
 
 describe('csvField', () => {
   test('an absent value is an EMPTY field, never the table’s em dash', () => {

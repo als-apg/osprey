@@ -3,7 +3,7 @@
  * the shell that holds Plans | Queue | Results together.
  *
  * happy-dom environment (configured globally in vitest.config.js):
- *   npx vitest run tests/interfaces/bluesky_panels/bluesky-panel.test.mjs
+ *   npx vitest run tests/interfaces/bluesky_web/bluesky-panel.test.mjs
  *
  * Three layers are exercised:
  *  - The pure queue decisions (`reduceQueueFrame`, `queueControls`,
@@ -53,14 +53,14 @@ import {
   stopButtonClass,
   stopButtonLabel,
   writeOutcomeTone,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/queue-client.js';
+} from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js';
 import {
   badgeToneForStatus,
   createResultsView,
   formatCell,
   runMetaParts,
   shouldKeepPolling,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/results-view.js';
+} from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/results-view.js';
 // The absolute specifier the panel itself imports, so the `setTheme()` this
 // file calls drives the very same subscriber set `createResultsView` joins.
 import { setTheme } from '/design-system/js/theme-manager.js';
@@ -872,7 +872,7 @@ describe('createResultsView', () => {
    * against the renderer's own wire typedef so a fixture that drifts from the
    * bridge's shape fails typecheck rather than quietly testing a fiction.
    *
-   * @type {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').Figure}
+   * @type {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/figure-renderer.js').Figure}
    */
   const FIGURE = {
     panels: [
@@ -1689,7 +1689,7 @@ describe('bundle wiring', () => {
   // happy-dom the document's origin is `http://localhost`, so a URL relative
   // to this module is not a file path at all. Vitest always runs from the
   // repo root.
-  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
+  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   test('every element id the shell, queue view and figure renderer look up exists in index.html', () => {
     // The bundle has no build step and is served as authored, so a renamed id
@@ -1725,7 +1725,7 @@ describe('bundle wiring', () => {
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     expect(html).toContain('<title>Bluesky</title>');
     expect(html).toContain('<h1>Bluesky</h1>');
-    expect(html).toContain('OSPREY Bluesky Panels');
+    expect(html).toContain('OSPREY Bluesky');
   });
 
   test('the two halts render OUTSIDE the three view containers', () => {
@@ -1887,7 +1887,7 @@ describe('bundle wiring', () => {
  * bundle is what closes that gap.
  */
 describe('booting the shipped bundle', () => {
-  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
+  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   /** Captures the panel's EventSource so a test can push frames at it. */
   class BootEventSource {
@@ -2207,7 +2207,7 @@ describe('booting the shipped bundle', () => {
  * wired together, so these boot the bundle exactly as the browser does.
  */
 describe('the merged panel shell', () => {
-  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
+  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   /** Captures the panel's EventSources so a test can push queue frames. */
   class ShellEventSource {

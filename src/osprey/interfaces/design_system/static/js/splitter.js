@@ -11,7 +11,7 @@
  *
  * Why shared: these surfaces are served by three different processes — the hub
  * serves OKF and artifacts in-process, the PLAN panel comes from the
- * bluesky-panels sidecar container, and the event dashboard is its own FastMCP
+ * bluesky-web sidecar container, and the event dashboard is its own FastMCP
  * server. They cannot import each other's code, and `/design-system/` is the
  * one path all of them resolve. Hand-copied splitters drifted silently because
  * nothing failed when one stopped matching; this is the single definition.

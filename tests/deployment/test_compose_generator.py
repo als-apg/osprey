@@ -2457,7 +2457,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "event_dispatcher": {"port": 8020},
             "dispatch_worker": {"worker_count": 1, "workspace_mode": "isolated"},
             "bluesky": {"port": 8090},
-            "bluesky_panels": {"port": 8095},
+            "bluesky_web": {"port": 8095},
             # Both bridge templates read their trigger with no fallback, so the
             # shared ctx must declare the blocks or every render through here
             # raises UndefinedError on `services.<bridge>`.
@@ -2718,10 +2718,10 @@ _PREFIXED_IMAGE_SERVICES = [
         "bluesky-bridge",
     ),
     (
-        "bluesky_panels/docker-compose.yml.j2",
-        "bluesky-panels",
-        "OSPREY_BLUESKY_PANELS_IMAGE",
-        "bluesky-panels",
+        "bluesky_web/docker-compose.yml.j2",
+        "bluesky-web",
+        "OSPREY_BLUESKY_WEB_IMAGE",
+        "bluesky-web",
     ),
     (
         "nextcloud_bridge/docker-compose.yml.j2",

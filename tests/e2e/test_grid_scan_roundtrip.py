@@ -79,7 +79,7 @@ pytestmark = [
 # Distinct from every other e2e module's pinned bridge port (_orm_stack.py's
 # 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
 # 18099, test_tiled_roundtrip.py's 18101, test_bluesky_catalog_e2e.py's
-# 18103, test_bluesky_sandbox_escape_e2e.py's 18105, test_bluesky_panels_deploy.py's
+# 18103, test_bluesky_sandbox_escape_e2e.py's 18105, test_bluesky_web_deploy.py's
 # 18106) so this can run concurrently with any of them on a shared dev
 # machine without a port collision.
 BRIDGE_PORT = 18104

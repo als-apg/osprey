@@ -1,6 +1,6 @@
-"""Unit tests for the bluesky panels sidecar's plan-queue relay.
+"""Unit tests for the bluesky-web sidecar's plan-queue relay.
 
-Exercises ``osprey.interfaces.bluesky_panels.queue_relay.router`` mounted on a
+Exercises ``osprey.interfaces.bluesky_web.queue_relay.router`` mounted on a
 LOCAL FastAPI app, with the bridge HTTP layer faked by ``httpx.MockTransport``
 (respx is not installed here), mirroring ``test_draft_relay.py`` /
 ``test_launch.py``. The composed-app assertions at the bottom are the
@@ -34,7 +34,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.bluesky_panels import queue_relay
+from osprey.interfaces.bluesky_web import queue_relay
 
 _BRIDGE_URL = "http://bridge.test"
 TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
@@ -910,7 +910,7 @@ def test_router_exposes_exactly_the_bridge_queue_surface() -> None:
 
 
 def test_queue_paths_are_wired_onto_the_composed_app() -> None:
-    from osprey.interfaces.bluesky_panels.app import app as composed_app
+    from osprey.interfaces.bluesky_web.app import app as composed_app
 
     paths = composed_app.openapi()["paths"]
     for path in (
@@ -933,39 +933,9 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
     ``/runs/launch`` is deliberately not on this list: there is no launch
     relay, and every bridge primitive it would call answers an unconditional
     410."""
-    from osprey.interfaces.bluesky_panels.app import app as composed_app
+    from osprey.interfaces.bluesky_web.app import app as composed_app
 
     paths = composed_app.openapi()["paths"]
     for path in ("/health", "/bridge/health", "/plans", "/runs", "/draft"):
         assert path in paths, f"queue relay displaced a pre-existing route: {path}"
     assert set(paths["/health"].keys()) == {"get"}
-
-
-def test_deprecated_mounts_are_aliases_of_the_bluesky_panel_mount() -> None:
-    """All three mounts serve ONE bundle directory, so an alias cannot drift
-    from the bundle it aliases when the directory is renamed."""
-    from starlette.routing import Mount
-
-    from osprey.interfaces.bluesky_panels.app import app as composed_app
-
-    directories = {
-        route.path: Path(route.app.directory)
-        for route in composed_app.routes
-        if isinstance(route, Mount) and route.path in ("/bluesky", "/results", "/plan")
-    }
-
-    assert set(directories) == {"/bluesky", "/results", "/plan"}
-    assert directories["/results"] == directories["/bluesky"]
-    assert directories["/plan"] == directories["/bluesky"]
-
-
-def test_results_and_bluesky_mounts_serve_identical_content() -> None:
-    from osprey.interfaces.bluesky_panels.app import app as composed_app
-
-    with TestClient(composed_app) as client:
-        results = client.get("/results/")
-        bluesky = client.get("/bluesky/")
-
-    assert results.status_code == 200
-    assert bluesky.status_code == 200
-    assert results.content == bluesky.content

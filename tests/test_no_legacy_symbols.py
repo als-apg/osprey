@@ -44,6 +44,14 @@ LEGACY_SUBSTRINGS = (
     "scan-panels",
     "ScanPanelsConfig",
     "_inject_scan_panels",
+    # bluesky_panels -> bluesky_web rename: the sidecar is named for its role
+    # (the browser-facing half of the bluesky stack), not for the panel it
+    # serves — "panel" is the web terminal's word for a tab.
+    "bluesky_panels",
+    "BLUESKY_PANELS",
+    "bluesky-panels",
+    "BlueskyPanelsConfig",
+    "_inject_bluesky_panels",
     "mcp__scan__",
     "osprey.mcp_server.scan",
     "mcp_server/scan",

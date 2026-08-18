@@ -1,12 +1,11 @@
-"""Tests for the ``bluesky_panels:`` and ``environment:`` blocks of the
+"""Tests for the ``bluesky_web:`` and ``environment:`` blocks of the
 build-profile schema.
 
-Covers the :class:`BlueskyPanelsConfig` dataclass, the ``BuildProfile.validate``
-exemption that lets the non-builtin bluesky-panel web_panels ids
-(``bluesky``, plus the deprecated ``plan``/``results`` spellings) validate
-without a pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block
-is present
-(their urls are derived post-build by ``_inject_bluesky_panels``), and a
+Covers the :class:`BlueskyWebConfig` dataclass, the ``BuildProfile.validate``
+exemption that lets the non-builtin ``bluesky`` web_panels id validate
+without a pre-existing ``web.panels.bluesky.url`` when a ``bluesky_web``
+block is present
+(its url is derived post-build by ``_inject_bluesky_web``), and a
 regression guard that the shipped control-assistant preset/profile still
 validates — the gate task 3.3 (tutorial-config) re-runs after adding the
 bluesky panel to that preset.
@@ -23,7 +22,7 @@ from click.testing import CliRunner
 from osprey.cli import build_profile as bp
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import (
-    BlueskyPanelsConfig,
+    BlueskyWebConfig,
     BuildProfile,
     EnvironmentConfig,
     _parse_profile,
@@ -32,27 +31,27 @@ from osprey.cli.build_profile import (
 from osprey.errors import BuildProfileError
 
 
-def test_no_bluesky_panels_validates(tmp_path: Path) -> None:
-    """A profile with no bluesky_panels block validates without raising."""
+def test_no_bluesky_web_validates(tmp_path: Path) -> None:
+    """A profile with no bluesky_web block validates without raising."""
     BuildProfile(name="x").validate(tmp_path)
 
 
-def test_bluesky_panels_ids_validate_without_url_when_bluesky_panels_present(
+def test_bluesky_web_ids_validate_without_url_when_bluesky_web_present(
     tmp_path: Path,
 ) -> None:
     """The bluesky-panel ids need no manual web.panels.<id>.url override
-    when a bluesky_panels block is present — the urls are derived post-build by
-    _inject_bluesky_panels, which runs after this validator."""
+    when a bluesky_web block is present — the urls are derived post-build by
+    _inject_bluesky_web, which runs after this validator."""
     profile = BuildProfile(
         name="x",
         web_panels=["bluesky"],
-        bluesky_panels=BlueskyPanelsConfig(),
+        bluesky_web=BlueskyWebConfig(),
     )
     profile.validate(tmp_path)  # must not raise
 
 
-def test_bluesky_panels_ids_without_bluesky_panels_still_require_url(tmp_path: Path) -> None:
-    """The escape hatch is narrow: the bluesky-panel ids with no bluesky_panels
+def test_bluesky_web_ids_without_bluesky_web_still_require_url(tmp_path: Path) -> None:
+    """The escape hatch is narrow: the bluesky-panel ids with no bluesky_web
     block and no url override are still rejected (nothing would derive their
     URL)."""
     profile = BuildProfile(name="x", web_panels=["plan"])
@@ -60,59 +59,59 @@ def test_bluesky_panels_ids_without_bluesky_panels_still_require_url(tmp_path: P
         profile.validate(tmp_path)
 
 
-def test_unbacked_custom_panel_still_requires_url_even_with_bluesky_panels(
+def test_unbacked_custom_panel_still_requires_url_even_with_bluesky_web(
     tmp_path: Path,
 ) -> None:
-    """The bluesky_panels escape hatch applies only to the three known ids — any
-    other url-less custom panel is still rejected even when a bluesky_panels
+    """The bluesky_web escape hatch applies only to the three known ids — any
+    other url-less custom panel is still rejected even when a bluesky_web
     block is present."""
     profile = BuildProfile(
         name="x",
         web_panels=["grafana"],
-        bluesky_panels=BlueskyPanelsConfig(),
+        bluesky_web=BlueskyWebConfig(),
     )
     with pytest.raises(BuildProfileError, match="grafana"):
         profile.validate(tmp_path)
 
 
-def test_bluesky_panels_port_overflow_raises(tmp_path: Path) -> None:
-    """An out-of-range bluesky_panels.port fails validation."""
-    profile = BuildProfile(name="x", bluesky_panels=BlueskyPanelsConfig(port=70000))
-    with pytest.raises(BuildProfileError, match="bluesky_panels.port"):
+def test_bluesky_web_port_overflow_raises(tmp_path: Path) -> None:
+    """An out-of-range bluesky_web.port fails validation."""
+    profile = BuildProfile(name="x", bluesky_web=BlueskyWebConfig(port=70000))
+    with pytest.raises(BuildProfileError, match="bluesky_web.port"):
         profile.validate(tmp_path)
 
 
-def test_bluesky_panels_default_port() -> None:
-    """BlueskyPanelsConfig defaults to port 8095, matching the compose template
+def test_bluesky_web_default_port() -> None:
+    """BlueskyWebConfig defaults to port 8095, matching the compose template
     and the sidecar's default uvicorn bind."""
-    assert BlueskyPanelsConfig().port == 8095
+    assert BlueskyWebConfig().port == 8095
 
 
-def test_bluesky_panels_not_a_mapping_raises() -> None:
-    """A non-mapping 'bluesky_panels' block raises during parsing."""
-    with pytest.raises(BuildProfileError, match="bluesky_panels"):
-        _parse_profile({"name": "x", "bluesky_panels": "not-a-mapping"})
+def test_bluesky_web_not_a_mapping_raises() -> None:
+    """A non-mapping 'bluesky_web' block raises during parsing."""
+    with pytest.raises(BuildProfileError, match="bluesky_web"):
+        _parse_profile({"name": "x", "bluesky_web": "not-a-mapping"})
 
 
-def test_bluesky_panels_is_known_key() -> None:
-    """'bluesky_panels' is a recognized top-level profile key (no unknown-key warning)."""
-    assert "bluesky_panels" in bp._KNOWN_PROFILE_KEYS
+def test_bluesky_web_is_known_key() -> None:
+    """'bluesky_web' is a recognized top-level profile key (no unknown-key warning)."""
+    assert "bluesky_web" in bp._KNOWN_PROFILE_KEYS
 
 
-def test_bluesky_panels_parse_round_trip() -> None:
-    """A bluesky_panels block parses its port field through _parse_profile."""
-    raw = {"name": "x", "bluesky_panels": {"port": 9100}}
+def test_bluesky_web_parse_round_trip() -> None:
+    """A bluesky_web block parses its port field through _parse_profile."""
+    raw = {"name": "x", "bluesky_web": {"port": 9100}}
     profile = _parse_profile(raw)
-    assert profile.bluesky_panels is not None
-    assert profile.bluesky_panels.port == 9100
+    assert profile.bluesky_web is not None
+    assert profile.bluesky_web.port == 9100
 
 
-def test_bluesky_panels_parse_defaults_when_empty_mapping() -> None:
-    """An empty bluesky_panels mapping (`bluesky_panels: {}`) parses to defaults."""
-    raw = {"name": "x", "bluesky_panels": {}}
+def test_bluesky_web_parse_defaults_when_empty_mapping() -> None:
+    """An empty bluesky_web mapping (`bluesky_web: {}`) parses to defaults."""
+    raw = {"name": "x", "bluesky_web": {}}
     profile = _parse_profile(raw)
-    assert profile.bluesky_panels is not None
-    assert profile.bluesky_panels.port == 8095
+    assert profile.bluesky_web is not None
+    assert profile.bluesky_web.port == 8095
 
 
 # ── panel_presets ("Layouts") ────────────────────────────────────────────────
@@ -171,7 +170,7 @@ def test_control_assistant_profile_validates() -> None:
     """The shipped control-assistant preset/profile validates cleanly.
 
     This is a regression guard task 3.3 (tutorial-config) re-runs after
-    adding the bluesky_panels block + the bluesky-panel web_panels ids to
+    adding the bluesky_web block + the bluesky-panel web_panels ids to
     this preset — it must keep validating once that wiring lands.
     """
     presets_dir = bp._presets_dir()
@@ -184,7 +183,7 @@ def test_control_assistant_profile_validates() -> None:
 # ── Task 3.3: turn-key VA-backed plan stack render ───────────────────────────
 #
 # The control-assistant preset now bakes the bluesky/virtual_accelerator/
-# bluesky_panels injector blocks in directly (no --set/--override flags needed),
+# bluesky_web injector blocks in directly (no --set/--override flags needed),
 # so `osprey build` on the bare preset renders the full plan stack + the
 # BLUESKY panel turn-key. These tests build a control-assistant deployment
 # repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
@@ -236,11 +235,11 @@ class TestControlAssistantTurnkeyPlanServices:
         va = turnkey_plan_config["services"]["virtual_accelerator"]
         assert va["port"] == 5064
 
-    def test_control_assistant_bluesky_panels_service_rendered(
+    def test_control_assistant_bluesky_web_service_rendered(
         self, turnkey_plan_config: dict
     ) -> None:
-        bluesky_panels = turnkey_plan_config["services"]["bluesky_panels"]
-        assert bluesky_panels["port"] == 8095
+        bluesky_web = turnkey_plan_config["services"]["bluesky_web"]
+        assert bluesky_web["port"] == 8095
 
     def test_control_assistant_deployed_services_includes_all_three(
         self, turnkey_plan_config: dict
@@ -248,7 +247,7 @@ class TestControlAssistantTurnkeyPlanServices:
         deployed = turnkey_plan_config["deployed_services"]
         assert "bluesky" in deployed
         assert "virtual_accelerator" in deployed
-        assert "bluesky_panels" in deployed
+        assert "bluesky_web" in deployed
 
 
 class TestControlAssistantTurnkeyPlanPanels:
@@ -258,22 +257,6 @@ class TestControlAssistantTurnkeyPlanPanels:
         panel = turnkey_plan_config["web"]["panels"]["bluesky"]
         assert panel["path"] == "/bluesky/"
         assert panel["url"]
-
-    def test_control_assistant_ships_no_deprecated_results_panel(
-        self, turnkey_plan_config: dict
-    ) -> None:
-        """A fresh build carries only the canonical id. The deprecated
-        ``results`` entry is an accommodation for projects built against the
-        earlier spelling (kept working by the sidecar's alias mount); emitting
-        it here would put that tab back on every rebuild."""
-        assert "results" not in turnkey_plan_config["web"]["panels"]
-
-    def test_control_assistant_ships_no_deprecated_plan_panel(
-        self, turnkey_plan_config: dict
-    ) -> None:
-        """Same rule for the PLAN panel, which is the Plans tab of BLUESKY. Emitting
-        both ids would put two rail entries in front of the same panel."""
-        assert "plan" not in turnkey_plan_config["web"]["panels"]
 
 
 class TestControlAssistantTurnkeyPlanControlSystem:
@@ -306,7 +289,7 @@ class TestControlAssistantTurnkeyPlanControlSystem:
 def test_control_assistant_turnkey_plan_preset_validates(turnkey_plan_project: Path) -> None:
     """BuildProfile.validate() passes for the preset as shipped (bare, no
     overrides) -- the non-builtin bluesky-panel ids are accepted because
-    the preset's own bluesky_panels block is present."""
+    the preset's own bluesky_web block is present."""
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
     profile = _parse_profile(raw)

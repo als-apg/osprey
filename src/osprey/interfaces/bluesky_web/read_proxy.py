@@ -1,6 +1,6 @@
-"""Read-only GET proxy onto the Bluesky bridge for the bluesky panels sidecar.
+"""Read-only GET proxy onto the Bluesky bridge for the bluesky-web sidecar.
 
-This module defines ``router`` only; ``osprey.interfaces.bluesky_panels.app``
+This module defines ``router`` only; ``osprey.interfaces.bluesky_web.app``
 mounts it and publishes the shared ``httpx.AsyncClient`` and resolved bridge
 base URL onto ``app.state.client`` / ``app.state.bridge_url``, which every
 route here reads at request time.
@@ -21,7 +21,7 @@ bridge-owned field. This mirrors the read side of the bridge contract at
 
 Every path mirrors the bridge's own except the first: the sidecar serves its
 OWN ``GET /health`` (its container healthcheck, in
-``osprey.interfaces.bluesky_panels.app``), so the bridge's health document --
+``osprey.interfaces.bluesky_web.app``), so the bridge's health document --
 which carries the ``capability`` record panels read to decide whether to offer
 execution at all -- is relayed one level down at ``/bridge/health`` rather than
 shadowing it. The body is still passed through untouched.
@@ -51,7 +51,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
 
 router = APIRouter()
 

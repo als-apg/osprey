@@ -63,7 +63,7 @@ from .build_environment import (
 from .build_injectors import (
     _copy_service_templates,
     _inject_bluesky,
-    _inject_bluesky_panels,
+    _inject_bluesky_web,
     _inject_dispatch,
     _inject_gchat_bridge,
     _inject_nextcloud_bridge,
@@ -114,7 +114,7 @@ __all__ = [
     "_create_project_venv",
     "_format_junit_summary",
     "_inject_bluesky",
-    "_inject_bluesky_panels",
+    "_inject_bluesky_web",
     "_inject_dispatch",
     "_inject_gchat_bridge",
     "_inject_nextcloud_bridge",
@@ -2461,7 +2461,7 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     Order is load-bearing. The two chat bridges gate their ``depends_on`` and
     their in-network dispatcher URLs on ``event_dispatcher``/``dispatch_worker``
     already being in ``deployed_services``, which is what the dispatch injector
-    writes there; the bluesky-panels sidecar read-proxies the bluesky bridge and
+    writes there; the bluesky-web sidecar read-proxies the bluesky bridge and
     follows it for the same reason.
 
     Returns:
@@ -2501,9 +2501,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     if build_profile.bluesky is not None:
         _inject_bluesky(build_profile.bluesky, project_path)
         injected.append("bluesky bridge")
-    if build_profile.bluesky_panels is not None:
-        _inject_bluesky_panels(build_profile.bluesky_panels, project_path)
-        injected.append("bluesky panels")
+    if build_profile.bluesky_web is not None:
+        _inject_bluesky_web(build_profile.bluesky_web, project_path)
+        injected.append("bluesky web")
     if build_profile.virtual_accelerator is not None:
         _inject_va(build_profile.virtual_accelerator, project_path)
         injected.append("virtual accelerator")

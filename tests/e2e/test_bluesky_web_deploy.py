@@ -1,7 +1,7 @@
 """Full-stack Docker integration test for the Phase-6 "Operator Interfaces"
-bluesky panel (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
+bluesky panel (task 4.3, bluesky-web-deploy-e2e) -- the gold-standard proof
 that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge + the
-queueserver RE Manager + Redis + co-deployed Tiled + the bluesky-panels
+queueserver RE Manager + Redis + co-deployed Tiled + the bluesky-web
 sidecar + its web panel) boots as real containers and drives a real plan end
 to end THROUGH THE SIDECAR, exactly as a browser would.
 
@@ -24,10 +24,10 @@ explicitly even though the preset now defaults to it (a connector-mediated
 plan only runs against a setpoint-tracking control system; the shipped
 default is asserted, not assumed, in ``test_bluesky_queue_e2e.py``). The one
 thing ``_orm_stack.init_args``/``build_project_subprocess`` don't parameterize
-is the bluesky-panels sidecar's port, so this module calls ``override_yaml``/
+is the bluesky-web sidecar's port, so this module calls ``override_yaml``/
 ``init_args``/``find_osprey_console_script`` directly (mirroring what
 ``build_project_subprocess`` does internally) and appends one extra
-``--set bluesky_panels.port=...`` override to the ``osprey init`` step.
+``--set bluesky_web.port=...`` override to the ``osprey init`` step.
 
 Plan discovery (test 3/4's headline): ``GET /plans`` through the sidecar's
 read-proxy is scanned for a plan whose ``metadata.writes`` is ``True`` (the
@@ -54,8 +54,8 @@ docstring warns about.
 
 CONTAINER SAFETY: every docker/compose invocation below names an EXACT
 resource (``<project>-bluesky-bridge``, ``<project>-virtual-accelerator``,
-``<project>-bluesky-panels``, images ``<project>-bluesky-bridge:local``/
-``<project>-va:local``/``<project>-bluesky-panels:local``) -- never ``system prune``,
+``<project>-bluesky-web``, images ``<project>-bluesky-bridge:local``/
+``<project>-va:local``/``<project>-bluesky-web:local``) -- never ``system prune``,
 never ``--volumes``, never a wildcard ``docker rm``/``rmi``. Teardown goes
 through ``osprey down`` (the shipped compose path), followed by exact-named
 removal of this project's own volumes (``tests/e2e/_volumes.py``): ``down``
@@ -65,7 +65,7 @@ Gating: needs Docker; the VA image builds natively for the host arch (PyAT/
 softioc compile from source on Apple Silicon -- slow on a cold image cache).
 Lives in ``tests/e2e/`` (never collected by the fast lane -- see ``ci_check.
 sh``/ci.yml's ``test`` job's ``--ignore=tests/e2e``); runs in its own
-advisory ``bluesky-panels-deploy-e2e`` CI job (mirrors ``bluesky-deploy-e2e``'s
+advisory ``bluesky-web-deploy-e2e`` CI job (mirrors ``bluesky-deploy-e2e``'s
 gating: same-repo PRs only, no secrets -- neither the bridge nor the sidecar
 shells out to an LLM).
 """
@@ -97,11 +97,11 @@ from tests.e2e._volumes import remove_project_volumes
 BRIDGE_PORT = 18106
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
-# The bluesky-panels sidecar's default host port (8095) is shared with the
+# The bluesky-web sidecar's default host port (8095) is shared with the
 # tutorial's own default -- pin a distinct one so this e2e never collides
 # with a locally-running tutorial deploy on the same host.
-BLUESKY_PANELS_PORT = 18095
-BLUESKY_PANELS_URL = f"http://localhost:{BLUESKY_PANELS_PORT}"
+BLUESKY_WEB_PORT = 18095
+BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
@@ -122,13 +122,13 @@ OPENOBSERVE_PORT = 25083
 PROJECT_NAME = "panels-proj"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
-BLUESKY_PANELS_CONTAINER = f"{PROJECT_NAME}-bluesky-panels"
+BLUESKY_WEB_CONTAINER = f"{PROJECT_NAME}-bluesky-web"
 
 # Image tags derived the same way the service compose templates do
 # (``resolve_project_name`` -> ``<project>-<service>:local``).
 BRIDGE_IMAGE = _orm_stack.bridge_image(PROJECT_NAME)
 VA_IMAGE = _orm_stack.va_image(PROJECT_NAME)
-BLUESKY_PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
+BLUESKY_WEB_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 # The first-time native VA source build is slow (minutes); the sidecar +
@@ -231,11 +231,11 @@ def _request(
 
 
 def _sidecar_get(path: str) -> tuple[int, Any]:
-    return _request(BLUESKY_PANELS_URL, path, "GET")
+    return _request(BLUESKY_WEB_URL, path, "GET")
 
 
 def _sidecar_post(path: str, body: dict[str, Any]) -> tuple[int, Any]:
-    return _request(BLUESKY_PANELS_URL, path, "POST", body)
+    return _request(BLUESKY_WEB_URL, path, "POST", body)
 
 
 def _bridge_get(path: str) -> tuple[int, Any]:
@@ -258,7 +258,7 @@ def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> t
 
 
 def _get_html(path: str) -> tuple[int, str]:
-    req = urllib.request.Request(f"{BLUESKY_PANELS_URL}{path}", method="GET")  # noqa: S310
+    req = urllib.request.Request(f"{BLUESKY_WEB_URL}{path}", method="GET")  # noqa: S310
     try:
         with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
             return resp.status, resp.read().decode("utf-8", errors="replace")
@@ -393,7 +393,7 @@ class DeployedStack:
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
     osprey_bin = _orm_stack.find_osprey_console_script()
-    base = tmp_path_factory.mktemp("bluesky_panels_build")
+    base = tmp_path_factory.mktemp("bluesky_web_build")
     # The deployment repo. Its directory name IS the deployment name, so the
     # container/image names derived above still hold.
     repo = base / PROJECT_NAME
@@ -420,7 +420,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     )
 
     # _orm_stack.init_args()/build_project_subprocess() don't parameterize
-    # the bluesky-panels sidecar's port, so build the arg list directly (mirrors
+    # the bluesky-web sidecar's port, so build the arg list directly (mirrors
     # what build_project_subprocess does internally) and append one extra
     # --set for it.
     args = _orm_stack.init_args(
@@ -430,7 +430,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         bridge_port=BRIDGE_PORT,
         va_port=VA_CA_PORT,
     )
-    args += ["--set", f"bluesky_panels.port={BLUESKY_PANELS_PORT}"]
+    args += ["--set", f"bluesky_web.port={BLUESKY_WEB_PORT}"]
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these overrides, `build` renders build/ from it.
@@ -468,7 +468,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration); never
     # set it in CI, where a source change must always rebuild.
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE, BLUESKY_PANELS_IMAGE):
+        for image in (BRIDGE_IMAGE, VA_IMAGE, BLUESKY_WEB_IMAGE):
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
@@ -483,7 +483,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_health(f"{BLUESKY_PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
+        _wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace an
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. See
@@ -520,7 +520,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
-    for container in (BRIDGE_CONTAINER, BLUESKY_PANELS_CONTAINER, VA_CONTAINER):
+    for container in (BRIDGE_CONTAINER, BLUESKY_WEB_CONTAINER, VA_CONTAINER):
         ports = _docker_port(container)
         assert "127.0.0.1" in ports, f"{container}: expected a 127.0.0.1 bind, got: {ports!r}"
         assert "0.0.0.0" not in ports, f"{container}: must never bind 0.0.0.0: {ports!r}"
@@ -533,24 +533,10 @@ def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_panels_served_200(deployed_stack: DeployedStack) -> None:
-    """The panel bundle serves, including its two deprecated aliases.
-
-    ``/bluesky``, ``/plan`` and ``/results`` are ONE bundle mounted three times
-    (the sidecar drives all of them from a single ``_BLUESKY_PANEL_DIR``
-    constant), so each alias must serve identical bytes -- an alias that
-    drifted into serving something else would be worse than a 404.
-    """
-    bodies: dict[str, str] = {}
-    for path in ("/plan/", "/bluesky/", "/results/"):
-        status, body = _get_html(path)
-        assert status == 200, f"GET {path} failed: {status}"
-        assert "<html" in body.lower(), f"GET {path} did not return HTML: {body[:200]!r}"
-        bodies[path] = body
-
-    for alias in ("/results/", "/plan/"):
-        assert bodies[alias] == bodies["/bluesky/"], (
-            f"{alias} must be a pure alias of /bluesky, serving the identical bundle"
-        )
+    """The panel bundle serves at its mount."""
+    status, body = _get_html("/bluesky/")
+    assert status == 200, f"GET /bluesky/ failed: {status}"
+    assert "<html" in body.lower(), f"GET /bluesky/ did not return HTML: {body[:200]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -579,9 +565,9 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     # is a no-op that does NOT bump the revision, so a rerun (or a sibling test
     # staging the same plan) would pin an already-consumed revision and the
     # enqueue below would 409 draft_revision_already_launched.
-    _request(BLUESKY_PANELS_URL, "/draft?client_id=panels-deploy-e2e", "DELETE")
+    _request(BLUESKY_WEB_URL, "/draft?client_id=panels-deploy-e2e", "DELETE")
     status, patched = _request(
-        BLUESKY_PANELS_URL,
+        BLUESKY_WEB_URL,
         "/draft",
         "PATCH",
         {
@@ -710,7 +696,7 @@ def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> Non
     # No /runs/{id}/stop at all -- the path template isn't registered on the
     # sidecar for any method, so it 404s regardless of verb. (The halt lives on
     # the queue surface: POST /queue/stop and POST /queue/abort.)
-    status, body = _request(BLUESKY_PANELS_URL, "/runs/not-a-real-run-id/stop", "GET")
+    status, body = _request(BLUESKY_WEB_URL, "/runs/not-a-real-run-id/stop", "GET")
     assert status == 404, f"expected no GET /runs/{{id}}/stop route, got {status}: {body}"
     status, body = _sidecar_post("/runs/not-a-real-run-id/stop", {})
     assert status == 404, f"expected no POST /runs/{{id}}/stop route, got {status}: {body}"

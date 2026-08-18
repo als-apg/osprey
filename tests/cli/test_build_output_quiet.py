@@ -169,7 +169,7 @@ class TestLoggerDemotions:
         """
         steps = [line for line in build_records.lines if "services injected:" in line]
         assert len(steps) == 1, f"expected one injector step line, got {len(steps)}: {steps}"
-        # The exemplar declares dispatch, bluesky, bluesky panels, a virtual
+        # The exemplar declares dispatch, bluesky, bluesky web, a virtual
         # accelerator and an archiver; two of them pin the line's shape.
         assert steps[0].startswith("  · services injected: "), steps[0]
         # Read as names rather than as substrings: the names are accumulated per

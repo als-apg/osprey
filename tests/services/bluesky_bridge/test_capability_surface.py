@@ -3,7 +3,7 @@
 `queue_backend.py`'s own tests pin how the record is *derived*. These pin how it
 is *published*: that the bridge's existing status surface carries it, that every
 refusal reaches a consumer as a machine-readable code plus an actionable
-sentence, and that the panels sidecar relays both untouched.
+sentence, and that the bluesky-web sidecar relays both untouched.
 
 Three layers, deliberately:
 
@@ -27,8 +27,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.bluesky_panels import read_proxy
-from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY
+from osprey.interfaces.bluesky_web import read_proxy
+from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY
 from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app as bridge_app
@@ -278,7 +278,7 @@ def test_health_does_not_probe_the_manager_on_a_browse_only_deployment(connector
 
 
 # ---------------------------------------------------------------------------
-# Relayed: GET /bridge/health on the panels sidecar
+# Relayed: GET /bridge/health on the bluesky-web sidecar
 # ---------------------------------------------------------------------------
 
 
@@ -326,7 +326,7 @@ def test_sidecar_health_is_its_own_and_the_bridges_is_one_level_down() -> None:
     (and carries no capability, which is not its to report), while the bridge's
     document — capability and all — is served one level down.
     """
-    from osprey.interfaces.bluesky_panels.app import app as sidecar_app
+    from osprey.interfaces.bluesky_web.app import app as sidecar_app
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"status": "ok", "capability": {"from": "bridge"}})

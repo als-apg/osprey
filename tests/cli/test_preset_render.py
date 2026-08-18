@@ -16,7 +16,7 @@ Covers three angles:
    carries ``control_system.type: virtual_accelerator``.
 3. The same rendered build's ``deployed_services`` list is unchanged by the
    flip — it is driven by the ``bluesky:``/``virtual_accelerator:``/
-   ``bluesky_panels:`` injector blocks, not by ``control_system.type``.
+   ``bluesky_web:`` injector blocks, not by ``control_system.type``.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ class TestControlAssistantRenderedConfig:
         self, rendered_preset_config: dict
     ) -> None:
         """``deployed_services`` is driven by the preset's injector blocks
-        (``bluesky:``, ``virtual_accelerator:``, ``bluesky_panels:``), all of
+        (``bluesky:``, ``virtual_accelerator:``, ``bluesky_web:``), all of
         which are unconditional on ``control_system.type`` — the connector-type
         flip must not drop or gate any of them. Mirrors
         ``TestControlAssistantTurnkeyPlanServices`` in test_build_profile.py,
@@ -106,4 +106,4 @@ class TestControlAssistantRenderedConfig:
         deployed = rendered_preset_config["deployed_services"]
         assert "bluesky" in deployed
         assert "virtual_accelerator" in deployed
-        assert "bluesky_panels" in deployed
+        assert "bluesky_web" in deployed

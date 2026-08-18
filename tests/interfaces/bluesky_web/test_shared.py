@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`osprey.interfaces.bluesky_panels._shared`.
+"""Unit tests for :mod:`osprey.interfaces.bluesky_web._shared`.
 
 Covers the leaf helpers the three bridge-facing routers share: the fixed 502
 unreachable body and ``safe_json``'s defensive parse (valid JSON passes
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import httpx
 
-from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
 
 
 class TestUnreachableBody:

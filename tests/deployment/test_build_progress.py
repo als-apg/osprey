@@ -116,12 +116,12 @@ def test_a_parallel_build_gets_one_row_per_service(cold_build):
         "virtual-accelerator",
         "event-dispatcher",
         "bluesky-bridge",
-        "bluesky-panels",
+        "bluesky-web",
     ]
 
 
 def test_build_infrastructure_never_becomes_a_service(cold_build):
-    """`[va internal]` and `[bluesky-panels auth]` name a real service and are
+    """`[va internal]` and `[bluesky-web auth]` name a real service and are
     attributed to it — only the bare, nameless forms are infrastructure.
 
     This stream has no bare forms at all, so the absence assertions here would
@@ -144,7 +144,7 @@ def test_every_service_image_is_reported_once(cold_build):
         "my-control-assistant-va:local",
         "my-control-assistant-dispatch:local",
         "my-control-assistant-bluesky-bridge:local",
-        "my-control-assistant-bluesky-panels:local",
+        "my-control-assistant-bluesky-web:local",
     ]
 
 
@@ -157,7 +157,7 @@ def test_each_image_lands_on_the_service_that_built_it(cold_build):
     assert rows["virtual-accelerator"].finished == "my-control-assistant-va:local"
     assert rows["event-dispatcher"].finished == "my-control-assistant-dispatch:local"
     assert rows["bluesky-bridge"].finished == "my-control-assistant-bluesky-bridge:local"
-    assert rows["bluesky-panels"].finished == "my-control-assistant-bluesky-panels:local"
+    assert rows["bluesky-web"].finished == "my-control-assistant-bluesky-web:local"
 
 
 def test_each_service_walks_its_own_dockerfile_steps(cold_build):
@@ -184,7 +184,7 @@ def test_each_service_walks_its_own_dockerfile_steps(cold_build):
         "internal",
         "exporting",
     }
-    assert steps["bluesky-panels"] == {f"{n}/7" for n in range(1, 8)} | {
+    assert steps["bluesky-web"] == {f"{n}/7" for n in range(1, 8)} | {
         "auth",
         "internal",
         "exporting",
@@ -199,7 +199,7 @@ def test_a_service_carries_a_caption_for_what_it_is_doing(cold_build):
 
     rows = rows_by_service(model)
     assert all(row.caption for row in rows.values())
-    assert rows["virtual-accelerator"].started_at < rows["bluesky-panels"].started_at
+    assert rows["virtual-accelerator"].started_at < rows["bluesky-web"].started_at
 
 
 # ---------------------------------------------------------------------------

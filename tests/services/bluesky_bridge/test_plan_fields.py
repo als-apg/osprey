@@ -50,7 +50,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_SCHEMA_FORM_JS = _REPO_ROOT / "src/osprey/interfaces/bluesky_panels/panels/bluesky/schema-form.js"
+_SCHEMA_FORM_JS = _REPO_ROOT / "src/osprey/interfaces/bluesky_web/panels/bluesky/schema-form.js"
 
 
 class _Axis(BaseModel):

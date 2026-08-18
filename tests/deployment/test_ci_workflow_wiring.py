@@ -2169,7 +2169,7 @@ def test_e2e_lane_ignores_bluesky_queue(workflow: dict[str, Any]) -> None:
     The module carries no ``dockerbuild`` marker, so the blanket
     marker->--ignore guard does not reach it and this bespoke check is the
     only thing holding the ``--ignore`` in place. Drop that line and the whole
-    queueserver stack — bridge, Redis, Tiled, VA, panels sidecar, on fixed
+    queueserver stack — bridge, Redis, Tiled, VA, bluesky-web sidecar, on fixed
     host ports — boots a second time inside the shared lane's ``-n 4`` run,
     concurrently with its own job. Nothing would fail; it would just get slow
     and flaky in a way nobody could attribute."""

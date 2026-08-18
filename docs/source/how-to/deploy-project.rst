@@ -34,7 +34,7 @@ up`` hands the result to Docker or Podman Compose. A deployment created from the
 ``control-assistant`` preset deploys a full stack out of the box:
 ``postgresql``, ``openobserve``, ``event_dispatcher`` and ``dispatch_worker``,
 ``bluesky`` (with its co-deployed Tiled data server), ``virtual_accelerator``,
-``bluesky_panels``, and the multi-user web-terminal stack. Even the minimal
+``bluesky_web``, and the multi-user web-terminal stack. Even the minimal
 ``hello-world`` preset deploys one service (``openobserve``, for telemetry).
 You only need this page when you add or customize a containerized service.
 
@@ -414,9 +414,9 @@ default:
    * - bluesky (Tiled sidecar)
      - ``OSPREY_TILED_IMAGE``
      - ``services.bluesky.tiled_image``
-   * - bluesky_panels
-     - ``OSPREY_BLUESKY_PANELS_IMAGE``
-     - ``services.bluesky_panels.image``
+   * - bluesky_web
+     - ``OSPREY_BLUESKY_WEB_IMAGE``
+     - ``services.bluesky_web.image``
    * - virtual_accelerator
      - ``OSPREY_VA_IMAGE``
      - ``services.virtual_accelerator.image``

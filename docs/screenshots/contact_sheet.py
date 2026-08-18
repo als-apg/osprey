@@ -1030,11 +1030,11 @@ def _boot_dispatch_dashboard(workspace: Path):
     return run_app_server(app)
 
 
-def _boot_bluesky_panels(workspace: Path):
+def _boot_bluesky_web(workspace: Path):
     from osprey.interfaces._serving import run_app_server
-    from osprey.interfaces.bluesky_panels.app import app as bluesky_panels_app
+    from osprey.interfaces.bluesky_web.app import app as bluesky_web_app
 
-    return run_app_server(bluesky_panels_app)
+    return run_app_server(bluesky_web_app)
 
 
 _PANEL_BOOTS = {
@@ -1043,7 +1043,7 @@ _PANEL_BOOTS = {
     "lattice": _boot_lattice,
     "okf": _boot_okf,
     "dispatch": _boot_dispatch_dashboard,
-    "bluesky": _boot_bluesky_panels,
+    "bluesky": _boot_bluesky_web,
 }
 
 #: The supported subpanels, in sheet order. Every surface is captured with

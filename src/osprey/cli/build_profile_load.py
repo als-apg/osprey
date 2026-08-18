@@ -28,7 +28,7 @@ from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
 from .build_profile_schema import (
     BlueskyConfig,
-    BlueskyPanelsConfig,
+    BlueskyWebConfig,
     DispatchConfig,
     EnvConfig,
     EnvironmentConfig,
@@ -179,7 +179,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "dispatch",
         "bluesky",
         "virtual_accelerator",
-        "bluesky_panels",
+        "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
         "va_archiver",
@@ -529,13 +529,13 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=va_raw.get("port", 5064),
         )
 
-    bluesky_panels_raw = raw.get("bluesky_panels")
-    bluesky_panels = None
-    if bluesky_panels_raw is not None:
-        if not isinstance(bluesky_panels_raw, dict):
-            raise BuildProfileError("Profile 'bluesky_panels' must be a mapping")
-        bluesky_panels = BlueskyPanelsConfig(
-            port=bluesky_panels_raw.get("port", 8095),
+    bluesky_web_raw = raw.get("bluesky_web")
+    bluesky_web = None
+    if bluesky_web_raw is not None:
+        if not isinstance(bluesky_web_raw, dict):
+            raise BuildProfileError("Profile 'bluesky_web' must be a mapping")
+        bluesky_web = BlueskyWebConfig(
+            port=bluesky_web_raw.get("port", 8095),
         )
 
     nextcloud_bridge_raw = raw.get("nextcloud_bridge")
@@ -613,7 +613,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         dispatch=dispatch,
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
-        bluesky_panels=bluesky_panels,
+        bluesky_web=bluesky_web,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
         va_archiver=parse_va_archiver_block(raw),

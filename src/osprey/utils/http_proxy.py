@@ -2,8 +2,8 @@
 
 OSPREY has more than one component that relays an upstream HTTP response back
 to a browser: the web-terminal panel proxy
-(``osprey.interfaces.web_terminal.routes.proxy``) and the Bluesky panels
-sidecar's SSE draft relay (``osprey.interfaces.bluesky_panels.draft_relay``).
+(``osprey.interfaces.web_terminal.routes.proxy``) and the bluesky-web
+sidecar's SSE draft relay (``osprey.interfaces.bluesky_web.draft_relay``).
 Each must strip the same hop-by-hop headers before re-emitting the upstream's
 headers downstream -- a header list that had been copied verbatim between them.
 Keeping it here, imported by both, prevents the two lists from drifting.
