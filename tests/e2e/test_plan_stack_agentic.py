@@ -124,6 +124,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -1842,8 +1843,10 @@ async def test_judge_rejects_a_failing_grid_scan_conclusion(control: str) -> Non
 #
 # CONTAINER SAFETY: every docker invocation below names an EXACT image
 # (``<project>-bluesky-bridge:local`` / ``-va:local`` / ``-bluesky-panels:local``,
-# all derived from ``PROJECT_NAME``) — never a wildcard, never a prune, never a
-# volume operation. Teardown goes through ``osprey down``.
+# all derived from ``PROJECT_NAME``) — never a wildcard, never a prune. Teardown
+# goes through ``osprey down``, followed by exact-named removal of this
+# project's own volumes (``tests/e2e/_volumes.py``): ``down`` keeps them by
+# design, and a rerun must not inherit their state.
 # ===========================================================================
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
@@ -2116,6 +2119,9 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 f"osprey down could not complete ({type(exc).__name__}: {exc}) -- "
                 f"containers of project {PROJECT_NAME!r} may still be running"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 def _queue_snapshot() -> dict[str, Any]:
@@ -2158,13 +2164,14 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     runs. ``getfixturevalue`` is what deploys the stack on the first live test.
 
     Why per-test rather than once per module. The queue is Redis-backed and
-    that Redis lives in a compose NAMED VOLUME keyed on the project name, which
-    ``osprey down`` does NOT remove — so a rerun inherits whatever the
-    previous attempt left queued. And these tests are agentic: a rerun (each
-    live test carries ``flaky``) follows an attempt that may have left a run
-    mid-flight. An agent that then queues its own work and arms the queue would
-    put the PREVIOUS attempt's plan on the hardware too, and read back a run it
-    never launched — a floor satisfied by someone else's run.
+    that Redis lives in a compose NAMED VOLUME keyed on the project name that
+    outlives every test in this module (the deploy fixture drops it only at
+    module teardown) — so a rerun inherits whatever the previous attempt left
+    queued. And these tests are agentic: a rerun (each live test carries
+    ``flaky``) follows an attempt that may have left a run mid-flight. An agent
+    that then queues its own work and arms the queue would put the PREVIOUS
+    attempt's plan on the hardware too, and read back a run it never launched —
+    a floor satisfied by someone else's run.
 
     The three steps, and why each is needed:
 

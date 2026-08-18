@@ -43,7 +43,9 @@ swept into a lenient rerun. Keep it that way if the two ever diverge.
 
 Container safety: every docker invocation below names an exact container or
 image -- never a wildcard, never ``system prune``/``--volumes``. Teardown
-goes through ``osprey down``, never a raw ``docker rm`` sweep. The restart step
+goes through ``osprey down``, never a raw ``docker rm`` sweep, followed by
+exact-named removal of this project's own volumes (``tests/e2e/_volumes.py``):
+``down`` keeps them by design, and a rerun must not inherit their state. The restart step
 names the ``<project>-bluesky-bridge`` container only; ``osprey restart`` is
 never used here because it bounces every service, including Tiled and the RE
 manager, which would defeat the whole proof.
@@ -73,6 +75,7 @@ import pytest
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._volumes import remove_project_volumes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -323,6 +326,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
 def _seed_repo_env(repo: Path) -> None:

@@ -47,7 +47,9 @@ actually guarantees.
 Container safety: every docker invocation here names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
 Teardown goes through ``osprey down``, matching every other e2e in
-this directory. ``BRIDGE_PORT`` below is distinct from every sibling e2e
+this directory, followed by exact-named removal of this project's own volumes
+(``tests/e2e/_volumes.py``): ``down`` keeps them by design, and a rerun must
+not inherit their state. ``BRIDGE_PORT`` below is distinct from every sibling e2e
 module's pinned port; the VA's Channel Access port is NOT freely overridable
 (see ``_orm_stack.VA_CA_PORT``'s docstring) so this test shares that fixed
 port with ``test_orm_roundtrip.py``/``test_va_substrate_equivalence.py`` --
@@ -93,6 +95,7 @@ import pytest
 
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
     pytest.mark.e2e,
@@ -550,6 +553,9 @@ def deployed_sandbox_stack(
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 # ---------------------------------------------------------------------------

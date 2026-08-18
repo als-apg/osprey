@@ -34,7 +34,9 @@ refuses to hold work it could never run.
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
 Teardown goes through ``osprey down``, matching every other e2e in
-this directory.
+this directory, followed by exact-named removal of this project's own volumes
+(``tests/e2e/_volumes.py``): ``down`` keeps them by design, and a rerun must
+not inherit their state.
 
 Gating: needs Docker. Much lighter than the VA-backed e2e (no amd64
 emulation) -- comparable to ``test_bluesky_deploy.py``'s build+deploy time.
@@ -76,6 +78,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     REASON_BROWSE_ONLY_CONNECTOR,
 )
 from tests.e2e import _orm_stack
+from tests.e2e._volumes import remove_project_volumes
 
 # Every word the pre-flight is allowed to answer with. Imported rather than
 # spelled, because the approval prompt branches on these exact literals.
@@ -397,6 +400,9 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 # ---------------------------------------------------------------------------

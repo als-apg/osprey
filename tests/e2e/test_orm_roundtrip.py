@@ -49,7 +49,9 @@ Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
 The one restart names a single compose service inside this deployment's own
 project. Teardown goes through ``osprey down``, matching every other e2e in
-this directory.
+this directory, followed by exact-named removal of this project's own volumes
+(``tests/e2e/_volumes.py``): ``down`` keeps them by design, and a rerun must
+not inherit their state.
 
 Gating: needs Docker; the VA image builds natively for the host arch, so on
 Apple Silicon PyAT/softioc compile from source (no prebuilt aarch64 wheels) --
@@ -79,6 +81,7 @@ from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
     pytest.mark.e2e,
@@ -259,6 +262,9 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 # ---------------------------------------------------------------------------

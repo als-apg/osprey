@@ -101,6 +101,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.e2e._volumes import remove_project_volumes
+
 # ``dockerbuild`` is load-bearing, not descriptive: a guard in
 # tests/deployment/test_ci_workflow_wiring.py requires every file carrying it to
 # be --ignore'd in the shared e2e-tests lane AND given its own job. Without the
@@ -432,12 +434,18 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
 
 
 def _teardown() -> None:
-    """Exact-named sweep; failures swallowed (a safety net, never an assertion)."""
+    """Exact-named sweep; failures swallowed (a safety net, never an assertion).
+
+    The volume sweep is what keeps reruns honest: ``compose down`` (like
+    ``osprey down``) keeps named volumes, and a rerun inheriting a previous
+    attempt's per-user volumes would start from that attempt's state.
+    """
     for user in USERS:
         _runtime_cli("rm", "-f", _web_container(user))
     _runtime_cli("rm", "-f", AUTH_C)
     _runtime_cli("rm", "-f", NGINX_C)
     _runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=60)
+    remove_project_volumes(PROJECT_NAME, runtime=RUNTIME)
     for tag in (AUTH_IMAGE_TAG, PERSONA_IMAGE_TAG):
         _runtime_cli("rmi", "-f", tag, timeout=60)
 

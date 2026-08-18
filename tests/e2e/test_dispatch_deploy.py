@@ -68,7 +68,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
+from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e._volumes import remove_project_volumes
 
 DISPATCHER_URL = "http://localhost:8020"
 TOKEN = "dev-token"  # matches the .env tokens written below
@@ -323,10 +324,12 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # `osprey down` tears down the services stack AND the web stack
         # (deploy_down_web_terminals); the exact-named sweeps after it are
         # belt-and-suspenders for a down that failed midway. Volumes are
-        # deliberately kept by `down`, so the per-user volumes this run created
-        # are removed by exact name; the persona image tags are namespaced by
-        # this repo's name (see COEXISTENCE), so removing them cannot untag a
-        # real deployment's images.
+        # deliberately kept by `down`, so this project's own — the per-user
+        # terminal volumes and the dispatch workspace alike — are removed
+        # exact-named via the shared label-scoped sweep (tests/e2e/_volumes.py);
+        # the persona image tags are namespaced by this repo's name (see
+        # COEXISTENCE), so removing them cannot untag a real deployment's
+        # images.
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
@@ -336,8 +339,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             subprocess.run(
                 ["docker", "rm", "-f", _web_container(user)], capture_output=True, text=True
             )
-            for volume in resolve_user_volume_names({"project_name": PROJECT_NAME}, user):
-                subprocess.run(["docker", "volume", "rm", volume], capture_output=True, text=True)
+        remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
         subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
         for image in (READONLY_IMAGE, READWRITE_IMAGE):
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)

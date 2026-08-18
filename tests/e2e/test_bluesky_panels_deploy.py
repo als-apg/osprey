@@ -57,7 +57,9 @@ resource (``<project>-bluesky-bridge``, ``<project>-virtual-accelerator``,
 ``<project>-bluesky-panels``, images ``<project>-bluesky-bridge:local``/
 ``<project>-va:local``/``<project>-bluesky-panels:local``) -- never ``system prune``,
 never ``--volumes``, never a wildcard ``docker rm``/``rmi``. Teardown goes
-through ``osprey down`` (the shipped compose path).
+through ``osprey down`` (the shipped compose path), followed by exact-named
+removal of this project's own volumes (``tests/e2e/_volumes.py``): ``down``
+keeps them by design, and a rerun must not inherit their state.
 
 Gating: needs Docker; the VA image builds natively for the host arch (PyAT/
 softioc compile from source on Apple Silicon -- slow on a cold image cache).
@@ -85,6 +87,7 @@ import pytest
 
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._volumes import remove_project_volumes
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
 # 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -505,6 +508,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 # ---------------------------------------------------------------------------

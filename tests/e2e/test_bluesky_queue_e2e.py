@@ -91,8 +91,10 @@ a log line.
 
 CONTAINER SAFETY: every docker invocation below names an EXACT container,
 image, or network belonging to this test's own project. Never a wildcard,
-never ``system prune``, never ``volume rm``. Teardown goes through the shipped
-``osprey down``.
+never ``system prune``. Teardown goes through the shipped ``osprey down``,
+followed by exact-named removal of this project's own volumes
+(``tests/e2e/_volumes.py``): ``down`` keeps them by design, and a rerun must
+not inherit their state -- the queue itself lives in a Redis named volume.
 
 Gating: needs Docker. Lives in ``tests/e2e/`` so the fast lane
 (``pytest tests/ --ignore=tests/e2e``) never collects this ~20-minute
@@ -131,6 +133,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
 from tests.e2e import _orm_stack
+from tests.e2e._volumes import remove_project_volumes
 
 # The nine keys every pre-flight answer carries, success or not: the approval
 # gate reads `ok` and never a status code, so the shape cannot vary with the
@@ -852,6 +855,9 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # `osprey down` keeps volumes by design; drop this project's own so a
+        # rerun cannot inherit their state (see tests/e2e/_volumes.py).
+        remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
 
 
 # ===========================================================================
