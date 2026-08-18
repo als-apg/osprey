@@ -630,6 +630,22 @@ _SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str]]] = {
         },
         {"COR1", "BPM1"},
     ),
+    "orbit_bump_sweep": (
+        {
+            "correctors": ["COR1", "COR2", "COR3"],
+            "targets": [{"bpm": "BPM1", "value": 0.3}],
+            "closure_bpms": ["BPM2", "BPM3"],
+            "bpms": ["BPM4"],
+            "num": 5,
+            "probe_amplitude": 0.05,
+            "tolerance": 0.001,
+            "max_trim_iterations": 3,
+            "settle_s": 0.2,
+            "beam_current_device": "DCCT1",
+            "min_beam_current": 50.0,
+        },
+        {"COR1", "COR2", "COR3", "BPM1", "BPM2", "BPM3", "BPM4", "DCCT1"},
+    ),
 }
 
 

@@ -83,17 +83,18 @@ _ALLOWED_BLUESKY_SUBMODULES: frozenset[str] = frozenset(
 # import` would fail at load — the absolute path below is the only spelling
 # that works, which is what puts it in front of this allowlist at all.
 #
-# Both entries are inert by construction: `figure` is pydantic-only (models,
-# `decimate`, the row adapter) and `orm_analysis` is numpy-only, neither
-# performs I/O, spawns anything, or touches a control system. Nothing else
-# under `osprey` belongs here. In particular the connector, config, queue, and
-# executor packages are the capabilities this validator exists to keep out of
-# an agent-authored plan body, and admitting bare `osprey` would hand a plan
-# every one of them.
+# Every entry is inert by construction: `figure` is pydantic-only (models,
+# `decimate`, the row adapter) and `orm_analysis`/`bump_analysis` are
+# numpy-only, none of which performs I/O, spawns anything, or touches a
+# control system. Nothing else under `osprey` belongs here. In particular the
+# connector, config, queue, and executor packages are the capabilities this
+# validator exists to keep out of an agent-authored plan body, and admitting
+# bare `osprey` would hand a plan every one of them.
 _ALLOWED_OSPREY_SUBMODULES: frozenset[str] = frozenset(
     {
         "osprey.services.bluesky_bridge.figure",
         "osprey.services.bluesky_bridge.orm_analysis",
+        "osprey.services.bluesky_bridge.bump_analysis",
     }
 )
 

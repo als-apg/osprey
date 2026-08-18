@@ -32,6 +32,16 @@ const PLAN_LAYOUTS = {
     ['sweep'],
   ],
   grid_scan: [['axes'], ['detectors', 'snake_axes']],
+  orbit_bump_sweep: [
+    ['correctors'],
+    ['targets'],
+    ['closure_bpms', 'bpms'],
+    ['mode', 'sweep', 'num'],
+    ['tolerance', 'probe_amplitude', 'settle_s'],
+    ['beam_current_device', 'min_beam_current'],
+    ['best_effort', 'max_trim_iterations', 'baseline_reads'],
+    ['detectors'],
+  ],
 };
 
 /**
@@ -75,6 +85,24 @@ const PLAN_SUMMARIES = {
       }
     }
     if (d) parts.push(`${d} detector${d === 1 ? '' : 's'}`);
+    return parts.join(' · ');
+  },
+  orbit_bump_sweep(args) {
+    const c = Array.isArray(args.correctors) ? args.correctors.length : 0;
+    const t = Array.isArray(args.targets) ? args.targets.length : 0;
+    const n = typeof args.num === 'number' ? args.num : 0;
+    const sweep = typeof args.sweep === 'string' ? args.sweep : null;
+    /** @type {string[]} */
+    const parts = [];
+    if (c) parts.push(`${c} corrector${c === 1 ? '' : 's'}`);
+    if (t) parts.push(`${t} target${t === 1 ? '' : 's'}`);
+    if (n > 0) {
+      // Every amplitude profile walks out and back down, so a sweep is twice
+      // its `num` amplitudes — and bidirectional walks that on both sides.
+      const steps = sweep === 'bidirectional' ? 4 * n : 2 * n;
+      parts.push(`${steps} sweep points`);
+    }
+    if (args.best_effort === true) parts.push('best-effort');
     return parts.join(' · ');
   },
 };
