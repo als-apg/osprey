@@ -139,8 +139,9 @@ there. So the answer to "what do I log in with" is always ``.env``:
 
 The minted password is short on purpose: you read it off a terminal and type it
 into a browser login form, so it is 12 characters drawn from an alphabet with
-the easily-misread characters (``l I 1 O 0``) removed. That is sized for a
-store published on ``localhost``.
+the easily-misread characters (``l I 1 O 0``) removed. Every character still
+comes from a cryptographic random source, so it is short to type without being
+easy to guess.
 
 Set the two variables yourself (in the profile's ``.env``) if you want specific
 values — the same pair configures the container **and** authenticates the
@@ -154,13 +155,13 @@ agent's OTLP push, one source of truth:
 
 .. important::
 
-   **Deploying with** ``--expose`` **requires a password you set yourself.** A
-   deployment published on all interfaces refuses to start while
-   ``ZO_ROOT_USER_PASSWORD`` is under 20 characters, which includes the minted
-   demo-sized value. Nothing re-mints it for you: the password minted during a
-   localhost deploy is still in ``.env`` when the project is later brought up
-   with ``--expose``, so choose a strong one there before exposing a store that
-   holds full agent conversation transcripts.
+   **Publishing this store beyond** ``localhost`` **exposes agent transcripts.**
+   It holds full agent conversation transcripts, and the same credentials serve
+   both its browser login and the agent's OTLP push. Reach it over an SSH
+   tunnel, or put it behind TLS, rather than binding it to every interface. The
+   minted password is a per-deploy random value, so it stays usable wherever the
+   store is published — what exposure changes is who can reach the login, not
+   how strong the password is.
 
 3. Deploy it
 ------------

@@ -59,10 +59,15 @@ def _generate_openobserve_password() -> str:
     browser login form, often on a projector during a demo. At 12 characters
     from an alphabet with the easily-misread characters removed it carries ~65
     bits — under the module's 256-bit default bar, and that is the point, not
-    an oversight. Two things bound the exception: the store publishes on
-    loopback by default, and an off-host deploy refuses this length outright
-    (``_VAR_EXPOSED_MIN_LENGTH``), so the weaker value cannot silently follow a
-    demo project into a reachable deployment.
+    an oversight. That bar is sized for secrets an attacker can attack offline;
+    the only attack this one faces is online guessing against an HTTP login
+    form, where 65 bits of CSPRNG entropy is many orders of magnitude out of
+    reach. A character count is the wrong instrument here in any case — it
+    would reject this value while admitting a longer, guessable one an operator
+    typed. What actually disqualifies a password is being absent or being
+    public, and both are refused on their own terms: the empty-value check in
+    ``_ensure_service_tokens`` under exposure, and ``_VAR_FORBIDDEN_VALUES``
+    for the template's published default.
     """
     lower = "".join(c for c in string.ascii_lowercase if c not in _AMBIGUOUS_CHARS)
     upper = "".join(c for c in string.ascii_uppercase if c not in _AMBIGUOUS_CHARS)
@@ -99,10 +104,10 @@ def _generate_openobserve_password() -> str:
 # into a login form may trade entropy for legibility, because a password nobody
 # can transcribe is a password that gets pasted into a chat window or replaced
 # with something worse. A recipe claiming the exception must say so in its
-# docstring and must be bounded by an entry in ``_VAR_EXPOSED_MIN_LENGTH``, so
-# the weaker value cannot follow the deployment off-host. ZO_ROOT_USER_PASSWORD
-# is the only var that qualifies today: the Tiled key, both dispatch tokens, and
-# the Postgres/Mongo passwords are read by processes, never by people.
+# docstring and must still draw every character from ``secrets``: legibility
+# buys a shorter value, never a weaker source. ZO_ROOT_USER_PASSWORD is the only
+# var that qualifies today: the Tiled key, both dispatch tokens, and the
+# Postgres/Mongo passwords are read by processes, never by people.
 #
 # BLUESKY_TILED_API_KEY: Tiled validates its ``--api-key`` during server startup
 # and raises ``ValueError("The API key must only contain alphanumeric
@@ -327,36 +332,6 @@ _VAR_FORBIDDEN_DESCRIPTIONS: dict[str, str] = {
         "same name) so the next run mints a per-deploy value"
     ),
 }
-
-# Minimum length a var's effective value must have when the deployment is
-# published on all interfaces. Checked ONLY under ``expose_network``; a loopback
-# deploy has no opinion about length, which is what lets the OpenObserve mint be
-# short enough to type (see ``_generate_openobserve_password``).
-#
-# Why a length floor and not a strength *recipe* applied at mint time: minting
-# is idempotent, so a password minted during a loopback demo is still sitting in
-# ``.env`` when someone later runs ``osprey up --expose``. Choosing the recipe
-# by ``expose_network`` would mint strong on an exposed FIRST deploy and change
-# nothing for the far more common case of a demo project that grows up — false
-# comfort. Reading the effective value on every exposed deploy catches both that
-# path and an operator who simply typed a short password, whatever its origin.
-#
-# Opt-in per var, exactly like ``_VAR_VALIDATORS`` and ``_VAR_FORBIDDEN_VALUES``:
-# a var absent here has no length opinion at any exposure. Only the credential
-# whose recipe claims the human-legibility exception needs one, because only
-# that recipe deliberately mints below the module's entropy bar.
-_VAR_EXPOSED_MIN_LENGTH: dict[str, int] = {
-    "ZO_ROOT_USER_PASSWORD": 20,
-}
-
-
-def _is_too_weak_when_exposed(var: str, value: str) -> bool:
-    """True if ``value`` is below ``var``'s registered off-host length floor.
-
-    Fail-open for an unregistered var, matching every other per-var map here.
-    """
-    minimum = _VAR_EXPOSED_MIN_LENGTH.get(var)
-    return minimum is not None and len(value) < minimum
 
 
 def _effective_value(var: str, dotenv: dict[str, str]) -> str:

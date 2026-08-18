@@ -67,7 +67,6 @@ from osprey.deployment.service_tokens import (
     _generate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _generate_token,
     _is_forbidden_value,
-    _is_too_weak_when_exposed,
     _raise_forbidden_var,
     _raise_invalid_var,
     _validate_openobserve_password,  # noqa: F401  (re-exported for tests)
@@ -694,25 +693,6 @@ def _ensure_service_tokens(
                 f"{name} is empty; refusing to start a deployment that is reachable "
                 f"off-host with an empty token. Unset {name} in the environment and let "
                 f"`osprey up` mint one, or export a strong secret."
-            )
-        # The length floor, for the same exposure and one step past empty. Only
-        # ZO_ROOT_USER_PASSWORD registers one, because only its recipe mints
-        # deliberately short — short enough for a person to read off a terminal
-        # and type into the OpenObserve login form during a demo. That trade is
-        # sound on the loopback deploy it was chosen for and not sound here, and
-        # the mint's idempotence is what makes the check necessary rather than
-        # decorative: the demo password is still in `.env` when this project is
-        # later brought up with `--expose`, so nothing re-mints it and only a
-        # read of the effective value can catch it. Applies whatever the origin,
-        # which also covers an operator who simply chose a short password.
-        if expose_network and _is_too_weak_when_exposed(name, effective):
-            raise RuntimeError(
-                f"{name} is too short for a deployment that is reachable off-host. "
-                f"The value osprey mints is sized to be typed at a demo login on "
-                f"localhost, not to guard a store other hosts can reach — and this "
-                f"one holds full agent conversation transcripts. Set a strong "
-                f"{name} in .env before deploying with --expose. "
-                f"Refusing to deploy. (Value not shown.)"
             )
         # Ahead of the format check so the more specific diagnosis wins. A
         # registered forbidden value is well-formed by construction — that is

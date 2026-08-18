@@ -117,11 +117,6 @@ Compatibility is documented in release notes, not encoded in the version string.
   from an alphabet without the easily-misread `l I 1 O 0` — you read this one
   off a terminal and type it into a browser login. Existing projects keep the
   password already in their `.env`.
-- Deploying with `--expose` now refuses to start while `ZO_ROOT_USER_PASSWORD`
-  is under 20 characters, naming the variable. The minted password is sized for
-  a store on `localhost`, and nothing re-mints it when a project is later
-  published on all interfaces — set a strong one before exposing a store that
-  holds full agent conversation transcripts.
 
 - `pymongo` is now a core dependency instead of the `archiver-mongodb` extra.
   The `control-assistant` preset deploys a MongoDB archive, so a plain `pip
