@@ -1004,6 +1004,56 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     ctx.exit(0)
 
 
+def _point_at_set(ctx: click.Context, param: click.Parameter, value: str | None) -> None:
+    """Answer a profile shorthand typed as a flag with the spelling that works.
+
+    ``--provider cborg`` is the natural guess and is not an option: the
+    shorthands are values baked into the emitted profile, so they are written
+    ``--set provider=cborg``. Click answers an unknown option with the nearest
+    one it has by edit distance, which for ``--provider`` is ``--override`` —
+    a different feature, taking a file. Left to that, the first thing an
+    operator meets is a suggestion that would not have worked either.
+
+    Registered as hidden options rather than checked after parsing, because
+    Click rejects an unknown option before any callback of ours runs.
+
+    Raises:
+        click.UsageError: Whenever the flag was given at all.
+    """
+    if value is None or ctx.resilient_parsing:
+        return None
+    raise click.UsageError(
+        f"There is no --{param.name.replace('_', '-')} option. {param.name} is a "
+        f"profile setting, so it is baked in with --set: --set {param.name}={value}"
+    )
+
+
+#: The ``--set`` shorthand keys that get typed as flags, and are refused as
+#: flags with the spelling that works. Spelled out rather than imported from
+#: :data:`~.build_profile_resolve.SHORTHAND_OVERRIDE_KEYS`, which is where they
+#: are defined: options are declared at decoration time, so importing them
+#: there would put the whole build-profile chain on this module's import — the
+#: one thing ``test_importing_the_module_stays_off_the_heavy_chain`` exists to
+#: prevent. The copy is held to the original by
+#: ``test_the_refused_flags_are_the_documented_shorthands``, so a shorthand
+#: added there and not here fails a test rather than going quietly uncaught.
+_SHORTHAND_FLAG_KEYS = ("provider", "model", "channel_finder_mode", "connector")
+
+
+def _reject_shorthand_flags(command: Callable) -> Callable:
+    """Add one hidden, always-refusing option per ``--set`` shorthand key."""
+    for key in _SHORTHAND_FLAG_KEYS:
+        command = click.option(
+            f"--{key.replace('_', '-')}",
+            key,
+            hidden=True,
+            expose_value=False,
+            metavar="VALUE",
+            callback=_point_at_set,
+        )(command)
+    return command
+
+
 @click.command()
 @click.argument("directory", required=False, type=click.Path(path_type=Path))
 @click.option(
@@ -1065,6 +1115,7 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
 @click.option("--up", "start", is_flag=True, help="Build the deployment and start it.")
 @click.option("-d", "--detach", "detached", is_flag=True, help="With --up: run in the background.")
 @click.option("--dev", is_flag=True, help="With --up: start in development mode.")
+@_reject_shorthand_flags
 @click.pass_context
 def init(
     ctx: click.Context,

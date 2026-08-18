@@ -1433,3 +1433,67 @@ class TestContainerRuntimePreflight:
         assert result.exit_code == 0, result.output
         assert asked == []
         assert (target / "profile.yml").is_file()
+
+
+class TestSetShorthandMistakenForAFlag:
+    """`--provider cborg` is a natural guess, and it is not an option.
+
+    The profile's own shorthands are spelled `--set provider=cborg`, and Click
+    answers an unknown option by naming the closest one it has by edit
+    distance — which for `--provider` is `--override`, a different feature with
+    a different argument. So the operator's first contact with the verb is a
+    suggestion that would not have worked either. These four keys are the ones
+    `--set` documents, so they are the ones worth catching by name.
+    """
+
+    @staticmethod
+    def _flat(output: str) -> str:
+        """One line, so an assertion is not a hostage to where Rich wrapped."""
+        return " ".join(output.split())
+
+    @pytest.mark.parametrize(
+        ("flag", "value", "key"),
+        [
+            ("--provider", "cborg", "provider"),
+            ("--model", "haiku", "model"),
+            ("--connector", "epics", "connector"),
+            ("--channel-finder-mode", "hybrid", "channel_finder_mode"),
+        ],
+    )
+    def test_it_names_the_set_spelling_that_works(self, runner, tmp_path, flag, value, key):
+        target = tmp_path / "demo"
+
+        result = runner.invoke(
+            cli, ["init", str(target), "--preset", "hello-world", "--no-git", flag, value]
+        )
+
+        assert result.exit_code == 2, result.output
+        assert f"--set {key}={value}" in self._flat(result.output)
+        assert not target.exists()
+
+    def test_the_refused_flags_are_the_documented_shorthands(self):
+        """The local copy against the definition it was copied from.
+
+        `init_cmd` declares these as options at decoration time and may not
+        import the build-profile chain to get them (TR-2, pinned by
+        `test_importing_the_module_stays_off_the_heavy_chain`), so the list is
+        spelled out there. This is what stops the copy from drifting: a
+        shorthand added to `--set` and not to the guard fails here instead of
+        quietly going back to `Did you mean --override?`.
+        """
+        from osprey.cli.build_profile_resolve import SHORTHAND_OVERRIDE_KEYS
+        from osprey.cli.init_cmd import _SHORTHAND_FLAG_KEYS
+
+        assert set(_SHORTHAND_FLAG_KEYS) == set(SHORTHAND_OVERRIDE_KEYS)
+
+    def test_the_real_spelling_still_works(self, runner, tmp_path):
+        """The guard is about the flag form; the documented one is untouched."""
+        target = tmp_path / "demo"
+
+        result = runner.invoke(
+            cli,
+            ["init", str(target), "--preset", "hello-world", "--no-git", "--set", "model=haiku"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert yaml.safe_load((target / "profile.yml").read_text())["model"] == "haiku"

@@ -43,6 +43,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   read what the previous deployment owns, `--up` to start the new one — but the
   check ran after the repo had been written, git-initialized and committed, so
   a stopped Docker left a repo behind that nobody asked for.
+- `osprey init --provider cborg` (and `--model`, `--connector`,
+  `--channel-finder-mode`) now say which spelling works — `--set
+  provider=cborg` — instead of suggesting the unrelated `--override`.
 - `osprey init --reset` no longer crashes with a Python traceback when the
   containers it would remove belong to another copy of this repo. `osprey
   reset` has always caught that refusal and rendered it; this path never did,
