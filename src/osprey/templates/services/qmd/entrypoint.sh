@@ -42,11 +42,12 @@ INDEX_CONFIG="${OSPREY_QMD_INDEX_CONFIG:-/etc/qmd/index.yml}"
 # supported here; use the rendered config for those.
 COLLECTIONS_SPEC="${OSPREY_QMD_COLLECTIONS:-}"
 
-# Port split. qmd hardcodes `httpServer.listen(port, "localhost")`, which
-# resolves to IPv6 loopback only -- there is no --host flag and no env
-# override, so the daemon is unreachable from outside its own network
-# namespace. INTERNAL_PORT is where the daemon actually listens; PORT is the
-# routable port the forwarder owns and clients connect to.
+# Port split. qmd hardcodes `httpServer.listen(port, "localhost")` -- there is
+# no --host flag and no env override -- so the daemon only ever answers on a
+# loopback address inside the container, and which family "localhost" resolves
+# to depends on the environment. Either way it is unreachable from outside its
+# own network namespace. INTERNAL_PORT is where the daemon actually listens;
+# PORT is the routable port the forwarder owns and clients connect to.
 PORT="${OSPREY_QMD_PORT:-8180}"
 INTERNAL_PORT="${OSPREY_QMD_INTERNAL_PORT:-8181}"
 
@@ -365,34 +366,49 @@ assert_index_populated() {
 # ── phase 2: serve ───────────────────────────────────────────────────────────
 
 start_daemon() {
-    log "starting qmd MCP daemon on internal [::1]:$INTERNAL_PORT"
+    log "starting qmd MCP daemon on internal loopback:$INTERNAL_PORT"
     qmd mcp --http --port "$INTERNAL_PORT" &
     QMD_PID=$!
 
+    # qmd hardcodes listen(port, "localhost"), and which loopback family that
+    # binds is environment-dependent: Node resolves localhost to ::1 on some
+    # images/hosts and to 127.0.0.1 on others (observed: 127.0.0.1 under
+    # rootless podman on RHEL-family hosts, where the [::1]-only probe made
+    # the sidecar die at HEALTH_TIMEOUT and crash-loop the container). Probe
+    # both families and remember the one that answers for the forwarder.
+    DAEMON_TARGET=""
     _waited=0
     while :; do
         if ! kill -0 "$QMD_PID" 2>/dev/null; then
             QMD_PID=""
             die "qmd daemon exited during startup; see its output above"
         fi
-        if curl -fsS -o /dev/null --max-time 5 "http://[::1]:$INTERNAL_PORT/health" 2>/dev/null; then
-            log "daemon healthy after ${_waited}s"
-            return 0
-        fi
+        for _a in "[::1]" "127.0.0.1"; do
+            if curl -fsS -o /dev/null --max-time 5 "http://$_a:$INTERNAL_PORT/health" 2>/dev/null; then
+                DAEMON_TARGET="$_a"
+                log "daemon healthy after ${_waited}s on $_a"
+                return 0
+            fi
+        done
         [ "$_waited" -lt "$HEALTH_TIMEOUT" ] \
-            || die "qmd daemon did not answer /health within ${HEALTH_TIMEOUT}s"
+            || die "qmd daemon did not answer /health on [::1] or 127.0.0.1 within ${HEALTH_TIMEOUT}s"
         sleep 1
         _waited=$((_waited + 1))
     done
 }
 
 start_forwarder() {
-    # qmd binds IPv6 loopback only, which is unreachable from any other
-    # container. socat owns the routable port and forwards to it. The security
-    # posture is unchanged -- qmd itself still never listens on a routable
-    # address; only this forwarder does, inside the container.
-    log "publishing MCP endpoint on 0.0.0.0:$PORT (POST /mcp, GET /health)"
-    socat "TCP4-LISTEN:$PORT,fork,reuseaddr" "TCP6:[::1]:$INTERNAL_PORT" &
+    # qmd answers on the container's loopback only, which is unreachable from
+    # any other container. socat owns the routable port and forwards to the
+    # loopback family the health probe found answering. The security posture is
+    # unchanged -- qmd itself still never listens on a routable address; only
+    # this forwarder does, inside the container.
+    log "publishing MCP endpoint on 0.0.0.0:$PORT (POST /mcp, GET /health) -> $DAEMON_TARGET:$INTERNAL_PORT"
+    if [ "$DAEMON_TARGET" = "127.0.0.1" ]; then
+        socat "TCP4-LISTEN:$PORT,fork,reuseaddr" "TCP4:127.0.0.1:$INTERNAL_PORT" &
+    else
+        socat "TCP4-LISTEN:$PORT,fork,reuseaddr" "TCP6:[::1]:$INTERNAL_PORT" &
+    fi
     SOCAT_PID=$!
 }
 
@@ -537,7 +553,7 @@ main() {
     # and are safe.
 
     command -v qmd > /dev/null 2>&1 || die "qmd is not on PATH"
-    command -v socat > /dev/null 2>&1 || die "socat is not installed; the IPv6-loopback forwarder cannot start"
+    command -v socat > /dev/null 2>&1 || die "socat is not installed; the loopback forwarder cannot start"
 
     prepare_state
     run_startup_pass

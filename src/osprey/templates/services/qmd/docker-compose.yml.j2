@@ -25,12 +25,16 @@
 # never race to tag one shared image. To use a prebuilt/published image instead,
 # set OSPREY_QMD_IMAGE (e.g. OSPREY_QMD_IMAGE=my-registry/osprey-qmd:2.5.3).
 #
-# PORT SPLIT. qmd's daemon hardcodes `httpServer.listen(port, "localhost")`,
-# which resolves to IPv6 loopback only — there is no --host flag and no env
-# override — so it is unreachable from any other container. The entrypoint runs
-# it on the container's internal 8181 and fronts it with a socat forwarder that
-# owns the port published below, which is the one clients talk to. The security
-# posture is the point: qmd itself never listens on a routable address.
+# PORT SPLIT. qmd's daemon hardcodes `httpServer.listen(port, "localhost")` —
+# there is no --host flag and no env override — so it answers only on a loopback
+# address inside the container, unreachable from any other container. WHICH
+# loopback family "localhost" lands on is not fixed: Node resolves it to [::1]
+# on some image/host combinations and to 127.0.0.1 on others (observed under
+# rootless podman on RHEL-family hosts). So the entrypoint runs the daemon on
+# the container's internal 8181, probes BOTH families for /health, and points a
+# socat forwarder at whichever one answered. The forwarder owns the port
+# published below, which is the one clients talk to. The security posture is the
+# point: qmd itself never listens on a routable address, on either family.
 #
 # The endpoint carries no token, no TLS and no per-caller identity — it answers
 # any request that reaches it. That is safe exactly as long as only this host

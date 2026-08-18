@@ -30,11 +30,13 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 #
 # curl  — build-time model fetch; the slim base has no curl either.
 # socat — runtime port forwarder. qmd hardcodes `httpServer.listen(port,
-#         "localhost")` and resolves that to IPv6 loopback only, with no --host
-#         flag and no env override, so the daemon is unreachable from outside
-#         its own network namespace. The entrypoint runs qmd on internal
-#         [::1]:<internal port> and forwards the routable port to it. This keeps
-#         the security posture: qmd itself never listens on a routable address.
+#         "localhost")`, with no --host flag and no env override, so the daemon
+#         only ever answers on a loopback address — unreachable from outside its
+#         own network namespace — and which loopback family "localhost" resolves
+#         to depends on the host. The entrypoint runs qmd on the internal port,
+#         probes both families for the one that answers, and forwards the
+#         routable port to it. This keeps the security posture: qmd itself never
+#         listens on a routable address.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
