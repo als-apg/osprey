@@ -53,7 +53,7 @@ optional fourth, `render` — see *The plan's own view* below):
    (typically built with `bluesky.plan_stubs`/`bluesky.plans`/
    `bluesky.preprocessors`).
 
-**Study the two shipped plans for the full worked pattern — do not
+**Study the three shipped plans for the full worked pattern — do not
 invent new accelerator physics:**
 - `orm` (`src/osprey/services/bluesky_bridge/plans_core/orm.py`)
   — kicks each corrector either side of its own pre-scan working point,
@@ -62,10 +62,22 @@ invent new accelerator physics:**
 - `grid_scan` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
   — steps a set of setpoint devices over a rectangular grid, reading a set of
   detectors at every grid point.
+- `orbit_bump_sweep`
+  (`src/osprey/services/bluesky_bridge/plans_core/orbit_bump_sweep.py`)
+  — drives three or four correctors together in a combination whose kicks
+  cancel outside the bump region, ramping a closed local orbit bump up and
+  back down in steps and verifying the orbit against the requested tolerance
+  band at every one — a band it first proves is wider than the machine's own
+  measured noise. It is asked for in orbit space (displacements at named BPMs,
+  zero at named closure BPMs) and measures the response it needs on the spot,
+  so it carries no lattice model.
 
-These are the ONLY accelerator scan patterns this framework ships. Never
-propose or author a BBA (beam-based alignment) or tune-scan plan — they are
-explicitly out of scope.
+These three are the ONLY accelerator scan patterns this framework ships. Never
+propose or author a BBA (beam-based alignment) or tune-scan plan — those two
+measurements are explicitly out of scope, and `orbit_bump_sweep` does not open
+that door. A closed bump is the shipped primitive those measurements would be
+built *on top of*: running one through this plan is ordinary work, and wrapping
+one in an alignment or tune measurement is still not on offer.
 
 ## A plan that moves a device sweeps relative, and puts it back
 
@@ -108,6 +120,61 @@ an underscore.** A leading-underscore name is rejected at authoring time
 authoring-time refusal turns a permanently unqueueable plan into one legible
 error.
 
+## A plan that verifies its own motion measures the noise first
+
+`orbit_bump_sweep` is the exemplar for the step past `orm`: a plan that does
+not merely move and read, but *checks whether the move landed* and acts on the
+answer. Four rules come with that, and they are the ones an author gets wrong.
+
+**A convergence criterion is a band around a measured reference, never an
+absolute.** A stored beam is never still — every BPM carries its own noise —
+so "the orbit is where I asked for it" only means something inside a band
+measured on this machine, on this shift. `orbit_bump_sweep` reads
+`baseline_reads` full rows before any write, takes the per-BPM mean as the
+reference orbit every later reading is compared against and the per-BPM sample
+standard deviation (`ddof=1`) as the noise, and then checks each step against
+`±tolerance` around that reference. A tolerance narrower than twice the
+measured noise is not a stricter plan, it is an unverifiable one — a band the
+machine's own jitter crosses on every read — so the run fails on it **before
+any sweep write**, while nothing has moved. Fail fast on a criterion you cannot
+verify; never write an absolute-zero target and hope the machine sits still
+for it.
+
+**The way back down is measurement, not cleanup.** The amplitude profile walks
+up and then back down in single-increment steps — `2 * num` steps
+monodirectional, `4 * num` bidirectional — and each descending step short of
+the terminal one is solved, trimmed and verified exactly like its counterpart
+on the way up, and every step emits its own data row. That is deliberate.
+Magnets do not retrace their own curve, so the descending rows are the run's
+record of how far the machine actually came back at each amplitude: hysteresis
+data, and the half an operator reads hardest. The same reasoning is already in
+the probe — each corrector is dithered to **both** sides of its working point,
+because a one-sided dither folds the hysteresis into the fitted slope. A plan
+that ramps in verified steps and then unwinds in one jump has thrown away half
+of what it measured and handed the machine a move it never checked.
+
+**The terminal step re-commands the working points verbatim, and verifies
+them.** The profile ends at scale `0`, and that last step is neither solved nor
+trimmed: it writes the working points the plan read before the `try`, exactly
+as recorded, and then checks the orbit against the band like any other step.
+Its whole job is to answer "did the machine come back?", so an out-of-band
+reading there is a finding to surface (`best_effort` decides whether it is
+recorded or raised), never something to trim away — trimming would end the run
+with the correctors somewhere other than where they started, which is the one
+outcome the step exists to rule out. The `try`/`finally` restore is still
+underneath it, but that is the abort-and-error backstop; the terminal step is
+the *verified* return on the clean path, and a plan that verifies its motion
+needs both.
+
+**A corrector that can only move one way is unsuitable, not merely tight.** A
+bump solution is a combination whose kicks cancel outside the bump region,
+which means some of them come out negative whatever sign the operator asked
+for, and the probe drives every corrector to both sides of its working point
+before the sweep starts at all. A corrector already sitting near one end of its
+range, or one the deployment's limits let move in a single direction, cannot
+serve either step. Choosing a different corrector is the fix — not a smaller
+`probe_amplitude`, and not a one-sided probe.
+
 ---
 
 ## Your `PARAMS` fields ARE the queue item's kwargs
@@ -143,13 +210,15 @@ any of which can reject it outright before the next ever runs:
      `itertools`, `functools`, `pydantic`, `typing`, and `logging`
      (except `logging.config` and `logging.handlers`, which are denied —
      they resolve callables by string, an import-by-string bypass).
-   - Exactly two OSPREY modules, both spelled in full and imported
+   - Exactly three OSPREY modules, each spelled in full and imported
      absolutely: `osprey.services.bluesky_bridge.figure` (the figure
-     vocabulary an optional `render()` returns) and
+     vocabulary an optional `render()` returns),
      `osprey.services.bluesky_bridge.orm_analysis` (the numeric helpers
-     behind the `orm` plan's own view). Both are inert — models and numeric
-     code, no I/O and no control system. Bare `import osprey` and every other
-     `osprey.*` module are rejected.
+     behind the `orm` plan's own view), and
+     `osprey.services.bluesky_bridge.bump_analysis` (the response fit and
+     bump solve behind `orbit_bump_sweep`). All three are inert — models and
+     numeric code, no I/O and no control system. Bare `import osprey` and
+     every other `osprey.*` module are rejected.
    - Everything else (`epics`, `os`, `subprocess`, `ctypes`, `importlib`,
      `socket`, ...) is rejected.
 2. **CA/connector pattern scan** — rejects any body matching `caput(`,
@@ -295,11 +364,18 @@ failure downgrades the figure instead of losing it.
   (`epics`, `caput`/`caget`, `_osprey_connector`, raw PV names) — all device
   I/O goes through the `devices` dict `build_plan` receives.
 - **Never** use `time.sleep(...)` inside a plan body — use `bps.sleep(...)`.
-- **Never** propose a BBA or tune-scan plan — `orm` and `grid_scan` are the
-  only scan patterns this framework ships.
+- **Never** propose a BBA or tune-scan plan — `orm`, `grid_scan` and
+  `orbit_bump_sweep` are the only scan patterns this framework ships, and the
+  bump is a primitive to run, not a foundation to build those two on.
+- **Never** write a convergence criterion the machine's own noise can cross —
+  measure a reference and a per-device noise first, check against a band around
+  it, and refuse an unverifiable tolerance before the first write rather than
+  discovering it mid-sweep.
+- **Never** unwind a verified ramp in one move — walk it back down in the same
+  increments, verifying and recording each step, because the descent is data.
 - **Never** hard-code a facility device name inside `build_plan` — resolve
   every device by string name through the injected `devices` dict, exactly
-  like both exemplars. The same holds for `render()`: label its panels from
+  like all three exemplars. The same holds for `render()`: label its panels from
   `params` and the row keys, never from a name written into the file.
 - **Never** let `render()` raise — guard what can fail and drop a panel
   instead, or every watcher gets the default view in place of the plan's own.

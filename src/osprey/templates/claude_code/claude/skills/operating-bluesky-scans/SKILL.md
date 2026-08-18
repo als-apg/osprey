@@ -99,6 +99,16 @@ front of a queue that is already draining. Assemble the full `plan_args` first
 and send it in one patch. The returned `revision` is your queue pin — remember
 it.
 
+A plan that drives several devices together deserves one more look before the
+draft goes in front of the human. `orbit_bump_sweep` is the shipped case: it
+moves three or four correctors at once on a stored beam, so read every
+corrector *and* every BPM name back from `list_devices()` rather than trusting
+a name you carried in, and be ready for the run to end early without moving
+anything — it measures the orbit noise first and refuses a `tolerance`
+narrower than twice what it measured, before its first write. Report that as
+the plan declining a band it could not verify, and say the answer is a wider
+tolerance or a quieter machine; it is not a failure to retry as-is.
+
 ---
 
 ## The human reviews in the plan panel
@@ -435,6 +445,9 @@ know why it was requested.
 - **Never** call a `heatmap_summary`'s `largest_magnitude` cells anomalies —
   they are the strongest readings, and the `orm` plan ships real anomaly-score
   panels that would be contradicted by saying otherwise.
+- **Never** report `orbit_bump_sweep` refusing a too-narrow `tolerance` as a
+  broken plan — it measured the orbit noise, found the band unverifiable, and
+  stopped before writing anything; a wider tolerance is the way on.
 - **Never** let "stop" cover both halts — `queue_stop` halts the queue after
   the running item, `stop_run` aborts the item already in motion. Name which
   one you mean.
