@@ -73,8 +73,8 @@ examine file contents. Focus on:
 4. **Convention directories** — A profile carries its artifacts in named \
 directories at its root, each with one fixed destination: `rules/`, `skills/`, \
 `agents/`, `commands/`, `output-styles/` land under `.claude/`; \
-`web-terminal-context/<user>/`, `mcp_servers/<name>/` and `services/<name>/` \
-land in their own trees; `project/` mirrors verbatim onto the project root. \
+`web-terminal-context/<user>/` (plus its shared `base.md` baseline), \
+`mcp_servers/<name>/` and `services/<name>/` land in their own trees; `project/` mirrors verbatim onto the project root. \
 Does anything there shadow a safety-critical framework artifact? Does the \
 `project/` mirror target a build-owned path — `config.yml`, `.mcp.json`, \
 `.claude/settings.json`, `CLAUDE.md`, `.env`, `.env.example`, \

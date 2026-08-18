@@ -11,6 +11,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- Build profiles can now author the shared web-terminal context baseline at
+  `web-terminal-context/base.md`, overriding the framework's copy. `osprey
+  init` materializes it from the preset (the control assistant ships its own
+  text), so the context every seeded user starts from is visible and editable
+  in the deployment repo instead of hidden in the installed package.
+
 ### Fixed
 
 - `osprey init --reset` no longer crashes with a Python traceback when the
