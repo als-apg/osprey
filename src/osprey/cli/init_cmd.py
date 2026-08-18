@@ -491,6 +491,71 @@ def _resolve_target(directory: Path | None) -> Path:
     return here
 
 
+def _refuse_without_a_container_runtime(target: Path, *, reset: bool, start: bool) -> None:
+    """Refuse --reset or --up up front when no container runtime answers.
+
+    Both flags need one for certain: ``--reset`` reads the containers and
+    volumes the previous deployment owns in order to know what to remove, and
+    ``--up`` starts them. Neither can be satisfied against a runtime that is
+    not running, and both are known from the command line — so the check
+    belongs here, with the other refusals, rather than after the repo has been
+    written, git-initialized and committed. Asked later it is still correct and
+    still refuses, but it refuses about a directory that now exists, and the
+    operator's next move is deleting a repo they were never given a reason to
+    want. Nothing this function refuses has created anything.
+
+    The probe inside the reset itself stays where it is: a runtime can go down
+    between here and there, and it is what proves an EMPTY listing means empty
+    rather than unreachable. This one is about what gets written to disk.
+
+    An ``init`` that neither resets nor starts anything writes files and stops,
+    and is not asked — preparing a deployment repo on a machine with no
+    container runtime is a thing people do.
+
+    Raises:
+        click.exceptions.Exit: With status 1, after printing the refusal.
+    """
+    if not (reset or start):
+        return
+
+    from osprey.deployment.reset import runtime_selection_config
+    from osprey.deployment.runtime_helper import verify_runtime_is_running
+
+    from .output import fail
+
+    is_running, error = verify_runtime_is_running(runtime_selection_config(target))
+    if is_running:
+        return
+
+    # The runtime messages are written as a headline and the steps that fix it,
+    # which is `fail`'s summary and cause already -- so they are split rather
+    # than reworded. Rewriting them here would mean maintaining a second copy of
+    # every platform's remedy, and this is not the place that knows them.
+    headline, _, detail = error.partition("\n")
+    flags = " and ".join(flag for flag, given in (("--reset", reset), ("--up", start)) if given)
+    # Named per flag rather than as one sentence about "the flags you gave":
+    # what an operator has to decide is whether they still want the flag, and
+    # that reads off the thing it was going to do.
+    why = {
+        "--reset": "--reset reads the containers and volumes the previous deployment "
+        "left, to know what to remove.",
+        "--up": "--up builds the deployment and starts its containers.",
+        "--reset and --up": "--reset reads the containers and volumes the previous "
+        "deployment left, to know what to remove, and --up then starts the new ones.",
+    }[flags]
+    cause = f"{why} Nothing was created."
+    if detail.strip():
+        cause += f"\n\n{detail.strip()}"
+
+    # No remedy argument: the runtime messages ARE remedies -- numbered steps
+    # for a daemon that is down, install links for one that is absent -- and
+    # they are already in the cause. An arrow line restating "try again" would
+    # be true for one of those cases and wrong for the other, which is worse
+    # than leaving the arrow off.
+    fail(headline, cause)
+    raise click.exceptions.Exit(1)
+
+
 def _refuse_enclosing_repo(target: Path) -> None:
     """Refuse a target that would nest one deployment repo inside another.
 
@@ -1056,6 +1121,10 @@ def init(
 
     target = _resolve_target(directory)
     _refuse_enclosing_repo(target)
+    # Before `_prepare_repo_root` below writes anything: --reset and --up are
+    # both preconditions on a running container runtime, and a run that cannot
+    # honor them should not leave a repo behind to be cleaned up by hand.
+    _refuse_without_a_container_runtime(target, reset=reset, start=start)
     # Before anything is decided: a repo whose last `--force` run was killed
     # mid-replacement is a whole repo again, so the refusals below judge the
     # deployment the operator has rather than the wreck of one.

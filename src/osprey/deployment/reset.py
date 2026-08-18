@@ -1735,6 +1735,27 @@ def _condensed_outcome_lines(plan: ResetPlan) -> list[str]:
     return lines
 
 
+def runtime_selection_config(repo_root: Path) -> dict | None:
+    """The as-built config, where this repo has one, for choosing the runtime.
+
+    Only ever used to decide docker vs podman: a deployment that pins one is
+    entitled to have every check made against that one, and a probe that
+    defaulted to detection would report the wrong daemon's absence at an
+    operator running the other. ``None`` when there is nothing built yet or the
+    file will not load — a fresh repo has no as-built config by definition, and
+    detection is the right answer there rather than a failure.
+    """
+    config_path = as_built_config_path(repo_root)
+    if not config_path.is_file():
+        return None
+    try:
+        from osprey.utils.config import load_project_config
+
+        return load_project_config(str(config_path), wrap_errors=True)
+    except Exception:  # noqa: BLE001 - runtime selection falls back to detection
+        return None
+
+
 def _default_probe(repo_root: Path) -> RuntimeProbe:
     """The real runtime seam, refusing early when the daemon is unreachable.
 
@@ -1746,16 +1767,7 @@ def _default_probe(repo_root: Path) -> RuntimeProbe:
     """
     from osprey.deployment.runtime_helper import verify_runtime_is_running
 
-    config_path = as_built_config_path(repo_root)
-    config: dict | None = None
-    if config_path.is_file():
-        try:
-            from osprey.utils.config import load_project_config
-
-            config = load_project_config(str(config_path), wrap_errors=True)
-        except Exception:  # noqa: BLE001 - runtime selection falls back to detection
-            config = None
-
+    config = runtime_selection_config(repo_root)
     is_running, error = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(

@@ -56,6 +56,29 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer ``init``'s runtime preflight without consulting the host.
+
+    ``--reset`` and ``--up`` are refused up front when no container runtime
+    answers, which is the right behaviour and the wrong dependency for a unit
+    test: left unstubbed these tests pass on a developer's machine with Docker
+    Desktop open and fail on a CI runner that has no daemon, which is a
+    property of the runner rather than of the verb.
+
+    Patched on ``runtime_helper`` itself because that is where the preflight
+    reads it from, at call time. The other callers of this function bind it at
+    import into their own modules, so this reaches exactly the one check these
+    tests need to get past and none of theirs.
+    ``TestContainerRuntimePreflight`` patches it back down, in the test body,
+    where it wins over this.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.runtime_helper.verify_runtime_is_running",
+        lambda config=None: (True, ""),
+    )
+
+
 @pytest.fixture
 def recorder():
     """Pre-install a recording reporter, as an outer verb would have.

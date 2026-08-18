@@ -65,6 +65,29 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture(autouse=True)
+def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer ``init``'s runtime preflight without consulting the host.
+
+    ``--reset`` and ``--up`` are refused up front when no container runtime
+    answers, which is the right behaviour and the wrong dependency for a unit
+    test: left unstubbed these tests pass on a developer's machine with Docker
+    Desktop open and fail on a CI runner that has no daemon, which is a
+    property of the runner rather than of the verb.
+
+    Patched on ``runtime_helper`` itself because that is where the preflight
+    reads it from, at call time. The other callers of this function bind it at
+    import into their own modules, so this reaches exactly the one check these
+    tests need to get past and none of theirs.
+    ``TestContainerRuntimePreflight`` patches it back down, in the test body,
+    where it wins over this.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.runtime_helper.verify_runtime_is_running",
+        lambda config=None: (True, ""),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _no_harvested_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the developer's own exported API keys out of every repo these tests make.
 
@@ -1318,3 +1341,95 @@ class TestResetFlag:
 
         assert result.exit_code == 0, result.output
         assert calls == []
+
+
+class TestContainerRuntimePreflight:
+    """`--reset` and `--up` are checked against a reachable runtime FIRST.
+
+    Both flags need a container runtime for certain — `--reset` reads the
+    containers and volumes the previous deployment owns to know what to remove,
+    `--up` starts them — and neither can be satisfied without one. Asking after
+    the repo is materialized, git-initialized and committed is how a foreseeable
+    precondition turns into wreckage: the operator is left with a directory to
+    delete, and (since git objects are written read-only) an `rm -r` that stops
+    to ask about every one of them.
+
+    So the check moves to the front, next to the other refusals, and the
+    contract these tests pin is "nothing was created". The probe inside
+    `reset_for_reinit` stays where it is — the runtime can go down between the
+    two — but by then it is a guard, not the first news.
+    """
+
+    @staticmethod
+    def _runtime_down(monkeypatch, message="Docker Desktop is not running.\n\nTo fix this:\n1. x"):
+        monkeypatch.setattr(
+            "osprey.deployment.runtime_helper.verify_runtime_is_running",
+            lambda config=None: (False, message),
+        )
+
+    def test_reset_refuses_before_creating_anything(self, runner, tmp_path, monkeypatch):
+        self._runtime_down(monkeypatch)
+        target = tmp_path / "demo"
+
+        result = runner.invoke(
+            cli, ["init", str(target), "--preset", "hello-world", "--no-git", "--reset"]
+        )
+
+        assert result.exit_code != 0
+        assert not target.exists(), "the repo was created by a run that could not finish"
+        assert "Docker Desktop is not running." in result.output
+
+    def test_up_refuses_before_creating_anything(self, runner, tmp_path, monkeypatch):
+        self._runtime_down(monkeypatch)
+        target = tmp_path / "demo"
+
+        result = runner.invoke(
+            cli, ["init", str(target), "--preset", "hello-world", "--no-git", "--up", "-d"]
+        )
+
+        assert result.exit_code != 0
+        assert not target.exists()
+
+    def test_the_refusal_names_the_flag_that_needed_the_runtime(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """Otherwise the operator reads a Docker complaint out of a verb whose
+        job is writing files, with nothing connecting the two."""
+        self._runtime_down(monkeypatch)
+
+        result = runner.invoke(
+            cli, ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"]
+        )
+
+        assert "--reset" in result.output
+        assert "Nothing was created" in result.output
+
+    def test_it_escapes_as_a_refusal_not_a_traceback(self, runner, tmp_path, monkeypatch):
+        self._runtime_down(monkeypatch)
+
+        result = runner.invoke(
+            cli, ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"]
+        )
+
+        assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"the refusal escaped as an exception: {result.exception!r}"
+        )
+
+    def test_a_plain_init_never_asks_about_the_runtime(self, runner, tmp_path, monkeypatch):
+        """An init that neither resets nor starts anything writes files and
+        stops. Making it depend on a running Docker would be a precondition it
+        has no use for — and would take `osprey init` away from anyone
+        preparing a deployment repo on a machine that does not run containers.
+        """
+        asked: list[object] = []
+        monkeypatch.setattr(
+            "osprey.deployment.runtime_helper.verify_runtime_is_running",
+            lambda config=None: (asked.append(config), (False, "should not be consulted"))[1],
+        )
+        target = tmp_path / "demo"
+
+        result = runner.invoke(cli, ["init", str(target), "--preset", "hello-world", "--no-git"])
+
+        assert result.exit_code == 0, result.output
+        assert asked == []
+        assert (target / "profile.yml").is_file()
