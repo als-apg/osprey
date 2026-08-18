@@ -214,8 +214,9 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     status, plans_body = _get("/plans")
     assert status == 200, f"GET /plans failed: {status} {plans_body}"
     plan_names = {p["name"] for p in plans_body}
-    assert plan_names == {"orm", "grid_scan"}, (
-        f"expected the shipped plan set to be exactly {{orm, grid_scan}} (FR2), got {plan_names}"
+    assert plan_names == {"orm", "grid_scan", "orbit_bump_sweep"}, (
+        "expected the shipped plan set to be exactly "
+        f"{{orm, grid_scan, orbit_bump_sweep}} (FR2), got {plan_names}"
     )
 
     corrector_name = deployed_grid_scan_stack.corrector_name
