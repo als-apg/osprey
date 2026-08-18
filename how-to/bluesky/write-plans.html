@@ -489,11 +489,18 @@
                   
   <section id="write-your-own-scan-plans">
 <h1>Write Your Own Scan Plans<a class="headerlink" href="#write-your-own-scan-plans" title="Link to this heading">#</a></h1>
-<p>OSPREY ships two plans — an n-dimensional <strong>grid scan</strong> and an <strong>orbit
-response matrix</strong> sweep — and they are deliberately generic. Your machine has
-its own measurements, and there are two ways to add them: ask the agent to
-write one during a session, or install a plan library that belongs to your
-facility.</p>
+<p>OSPREY ships three plans — an n-dimensional <strong>grid scan</strong>, an <strong>orbit
+response matrix</strong> sweep, and a closed <strong>orbit bump</strong> sweep — and they are
+deliberately generic. Your machine has its own measurements, and there are two
+ways to add them: ask the agent to write one during a session, or install a
+plan library that belongs to your facility.</p>
+<p>The orbit bump is asked for in orbit space rather than in corrector currents:
+name the three or four correctors allowed to act, the BPMs the beam should
+move at and by how much, and the ones it must not move at all, and the plan
+finds the kicks that do it — no lattice model needed. It walks the bump up and
+back down step by step across the profile, verifying each step against the
+tolerance you asked for — a tolerance narrower than the BPMs’ own noise is
+refused before anything moves.</p>
 <section id="who-is-trusted-in-one-paragraph">
 <h2>Who is trusted, in one paragraph<a class="headerlink" href="#who-is-trusted-in-one-paragraph" title="Link to this heading">#</a></h2>
 <p>Plans are trusted by where they come from. Plans shipped with OSPREY, with a
@@ -632,7 +639,12 @@ straightforward measurement, enough.</p>
 view instead — a small <code class="docutils literal notranslate"><span class="pre">render</span></code> function that receives the run’s rows and its
 parameters and returns the plots the plan itself designs. The shipped <code class="docutils literal notranslate"><span class="pre">orm</span></code>
 plan does exactly that: a trace per corrector while the sweep runs, then the
-fitted response matrix and per-device scores once there is enough data.</p>
+fitted response matrix and per-device scores once there is enough data. So does
+<code class="docutils literal notranslate"><span class="pre">orbit_bump_sweep</span></code>: the orbit shift across the BPMs at each amplitude step,
+the residual against its tolerance band, and where the correctors sat while it
+walked — plus the monitors’ response, on a run that was given extra monitor
+channels at all. A panel with nothing to draw is left out rather than drawn
+empty.</p>
 <p>The vocabulary is small on purpose. A figure is a list of <strong>panels</strong>; each
 panel has a title, axis labels and units, any notes worth printing beside it,
 and exactly one <strong>mark</strong>:</p>

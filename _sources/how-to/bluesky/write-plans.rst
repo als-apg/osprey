@@ -2,11 +2,19 @@
 Write Your Own Scan Plans
 =========================
 
-OSPREY ships two plans — an n-dimensional **grid scan** and an **orbit
-response matrix** sweep — and they are deliberately generic. Your machine has
-its own measurements, and there are two ways to add them: ask the agent to
-write one during a session, or install a plan library that belongs to your
-facility.
+OSPREY ships three plans — an n-dimensional **grid scan**, an **orbit
+response matrix** sweep, and a closed **orbit bump** sweep — and they are
+deliberately generic. Your machine has its own measurements, and there are two
+ways to add them: ask the agent to write one during a session, or install a
+plan library that belongs to your facility.
+
+The orbit bump is asked for in orbit space rather than in corrector currents:
+name the three or four correctors allowed to act, the BPMs the beam should
+move at and by how much, and the ones it must not move at all, and the plan
+finds the kicks that do it — no lattice model needed. It walks the bump up and
+back down step by step across the profile, verifying each step against the
+tolerance you asked for — a tolerance narrower than the BPMs' own noise is
+refused before anything moves.
 
 Who is trusted, in one paragraph
 ================================
@@ -159,7 +167,12 @@ A plan that measures something the raw columns cannot show can bring its own
 view instead — a small ``render`` function that receives the run's rows and its
 parameters and returns the plots the plan itself designs. The shipped ``orm``
 plan does exactly that: a trace per corrector while the sweep runs, then the
-fitted response matrix and per-device scores once there is enough data.
+fitted response matrix and per-device scores once there is enough data. So does
+``orbit_bump_sweep``: the orbit shift across the BPMs at each amplitude step,
+the residual against its tolerance band, and where the correctors sat while it
+walked — plus the monitors' response, on a run that was given extra monitor
+channels at all. A panel with nothing to draw is left out rather than drawn
+empty.
 
 The vocabulary is small on purpose. A figure is a list of **panels**; each
 panel has a title, axis labels and units, any notes worth printing beside it,
