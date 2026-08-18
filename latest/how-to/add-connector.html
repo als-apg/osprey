@@ -504,7 +504,7 @@
 <li><p><strong>virtual_accelerator</strong>: the PyAT Virtual Accelerator’s EPICS soft-IOC — behaves
 like <code class="docutils literal notranslate"><span class="pre">epics</span></code> but tracks setpoints through the simulated machine, so plans
 actually run (the mock connector can’t do that); see <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></p></li>
-<li><p><strong>mongodb_archiver</strong>: MongoDB time-series archiver (optional, <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">&quot;osprey-framework[archiver-mongodb]&quot;</span></code>)</p></li>
+<li><p><strong>mongodb_archiver</strong>: MongoDB time-series archiver</p></li>
 <li><p><strong>doocs</strong> / <strong>doocs_archiver</strong>: DOOCS properties and DOOCS local histories
 (DESY, European XFEL). Both require <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>, which is supplied by the
 DOOCS environment rather than installed from PyPI — the import is deferred to
@@ -603,11 +603,8 @@ one or more PV names as top-level fields: <code class="docutils literal notransl
 requested PVs (an <code class="docutils literal notranslate"><span class="pre">$or</span></code> across per-PV <code class="docutils literal notranslate"><span class="pre">$exists</span></code> checks) – documents do not need
 to carry every requested PV together, so channels archived at different cadences, or
 written into separate documents by different collectors, are still returned
-correctly, each on its own timestamp series. The connector requires the optional
-<code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> extra:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;osprey-framework[archiver-mongodb]&quot;</span>
-</pre></div>
-</div>
+correctly, each on its own timestamp series. The connector’s MongoDB client ships
+with OSPREY, so there is nothing extra to install.</p>
 </section>
 <section id="production-mode-doocs">
 <h3>Production Mode (DOOCS)<a class="headerlink" href="#production-mode-doocs" title="Link to this heading">#</a></h3>

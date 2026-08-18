@@ -613,15 +613,35 @@ default. If your project removed it, restore it:</p>
 <section id="optional-set-the-admin-credentials">
 <h3>2. (Optional) set the admin credentials<a class="headerlink" href="#optional-set-the-admin-credentials" title="Link to this heading">#</a></h3>
 <p>The OpenObserve root account doubles as the OTLP ingest credential. You do not
-have to set it yourself: the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints a strong
-<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> into the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> automatically, and the
-project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is derived from there. Set the two variables yourself (in the
-profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>) only if you want specific values — the same pair configures
-the container <strong>and</strong> authenticates the agent’s OTLP push, one source of truth:</p>
+have to set it yourself: the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes <strong>both halves of the
+login</strong> into the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> — a minted <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> and the
+account name <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code> — and the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is derived from
+there. So the answer to “what do I log in with” is always <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>ZO_ROOT_USER<span class="w"> </span>~/my-project/.env
+</pre></div>
+</div>
+<p>The minted password is short on purpose: you read it off a terminal and type it
+into a browser login form, so it is 12 characters drawn from an alphabet with
+the easily-misread characters (<code class="docutils literal notranslate"><span class="pre">l</span> <span class="pre">I</span> <span class="pre">1</span> <span class="pre">O</span> <span class="pre">0</span></code>) removed. Every character still
+comes from a cryptographic random source, so it is short to type without being
+easy to guess.</p>
+<p>Set the two variables yourself (in the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>) if you want specific
+values — the same pair configures the container <strong>and</strong> authenticates the
+agent’s OTLP push, one source of truth:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
 <span class="nv">ZO_ROOT_USER_EMAIL</span><span class="o">=</span>you@example.com
 <span class="nv">ZO_ROOT_USER_PASSWORD</span><span class="o">=</span>choose-a-strong-password
 </pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p><strong>Publishing this store beyond</strong> <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <strong>exposes agent transcripts.</strong>
+It holds full agent conversation transcripts, and the same credentials serve
+both its browser login and the agent’s OTLP push. Reach it over an SSH
+tunnel, or put it behind TLS, rather than binding it to every interface. The
+minted password is a per-deploy random value, so it stays usable wherever the
+store is published — what exposure changes is who can reach the login, not
+how strong the password is.</p>
 </div>
 </section>
 <section id="deploy-it">

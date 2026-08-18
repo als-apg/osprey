@@ -22,7 +22,7 @@ The Control System Integration system provides a **two-layer abstraction** for w
 - **virtual_accelerator**: the PyAT Virtual Accelerator's EPICS soft-IOC — behaves
   like ``epics`` but tracks setpoints through the simulated machine, so plans
   actually run (the mock connector can't do that); see :doc:`use-virtual-accelerator`
-- **mongodb_archiver**: MongoDB time-series archiver (optional, ``pip install "osprey-framework[archiver-mongodb]"``)
+- **mongodb_archiver**: MongoDB time-series archiver
 - **doocs** / **doocs_archiver**: DOOCS properties and DOOCS local histories
   (DESY, European XFEL). Both require ``doocs4py``, which is supplied by the
   DOOCS environment rather than installed from PyPI — the import is deferred to
@@ -131,12 +131,8 @@ value2, ...}``. A query matches any document that carries **at least one** of th
 requested PVs (an ``$or`` across per-PV ``$exists`` checks) -- documents do not need
 to carry every requested PV together, so channels archived at different cadences, or
 written into separate documents by different collectors, are still returned
-correctly, each on its own timestamp series. The connector requires the optional
-``archiver-mongodb`` extra:
-
-.. code-block:: bash
-
-   pip install "osprey-framework[archiver-mongodb]"
+correctly, each on its own timestamp series. The connector's MongoDB client ships
+with OSPREY, so there is nothing extra to install.
 
 Production Mode (DOOCS)
 ~~~~~~~~~~~~~~~~~~~~~~~
