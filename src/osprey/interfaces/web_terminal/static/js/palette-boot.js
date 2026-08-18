@@ -12,11 +12,12 @@
  * the action cluster never shifts under an operator on an Expert/Simple flip.
  * What changes is the REGISTRY, not the entry points: simple mode hides the
  * terminal (the operator console takes its place) and locks the dock to a
- * single service tile, so `buildPaletteDeps` drops the terminal/session actions
- * and the Layouts group there rather than offering picks that would silently do
- * nothing. Everything simple mode can honour — settings search, the panel
- * show/focus verbs the rail already exposes, rail placement, the drawer tabs,
- * the safety reference — stays.
+ * single service tile, so `buildPaletteDeps` drops the terminal/session actions,
+ * the Layouts group and the "Open … in a new tile" rows there rather than
+ * offering picks that would silently do nothing. Everything simple mode can
+ * honour — settings search, the panel show/focus verbs the rail already
+ * exposes, popping a panel out to its own browser tab, rail placement, the
+ * drawer tabs, the safety reference — stays.
  */
 
 import { restartTerminal, startTerminal } from './terminal.js';
@@ -24,11 +25,14 @@ import { withPrefix } from './api.js';
 import {
   getHiddenPanels,
   getVisiblePanels,
+  getPopoutPanels,
   getPresets,
   showPanel,
   activateTab,
   applyMenuPreset,
+  popoutPanel,
 } from './panel-manager.js';
+import { openPanelBeside } from './panel-placement.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { startNewSession } from './sessions.js';
 import { setRailPosition } from './rail-position.js';
@@ -53,7 +57,11 @@ function currentUiMode() {
  * boot state. The action closures are the vetted mechanisms (paired restart,
  * gated drawer tabs, new-tab safety nav) — do not collapse or reorder them
  * casually.
- * @returns {import('./palette.js').OpenDeps}
+ *
+ * Typed against the REGISTRY's dep bundle rather than palette.js's OpenDeps:
+ * everything assembled here exists to reach `buildRegistry`, and PaletteDeps is
+ * the declaration site for the panel-verb deps. openPalette accepts it as-is.
+ * @returns {import('./palette-registry.js').PaletteDeps}
  */
 function buildPaletteDeps() {
   const simple = currentUiMode() === 'simple';
@@ -95,7 +103,7 @@ function buildPaletteDeps() {
     actions.push({ label: 'Log out', run: () => document.getElementById('logout-btn')?.click() });
   }
 
-  /** @type {import('./palette.js').OpenDeps} */
+  /** @type {import('./palette-registry.js').PaletteDeps} */
   const deps = {
     // Panel show/focus is exactly what a rail click does, and the rail is
     // present in both modes — in simple the show path takes over the single
@@ -105,14 +113,24 @@ function buildPaletteDeps() {
     showPanel,
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
+    // Popping out is a browser-tab action, so it survives simple mode's locked
+    // layout untouched. getPopoutPanels is already narrowed to rail members
+    // whose standalone URL resolved, and INCLUDES the active panel — the
+    // context menu's "Open in a new window" reads the same way.
+    getPopoutPanels,
+    popoutPanel,
     revealSetting,
     actions,
   };
 
-  // Layouts restore a multi-tile arrangement; simple mode's locked layout holds
-  // exactly one service tile, so a preset there could not be honoured. Omitting
-  // the getter drops the whole group from the registry.
+  // Both of the below place a SECOND service tile, which simple mode's locked
+  // layout cannot hold — omitting the dep is what drops the rows.
   if (!simple) {
+    // "Open … in a new tile" shares getVisiblePanels with the Focus rows, so
+    // withholding the closure is the only thing that can separate the two.
+    deps.openPanelBeside = openPanelBeside;
+    // Layouts restore a multi-tile arrangement; omitting the getter drops the
+    // whole group from the registry.
     deps.getPresets = getPresets;
     deps.applyPreset = applyMenuPreset;
   }

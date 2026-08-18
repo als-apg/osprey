@@ -344,15 +344,18 @@ def _active_rail_id(page: Page) -> str | None:
 
 
 def _open_beside(page: Page, panel_id: str) -> None:
-    """Open ``panel_id`` as a NEW tile beside the active one via the rail's ⊞.
+    """Open ``panel_id`` as a NEW tile beside the active one from its menu.
 
     A plain rail click REPLACES the focused tile's panel (one panel per tile),
     so every test here that needs side-by-side tiles grows the layout through
-    the entry's hover ⊞ corner — the human open-beside verb.
+    the entry's right-click menu: "Open in a new tile" is the human open-beside
+    verb now that the hover ⊞ corner is gone (panel-context-menu.js).
     """
     entry = page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
-    entry.hover()
-    entry.locator(".panel-rail-beside").click()
+    entry.click(button="right")
+    menu = page.locator(".rail-context-menu")
+    expect(menu).to_have_count(1, timeout=5_000)
+    menu.locator(".rail-context-item", has_text="Open in a new tile").click()
     expect(_service_tab(page, _LABELS[panel_id])).to_have_count(1, timeout=5_000)
 
 

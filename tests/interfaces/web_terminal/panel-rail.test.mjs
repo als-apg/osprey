@@ -93,6 +93,16 @@ describe('createRail', () => {
     expect(first?.getAttribute('title')).toBe('WORKSPACE');
   });
 
+  test('a hint is appended to the tooltip, never to the accessible name', () => {
+    // The context menu has no visible affordance, so the tooltip is where it
+    // is advertised; aria-label stays the panel's identity so a screen reader
+    // does not read the advertisement on every entry.
+    createRail(rail, [{ id: 'ariel', label: 'ARIEL', hint: 'right-click for actions' }]);
+    const entry = getEntry(rail, 'ariel');
+    expect(entry?.getAttribute('title')).toBe('ARIEL · right-click for actions');
+    expect(entry?.getAttribute('aria-label')).toBe('ARIEL');
+  });
+
   test('entries never render the retired closed/dimmed state', () => {
     createRail(rail, PANELS);
     expect(rail.querySelector('.panel-rail-closed')).toBeNull();
@@ -159,63 +169,171 @@ describe('entry interactions', () => {
     expect(activated).toEqual([]);
   });
 
-  test('popout affordance renders only when onPopout is provided', () => {
-    createRail(rail, PANELS);
-    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-popout')).toBeNull();
-
-    rail = freshRail();
-    createRail(rail, PANELS, { onPopout: () => {} });
-    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-popout')?.textContent).toBe('↗');
-  });
-
-  test('clicking popout invokes onPopout without activating the entry', () => {
-    /** @type {string[]} */
-    const activated = [];
-    /** @type {string[]} */
-    const popped = [];
+  test('right-click forwards (id, event) to onContextMenu and suppresses the browser menu', () => {
+    /** @type {any[]} */
+    const calls = [];
     createRail(rail, PANELS, {
-      onActivate: (id) => activated.push(id),
-      onPopout: (id) => popped.push(id),
+      onContextMenu: (id, e) => {
+        calls.push([id, e]);
+        return true;
+      },
     });
-    /** @type {HTMLElement} */ (
-      /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).querySelector('.panel-rail-popout')
-    ).click();
-    expect(popped).toEqual(['ariel']);
-    expect(activated).toEqual([]);
-  });
-
-  test('close and popout occupy opposite corners of the same entry', () => {
-    createRail(rail, PANELS, { onClose: () => {}, onPopout: () => {} });
     const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
-    expect(entry.querySelector('.panel-rail-close')).toBeTruthy();
-    expect(entry.querySelector('.panel-rail-popout')).toBeTruthy();
-  });
-
-  test('open-beside affordance renders only when onOpenBeside is provided', () => {
-    createRail(rail, PANELS);
-    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-beside')).toBeNull();
-
-    rail = freshRail();
-    createRail(rail, PANELS, { onOpenBeside: () => {} });
-    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-beside')?.textContent).toBe('⊞');
-  });
-
-  test('clicking open-beside invokes onOpenBeside without activating the entry', () => {
-    /** @type {string[]} */
-    const activated = [];
-    /** @type {string[]} */
-    const beside = [];
-    createRail(rail, PANELS, {
-      onActivate: (id) => activated.push(id),
-      onOpenBeside: (id) => beside.push(id),
+    const ev = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 12,
+      clientY: 34,
     });
-    /** @type {HTMLElement} */ (
-      /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).querySelector('.panel-rail-beside')
-    ).click();
-    expect(beside).toEqual(['ariel']);
-    expect(activated).toEqual([]);
+    entry.dispatchEvent(ev);
+
+    expect(calls).toEqual([['ariel', ev]]);
+    expect(ev.defaultPrevented).toBe(true);
   });
 
+  test('a declined right-click keeps the native browser menu', () => {
+    // The caller's policy — a disabled entry, the terminal in simple mode —
+    // is expressed as `false`, and the rail must then leave the event alone.
+    createRail(rail, PANELS, { onContextMenu: () => false });
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).dispatchEvent(ev);
+
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  test('no onContextMenu leaves right-click entirely to the browser', () => {
+    createRail(rail, PANELS);
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).dispatchEvent(ev);
+
+    expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+/**
+ * The keyboard route to the context menu. The rail opens the menu itself
+ * rather than waiting for the platform: macOS fires no `contextmenu` event
+ * from the keyboard at all. Where the platform DOES fire one (Windows menu
+ * key, Firefox Shift+F10) it is the keydown's default action, so the same
+ * boolean contract as right-click decides whether that default is suppressed
+ * — the difference between one menu and two.
+ */
+describe('keyboard route to the context menu', () => {
+  /** @type {HTMLElement} */
+  let rail;
+
+  // happy-dom reports an all-zero rect, so the entry's geometry is stubbed:
+  // the assertion is about WHERE the menu is asked to open, not about layout.
+  const RECT = /** @type {DOMRect} */ (
+    /** @type {unknown} */ ({
+      x: 10,
+      y: 40,
+      left: 10,
+      top: 40,
+      width: 74,
+      height: 60,
+      right: 84,
+      bottom: 100,
+      toJSON: () => ({}),
+    })
+  );
+  const CENTER_X = 47; // 10 + 74 / 2
+  const CENTER_Y = 70; // 40 + 60 / 2
+
+  /** @param {string} key @param {boolean} [shiftKey] */
+  function keyEvent(key, shiftKey = false) {
+    return new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
+  }
+
+  /** @param {HTMLElement} entry */
+  function stubRect(entry) {
+    vi.spyOn(entry, 'getBoundingClientRect').mockReturnValue(RECT);
+  }
+
+  /** Wire a rail whose onContextMenu records its calls and reports `handled`.
+   *  @param {boolean} handled @returns {any[]} */
+  function railWithMenu(handled) {
+    /** @type {any[]} */
+    const calls = [];
+    createRail(rail, PANELS, {
+      onContextMenu: (id, e) => {
+        calls.push([id, e]);
+        return handled;
+      },
+    });
+    return calls;
+  }
+
+  beforeEach(() => {
+    rail = freshRail();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('the ContextMenu key opens the menu centred on the entry rect', () => {
+    const calls = railWithMenu(true);
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    stubRect(entry);
+
+    const ev = keyEvent('ContextMenu');
+    entry.dispatchEvent(ev);
+
+    // Exactly one open: the synthetic event is handed to the caller, never
+    // dispatched, so the entry's own contextmenu listener cannot also fire.
+    expect(calls.length).toBe(1);
+    const [id, menuEvent] = calls[0];
+    expect(id).toBe('ariel');
+    expect(menuEvent.type).toBe('contextmenu');
+    expect(menuEvent.clientX).toBe(CENTER_X);
+    expect(menuEvent.clientY).toBe(CENTER_Y);
+    // Windows/Firefox would otherwise open a second, native menu on this key.
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test('Shift+F10 opens the same menu at the same point', () => {
+    const calls = railWithMenu(true);
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    stubRect(entry);
+
+    const ev = keyEvent('F10', true);
+    entry.dispatchEvent(ev);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0][0]).toBe('ariel');
+    expect(calls[0][1].clientX).toBe(CENTER_X);
+    expect(calls[0][1].clientY).toBe(CENTER_Y);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test('a declined entry keeps the platform default on the keyboard too', () => {
+    const calls = railWithMenu(false);
+    /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).dispatchEvent(keyEvent('ContextMenu'));
+
+    expect(calls.length).toBe(1);
+    // No menu was opened, so whatever the platform does with this key stands.
+    expect(calls[0][1].defaultPrevented).toBe(false);
+  });
+
+  test('F10 without Shift, and ordinary keys, are left alone', () => {
+    const calls = railWithMenu(true);
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+
+    for (const ev of [keyEvent('F10'), keyEvent('Enter'), keyEvent('m', true)]) {
+      entry.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test('no onContextMenu means no keyboard menu at all', () => {
+    createRail(rail, PANELS);
+    const ev = keyEvent('ContextMenu');
+    /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).dispatchEvent(ev);
+
+    expect(ev.defaultPrevented).toBe(false);
+  });
 });
 
 describe('drag from the rail (onDragStart / onDragEnd)', () => {
@@ -629,6 +747,21 @@ describe('setEntryAttention tooltip time', () => {
       setEntryAttention(rail, 'ariel', true, bad);
       expect(getEntry(rail, 'ariel')?.title).toBe('ARIEL');
     }
+  });
+
+  test('the badge borrows and returns a hinted tooltip intact', () => {
+    // The stash is what the badge restores; a rail entry advertising its menu
+    // must get that advertisement back, not just the bare label.
+    rail = freshRail();
+    createRail(rail, [{ id: 'ariel', label: 'ARIEL', hint: 'right-click for actions' }]);
+
+    setEntryAttention(rail, 'ariel', true, TS);
+    expect(getEntry(rail, 'ariel')?.title).toBe(
+      `ARIEL · right-click for actions · agent touched ${expectedTime(TS)}`
+    );
+
+    setEntryAttention(rail, 'ariel', false);
+    expect(getEntry(rail, 'ariel')?.title).toBe('ARIEL · right-click for actions');
   });
 
   test('the suffix never reaches the accessible name', () => {

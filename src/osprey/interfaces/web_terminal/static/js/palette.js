@@ -19,6 +19,17 @@
  * The keydown handler is installed on the document in CAPTURE phase and calls
  * stopPropagation for the keys it owns, so palette Escape/arrows never reach
  * osprey-drawer's Escape-closes-drawers handler or the terminal underneath.
+ *
+ * Recent commands are a PRESENTATION-level section, not a registry group: the
+ * last few executed items are stored in localStorage by their `itemKey()` and
+ * re-resolved against the live registry each render, so the Item group union
+ * and GROUP_ORDER never learn about them and a stored key that no longer
+ * matches anything (a mode-dependent row, a renamed setting) is skipped
+ * silently. Because a Recent row duplicates a row that also appears in its
+ * home group, its NAVIGATION key is namespaced (`recent\x1f` + itemKey) so the
+ * active-row restore across the mid-open config-fetch re-render can never snap
+ * from the home-group row to its Recent twin; recording always stores the
+ * plain underlying key, from whichever copy was executed.
  */
 
 import { fuzzyMatch } from './fuzzy.js';
@@ -47,9 +58,12 @@ import { el } from '/design-system/js/dom.js';
  * @typedef {{
  *   getHiddenPanels?: () => Array<{ id: string, label: string }>,
  *   getVisiblePanels?: () => Array<{ id: string, label: string }>,
+ *   getPopoutPanels?: () => Array<{ id: string, label: string }>,
  *   getPresets?: () => Array<{ name: string, panels: string[] }>,
  *   showPanel?: (id: string) => void,
  *   focusPanel?: (id: string) => void,
+ *   popoutPanel?: (id: string) => void,
+ *   openPanelBeside?: (id: string) => void,
  *   applyPreset?: (name: string) => void,
  *   revealSetting?: (dotKey: string) => void,
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
@@ -61,6 +75,13 @@ import { el } from '/design-system/js/dom.js';
 
 /** Fixed outer group order — matches the registry and the stylesheet. */
 const GROUP_ORDER = /** @type {const} */ (['Settings', 'Panels', 'Layouts', 'Actions']);
+
+/** localStorage key + cap for the most-recently-executed item keys. */
+const RECENT_STORAGE_KEY = 'osprey-palette-recent-v1';
+const RECENT_LIMIT = 5;
+
+/** Namespace prefix keeping a Recent row's nav key distinct from its original. */
+const RECENT_KEY_PREFIX = 'recent\x1f';
 
 /** The module's ONLY network call: fetch the config snapshot. */
 const defaultFetchConfig = () => fetchJSON('/api/config');
@@ -105,6 +126,58 @@ function isWelcomeVisible() {
  */
 function itemKey(/** @type {NavItem} */ item) {
   return `${item.group}\x1f${item.label}`;
+}
+
+/**
+ * Read the stored recent-item keys, most-recent first. Anything unreadable or
+ * malformed (storage blocked in private mode, hand-edited value) yields an
+ * empty list, which turns the feature off silently rather than breaking the
+ * render.
+ * @returns {string[]}
+ */
+function readRecent() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(RECENT_STORAGE_KEY);
+  } catch {
+    return [];
+  }
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((k) => typeof k === 'string').slice(0, RECENT_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Move `key` to the front of the recent list, capped at RECENT_LIMIT. Storage
+ * failures are swallowed: Recent is a convenience, never a precondition for
+ * running a command.
+ * @param {string} key
+ */
+function recordRecent(key) {
+  const next = [key, ...readRecent().filter((k) => k !== key)].slice(0, RECENT_LIMIT);
+  try {
+    localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+  } catch { /* storage blocked — Recent stays empty, execution is unaffected */ }
+}
+
+/**
+ * Wrap an item's `run` so executing it from EITHER path (Enter or click) and
+ * from EITHER copy (home group or Recent) records the same plain item key.
+ * @param {NavItem} item
+ * @returns {() => void}
+ */
+function makeExecutor(item) {
+  const key = itemKey(item);
+  const run = item.run;
+  return () => {
+    recordRecent(key);
+    run();
+  };
 }
 
 /** Lazily create the single reused overlay node and (re)attach it to <body>. */
@@ -159,9 +232,12 @@ function rebuildRegistry() {
     config: configState,
     getHiddenPanels: currentDeps.getHiddenPanels,
     getVisiblePanels: currentDeps.getVisiblePanels,
+    getPopoutPanels: currentDeps.getPopoutPanels,
     getPresets: currentDeps.getPresets,
     showPanel: currentDeps.showPanel,
     focusPanel: currentDeps.focusPanel,
+    popoutPanel: currentDeps.popoutPanel,
+    openPanelBeside: currentDeps.openPanelBeside,
     applyPreset: currentDeps.applyPreset,
     revealSetting: currentDeps.revealSetting,
     actions: currentDeps.actions,
@@ -199,9 +275,10 @@ function appendHighlighted(container, text, query) {
  * @param {NavItem} item
  * @param {string} id
  * @param {string} query
+ * @param {() => void} run  the recording executor, shared with the Enter path
  * @returns {HTMLElement}
  */
-function buildItemRow(item, id, query) {
+function buildItemRow(item, id, query, run) {
   const row = el('div', 'command-palette-item');
   row.id = id;
   row.setAttribute('role', 'option');
@@ -217,7 +294,6 @@ function buildItemRow(item, id, query) {
     row.appendChild(detail);
   }
 
-  const run = item.run;
   row.addEventListener('click', () => {
     closePalette();
     run();
@@ -230,9 +306,45 @@ function buildItemRow(item, id, query) {
 }
 
 /**
+ * Append the "Recent" section — the stored keys resolved against the CURRENT
+ * registry, most-recent first — and register its rows for navigation. Keys
+ * with no live match are skipped, so a row that disappears with a mode switch
+ * costs nothing and heals itself on the next execution. Nothing renders (not
+ * even the heading) when no stored key resolves.
+ * @param {() => string} nextId  shared option-id sequence, so ids stay unique
+ */
+function renderRecentSection(nextId) {
+  if (!listEl) return;
+  /** @type {Map<string, NavItem>} */
+  const byKey = new Map();
+  for (const item of registryItems) {
+    if (!('status' in item)) byKey.set(itemKey(item), item);
+  }
+
+  /** @type {NavItem[]} */
+  const items = [];
+  for (const key of readRecent()) {
+    const item = byKey.get(key);
+    if (item) items.push(item);
+  }
+  if (items.length === 0) return;
+
+  const heading = el('div', 'command-palette-group-heading');
+  heading.textContent = 'Recent';
+  listEl.appendChild(heading);
+  for (const item of items) {
+    const run = makeExecutor(item);
+    const node = buildItemRow(item, nextId(), '', run);
+    listEl.appendChild(node);
+    navItems.push({ key: RECENT_KEY_PREFIX + itemKey(item), run, el: node });
+  }
+}
+
+/**
  * Recompute the filtered/sorted results for the current query and repaint the
- * list. Group order (Settings → Panels → Layouts → Actions) is the outer
- * ordering; within each group navigable items sort by descending score. Status
+ * list. With an empty query the Recent section renders first; group order
+ * (Settings → Panels → Layouts → Actions) is the outer ordering after it, and
+ * within each group navigable items sort by descending score. Status
  * decorations always render under Settings but are excluded from navigation.
  */
 function render() {
@@ -241,7 +353,10 @@ function render() {
   navItems = [];
   const q = currentQuery.trim();
   let optSeq = 0;
+  const nextId = () => `command-palette-opt-${optSeq++}`;
   let renderedStatus = false;
+
+  if (!q) renderRecentSection(nextId);
 
   for (const group of GROUP_ORDER) {
     /** @type {Array<{ node: HTMLElement, nav?: { key: string, run: () => void } }>} */
@@ -264,8 +379,8 @@ function render() {
 
     matches.sort((a, b) => b.score - a.score);
     for (const { item } of matches) {
-      const id = `command-palette-opt-${optSeq++}`;
-      rows.push({ node: buildItemRow(item, id, q), nav: { key: itemKey(item), run: item.run } });
+      const run = makeExecutor(item);
+      rows.push({ node: buildItemRow(item, nextId(), q, run), nav: { key: itemKey(item), run } });
     }
 
     if (rows.length === 0) continue;
@@ -411,9 +526,16 @@ export function openPalette(deps) {
 
   buildDialog();
   const root = ensureOverlay();
-  requestAnimationFrame(() => root.classList.add('visible'));
+  // Focus has to land in the same frame that reveals the overlay: focusing an
+  // element inside a `visibility: hidden` subtree is a spec'd no-op. The guard
+  // drops a stale callback left by a fast open -> close, which would otherwise
+  // re-show the overlay and steal focus.
+  requestAnimationFrame(() => {
+    if (!opened) return;
+    root.classList.add('visible');
+    if (inputEl) inputEl.focus();
+  });
   document.addEventListener('keydown', onKeydown, true);
-  if (inputEl) inputEl.focus();
 
   rebuildRegistry();
   render();
