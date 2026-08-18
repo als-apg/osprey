@@ -166,14 +166,45 @@ class TestResolveDatabasePath:
 
         assert LimitsValidator.resolve_database_path("limits.json", None) == "limits.json"
 
+    def test_loaded_config_directory_beats_env_and_project_root(self, monkeypatch):
+        """The config actually loaded is the anchor, ahead of CONFIG_FILE and project_root."""
+        monkeypatch.setenv("CONFIG_FILE", "/somewhere/else/config.yml")
+
+        resolved = LimitsValidator.resolve_database_path(
+            "data/limits.json", "/repo", config_path="/repo/build/config.yml"
+        )
+
+        assert resolved == str(Path("/repo/build/data/limits.json"))
+
+    def test_loaded_config_anchor_ignores_absolute_paths(self, monkeypatch):
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        abs_path = str(Path("/etc/osprey/limits.json"))
+
+        resolved = LimitsValidator.resolve_database_path(
+            abs_path, "/repo", config_path="/repo/build/config.yml"
+        )
+
+        assert resolved == abs_path
+
 
 # ---------------------------------------------------------------------------
 # from_config
 # ---------------------------------------------------------------------------
 
 
-def _patch_config(monkeypatch, values: dict, raise_exc: Exception | None = None):
-    """Patch get_config_value with a key->value map (default fallback otherwise)."""
+def _patch_config(
+    monkeypatch,
+    values: dict,
+    raise_exc: Exception | None = None,
+    config_path: str | None = None,
+):
+    """Patch get_config_value with a key->value map (default fallback otherwise).
+
+    ``config_path`` stands in for ``default_config_path()`` — the path of the
+    config the singleton actually loaded. ``None`` (the default) models a
+    process whose config came from somewhere the singleton can't name, which
+    keeps the env-var/project_root fallback branches testable in isolation.
+    """
 
     def fake_get_config_value(key, default=None):
         if raise_exc is not None:
@@ -181,6 +212,7 @@ def _patch_config(monkeypatch, values: dict, raise_exc: Exception | None = None)
         return values.get(key, default)
 
     monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: config_path)
 
 
 class TestFromConfig:
@@ -190,7 +222,12 @@ class TestFromConfig:
         assert LimitsValidator.from_config() is None
 
     def test_missing_db_path_yields_blocking_failsafe_validator(self, monkeypatch):
-        """Enabled but no database path -> an empty validator that blocks all writes."""
+        """Enabled but no database path -> an empty validator that blocks all writes.
+
+        The refusal must say the database is unavailable, not that the channel
+        is unlisted — an agent reading "not in limits database" narrates a data
+        problem when the actual failure is configuration (#636).
+        """
         _patch_config(
             monkeypatch,
             {
@@ -202,9 +239,49 @@ class TestFromConfig:
         validator = LimitsValidator.from_config()
 
         assert isinstance(validator, LimitsValidator)
-        # Empty DB is a failsafe: every channel is unlisted and therefore blocked.
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("ANY:CHANNEL", 1.0)
+        assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
+        assert "failsafe" in exc.value.violation_reason
+
+    def test_unreadable_db_failsafe_is_distinguishable_from_unlisted_channel(
+        self, monkeypatch, tmp_path
+    ):
+        """A database that fails to load blocks with a load-failure refusal (#636)."""
+        db_file = tmp_path / "limits.json"
+        db_file.write_text("{not valid json")
+        _patch_config(
+            monkeypatch,
+            {
+                "control_system.limits_checking.enabled": True,
+                "control_system.limits_checking.database_path": str(db_file),
+            },
+        )
+
+        validator = LimitsValidator.from_config()
+
+        assert isinstance(validator, LimitsValidator)
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("ANY:CHANNEL", 1.0)
+        assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
+        assert "not in limits database" not in exc.value.violation_reason
+
+    def test_genuinely_unlisted_channel_keeps_the_unlisted_refusal(self, monkeypatch, tmp_path):
+        """A loaded database still refuses unlisted channels with the unlisted message."""
+        db_file = tmp_path / "limits.json"
+        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        _patch_config(
+            monkeypatch,
+            {
+                "control_system.limits_checking.enabled": True,
+                "control_system.limits_checking.database_path": str(db_file),
+            },
+        )
+
+        validator = LimitsValidator.from_config()
+
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
     def test_loads_absolute_database(self, monkeypatch, tmp_path):
@@ -265,6 +342,37 @@ class TestFromConfig:
         _patch_config(monkeypatch, {}, raise_exc=RuntimeError("no config"))
 
         assert LimitsValidator.from_config() is None
+
+    def test_four_zone_hook_resolves_database_beside_loaded_config(self, monkeypatch, tmp_path):
+        """Regression (#636): a relative database_path anchors on the config actually loaded.
+
+        The four-zone hook scenario: the render lives at <repo>/build (config +
+        data/ side by side), the config's ``project_root`` names <repo>, and the
+        hook process has no CONFIG_FILE in its environment. The database must be
+        found next to the loaded config — not resolved against project_root,
+        where it does not exist and every write would hit the empty-DB failsafe.
+        """
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        build = tmp_path / "build"
+        (build / "data").mkdir(parents=True)
+        (build / "data" / "channel_limits.json").write_text(
+            json.dumps({"SR:C1:HCM:SP": {"min_value": -1.0, "max_value": 1.0}})
+        )
+        _patch_config(
+            monkeypatch,
+            {
+                "control_system.limits_checking.enabled": True,
+                "control_system.limits_checking.database_path": "data/channel_limits.json",
+                "project_root": str(tmp_path),
+                "control_system.limits_checking.allow_unlisted_channels": False,
+            },
+            config_path=str(build / "config.yml"),
+        )
+
+        validator = LimitsValidator.from_config()
+
+        assert "SR:C1:HCM:SP" in validator.limits
+        validator.validate("SR:C1:HCM:SP", 0.5)  # listed and in range: allowed
 
 
 # ---------------------------------------------------------------------------

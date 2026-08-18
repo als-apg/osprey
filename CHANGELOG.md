@@ -45,6 +45,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   browser's tab-switch report, sent before the arrange, arrives after it. The
   server drops the stale report instead of re-adding the panel to every
   client's rail and stealing the active tab.
+- A relative `control_system.limits_checking.database_path` now anchors on the
+  directory of the config actually loaded, so the limits gate finds the render's
+  database regardless of how the process was launched. Previously a Claude Code
+  hook running without `CONFIG_FILE` resolved it against the repo root and the
+  empty-database failsafe denied every write (#636).
+- The limits failsafe now refuses with "limits database unavailable" instead of
+  reporting every channel as "not in limits database", so a load failure is no
+  longer mistaken for a data problem (#636).
 - `osprey up` now refuses as a precondition, rather than failing with a generic
   "Deployment failed", when a project deploys the archiver store and pymongo is
   missing. The refusal names the interpreter it is missing from — OSPREY seeds

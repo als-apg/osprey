@@ -851,6 +851,23 @@ def get_config_builder(
     return _get_config(config_path, set_as_default)
 
 
+def default_config_path() -> str | None:
+    """Path of the config file the default singleton actually loaded, if any.
+
+    This answers "which config is this process's unqualified lookups reading
+    from" — the CONFIG_FILE target, the cwd fallback, or a
+    :func:`config_anchored_at` anchor, whichever produced the singleton.
+    Callers that resolve paths *relative to the config in use* (e.g.
+    ``LimitsValidator.resolve_database_path``) anchor on this rather than
+    re-deriving the location from the environment, which can disagree with
+    what was actually loaded.
+
+    Side-effect free: no singleton is created and no ``.env`` chain is loaded.
+    Returns ``None`` until something initializes the default configuration.
+    """
+    return str(_default_config.config_path) if _default_config is not None else None
+
+
 @contextmanager
 def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
     """Answer this process's unqualified config lookups from *config_path*.
