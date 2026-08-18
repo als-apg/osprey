@@ -33,6 +33,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Artifacts built from a dev checkout report the right version again. A release
+  tag cut for the workspace sibling (`osprey-connectors-v0.1.0`) matched the
+  build backend's default tag glob, so every wheel, editable install and
+  container built off `main` since 2026-08-15 was stamped `0.1.0.postN` while
+  `osprey --version` said `2026.6.2.postN`. The build now describes against the
+  same `v[0-9]*` tags the runtime always has, the commit hash is pinned to one
+  width instead of varying with clone size, and a test holds the two
+  derivations byte-identical.
 - `osprey init --reset` no longer crashes with a Python traceback when the
   containers it would remove belong to another copy of this repo. `osprey
   reset` has always caught that refusal and rendered it; this path never did,

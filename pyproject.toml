@@ -197,6 +197,7 @@ docs = [
 # Development and testing
 dev = [
     "pytest",
+    "setuptools-scm",  # The build backend under hatch-vcs, called directly by the version-parity test
     "pytest-asyncio",
     "pytest-cov",  # Code coverage reporting
     "pytest-order",  # Run flaky/in-debug e2e tests first via @pytest.mark.order
@@ -415,7 +416,15 @@ exclude-newer-package = { lume-pyat = "2026-08-06T00:00:00Z", lume-pva-apg = "20
 # predict its own next number, so guessing is worse than not guessing.
 [tool.hatch.version]
 source = "vcs"
-raw-options = { version_scheme = "post-release" }
+# `git_describe_command` exists because the backend's default tag glob (*[0-9]*)
+# matches every tag containing a digit: the workspace sibling's release tag
+# osprey-connectors-v0.1.0 (which rebased every dev build to 0.1.0.postN the day
+# it was cut) and the checkpoint-* tags (which do not parse as versions at all).
+# The runtime probe in src/osprey/version.py has always filtered to v[0-9]*; this
+# makes the build stamp read the same tags, and --abbrev=40 hands the backend a
+# full node to slice to its fixed width. Pinned to the runtime derivation by
+# tests/test_version.py::TestBuildStampParity.
+raw-options = { version_scheme = "post-release", git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*" }
 
 # Stamps the resolved version into the built artifact, which is the only way a wheel
 # (and any container built from one) can report its version without git present.

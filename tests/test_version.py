@@ -1,6 +1,7 @@
 """Unit tests for the version resolution chain in osprey.version."""
 
 import subprocess
+import tomllib
 
 import pytest
 
@@ -53,6 +54,16 @@ class TestDescribeParsing:
         parsed = version_module._pep440_from_describe("v2026.6.2-0-g1234567-dirty")
         assert parsed is not None
         assert parsed.startswith("2026.6.2.post0+g1234567.d")
+
+    def test_a_full_width_node_is_sliced_to_the_build_stamps_width(self):
+        # The describe the runtime runs pins --abbrev=40; the parse trims to the
+        # 9 hex the build backend stamps, so clone size cannot change the string.
+        assert (
+            version_module._pep440_from_describe(
+                "v2026.6.2-783-g0123456789abcdef0123456789abcdef01234567"
+            )
+            == "2026.6.2.post783+g012345678"
+        )
 
     def test_unparseable_output_returns_none(self):
         assert version_module._pep440_from_describe("not-a-describe") is None
@@ -190,3 +201,34 @@ class TestLiveCheckout:
             pytest.skip("no reachable v* tag in this checkout")
 
         assert get_release_version() == described.stdout.strip().removeprefix("v")
+
+
+class TestBuildStampParity:
+    """The build stamp and the runtime derivation are the same string.
+
+    Two independent implementations derive a version from this repo's git
+    state: the build backend at build time, configured by
+    ``[tool.hatch.version].raw-options``, and ``_version_from_git`` at runtime.
+    They agreed until the sibling release tag ``osprey-connectors-v0.1.0``
+    matched the backend's default tag glob — any tag containing a digit — and
+    silently rebased every dev build to ``0.1.0.postN``. Byte-parity here means
+    the next sibling tag fails a test instead of shipping.
+    """
+
+    def test_the_build_backend_and_the_runtime_derive_the_same_version(self):
+        setuptools_scm = pytest.importorskip("setuptools_scm")
+
+        runtime = version_module._version_from_git()
+        if runtime is None:
+            pytest.skip("no reachable v* tag in this checkout")
+
+        pyproject = version_module._SOURCE_ROOT / "pyproject.toml"
+        with pyproject.open("rb") as handle:
+            raw_options = tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"]
+        # The half of the fix that lives in pyproject: left to its default
+        # describe, the backend reads every tag with a digit in it, sibling
+        # release tags included.
+        assert "--match v[0-9]*" in raw_options.get("git_describe_command", "")
+
+        stamped = setuptools_scm.get_version(root=str(version_module._SOURCE_ROOT), **raw_options)
+        assert stamped == runtime
