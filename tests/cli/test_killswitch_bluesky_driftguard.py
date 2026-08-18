@@ -69,7 +69,7 @@ def _build_project(tmp_path, *, writes_enabled: bool):
     )
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     config["control_system"]["writes_enabled"] = writes_enabled
-    # Force-enable every write-gated template (some, like scan, are opt-in) so
+    # Force-enable every write-gated template (some, like bluesky, are opt-in) so
     # the rendered settings.json actually exercises the full write-gated set,
     # not just whatever happens to be on by default.
     config.setdefault("claude_code", {})["servers"] = {
@@ -158,7 +158,7 @@ def test_bluesky_queue_stop_never_denied_even_with_writes_off(tmp_path):
 
 def test_bluesky_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
     """stop_run carries approval only (no _WRITES_CHECK) -- the kill switch
-    must never block stopping a scan, in either direction.
+    must never block stopping a run, in either direction.
 
     This is load-bearing rather than merely tidy: stop_run is the only
     surface that ABORTS a plan already moving hardware (POST /queue/abort).

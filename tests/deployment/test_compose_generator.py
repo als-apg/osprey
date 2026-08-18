@@ -1342,7 +1342,7 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     the relative path "storage/data.duckdb" against /app and failed
     server-side ("The directory storage does not exist."), which
     ``_FaultIsolatedTiledWriter`` caught and silently latched
-    ``tiled_degraded=True`` — the scan still completed, so nothing crashed
+    ``tiled_degraded=True`` — the plan still completed, so nothing crashed
     and persistence just silently didn't happen. The client-visible symptom
     (a 409 on the run's metadata POST) points at TiledWriter's write logic,
     not at the storage URI — the real cause is visible only server-side.
@@ -1444,10 +1444,10 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 4.3 / FR11: turn-key scan-stack deploy config
+# Task 4.3 / FR11: turn-key plan-stack deploy config
 #
 # A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
-# control_system.type=virtual_accelerator and the scan MCP server enabled
+# control_system.type=virtual_accelerator and the bluesky MCP server enabled
 # (BLUESKY_LAUNCH_TOKEN is minted unconditionally for the deployed bluesky
 # service, so no execution-method override is needed to arm the agent).
 # tests/e2e/_orm_stack.py is the single source of this
@@ -1457,7 +1457,7 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
+def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FR11's turn-key deploy config, end to end without Docker:
@@ -1470,7 +1470,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
       - ``execution.execution_method: subprocess`` (the one execution backend
         OSPREY ships — the deploy config sets no override, so this is the
         rendered default, and no code path reads it for safety semantics),
-      - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
+      - the ``bluesky`` MCP server enabled in the rendered ``.mcp.json`` (it is
         ``default_enabled=False`` in the framework registry — a project must
         opt in, and this deploy config does).
     """
@@ -1493,10 +1493,10 @@ def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
 
-    # -- scan MCP server enabled in the rendered .mcp.json -------------------
+    # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
     mcp_config = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
     assert "bluesky" in mcp_config["mcpServers"], (
-        "the scan MCP server must be enabled (claude_code.servers.bluesky.enabled: "
+        "the bluesky MCP server must be enabled (claude_code.servers.bluesky.enabled: "
         f"true) so list_plans/queue_add are reachable: {mcp_config['mcpServers'].keys()}"
     )
 

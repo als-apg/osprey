@@ -3,7 +3,7 @@ the authoring-sandbox feature's central invariant: an agent-authored
 session-tier plan can never reach real hardware unless it is validated AND
 that exact validated content is what actually launches.
 
-Deploys the VA-backed turn-key scan-stack (``tests/e2e/_orm_stack.py`` -- the
+Deploys the VA-backed turn-key plan-stack (``tests/e2e/_orm_stack.py`` -- the
 same real Virtual Accelerator + bluesky-bridge container pair
 ``test_orm_roundtrip.py`` uses) and drives the session-authoring HTTP surface
 (``POST /plans/session``, ``POST /plans/validate``, then the queue path
@@ -120,7 +120,7 @@ SCAN_TIMEOUT_SEC = 120.0
 # probe TARGET (never launched in this test, by either the negative
 # or the obfuscation-residual case), two driven for real by the positive
 # author -> validate -> enqueue -> read round trip. Disjoint by
-# construction, so a run-order change can never let the positive scan's
+# construction, so a run-order change can never let the positive run's
 # legitimate write be mistaken for evidence the negative case's write landed.
 CORRECTOR_COUNT = 3
 BPM_COUNT = 2
@@ -272,22 +272,22 @@ logger = logging.getLogger(__name__)
 
 class PARAMS(BaseModel):
     correctors: MovableChannels = Field(..., min_length=1)
-    bpms: ReadableChannels = Field(..., min_length=1)
+    readbacks: ReadableChannels = Field(..., min_length=1)
     span_a: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
     def _disjoint(self) -> "PARAMS":
-        overlap = set(self.correctors) & set(self.bpms)
+        overlap = set(self.correctors) & set(self.readbacks)
         if overlap:
-            raise ValueError(f"correctors and bpms must be disjoint (overlap: {sorted(overlap)})")
+            raise ValueError(f"correctors and readbacks must be disjoint (overlap: {sorted(overlap)})")
         return self
 
 
 def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    bpm_devices = [devices[name] for name in params.bpms]
+    bpm_devices = [devices[name] for name in params.readbacks]
     step = (2 * params.span_a) / (params.num - 1)
     currents = [-params.span_a + i * step for i in range(params.num)]
     all_devices = corrector_devices + bpm_devices
@@ -296,7 +296,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     @bpp.run_decorator(
         md=scan_metadata(
             movable=params.correctors,
-            readable=params.bpms,
+            readable=params.readbacks,
             points=params.num * len(params.correctors),
         )
     )
@@ -489,7 +489,7 @@ def deployed_sandbox_stack(
     positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -709,7 +709,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
 
 # ---------------------------------------------------------------------------
 # Positive: author -> validate -> enqueue -> drain -> read, over the same
-# deployed stack. May flake on the drain->read leg (bounded scan timing);
+# deployed stack. May flake on the drain->read leg (bounded run timing);
 # the negative case above stays strict.
 # ---------------------------------------------------------------------------
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
@@ -736,7 +736,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
             "name": _POSITIVE_PLAN_NAME,
             "sample_args": {
                 "correctors": list(correctors)[:1],
-                "bpms": list(bpms)[:1],
+                "readbacks": list(bpms)[:1],
                 "span_a": 1.0,
                 "num": 3,
             },
@@ -757,7 +757,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
 
     plan_args = {
         "correctors": list(correctors),
-        "bpms": list(bpms),
+        "readbacks": list(bpms),
         "span_a": SPAN_A,
         "num": NUM_POINTS,
     }
@@ -782,7 +782,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
             break
         time.sleep(0.5)
     assert status_body.get("status") == "completed", (
-        f"session_orbit_probe scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s "
+        f"session_orbit_probe run did not complete within {SCAN_TIMEOUT_SEC:.0f}s "
         f"(status={status_body})"
     )
 

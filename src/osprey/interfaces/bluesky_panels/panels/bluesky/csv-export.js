@@ -35,7 +35,7 @@ const NEEDS_QUOTING = /[",\r\n]/;
  * Numbers go through `String`, which is what preserves full precision;
  * `formatCell`'s `toFixed(6)` is display rounding and must not reach a file.
  * Non-finite numbers are written as their names rather than blanked, because a
- * `NaN` in a scan is a reading that failed, which is a different fact from a
+ * `NaN` in a run is a reading that failed, which is a different fact from a
  * channel that was never read at all.
  *
  * @param {unknown} value

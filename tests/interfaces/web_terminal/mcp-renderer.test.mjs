@@ -41,7 +41,7 @@ const MCP_JSON = JSON.stringify({
     bluesky: {
       command: 'python',
       args: ['-m', 'osprey.mcp_server.bluesky'],
-      env: { SCAN_TOKEN: '${SCAN_TOKEN}' },
+      env: { BLUESKY_LAUNCH_TOKEN: '${BLUESKY_LAUNCH_TOKEN}' },
     },
   },
 }, null, 2);

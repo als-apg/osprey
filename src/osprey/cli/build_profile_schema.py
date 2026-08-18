@@ -274,11 +274,11 @@ class DispatchConfig:
 
 @dataclass
 class BlueskyConfig:
-    """Bluesky scan-bridge configuration for a build profile (opt-in via the ``bluesky:`` key).
+    """Bluesky bridge configuration for a build profile (opt-in via the ``bluesky:`` key).
 
     Consumed by the build pipeline's bluesky-injection step to deploy the
     single ``bluesky_bridge`` service (see NAMING-ADDENDUM.md: deploy key
-    ``bluesky``, env var ``BLUESKY_LAUNCH_TOKEN``, MCP server name ``scan``).
+    ``bluesky``, env var ``BLUESKY_LAUNCH_TOKEN``, MCP server name ``bluesky``).
     Ports are validated by :meth:`BuildProfile.validate`.
     """
 

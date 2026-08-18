@@ -351,5 +351,5 @@ def test_the_shipped_plans_declare_the_fields_this_scan_expects() -> None:
     unrelated schema would make the assertion above vacuous -- and that the
     role-carrying fields are spelled in capability terms.
     """
-    assert {"correctors", "bpms"} <= _params_field_names(orm.PARAMS)
-    assert {"readables", "axes", "setpoint"} <= _params_field_names(grid_scan.PARAMS)
+    assert {"correctors", "readbacks"} <= _params_field_names(orm.PARAMS)
+    assert {"readbacks", "axes", "setpoint"} <= _params_field_names(grid_scan.PARAMS)

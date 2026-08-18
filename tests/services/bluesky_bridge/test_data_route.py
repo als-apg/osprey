@@ -637,7 +637,7 @@ def test_rows_are_sorted_by_seq_num_when_the_store_returns_them_shuffled(
 ) -> None:
     """The catalog makes no ordering promise; `seq_num` is the emission order.
 
-    Without the sort the route serves a scan's points out of order — a plot
+    Without the sort the route serves a run's points out of order — a plot
     that zig-zags and a window (`tail=True` especially) that is not the run's
     last points at all.
     """
@@ -860,7 +860,7 @@ def test_a_run_of_only_scalars_is_untouched_by_the_waveform_conversion(
     The conversion is decided per column from the frame's dtypes, so a run with
     no object column takes the plain ``tolist()`` path. Pinned because this
     route is polled at 1 Hz over runs that reach six figures of rows: a per-cell
-    check would be a real cost paid by every scan that has no waveform at all.
+    check would be a real cost paid by every run that has no waveform at all.
     """
     run_node = _run_node_with_events(
         run_uid="bluesky-uid-scalars", run_id="run-scalars", rows=[{"motor": 1.0}, {"motor": 2.0}]

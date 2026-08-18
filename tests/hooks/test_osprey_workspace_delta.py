@@ -243,9 +243,9 @@ def test_tile_closed():
 def test_tile_opened():
     line = delta._build_delta_line(
         _state(["artifacts"], "artifacts", ["artifacts"]),
-        _state(["artifacts", "scan"], "artifacts", ["artifacts"]),
+        _state(["artifacts", "bluesky"], "artifacts", ["artifacts"]),
     )
-    assert line == "Workspace changed: scan tile opened."
+    assert line == "Workspace changed: bluesky tile opened."
 
 
 def test_several_tiles_closed_share_one_clause():
@@ -296,11 +296,11 @@ def test_rail_reorder_is_not_a_change():
 def test_combined_delta_names_each_facet_once():
     line = delta._build_delta_line(
         _state(["lattice", "artifacts"], "lattice", ["lattice", "artifacts"]),
-        _state(["artifacts"], "artifacts", ["lattice", "artifacts", "scan"]),
+        _state(["artifacts"], "artifacts", ["lattice", "artifacts", "bluesky"]),
     )
     assert line == (
         "Workspace changed: lattice tile closed; active now artifacts; "
-        "scan added to the launcher rail."
+        "bluesky added to the launcher rail."
     )
 
 

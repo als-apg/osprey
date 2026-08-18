@@ -445,7 +445,7 @@ def stop_run(run_id: str) -> dict:
 
 @app.get("/plans")
 def list_plans() -> list:
-    """Registered scan plans: `plan_loader.get_facility_plans()`'s trust-resolved set.
+    """Registered plans: `plan_loader.get_facility_plans()`'s trust-resolved set.
 
     `plan_loader.py` is the sole plan registry — a layered directory scan
     (`shipped`/`preset`/`facility`/`session`) plus the legacy single-module
@@ -468,7 +468,7 @@ def list_plans() -> list:
 # component tree) is worker-internal detail nothing can be done with from
 # outside the worker; these three protocol flags are the part that answers the
 # question a caller actually has — whether a device can be driven as a
-# setpoint or only read as a detector. Absent keys stay absent rather than
+# setpoint or only read as a readback. Absent keys stay absent rather than
 # defaulting to False: "the manager did not say" is not "no".
 _DEVICE_FLAG_KEYS = ("is_movable", "is_readable", "is_flyable")
 
@@ -495,7 +495,7 @@ async def list_devices() -> list[dict]:
 
     Each entry is `{"name", ...}` plus whatever of `is_movable`/`is_readable`/
     `is_flyable` the manager reported for it, which is how a caller tells a
-    drivable setpoint from a read-only detector.
+    drivable setpoint from a read-only readback.
     """
     try:
         reply = await get_queue_backend().devices_allowed()
@@ -1281,7 +1281,7 @@ def _json_rows(frame: Any) -> list[list[Any]]:
 
     NaN and infinity inside a waveform end up as Python floats, exactly as they
     do in a scalar column, and the response encoder renders both as ``null``
-    either way — the same value a caller reads for a scalar the detector could
+    either way — the same value a caller reads for a scalar the readback could
     not measure. A waveform is not a special case in the wire format; it is a
     cell whose value happens to be a list.
     """
@@ -1349,7 +1349,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     start = metadata.get("start") or {}
 
     if "primary" not in run_node:
-        # Start doc landed but no Event ever arrived (e.g. a scan that
+        # Start doc landed but no Event ever arrived (e.g. a plan that
         # errored before its first point) — the run is real, so this is the
         # "nothing to read yet" shape, not a 404. Deliberately a membership
         # check on `"primary"` alone, never a `try`/`except KeyError` around
@@ -1431,7 +1431,7 @@ def _run_analysis(
     """The ``analysis`` block `get_run_data` serves for one run. Never raises.
 
     Computed over the rows the SOURCE holds — every row, not the window the
-    caller asked for, because statistics over a page of a scan describe the
+    caller asked for, because statistics over a page of a run describe the
     page. A run still producing rows carries
     `analysis.REASON_RUN_IN_PROGRESS` and costs nothing: its peak would move
     with every poll, and settledness here is the source's own verdict, exactly
@@ -1483,7 +1483,7 @@ def _data_response(
       "settled", so a source that spelled it ``partial: false`` would be
       answering a different question than the other one.
     - ``analysis`` is computed over ALL the rows the source holds, never the
-      window `_window` cuts — statistics over a page of a scan describe the
+      window `_window` cuts — statistics over a page of a run describe the
       page.
 
     *generation* is the caller's, read BEFORE the source, as the figure route
@@ -1570,7 +1570,7 @@ def get_run_data(
 
     Raises 404 when neither source has the run — the MCP `get_run_data` tool
     maps 404 to `unknown_run`, and a 200-empty response would make a
-    nonexistent run look like a valid empty scan. A deployment with no Tiled at
+    nonexistent run look like a valid empty run. A deployment with no Tiled at
     all reaches that same 404 for a run it never buffered, which is honest: no
     source this bridge has knows the run.
 
@@ -1887,7 +1887,7 @@ def export_run_data(run_id: str, format: str = "csv") -> Response:
     once at peak, not once: Tiled's client reads the whole response body into
     `bytes` before writing it into this route's buffer, and the buffer is copied
     again on the way into the response. Roughly three times the file, briefly.
-    That is affordable because a run is a scan, not a stream — the same bound the
+    That is affordable because a run is bounded, not a stream — the same bound the
     rest of this module relies on — but the multiplier is what to size against,
     not the file.
 

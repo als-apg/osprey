@@ -632,7 +632,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         """Delete EVERY artifact in the store, across all categories.
 
         Named for its blast radius. This is the whole-store clear, not a
-        scoped delete: it destroys archiver datasets, scan results and data
+        scoped delete: it destroys archiver datasets, run results and data
         files written by :meth:`save_data` alongside plots, documents and
         screenshots, and the files are unlinked outright — there is no trash.
         Callers that mean a single partition must use :meth:`delete_category`.

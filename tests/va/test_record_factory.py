@@ -568,7 +568,7 @@ class TestDriveLimitClamp:
     Neither server rejects an out-of-band write despite publishing the band as
     display limits, and the model does not enforce it either, so the write path
     is the whole of it. What a client observes is the clamped value on the
-    setpoint *and* on its readback -- a real bound below the scan plan's own
+    setpoint *and* on its readback -- a real bound below the plan's own
     schema, applied to any writer.
     """
 

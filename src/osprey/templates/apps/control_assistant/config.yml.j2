@@ -341,7 +341,7 @@ control_system:
   # A failed verification is not a hard stop. The channel_write MCP tool reports it in
   # its result (verification.verified: false); osprey.runtime.write_channel discards it
   # (a readback mismatch is logged at debug level only); only write_channel_checked
-  # raises (scan plans, which write through the Bluesky bridge's connector-backed
+  # raises (plans, which write through the Bluesky bridge's connector-backed
   # devices). A write the CA layer could not deliver at all - for example a PV that
   # never connects - is different: it sets success: false, which does raise from
   # osprey.runtime.write_channel and shows up as a failed write in the MCP tool.
@@ -518,7 +518,7 @@ archiver:
 # ============================================================
 # SCAN PLANS (BLUESKY BRIDGE)
 # ============================================================
-# `bluesky.plan_dirs` adds directories to the scan-plan catalog the Bluesky
+# `bluesky.plan_dirs` adds directories to the plan catalog the Bluesky
 # bridge discovers plans from. Read this before using it — the trust it grants
 # is not obvious from the key name:
 #

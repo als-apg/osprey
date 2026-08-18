@@ -409,7 +409,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="services/bluesky",
             template_path="bluesky",
             output_path="services/bluesky",
-            description="Bluesky scan-bridge compose template + image context",
+            description="Bluesky bridge compose template + image context",
             template_root="services",
             is_directory=True,
         ),

@@ -355,22 +355,22 @@ class TestDegradationsAreReported:
 class TestAutonomousHostChangesAreReported:
     """What the deploy wrote, or decided, without being asked to."""
 
-    def test_derived_scan_devices_name_the_file_they_came_from(
+    def test_derived_plan_devices_name_the_file_they_came_from(
         self, default_altitude, printed, project, monkeypatch
     ):
         monkeypatch.setattr(
             "osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env",
-            lambda project_dir: {"BLUESKY_EPICS_MOTORS": "SR:C01:COR"},
+            lambda project_dir: {"BLUESKY_EPICS_SETPOINTS": "SR:C01:COR"},
         )
 
         container_lifecycle._ensure_bluesky_substrate_env(
             {**BLUESKY_VA, "control_system": {"type": "virtual_accelerator"}}, project
         )
 
-        assert_promoted(default_altitude, printed, "bluesky scan devices auto-configured")
+        assert_promoted(default_altitude, printed, "bluesky plan devices auto-configured")
         output.flush_ledger()
         assert "channel_limits.json" in printed.flowed
-        assert "BLUESKY_EPICS_MOTORS" in printed.flowed
+        assert "BLUESKY_EPICS_SETPOINTS" in printed.flowed
 
     def test_a_local_env_override_is_reported_by_name(self, default_altitude, printed, tmp_path):
         from osprey.utils.dotenv import ENV_SHARED_FILENAME

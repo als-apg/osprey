@@ -1,6 +1,6 @@
 """Role-typed channel fields: how a plan author *declares* what each parameter does.
 
-A scan plan's ``PARAMS`` model already names the channels a run touches, but a
+A plan's ``PARAMS`` model already names the channels a run touches, but a
 bare ``list[str]`` says nothing about what will be done to them. Everything
 downstream -- the load gate, the enqueue pre-check, dry-run mocks, the default
 figure, the pre-flight summary -- needs to know which channels the plan *moves*
@@ -334,10 +334,10 @@ def resolve_column(channel_name: str, columns: Iterable[str]) -> str | None:
     One channel reaches a run's data under either of two spellings, because two
     device implementations answer to the same channel name. A device that
     declares child signals is read under ``f"{channel}-{signal}"`` -- the mock
-    devices (`devices/mock.py`) do this, so a mock motor lands under
-    ``"motor1-readback"``. A device that reads through the OSPREY connector
+    devices (`devices/mock.py`) do this, so a mock settable lands under
+    ``"sp1-readback"``. A device that reads through the OSPREY connector
     (`devices/connector.py`) emits exactly one entry named for the device
-    itself, so the same channel lands under ``"motor1"``. Neither module is
+    itself, so the same channel lands under ``"sp1"``. Neither module is
     imported here; this is a rule about the data keys they produce.
 
     So: exact match first, then the single ``f"{channel_name}-"`` prefix rule,

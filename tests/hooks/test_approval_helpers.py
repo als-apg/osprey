@@ -857,7 +857,7 @@ def test_stop_describers_state_the_limit_and_name_the_tool_that_has_none(approva
     assert "does NOT abort the item already in motion" in halt[0]
     assert "stop_run" in halt[0], "the halt prompt must name the tool that DOES abort"
     assert "no tool here can" not in halt[0], (
-        "pre-abort wording: it tells an operator no halt exists for a moving scan"
+        "pre-abort wording: it tells an operator no halt exists for a moving plan"
     )
     # The withdrawal is the opposite direction and must not offer an abort as
     # if it were part of the same action.
@@ -867,7 +867,7 @@ def test_stop_describers_state_the_limit_and_name_the_tool_that_has_none(approva
 @pytest.mark.unit
 def test_stop_run_describer_states_what_an_abort_costs(approval, fake_bridge):
     """The abort's own approval prompt. It has to be honest in both
-    directions: not a routine stop (the scan's remainder is discarded and the
+    directions: not a routine stop (the plan's remainder is discarded and the
     machine stays where it stopped), and not something to hesitate over when a
     machine needs stopping — which is why it also names what is running."""
     fake_bridge(
@@ -882,7 +882,7 @@ def test_stop_run_describer_states_what_an_abort_costs(approval, fake_bridge):
     lines = approval._describe_stop_run({}, {})
 
     assert "ABORTS THE PLAN THAT IS RUNNING NOW" in lines[0]
-    assert "left wherever the scan moved it" in lines[0]
+    assert "left wherever the plan moved it" in lines[0]
     assert "data" in lines[0], "what survives an abort matters as much as what does not"
     # The shared activity lines still run, so the approver sees what is running.
     assert any("A PLAN IS ALREADY RUNNING" in line for line in lines)

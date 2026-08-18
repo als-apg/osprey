@@ -68,7 +68,7 @@ invent new accelerator physics:**
   — steps a set of movable channels over a rectangular grid, reading a set of
   channels at every grid point.
 
-These are the ONLY accelerator scan patterns this framework ships. Never
+These are the ONLY accelerator plan patterns this framework ships. Never
 propose or author a BBA (beam-based alignment) or tune-scan plan — they are
 explicitly out of scope.
 
@@ -138,7 +138,7 @@ from osprey.services.bluesky_bridge.plan_fields import MovableChannels, Readable
 
 class PARAMS(BaseModel):
     correctors: MovableChannels = Field(..., min_length=1, title="Correctors")
-    bpms: ReadableChannels = Field(..., min_length=1, title="BPMs")
+    readbacks: ReadableChannels = Field(..., min_length=1, title="BPMs")
     num: int = Field(..., ge=3, title="Number of steps")
 ```
 
@@ -154,7 +154,7 @@ class GridAxis(BaseModel):
 
 
 class PARAMS(BaseModel):
-    readables: ReadableChannels = Field(..., min_length=1)
+    readbacks: ReadableChannels = Field(..., min_length=1)
     axes: list[GridAxis] = Field(..., min_length=1)
 ```
 
@@ -179,7 +179,7 @@ missing annotation is the first thing to check.
 ## Stamp the run: `scan_metadata`
 
 Anything watching a run — the live progress readout, the figure, an operator
-asking how far along a scan is — reads the run's own opening metadata. A plan
+asking how far along a run is — reads the run's own opening metadata. A plan
 that opens its own run has to put it there:
 
 ```python
@@ -191,7 +191,7 @@ from osprey.services.bluesky_bridge.plan_fields import scan_metadata
 @bpp.run_decorator(
     md=scan_metadata(
         movable=params.correctors,
-        readable=params.bpms,
+        readable=params.readbacks,
         points=params.num * len(params.correctors),
     )
 )
@@ -488,7 +488,7 @@ failure downgrades the figure instead of losing it.
   more accurate one.
 - **Never** use `time.sleep(...)` inside a plan body — use `bps.sleep(...)`.
 - **Never** propose a BBA or tune-scan plan — `orm` and `grid_scan` are the
-  only scan patterns this framework ships.
+  only plan patterns this framework ships.
 - **Never** hard-code a facility channel name inside `build_plan` — resolve
   every channel by string name through the injected `devices` dict, exactly
   like both exemplars. The same holds for `render()`: label its panels from

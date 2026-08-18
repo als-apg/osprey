@@ -1131,7 +1131,7 @@ describe('renderFigure', () => {
       elements,
       figure([
         panel(linesMark([series('bpm3', [[0, null], [1, null]])]), {
-          annotations: ['detector offline'],
+          annotations: ['readback offline'],
         }),
       ])
     );
@@ -1140,7 +1140,7 @@ describe('renderFigure', () => {
       'No plottable values in this panel yet.'
     );
     expect(textsOf(elements.panels, 'ul.figure-annotations li')).toEqual([
-      'detector offline',
+      'readback offline',
       '2 samples had no reading (drawn as gaps)',
     ]);
   });

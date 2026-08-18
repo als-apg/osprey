@@ -569,7 +569,7 @@ def promote_ask_to_allow(repo: Path, *tools: str) -> None:
     ``permission_mode="bypassPermissions"`` does not override it. That silently
     removes ``mcp__python__execute`` (the sanctioned compute path for framework
     agents, which never get Bash) and ``mcp__bluesky__launch_run`` (without which
-    no scan can ever run) from any headless benchmark that needs them.
+    no plan can ever run) from any headless benchmark that needs them.
 
     Grant only what the benchmark under test actually needs, rather than
     promoting the whole ``ask`` list: a blanket promotion also hands the agent

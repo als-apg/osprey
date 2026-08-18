@@ -3,7 +3,7 @@
 ``_SERVICE_TOKEN_VARS`` entries are *network-caller authentication*: a token
 proves the caller of a service's own HTTP boundary is the co-deployed agent
 rather than anything else that can reach a shared loopback port. That is an
-authentication concern, not a hardware-safety one. Whether a scan or a write is
+authentication concern, not a hardware-safety one. Whether a plan or a write is
 permitted is decided at the connector — ``writes_enabled`` plus the per-put
 channel limits — which every write path must clear: the agent's own
 ``write_channel`` calls and the bluesky bridge's plan execution alike end at the

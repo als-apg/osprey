@@ -231,7 +231,7 @@ async def test_build_devices_with_no_specs_returns_empty_mapping() -> None:
 
 async def test_build_devices_without_connector_raises_at_build_time() -> None:
     """A missing connector fails here, at the misconfiguration site — not as an
-    ``AttributeError`` deep inside a device's ``set()``/``read()`` at scan time."""
+    ``AttributeError`` deep inside a device's ``set()``/``read()`` at run time."""
     with pytest.raises(ValueError, match="requires a connector"):
         await build_devices(settables=[SettableSpec(name="hcm1", setpoint_pv="HCM1:SP")])
 

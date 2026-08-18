@@ -2,14 +2,14 @@
 build-profile schema.
 
 Covers the :class:`BlueskyPanelsConfig` dataclass, the ``BuildProfile.validate``
-exemption that lets the non-builtin scan-panel web_panels ids
+exemption that lets the non-builtin bluesky-panel web_panels ids
 (``bluesky``, plus the deprecated ``plan``/``results`` spellings) validate
 without a pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block
 is present
 (their urls are derived post-build by ``_inject_bluesky_panels``), and a
 regression guard that the shipped control-assistant preset/profile still
 validates — the gate task 3.3 (tutorial-config) re-runs after adding the
-scan panel to that preset.
+bluesky panel to that preset.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def test_no_bluesky_panels_validates(tmp_path: Path) -> None:
 def test_bluesky_panels_ids_validate_without_url_when_bluesky_panels_present(
     tmp_path: Path,
 ) -> None:
-    """The scan-panel ids need no manual web.panels.<id>.url override
+    """The bluesky-panel ids need no manual web.panels.<id>.url override
     when a bluesky_panels block is present — the urls are derived post-build by
     _inject_bluesky_panels, which runs after this validator."""
     profile = BuildProfile(
@@ -52,7 +52,7 @@ def test_bluesky_panels_ids_validate_without_url_when_bluesky_panels_present(
 
 
 def test_bluesky_panels_ids_without_bluesky_panels_still_require_url(tmp_path: Path) -> None:
-    """The escape hatch is narrow: the scan-panel ids with no bluesky_panels
+    """The escape hatch is narrow: the bluesky-panel ids with no bluesky_panels
     block and no url override are still rejected (nothing would derive their
     URL)."""
     profile = BuildProfile(name="x", web_panels=["plan"])
@@ -171,7 +171,7 @@ def test_control_assistant_profile_validates() -> None:
     """The shipped control-assistant preset/profile validates cleanly.
 
     This is a regression guard task 3.3 (tutorial-config) re-runs after
-    adding the bluesky_panels block + the scan-panel web_panels ids to
+    adding the bluesky_panels block + the bluesky-panel web_panels ids to
     this preset — it must keep validating once that wiring lands.
     """
     presets_dir = bp._presets_dir()
@@ -181,12 +181,12 @@ def test_control_assistant_profile_validates() -> None:
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
 
 
-# ── Task 3.3: turn-key VA-backed scan stack render ───────────────────────────
+# ── Task 3.3: turn-key VA-backed plan stack render ───────────────────────────
 #
 # The control-assistant preset now bakes the bluesky/virtual_accelerator/
 # bluesky_panels injector blocks in directly (no --set/--override flags needed),
-# so `osprey build` on the bare preset renders the full scan stack + the
-# BLUESKY scan panel turn-key. These tests build a control-assistant deployment
+# so `osprey build` on the bare preset renders the full plan stack + the
+# BLUESKY panel turn-key. These tests build a control-assistant deployment
 # repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
 # mirroring tests/cli/test_va_default_config.py's scaffolded_project fixture and
 # tests/e2e/_orm_stack.py's build_via_cli_runner) and assert on the rendered
@@ -194,7 +194,7 @@ def test_control_assistant_profile_validates() -> None:
 
 
 @pytest.fixture(scope="module")
-def turnkey_scan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def turnkey_plan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the bare control-assistant preset (no overrides) into a tmp repo.
 
     The exemplar repo (:func:`build_exemplar_repo`) is control-assistant's
@@ -206,8 +206,8 @@ def turnkey_scan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
-    tmp_path = tmp_path_factory.mktemp("turnkey-scan")
-    repo = build_exemplar_repo(tmp_path / "turnkey-scan")
+    tmp_path = tmp_path_factory.mktemp("turnkey-plan")
+    repo = build_exemplar_repo(tmp_path / "turnkey-plan")
     runner = CliRunner()
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
@@ -217,70 +217,70 @@ def turnkey_scan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def turnkey_scan_config(turnkey_scan_project: Path) -> dict:
-    return yaml.safe_load((turnkey_scan_project / "config.yml").read_text(encoding="utf-8"))
+def turnkey_plan_config(turnkey_plan_project: Path) -> dict:
+    return yaml.safe_load((turnkey_plan_project / "config.yml").read_text(encoding="utf-8"))
 
 
-class TestControlAssistantTurnkeyScanServices:
+class TestControlAssistantTurnkeyPlanServices:
     """The three injected services render with the preset's baked-in ports."""
 
-    def test_control_assistant_bluesky_service_rendered(self, turnkey_scan_config: dict) -> None:
-        bluesky = turnkey_scan_config["services"]["bluesky"]
+    def test_control_assistant_bluesky_service_rendered(self, turnkey_plan_config: dict) -> None:
+        bluesky = turnkey_plan_config["services"]["bluesky"]
         assert bluesky["port"] == 8090
         assert bluesky["tiled_enabled"] is True
         assert bluesky["tiled_port"] == 8091
 
     def test_control_assistant_virtual_accelerator_service_rendered(
-        self, turnkey_scan_config: dict
+        self, turnkey_plan_config: dict
     ) -> None:
-        va = turnkey_scan_config["services"]["virtual_accelerator"]
+        va = turnkey_plan_config["services"]["virtual_accelerator"]
         assert va["port"] == 5064
 
     def test_control_assistant_bluesky_panels_service_rendered(
-        self, turnkey_scan_config: dict
+        self, turnkey_plan_config: dict
     ) -> None:
-        bluesky_panels = turnkey_scan_config["services"]["bluesky_panels"]
+        bluesky_panels = turnkey_plan_config["services"]["bluesky_panels"]
         assert bluesky_panels["port"] == 8095
 
     def test_control_assistant_deployed_services_includes_all_three(
-        self, turnkey_scan_config: dict
+        self, turnkey_plan_config: dict
     ) -> None:
-        deployed = turnkey_scan_config["deployed_services"]
+        deployed = turnkey_plan_config["deployed_services"]
         assert "bluesky" in deployed
         assert "virtual_accelerator" in deployed
         assert "bluesky_panels" in deployed
 
 
-class TestControlAssistantTurnkeyScanPanels:
-    """The one scan-panel web.panels entry is registered with a url."""
+class TestControlAssistantTurnkeyPlanPanels:
+    """The one bluesky-panel web.panels entry is registered with a url."""
 
-    def test_control_assistant_scan_bluesky_panel(self, turnkey_scan_config: dict) -> None:
-        panel = turnkey_scan_config["web"]["panels"]["bluesky"]
+    def test_control_assistant_bluesky_panel(self, turnkey_plan_config: dict) -> None:
+        panel = turnkey_plan_config["web"]["panels"]["bluesky"]
         assert panel["path"] == "/bluesky/"
         assert panel["url"]
 
     def test_control_assistant_ships_no_deprecated_results_panel(
-        self, turnkey_scan_config: dict
+        self, turnkey_plan_config: dict
     ) -> None:
         """A fresh build carries only the canonical id. The deprecated
         ``results`` entry is an accommodation for projects built against the
         earlier spelling (kept working by the sidecar's alias mount); emitting
         it here would put that tab back on every rebuild."""
-        assert "results" not in turnkey_scan_config["web"]["panels"]
+        assert "results" not in turnkey_plan_config["web"]["panels"]
 
     def test_control_assistant_ships_no_deprecated_plan_panel(
-        self, turnkey_scan_config: dict
+        self, turnkey_plan_config: dict
     ) -> None:
         """Same rule for the PLAN panel, which is the Plans tab of BLUESKY. Emitting
         both ids would put two rail entries in front of the same panel."""
-        assert "plan" not in turnkey_scan_config["web"]["panels"]
+        assert "plan" not in turnkey_plan_config["web"]["panels"]
 
 
-class TestControlAssistantTurnkeyScanControlSystem:
+class TestControlAssistantTurnkeyPlanControlSystem:
     """The preset's config overrides land: VA-by-default + subprocess execution.
 
     The VA soft-IOC ships and is deployed unconditionally as part of the
-    turn-key scan stack, and control_system.type defaults to
+    turn-key plan stack, and control_system.type defaults to
     "virtual_accelerator" so a fresh tutorial project drives it end to end
     out of the box -- flipping the one config line to "mock" is the
     documented fallback for environments with no containers to depend on
@@ -288,24 +288,24 @@ class TestControlAssistantTurnkeyScanControlSystem:
     """
 
     def test_control_assistant_control_system_type_is_virtual_accelerator(
-        self, turnkey_scan_config: dict
+        self, turnkey_plan_config: dict
     ) -> None:
-        assert turnkey_scan_config["control_system"]["type"] == "virtual_accelerator"
+        assert turnkey_plan_config["control_system"]["type"] == "virtual_accelerator"
 
     def test_control_assistant_execution_method_is_subprocess(
-        self, turnkey_scan_config: dict
+        self, turnkey_plan_config: dict
     ) -> None:
         """Agent Python runs as a host subprocess — the preset pins nothing, so
         this is the template default the built project inherits."""
-        assert turnkey_scan_config["execution"]["execution_method"] == "subprocess"
+        assert turnkey_plan_config["execution"]["execution_method"] == "subprocess"
 
-    def test_control_assistant_scan_mcp_server_enabled(self, turnkey_scan_config: dict) -> None:
-        assert turnkey_scan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
+    def test_control_assistant_bluesky_mcp_server_enabled(self, turnkey_plan_config: dict) -> None:
+        assert turnkey_plan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
 
 
-def test_control_assistant_turnkey_scan_preset_validates(turnkey_scan_project: Path) -> None:
+def test_control_assistant_turnkey_plan_preset_validates(turnkey_plan_project: Path) -> None:
     """BuildProfile.validate() passes for the preset as shipped (bare, no
-    overrides) -- the non-builtin scan-panel ids are accepted because
+    overrides) -- the non-builtin bluesky-panel ids are accepted because
     the preset's own bluesky_panels block is present."""
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))

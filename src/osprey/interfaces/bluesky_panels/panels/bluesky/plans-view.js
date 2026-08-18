@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * BLUESKY panel — the Plans view: a two-pane operator console for the
- * registered scan plans.
+ * registered plans.
  *
  * LEFT (sidebar): a dense, file-browser-style selector (plan-browser.js).
  * Plans are grouped under collapsible provenance folders and filterable; each

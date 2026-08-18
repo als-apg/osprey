@@ -203,8 +203,8 @@ services:
       # harmless: no substrate means an empty device namespace, i.e.
       # browse-only.
       BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
-      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 {% endif %}
 {% if services.bluesky.tiled_enabled | default(false) %}
       # Tiled persistence: the bridge READS the durable catalog here to serve
@@ -415,8 +415,8 @@ services:
       # its substrate. The `:-` empty defaults keep an unset substrate
       # harmless — the module then yields an empty namespace (browse-only).
       BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
-      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 {% if services.bluesky.plan_dir %}
       # Same in-container path as the bridge's mount target below: the
       # startup module builds the plan namespace with the same plan_loader,
@@ -463,7 +463,7 @@ services:
 {% if (control_system | default({})).writes_enabled | default(false) %}
       # The per-put reference monitor moved into this container with the
       # RunEngine, so the limits DB has to come with it: without the file the
-      # empty-DB failsafe blocks every write and no scan can move anything.
+      # empty-DB failsafe blocks every write and no plan can move anything.
       # Same /app/project root as config.yml so a relative
       # control_system.limits_checking.database_path resolves identically on
       # both sides.

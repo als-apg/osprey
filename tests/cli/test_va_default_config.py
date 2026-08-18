@@ -3,7 +3,7 @@
 A freshly scaffolded Control Assistant project must:
   1. Use the Virtual Accelerator control system by default (the VA soft-IOC
      ships and is deployed unconditionally as part of the turn-key Bluesky
-     stack, so scan plans drive it end to end out of the box).
+     stack, so plans drive it end to end out of the box).
   2. Engage the Mock connector when control_system.type is switched to mock
      (real ConnectorFactory resolution using the scaffolded connector.mock
      config block, not just a string check) — the documented fallback for

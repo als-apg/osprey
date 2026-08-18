@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Per-plan presentation for the shipped scan plans: how their parameter form is
+ * Per-plan presentation for the shipped plans: how their parameter form is
  * laid out, and what the live readout above the footer says.
  *
  * Both tables are keyed by plan name and both are OPTIONAL. A plan with no
@@ -27,11 +27,11 @@
  */
 const PLAN_LAYOUTS = {
   orm: [
-    ['correctors', 'bpms'],
+    ['correctors', 'readbacks'],
     ['span_a', 'num'],
     ['sweep'],
   ],
-  grid_scan: [['axes'], ['readables', 'snake_axes']],
+  grid_scan: [['axes'], ['readbacks', 'snake_axes']],
 };
 
 /**
@@ -43,7 +43,7 @@ const PLAN_LAYOUTS = {
 const PLAN_SUMMARIES = {
   orm(args) {
     const c = Array.isArray(args.correctors) ? args.correctors.length : 0;
-    const d = Array.isArray(args.bpms) ? args.bpms.length : 0;
+    const d = Array.isArray(args.readbacks) ? args.readbacks.length : 0;
     const n = typeof args.num === 'number' ? args.num : 0;
     const span = typeof args.span_a === 'number' ? args.span_a : null;
     /** @type {string[]} */
@@ -61,7 +61,7 @@ const PLAN_SUMMARIES = {
   },
   grid_scan(args) {
     const axes = Array.isArray(args.axes) ? args.axes : [];
-    const d = Array.isArray(args.readables) ? args.readables.length : 0;
+    const d = Array.isArray(args.readbacks) ? args.readbacks.length : 0;
     /** @type {string[]} */
     const parts = [];
     if (axes.length) {

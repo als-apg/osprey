@@ -5,7 +5,7 @@ No plan runs inside this process. The RunEngine lives in the
 ``bluesky.callbacks.zmq`` ``Publisher`` to it; this module runs the other end —
 the ``Proxy`` that Publisher connects to, plus a ``RemoteDispatcher`` that
 turns the republished stream back into rows in the existing ``live_rows``
-buffer. That is how ``GET /runs/{id}/data`` keeps serving live data for a scan
+buffer. That is how ``GET /runs/{id}/data`` keeps serving live data for a plan
 the bridge is not executing.
 
 **The proxy is the binding element.** The bridge binds both sockets and the

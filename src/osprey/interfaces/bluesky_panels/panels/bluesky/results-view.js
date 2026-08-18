@@ -692,7 +692,7 @@ export function createResultsView({ api, elements, onPollingChange, saveFile = s
 
   // A theme change must re-draw from the retained figure, because a settled
   // run has stopped polling: without this, flipping to light mode would leave
-  // a finished scan drawn in the dark palette until the operator picked
+  // a finished run drawn in the dark palette until the operator picked
   // another run. The renderer re-reads the color tokens itself, so there is
   // nothing to invalidate here beyond calling it again.
   const unsubscribe = subscribe(() => {

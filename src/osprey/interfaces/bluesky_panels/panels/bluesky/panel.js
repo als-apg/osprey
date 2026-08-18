@@ -2,7 +2,7 @@
 /**
  * BLUESKY panel — the shell.
  *
- * One panel, three views: Plans (compose a scan), Queue (what the queue server
+ * One panel, three views: Plans (compose a plan), Queue (what the queue server
  * is holding) and Results (the selected run's record, table and trace). This
  * module owns only what is common to all three — which one is showing, the
  * run the Results view is following, the tile-bar contribution, and the fan-out

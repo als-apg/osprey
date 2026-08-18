@@ -1,4 +1,4 @@
-"""Tests for the generalized kill-switch deny/remove_ask extension covering scan.
+"""Tests for the generalized kill-switch deny/remove_ask extension covering bluesky.
 
 ``build_claude_code_context``'s writes-off kill-switch block walks
 ``FRAMEWORK_SERVERS`` for any hooks_pre rule gated by ``_WRITES_CHECK`` rather
@@ -41,7 +41,7 @@ def _build_ctx(tmp_path, *, writes_enabled: bool, claude_code_overrides: dict | 
     _PROJECT_COUNTER += 1
     manager = TemplateManager()
     project_dir = manager.create_project(
-        project_name=f"killswitch-scan-{_PROJECT_COUNTER}",
+        project_name=f"killswitch-bluesky-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
@@ -143,7 +143,7 @@ def test_bluesky_queue_read_tools_never_denied(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# scan.write_plan / scan.validate_plan — task 2.3 authoring
+# bluesky.write_plan / bluesky.validate_plan — task 2.3 authoring
 # tools; never denied or removed-from-ask (neither reaches hardware)
 # ---------------------------------------------------------------------------
 

@@ -492,7 +492,7 @@ export function shownPointCount(mark) {
  * Annotations a thinned mark owes the reader.
  *
  * The aggregate line always comes first. A multi-series lines mark also names
- * each thinned series, since one busy detector can be decimated while its
+ * each thinned series, since one busy readback can be decimated while its
  * neighbours are shown whole; a single-series mark would only repeat its own
  * numbers, so it does not.
  *

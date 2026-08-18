@@ -54,7 +54,7 @@ export const CONFIRM_WITHDRAW_STOP_LABEL = 'Confirm — the queue keeps draining
 
 // The emergency halt. "Abort" rather than "Stop now" because the queue already
 // has a Stop and the two must not read as degrees of the same thing: this one
-// throws away the rest of the running scan.
+// throws away the rest of the running plan.
 export const ABORT_LABEL = 'Abort running plan';
 export const CONFIRM_ABORT_LABEL = 'Confirm — abort now, hardware stays put';
 
@@ -302,7 +302,7 @@ export function abortControl(state) {
   }
   return {
     note: running
-      ? 'Discards the rest of the running plan. Hardware is left wherever the scan stopped.'
+      ? 'Discards the rest of the running plan. Hardware is left wherever the plan stopped.'
       : 'No plan is running in the last frame seen; the abort is still sent and the bridge answers.',
     running,
   };
@@ -314,7 +314,7 @@ export function abortControl(state) {
  * The plain stop is one click on purpose (friction in front of a halt is
  * friction in the wrong place) and this control deliberately does NOT copy
  * that. The two are not the same kind of halt: "stop after the current item"
- * is cheap and withdrawable, while an abort throws away the rest of a scan and
+ * is cheap and withdrawable, while an abort throws away the rest of a plan and
  * cannot be undone — and the two buttons sit side by side, which makes a slip
  * from one to the other the likely error. One extra click is the whole cost,
  * on a control that is live from first paint and never disabled.
@@ -347,7 +347,7 @@ export function abortButtonClass(confirmArmed) {
  *
  * `writeOutcomeTone` reserves green for outcomes that cannot move hardware,
  * which an abort technically satisfies — and green would still be wrong. A
- * successful abort means a scan was destroyed and the machine is sitting at
+ * successful abort means a plan was destroyed and the machine is sitting at
  * whatever position it stopped at; that is a moment to register, not to
  * celebrate.
  *
@@ -374,7 +374,7 @@ export function abortOutcomeTone() {
 export function abortSuccessMessage(body) {
   const parts = [
     'Abort sent — the running plan was stopped where it was. Hardware is left ' +
-      'wherever the scan stopped; check positions before anything else runs.',
+      'wherever the plan stopped; check positions before anything else runs.',
   ];
   if (body && typeof body === 'object' && body.abort_pending === true) {
     parts.push('The manager is still unwinding the run.');
@@ -537,7 +537,7 @@ function formatParam(value) {
  * run (including, legitimately, a run still executing after a bridge restart —
  * live rows are in-process only), and `fraction` is null whenever the expected
  * point count is unknown, which is the COMMON case for agent-authored session
- * plans. Rendering either as "0%" would show a working scan as a stalled one.
+ * plans. Rendering either as "0%" would show a working plan as a stalled one.
  *
  * `rows_seen` counts documents, not stored rows, so it can legitimately exceed
  * what the data table holds; and `fraction: 1.0` with `complete: false` is the

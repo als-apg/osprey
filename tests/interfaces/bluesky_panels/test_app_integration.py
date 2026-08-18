@@ -203,7 +203,7 @@ def _served_routes() -> dict[str, set[str]]:
 
 def test_no_per_run_stop_route() -> None:
     # The route this forbids is a per-run stop (``POST /runs/{run_id}/stop``):
-    # it would let the browser halt one operator's scan without going through
+    # it would let the browser halt one operator's run without going through
     # the agent's own tooling, which is why the sidecar has never relayed it.
     #
     # ``POST /queue/stop`` is exempt, and is the opposite direction: it halts
@@ -223,7 +223,7 @@ def test_no_per_run_stop_route() -> None:
 
 def test_no_post_route_under_runs() -> None:
     # /runs is a READ surface on the sidecar: the run list, one run, and its
-    # data. Nothing starts a scan through it. The single relay that once did
+    # data. Nothing starts a plan through it. The single relay that once did
     # (POST /runs/launch, composing the bridge's pending-run create + launch)
     # is gone with the bridge primitives it called -- those answer an
     # unconditional 410 use_the_queue now, so the relay could only ever hand

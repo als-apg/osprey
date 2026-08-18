@@ -1158,7 +1158,7 @@ async def abort_running_plan() -> dict[str, Any]:
     - `GET /runs` reports that run as ``stopped``, not ``pending``, because
       `runs._queue_status` projects a queued item's own ``result`` through the
       history mapping — the requeued copy would otherwise shadow the history
-      entry and publish a just-aborted scan as work still to come.
+      entry and publish a just-aborted plan as work still to come.
     - `POST /queue/start` REFUSES while such an item is in the queue (409
       ``interrupted_item_in_queue``), so the plan a human emergency-stopped
       cannot go back on the hardware without a fresh, explicit decision. The

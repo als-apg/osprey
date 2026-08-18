@@ -52,7 +52,7 @@ origin, so the browser never needs direct access to the backing port.
 The Bluesky panel
 -----------------
 
-One tab covers a scan end to end, served by the ``bluesky-panels`` sidecar.
+One tab covers a plan end to end, served by the ``bluesky-panels`` sidecar.
 **BLUESKY** (``/bluesky/``) has three views, and the queue's state — with
 **Stop after current item** and **Abort running plan** — stays on screen across
 all three:
@@ -60,7 +60,7 @@ all three:
 **Plans** is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
 and a field you change by hand flows back to the agent. **Add to queue** puts
-the exact revision on screen into the scan queue.
+the exact revision on screen into the plan queue.
 
 **Queue** lists what the queue server is holding, with **Start queue** and the
 reorder/remove controls, plus the runs that have finished. Picking any run

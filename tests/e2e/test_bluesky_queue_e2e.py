@@ -1,6 +1,6 @@
 """Real-container end-to-end proof of the whole Bluesky *queue* stack.
 
-This is the acceptance instrument for the queue-backed scan stack: a fresh
+This is the acceptance instrument for the queue-backed plan stack: a fresh
 ``osprey init`` + ``osprey build`` of the shipped ``control-assistant`` preset,
 deployed with ``osprey up --dev``, driven through the surface an operator (or
 the agent, or a panel) actually uses -- ``PATCH /draft`` -> ``POST /queue/items``
@@ -45,7 +45,7 @@ Stages, in order, each an independently-reportable test:
    and three-field metadata served back by the catalog; a session plan whose
    validated bytes no longer match disk is refused ``session_plan_unvalidated``;
    and a write carrying a retired metadata key is refused outright.
-6. ``test_6_abort_*``            -- the emergency halt: a long scan is aborted
+6. ``test_6_abort_*``            -- the emergency halt: a long run is aborted
    with NO token, its record reaches ``stopped``, the manager returns to a
    startable state, and an abort with nothing running is ``nothing_running``.
 7. ``test_7_restart_*``          -- restarting ONLY the bridge preserves queue
@@ -223,7 +223,7 @@ DOC_PLANE_ARRIVAL_TIMEOUT_SEC = 45.0
 #                    fact of a completed run matters.
 #   LIVE_SAMPLE    — must stay under way for TENS of seconds so ~1 s polling
 #                    can actually observe rows accumulating. At 12 points the
-#                    whole scan finished between two polls and stage 3 failed
+#                    whole run finished between two polls and stage 3 failed
 #                    for a sampling artifact, not a product fault; 600 points
 #                    is ~34 s, i.e. ~30 samples.
 #   LONG           — must still be running when stage 6 aborts it, with room
@@ -474,8 +474,8 @@ def _env_value(repo: Path, key: str) -> str:
     return value
 
 
-def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
-    """Parse ``BLUESKY_EPICS_MOTORS`` (``name=SP|RB,...``) back into a mapping.
+def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
+    """Parse ``BLUESKY_EPICS_SETPOINTS`` (``name=SP|RB,...``) back into a mapping.
 
     Read from the .env that ``osprey up`` itself wrote rather than
     re-derived here: the device names this test composes plans against are then
@@ -491,8 +491,8 @@ def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
     return out
 
 
-def _parse_detectors(value: str) -> dict[str, str]:
-    """Parse ``BLUESKY_EPICS_DETECTORS`` (``name=RB,...``) back into a mapping."""
+def _parse_readbacks(value: str) -> dict[str, str]:
+    """Parse ``BLUESKY_EPICS_READBACKS`` (``name=RB,...``) back into a mapping."""
     out: dict[str, str] = {}
     for chunk in value.split(","):
         if not chunk.strip():
@@ -508,7 +508,7 @@ def _parse_detectors(value: str) -> dict[str, str]:
 
 
 def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
-    """Minimal ``grid_scan`` args: one corrector axis, one BPM detector.
+    """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
 
     The sweep band is the middle half of the corrector's OWN
     ``channel_limits.json`` entry, so this never hardcodes a facility channel
@@ -521,7 +521,7 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
     start = lo + 0.375 * (hi - lo)
     stop = lo + 0.625 * (hi - lo)
     return {
-        "readables": [next(iter(stack.bpms))],
+        "readbacks": [next(iter(stack.bpms))],
         "axes": [
             {"setpoint": axis_name, "start": start, "stop": stop, "num_points": num_points},
         ],
@@ -785,7 +785,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
     # profile's provider, and nothing in this proof shells out to an LLM — this
     # is the `cp .env.example .env` the CLI itself recommends, done for the
     # operator. It is also where `up` mints BLUESKY_LAUNCH_TOKEN and derives
-    # BLUESKY_EPICS_MOTORS/_DETECTORS, both read back below.
+    # BLUESKY_EPICS_SETPOINTS/_DETECTORS, both read back below.
     env_path = repo / ".env"
     if not env_path.exists():
         shutil.copy(repo / ".env.example", env_path)
@@ -825,10 +825,10 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # exactly the devices the deployed worker registered, and a change in
         # that derivation shows up here as a real failure rather than a
         # silently-diverging second copy of the same logic.
-        correctors = _parse_motors(_env_value(repo, "BLUESKY_EPICS_MOTORS"))
-        bpms = _parse_detectors(_env_value(repo, "BLUESKY_EPICS_DETECTORS"))
-        assert correctors, "osprey up wrote no BLUESKY_EPICS_MOTORS -- no device to scan"
-        assert bpms, "osprey up wrote no BLUESKY_EPICS_DETECTORS -- no device to read"
+        correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
+        bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
+        assert correctors, "osprey up wrote no BLUESKY_EPICS_SETPOINTS -- no device to drive"
+        assert bpms, "osprey up wrote no BLUESKY_EPICS_READBACKS -- no device to read"
 
         # The render's copy, not the operator-owned source under <repo>/data/:
         # the limits database resolves against CONFIG_FILE's directory, which
@@ -919,12 +919,12 @@ def test_1_capability_never_leaks_the_control_socket_credential(stack: QueueStac
 
 
 # ===========================================================================
-# Stage 2 -- enqueue two scans from two draft revisions
+# Stage 2 -- enqueue two plans from two draft revisions
 # ===========================================================================
 
 
 def test_2_enqueue_two_revisions_and_refuse_a_replay(stack: QueueStack) -> None:
-    """Two scans from two draft revisions; the SAME revision cannot enqueue twice.
+    """Two plans from two draft revisions; the SAME revision cannot enqueue twice.
 
     The draft revision is the unit of "this exact plan, as the operator saw
     it": ``POST /queue/items`` takes ``plan_name``/``plan_args`` from the
@@ -1003,7 +1003,7 @@ def test_2_preflight_reports_the_trajectory_a_launch_would_drive(stack: QueueSta
 
     assert payload["channels"] == [
         {"channel": axis["setpoint"], "role": MOVABLE_ROLE},
-        {"channel": args["readables"][0], "role": READABLE_ROLE},
+        {"channel": args["readbacks"][0], "role": READABLE_ROLE},
     ], f"the declared channels are wrong or out of movable-first order: {payload['channels']}"
 
     # A one-axis grid drives exactly one move per point.
@@ -1035,7 +1035,7 @@ def test_2_preflight_caps_the_move_list_but_never_the_total(stack: QueueStack) -
 
     The cap exists because this payload ends up in an approval prompt, but the
     count must stay exact: an approver deciding on a 10,000-move summary of a
-    100,000-move sweep would be deciding on the wrong scan. The worker keeps
+    100,000-move sweep would be deciding on the wrong plan. The worker keeps
     walking past the cap and only stops collecting.
 
     The cap is read off the previous answer rather than hardcoded -- the number
@@ -1142,7 +1142,7 @@ def test_3_armed_start_drains_serially_with_live_rows(stack: QueueStack) -> None
       the inherited stamping is real and reaches ``progress.expected_points``.
     * a still-running run's analysis block is absent WITH ITS REASON
       (``run_in_progress``), never partial statistics over a half-finished
-      scan.
+      run.
 
     ``progress`` is asserted only where it is PRESENT: an absent progress
     record is the honest answer for a denominator the estimator cannot know,
@@ -1315,7 +1315,7 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
     # for, so an absent one here is a real gap rather than an honest refusal.
     live_analysis = _analysis_of(_get(f"/runs/{_S.run_live}/data?max_rows=1000")[1])
     assert live_analysis["available"] is True, (
-        f"the analysis is absent for a completed single-axis scan: {live_analysis}"
+        f"the analysis is absent for a completed single-axis run: {live_analysis}"
     )
 
     # The two runs asked for different point counts, so their row counts must
@@ -1329,8 +1329,8 @@ def test_4_unknown_run_data_is_404_not_an_empty_scan(stack: QueueStack) -> None:
     """A run neither source knows 404s -- never a 200 with an empty table.
 
     A 200-empty answer would make a nonexistent run indistinguishable from a
-    valid scan that recorded nothing, which is how "the data is gone" gets read
-    as "the scan produced nothing".
+    valid run that recorded nothing, which is how "the data is gone" gets read
+    as "the run produced nothing".
     """
     status, body = _get("/runs/definitely-not-a-real-run-id/data")
     assert status == 404, f"expected 404 for an unknown run, got {status}: {body}"
@@ -1375,22 +1375,22 @@ logger = logging.getLogger(__name__)
 
 class PARAMS(BaseModel):
     correctors: MovableChannels = Field(..., min_length=1)
-    bpms: ReadableChannels = Field(..., min_length=1)
+    readbacks: ReadableChannels = Field(..., min_length=1)
     span_a: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
     def _disjoint(self) -> "PARAMS":
-        overlap = set(self.correctors) & set(self.bpms)
+        overlap = set(self.correctors) & set(self.readbacks)
         if overlap:
-            raise ValueError(f"correctors and bpms must be disjoint (overlap: {sorted(overlap)})")
+            raise ValueError(f"correctors and readbacks must be disjoint (overlap: {sorted(overlap)})")
         return self
 
 
 def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    bpm_devices = [devices[name] for name in params.bpms]
+    bpm_devices = [devices[name] for name in params.readbacks]
     step = (2 * params.span_a) / (params.num - 1)
     currents = [-params.span_a + i * step for i in range(params.num)]
     all_devices = corrector_devices + bpm_devices
@@ -1399,7 +1399,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     @bpp.run_decorator(
         md=scan_metadata(
             movable=params.correctors,
-            readable=params.bpms,
+            readable=params.readbacks,
             points=params.num * len(params.correctors),
         )
     )
@@ -1430,7 +1430,7 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     """
     return {
         "correctors": [next(iter(stack.correctors))],
-        "bpms": [next(iter(stack.bpms))],
+        "readbacks": [next(iter(stack.bpms))],
         "span_a": 1.0,
         "num": 3,
     }
@@ -1498,7 +1498,7 @@ def test_5_session_plan_authored_validated_uploaded_and_executed(stack: QueueSta
     assert properties["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
         f"the session author's movable declaration did not reach the wire: {properties}"
     )
-    assert properties["bpms"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert properties["readbacks"][CHANNEL_ROLE_KEY] == READABLE_ROLE
 
     revision = _patch_draft(_SESSION_PLAN_NAME, _session_plan_args(stack))
     snapshot = _draft_snapshot()
@@ -1644,7 +1644,7 @@ def test_6_abort_halts_a_running_plan_without_a_token(stack: QueueStack) -> None
     _S.run_aborted = _enqueue_ok(revision)
 
     start_status, start_body = _post("/queue/start", token=stack.token)
-    assert start_status == 200, f"could not start the long scan: {start_status} {start_body}"
+    assert start_status == 200, f"could not start the long run: {start_status} {start_body}"
 
     _wait_for_run_status(str(_S.run_aborted), ("running",), 180.0, poll=0.5)
 
@@ -1806,7 +1806,7 @@ def test_7_completed_run_data_serves_from_tiled_after_the_restart(stack: QueueSt
     )
     assert data["rows"] == _S.live_rows[str(run_id)], (
         "row CONTENT diverged between the live buffer and Tiled -- the durable copy "
-        "is not the same scan"
+        "is not the same run"
     )
 
 
@@ -1853,7 +1853,7 @@ def test_7_export_refuses_in_the_uniform_shape(stack: QueueStack) -> None:
 
     An unsupported format is the caller's mistake and names what IS supported;
     an unknown run is a 404 rather than an empty file, so "this run has no
-    stored data" can never be mistaken for "this scan recorded nothing".
+    stored data" can never be mistaken for "this run recorded nothing".
     """
     run_id = _S.run_live
     if run_id is None:
@@ -2115,7 +2115,7 @@ def test_9_security_document_plane_rejects_an_uncertified_publisher(stack: Queue
     The bridge's 0MQ Proxy binds with ``ServerCurve`` and a PINNED directory of
     accepted client public keys -- never ``CURVE_ALLOW_ANY`` -- which is what
     stops a container on ``osprey-network`` from injecting forged run documents
-    that would show up as a scan that never happened. Probed by publishing a
+    that would show up as a run that never happened. Probed by publishing a
     start/stop pair carrying a fabricated ``osprey_run_id`` from an
     unencrypted publisher and asserting the bridge never buffers it.
 

@@ -14,7 +14,7 @@ provenance/metadata, and that the browse-only surface around it is honest.
 SCOPE, deliberately narrowed: this file proves DISCOVERY, not execution.
 Execution has exactly one owner now -- ``tests/e2e/test_bluesky_queue_e2e.py``,
 which deploys the whole queue stack (queueserver + Redis + Tiled + the Virtual
-Accelerator) and drives real scans through arming, drain, abort and restart.
+Accelerator) and drives real plan runs through arming, drain, abort and restart.
 A facility-injected plan is a catalog entry like any other by the time it
 reaches the queue, so re-proving execution here would mean standing up a second
 VA-backed stack to re-test what that file already covers, at real wall-clock
@@ -307,8 +307,8 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     ``plan_loader.py`` scans it as a ``facility``-tier layer.
     """
     osprey_bin = _orm_stack.find_osprey_console_script()
-    base = tmp_path_factory.mktemp("scan_catalog_build")
-    plan_dir = tmp_path_factory.mktemp("scan_catalog_plans")
+    base = tmp_path_factory.mktemp("plan_catalog_build")
+    plan_dir = tmp_path_factory.mktemp("plan_catalog_plans")
     (plan_dir / "facility_probe.py").write_text(_FACILITY_PLAN_SOURCE, encoding="utf-8")
     # The deployment repo. Its directory name IS the deployment name, so the
     # image tag derived below (``proj-bluesky-bridge:local``) still holds.
@@ -478,12 +478,12 @@ def test_the_served_schemas_carry_the_declared_channel_roles(
     assert orm["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
         f"orm no longer declares its correctors movable over the wire: {orm['correctors']}"
     )
-    assert orm["bpms"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert orm["readbacks"][CHANNEL_ROLE_KEY] == READABLE_ROLE
 
     # grid_scan's movable is a field of the nested GridAxis model, which
     # pydantic emits under $defs and references from `axes.items`.
     grid = by_name["grid_scan"]["schema"]
-    assert grid["properties"]["readables"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert grid["properties"]["readbacks"][CHANNEL_ROLE_KEY] == READABLE_ROLE
     assert grid["$defs"]["GridAxis"]["properties"]["setpoint"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
         f"grid_scan's per-axis setpoint lost its movable role: {grid['$defs']['GridAxis']}"
     )
@@ -536,7 +536,7 @@ def test_preview_answers_in_one_shape_for_a_known_plan(deployed_catalog_stack: P
         "/plans/grid_scan/preview",
         "POST",
         {
-            "readables": ["BPM1"],
+            "readbacks": ["BPM1"],
             "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
         },
     )
@@ -592,7 +592,7 @@ def test_preview_reports_a_body_that_is_not_parameters_as_a_plan_error(
 # Replaces a launch->read round trip that used to run here on the removed
 # demo-runner knob. Execution -- for facility-tier plans as much as any other
 # -- now belongs to tests/e2e/test_bluesky_queue_e2e.py, which drives real
-# scans against a real queue server. What is left here is the half that is
+# plan runs against a real queue server. What is left here is the half that is
 # genuinely about the catalog: a discovered plan can be composed, and the
 # deployment tells the truth about what it will do with it.
 # ---------------------------------------------------------------------------

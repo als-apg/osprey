@@ -439,7 +439,7 @@ def _ensure_service_tokens(
 
     Minting is unconditional for every var a deployed service declares: these
     tokens authenticate *network callers* to a service's own HTTP boundary and
-    are not a hardware-safety layer. Whether a scan or a write is permitted is
+    are not a hardware-safety layer. Whether a plan or a write is permitted is
     decided at the connector (``writes_enabled`` plus the per-put channel
     limits), which every write path — agent-side and bridge-side alike — must
     still clear. No deploy-time value is read here for safety semantics.
@@ -964,14 +964,14 @@ def _refuse_invented_history(config: dict) -> None:
 
 
 def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
-    """Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
+    """Auto-configure the bluesky bridge's EPICS-substrate plan devices for a
     VA-backed Bluesky stack, making ``osprey up`` turn-key.
 
     Additive and non-breaking, mirroring ``_ensure_service_tokens``'s
     "existing value wins, append what's missing" convention: when the
     deployed project is a VA-backed Bluesky stack (BOTH ``"bluesky"`` and
     ``"virtual_accelerator"`` present in ``deployed_services``), derive
-    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` from
+    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_SETPOINTS``/``_READBACKS`` from
     the built project's own ``data/channel_limits.json`` (the canonical
     derivation lives in
     ``osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env``,
@@ -1025,7 +1025,7 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         _report_fact(
             "control_system.type is 'mock': this deployment is browse-only -- plans can "
             "be listed and composed but never executed. Skipping "
-            "BLUESKY_EPICS_SUBSTRATE auto-configuration (scan devices need an "
+            "BLUESKY_EPICS_SUBSTRATE auto-configuration (plan devices need an "
             "EPICS-like connector to speak Channel Access to). Flip it with "
             "`osprey set connector=virtual_accelerator` -- that pairing needs the "
             "archiver pointed at a real store, and on a mock-archiver profile the "
@@ -1043,9 +1043,9 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         derived = derive_substrate_env(project_dir)
     except Exception:
         logger.warning(
-            "Could not auto-configure bluesky bridge scan devices from %s "
+            "Could not auto-configure bluesky bridge plan devices from %s "
             "(derivation raised unexpectedly). Skipping BLUESKY_EPICS_SUBSTRATE "
-            "auto-configuration -- set BLUESKY_EPICS_MOTORS/_DETECTORS manually "
+            "auto-configuration -- set BLUESKY_EPICS_SETPOINTS/_READBACKS manually "
             "if you want the bridge to run in EPICS-substrate mode.",
             project_dir / "data" / "channel_limits.json",
             exc_info=True,
@@ -1053,10 +1053,10 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         return
     if not derived:
         logger.warning(
-            "Could not auto-configure bluesky bridge scan devices from %s "
+            "Could not auto-configure bluesky bridge plan devices from %s "
             "(missing, unreadable, or yields no SR correctors/BPMs). Skipping "
             "BLUESKY_EPICS_SUBSTRATE auto-configuration -- set "
-            "BLUESKY_EPICS_MOTORS/_DETECTORS manually if you want the bridge "
+            "BLUESKY_EPICS_SETPOINTS/_READBACKS manually if you want the bridge "
             "to run in EPICS-substrate mode.",
             project_dir / "data" / "channel_limits.json",
         )
@@ -1069,11 +1069,11 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
 
     _append_env_block(
         env_path,
-        "Auto-configured bluesky bridge scan devices (osprey deploy up)",
+        "Auto-configured bluesky bridge plan devices (osprey deploy up)",
         generated,
     )
     _report_fact(
-        "bluesky scan devices auto-configured → .env",
+        "bluesky plan devices auto-configured → .env",
         wrote=(
             ".env",
             f"{', '.join(generated)} from the project's channel_limits.json",
@@ -1185,7 +1185,7 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
         logger.warning(
             "Could not generate the bluesky document-plane CURVE certificates under %s. "
             "The stack will still come up, but the bridge will refuse to bind its "
-            "document proxy, so scans will report no live rows.",
+            "document proxy, so plan runs will report no live rows.",
             paths["bridge"].parent,
             exc_info=True,
         )
@@ -3299,7 +3299,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
       blank; it may not rewrite history.
 
     Failure here warns and returns rather than aborting the deploy. The logbook is
-    one panel among many, and a control room whose channels, scans and archive are
+    one panel among many, and a control room whose channels, plan runs and archive are
     all up should not be denied them because its search tab could not be
     provisioned — but the warning names the command that finishes the job, so the
     gap is never silent.
@@ -3712,12 +3712,12 @@ def _start_stack(
         config, minted_store_vars or set(), env_path or Path(".env"), reuse_stores=reuse_stores
     )
 
-    # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
+    # Auto-configure the bluesky bridge's EPICS-substrate plan devices for a
     # VA-backed Bluesky stack (additive; no-op unless both bluesky and
     # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
     _ensure_bluesky_substrate_env(config, env_path)
 
-    # Provision the bluesky scan stack's 0MQ key material before compose mounts
+    # Provision the bluesky plan stack's 0MQ key material before compose mounts
     # it: the RE manager's control-socket keypair into .env, and the document
     # plane's CURVE certificates into data/bluesky_curve/. Both are no-ops
     # without the bluesky service, and both are additive (existing material

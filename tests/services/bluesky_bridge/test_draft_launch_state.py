@@ -29,7 +29,7 @@ _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
-    "bpms": ["BPM1"],
+    "readbacks": ["BPM1"],
     "span_a": 1.0,
     "num": 3,
 }

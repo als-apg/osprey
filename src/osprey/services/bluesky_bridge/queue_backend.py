@@ -924,7 +924,7 @@ class QueueBackend:
                 reason=REASON_BROWSE_ONLY_CONNECTOR,
                 detail=(
                     "This deployment uses the mock connector, which cannot move hardware, "
-                    "so scan plans can be composed and validated but not executed. To "
+                    "so plans can be composed and validated but not executed. To "
                     f"execute plans, run `{FLIP_COMMAND}` and redeploy."
                 ),
             )
@@ -934,7 +934,7 @@ class QueueBackend:
                 can_execute=False,
                 reason=REASON_UNSUPPORTED_CONNECTOR,
                 detail=(
-                    f"The {connector_type!r} connector is not one the scan stack can execute "
+                    f"The {connector_type!r} connector is not one the plan stack can execute "
                     f"plans against. To execute plans, run `{FLIP_COMMAND}` and redeploy."
                 ),
             )

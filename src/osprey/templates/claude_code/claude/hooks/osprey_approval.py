@@ -800,7 +800,7 @@ def _describe_stop_run(tool_input: dict, config: dict) -> list[str]:
 
     This is the emergency halt for a plan already moving hardware, so the
     prompt has to be honest in BOTH directions. It is not a routine stop — the
-    remaining points are discarded and the hardware stays wherever the scan
+    remaining points are discarded and the hardware stays wherever the plan
     left it — and it is also not something to hesitate over when a machine
     needs stopping. Naming what is running is what lets the approver tell which
     situation they are in.
@@ -810,7 +810,7 @@ def _describe_stop_run(tool_input: dict, config: dict) -> list[str]:
     lines = [
         "⚠️  ABORTS THE PLAN THAT IS RUNNING NOW — this is the emergency stop, not a "
         "queue halt. The running plan's remaining points are discarded, the data "
-        "already collected is kept, and the hardware is left wherever the scan moved "
+        "already collected is kept, and the hardware is left wherever the plan moved "
         "it (an abort returns nothing to a starting position)."
     ]
     lines.extend(_queue_activity_lines(snapshot))

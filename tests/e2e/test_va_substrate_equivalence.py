@@ -106,8 +106,8 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
-# Device names wired into the bridge via BLUESKY_EPICS_MOTORS/_DETECTORS —
-# arbitrary, resolved against explicit PV addresses (see _write_scan_env
+# Device names wired into the bridge via BLUESKY_EPICS_SETPOINTS/_DETECTORS —
+# arbitrary, resolved against explicit PV addresses (see _write_substrate_env
 # below), never a preset naming convention.
 SCAN_MOTOR = "scan_motor"
 P3_DETECTOR = "p3_det"
@@ -243,7 +243,7 @@ def _select_sp_echo_pairs(channel_limits: dict[str, Any], count: int) -> list[tu
     return pairs[:count]
 
 
-def _write_scan_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
+def _write_substrate_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
     """Append task 4.2's contract env vars to the repo's ``.env`` -- BEFORE
     ``osprey up`` (the bridge/VA compose templates pass these through from the
     repo root's ``.env``, same mechanism as ``BLUESKY_LAUNCH_TOKEN``).
@@ -261,8 +261,8 @@ def _write_scan_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
         # config gates auto-minting off (see LAUNCH_TOKEN above).
         "BLUESKY_LAUNCH_TOKEN": LAUNCH_TOKEN,
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": f"{SCAN_MOTOR}={p4_sp}|{p4_rb}",
-        "BLUESKY_EPICS_DETECTORS": (
+        "BLUESKY_EPICS_SETPOINTS": f"{SCAN_MOTOR}={p4_sp}|{p4_rb}",
+        "BLUESKY_EPICS_READBACKS": (
             f"{P3_DETECTOR}={p3_rb},{P4_DETECTOR}={p4_rb},{P5_DETECTOR}={p5_rb}"
         ),
         "VA_STUCK_SETPOINTS": p5_sp,
@@ -366,7 +366,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     limits = _channel_limits(repo)
     sp3, sp4, sp5 = _select_sp_echo_pairs(limits, count=3)
     pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
-    _write_scan_env(repo, pairs)
+    _write_substrate_env(repo, pairs)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a
@@ -501,7 +501,7 @@ async def _run_scan(
 
     The three writes go through `_queue_drive`, the one copy of the queue flow.
     The poll stays here, and stays ``async``: P4 runs a host-side CA read
-    concurrently with the scan, so this module's loop must never be blocked
+    concurrently with the run, so this module's loop must never be blocked
     while a plan is under way.
     """
     token = _minted_token(repo)
@@ -714,15 +714,15 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     host_read = host["read_value"]
 
     # grid_scan is the catalog's minimal acquisition plan (`count` was dropped
-    # with the trust-tiered registry): step the p4 scan motor through a 2-point
-    # sweep and read the p3 detector at each point — the p3 pair itself is
+    # with the trust-tiered registry): step the p4 scan setpoint through a 2-point
+    # sweep and read the p3 readback at each point — the p3 pair itself is
     # never driven, so both rows sample the settled sp-echo value.
     m_sp, _ = deployed_stack.pairs["p4"]
     m_lo, m_hi = deployed_stack.bounds(m_sp)
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "readables": [P3_DETECTOR],
+            "readbacks": [P3_DETECTOR],
             "axes": [
                 {
                     "setpoint": SCAN_MOTOR,
@@ -735,7 +735,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
         deployed_stack.repo,
     )
     assert status_body.get("status") == "completed", (
-        f"P3 read-equivalence scan did not complete: {status_body}"
+        f"P3 read-equivalence run did not complete: {status_body}"
     )
 
     status, data = _get(f"/runs/{run_id}/data")
@@ -757,7 +757,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# P4: concurrent scan + read — the loop-affinity falsifier
+# P4: concurrent run + read — the loop-affinity falsifier
 # ---------------------------------------------------------------------------
 
 
@@ -777,7 +777,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         BRIDGE_URL,
         "grid_scan",
         {
-            "readables": [P4_DETECTOR],
+            "readbacks": [P4_DETECTOR],
             "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
         },
         client_id=_QUEUE_CLIENT_ID,
@@ -785,12 +785,12 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     _queue_drive.start_queue(BRIDGE_URL, token)
 
     # Launch the host read in its OWN process immediately after the start, before
-    # any polling sleep, so it genuinely overlaps the bridge's in-flight scan (a
-    # wrong-loop/dead-monitor connect on the bridge side would stall the scan;
+    # any polling sleep, so it genuinely overlaps the bridge's in-flight run (a
+    # wrong-loop/dead-monitor connect on the bridge side would stall the run;
     # see module docstring and task 2.1). Isolating it in a subprocess is what
     # keeps the libca CA-teardown assertion from ever recurring in this process
     # (see _va_host_ca_op.py). Even if subprocess connect latency lands the read
-    # after the scan settles, it still lands on a settled sp-echo step — which
+    # after the run settles, it still lands on a settled sp-echo step — which
     # the candidate set below accepts.
     read_proc = await asyncio.create_subprocess_exec(
         sys.executable,
@@ -813,7 +813,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
             if status_body.get("status") in _queue_drive.TERMINAL_STATUSES:
                 break
             await asyncio.sleep(0.2)
-        assert status_body.get("status") == "completed", f"P4 scan did not complete: {status_body}"
+        assert status_body.get("status") == "completed", f"P4 run did not complete: {status_body}"
 
         stdout_b, stderr_b = await asyncio.wait_for(
             read_proc.communicate(), timeout=HOST_CA_OP_TIMEOUT_SEC
@@ -851,7 +851,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     candidates = [0.0, *row_values]
     assert any(abs(concurrent_value - c) <= 1e-6 for c in candidates), (
         f"concurrent host read of {rb} ({concurrent_value}) matched neither the "
-        f"pristine default nor any scanned row {row_values}"
+        f"pristine default nor any row from the run {row_values}"
     )
 
 
@@ -893,14 +893,14 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     )
 
     # grid_scan replaces the dropped `count` builtin (see P3): drive the p4
-    # scan motor, never the stuck p5 pair, and read the frozen p5 readback at
+    # scan setpoint, never the stuck p5 pair, and read the frozen p5 readback at
     # each of the 2 grid points.
     m_sp, _ = deployed_stack.pairs["p4"]
     m_lo, m_hi = deployed_stack.bounds(m_sp)
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "readables": [P5_DETECTOR],
+            "readbacks": [P5_DETECTOR],
             "axes": [
                 {
                     "setpoint": SCAN_MOTOR,
@@ -913,7 +913,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         deployed_stack.repo,
     )
     assert status_body.get("status") == "completed", (
-        f"P5 divergence scan did not complete: {status_body}"
+        f"P5 divergence run did not complete: {status_body}"
     )
 
     status, data = _get(f"/runs/{run_id}/data")

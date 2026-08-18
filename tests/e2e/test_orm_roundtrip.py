@@ -1,7 +1,7 @@
 """Real-container ORM round-trip e2e (task 5.2 / PROPOSAL.md's headline
 Functionality criteria for FR1/FR2/FR10/FR11).
 
-Deploys the turn-key scan-stack config (task 4.3, ``tests/e2e/_orm_stack.py``
+Deploys the turn-key plan-stack config (task 4.3, ``tests/e2e/_orm_stack.py``
 -- the single source of this deploy shape, also reused by the agentic
 discovery e2e in 5.3/5.4), drives the real ``orm`` plan over the bridge's
 queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
@@ -13,7 +13,7 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       use -- agrees with the independent ``lattice/response.py`` model oracle
       (mirrors task 5.1's in-process cross-check, but over the deployed
       HTTP+container stack rather than a direct ``PhysicsBridge`` call).
-  (b) the scan reaches a terminal "completed" status within a bounded
+  (b) the run reaches a terminal "completed" status within a bounded
       timeout -- i.e. no corrector step ever hangs the bridge's
       ``ConnectorSettable.set()`` settle-wait (``devices/connector.py`` --
       the connector-mediated device layer replacing the old direct-CA
@@ -33,7 +33,7 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       and the figure it draws from there matches the one it drew live.
 
 No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/
-``VA_CORR_GAIN`` in the written ``.env`` -- see ``_orm_stack.write_scan_env``),
+``VA_CORR_GAIN`` in the written ``.env`` -- see ``_orm_stack.write_substrate_env``),
 so every BPM/corrector carries the identity error state
 (``PhysicsBridge.__init__``'s default). The measured/model
 agreement is therefore bounded only by AT numerical-solve reproducibility and
@@ -137,7 +137,7 @@ MIDFLIGHT_POLL_SEC = 0.5
 FIGURE_POLL_SEC = 1.0
 
 #: How long to wait for the run's FIRST recorded point. Much shorter than the
-#: whole scan on purpose: this wait is over as soon as one corrector has been
+#: whole run on purpose: this wait is over as soon as one corrector has been
 #: set and one bundle read, so a budget sized to the whole run would just be
 #: the corrector-hang timeout spent under a less informative message.
 MIDFLIGHT_TIMEOUT_SEC = 300.0
@@ -209,7 +209,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     bpms = _orm_stack.select_bpms(limits)
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -493,7 +493,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     bpms = deployed_orm_stack.bpms
     plan_args = {
         "correctors": list(correctors),
-        "bpms": list(bpms),
+        "readbacks": list(bpms),
         "span_a": SPAN_A,
         "num": NUM_POINTS,
     }
@@ -581,7 +581,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     # settle-wait forever -- so a non-"completed" status here, after the
     # deadline, IS the failure this proves absent, not merely a slow run.
     assert status_body.get("status") == "completed", (
-        f"orm scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s (status={status_body}) -- "
+        f"orm run did not complete within {SCAN_TIMEOUT_SEC:.0f}s (status={status_body}) -- "
         "a corrector step whose :RB never echoes its :SP (the FR10 echo regression) hangs "
         "exactly here, at the bridge's ConnectorSettable.set() settle-wait"
     )
@@ -689,12 +689,12 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
 
     columns = data["columns"]
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
-    measured = build_response_matrix(rows, correctors=list(correctors), bpms=list(bpms))
+    measured = build_response_matrix(rows, correctors=list(correctors), readbacks=list(bpms))
 
     # (a) matches the model oracle: the same symmetric-sweep currents the
     # deployed orm plan itself computes (plans_core/orm.py's build_plan), so
     # the model is driven identically to how the plan drove the real stack.
-    # The plan kicks each corrector about its own pre-scan working point; the
+    # The plan kicks each corrector about its own pre-run working point; the
     # VA's correctors idle at 0 A, so here those kicks ARE these absolute
     # currents and the model needs no offset of its own.
     step = (2 * SPAN_A) / (NUM_POINTS - 1)

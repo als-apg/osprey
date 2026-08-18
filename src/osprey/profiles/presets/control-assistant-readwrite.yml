@@ -24,7 +24,7 @@ deploy_services: false
 # UNION over the base, so these are added to the inherited builtin set.
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
-  - bluesky         # Plan authoring, the scan queue, and the run's live results
+  - bluesky         # Plan authoring, the plan queue, and the run's live results
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.

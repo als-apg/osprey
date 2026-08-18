@@ -539,7 +539,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 
 
 def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
-    """Wire the Bluesky scan-bridge feature into a built project.
+    """Wire the Bluesky bridge feature into a built project.
 
     1. Copy the bundled ``templates/services/bluesky/`` compose template into
        ``<project>/services/bluesky/``.
@@ -549,7 +549,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
 
     Simpler than ``_inject_dispatch``: no triggers file to resolve and no
     multi-instance worker loop — a project deploys exactly one bluesky-bridge
-    process. The ``scan`` MCP server itself is a separate, always-available
+    process. The ``bluesky`` MCP server itself is a separate, always-available
     framework server (see ``osprey.mcp_server.bluesky``); this step only wires
     the *deploy-time* container that server talks to over HTTP.
 
@@ -617,7 +617,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         yaml.dump(config, fh)
 
     # 3. Post-build hint.
-    logger.debug("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
+    logger.debug("  ✓ Injected Bluesky bridge (port %d)", bluesky.port)
     logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "

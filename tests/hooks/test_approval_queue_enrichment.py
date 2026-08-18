@@ -690,7 +690,7 @@ def test_stop_run_renders_the_abort_prompt_end_to_end(
         reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "stop_run"))
 
     assert "ABORTS THE PLAN THAT IS RUNNING NOW" in reason
-    assert "left wherever the scan moved it" in reason
+    assert "left wherever the plan moved it" in reason
 
 
 @pytest.mark.unit

@@ -191,8 +191,8 @@ skills:
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
-  - writing-bluesky-plans  # Write, check and queue a scan plan (needs the Bluesky server)
-  - operating-bluesky-plans  # Stage, queue and watch a scan (needs the Bluesky server)
+  - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
+  - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -214,7 +214,7 @@ web_panels:
   # instead, so the read-only login is built without them.
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
-# These three blocks give you a working scan setup with no real hardware: a
+# These three blocks give you a working plan setup with no real hardware: a
 # Bluesky bridge with a Tiled data catalog, a simulated accelerator that speaks
 # EPICS, and the web panels for both. Delete this section (and the bluesky
 # panel above) if you do not want it.
@@ -262,13 +262,13 @@ va_archiver:
 config:
   # Which control system to talk to. "virtual_accelerator" is the built-in
   # simulator and works out of the box; "epics" is real hardware; "mock" needs
-  # no containers but cannot complete a scan. `osprey set connector=epics`.
+  # no containers but cannot complete a plan. `osprey set connector=epics`.
   control_system.type: virtual_accelerator
   # Use the archive declared by `va_archiver:` above. Declaring the block does
   # not turn it on; without this line you would deploy a store and not read it.
   archiver.type: mongodb_archiver
   # Both servers are off by default in OSPREY. Turn them on so the agent can
-  # write and launch scan plans, and run read-only health checks.
+  # write and launch plans, and run read-only health checks.
   claude_code.servers.bluesky.enabled: true
   claude_code.servers.health.enabled: true
   # system.timezone: America/Los_Angeles
@@ -694,7 +694,7 @@ deploy_services: false
 # UNION over the base, so these are added to the inherited builtin set.
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
-  - bluesky         # Plan authoring, the scan queue, and the run's live results
+  - bluesky         # Plan authoring, the plan queue, and the run's live results
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
@@ -925,7 +925,7 @@ DISPATCH_WORKER_TOKEN=
 # such as the password on a database volume you already have.
 # EVENT_DISPATCHER_TOKEN=  # event_dispatcher, dispatch_worker — authenticates callers to the event-dispatcher API
 # DISPATCH_WORKER_TOKEN=  # event_dispatcher, dispatch_worker — authenticates the dispatch worker back to the dispatcher
-# BLUESKY_LAUNCH_TOKEN=  # bluesky — arms the Bluesky bridge's scan-launch endpoint
+# BLUESKY_LAUNCH_TOKEN=  # bluesky — arms the Bluesky bridge's plan-launch endpoint
 # BLUESKY_TILED_API_KEY=  # bluesky — the key the bridge presents to the co-deployed Tiled catalog
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)

@@ -215,8 +215,8 @@ control_system:
   # channel_limits.json changes the level, and only on single-channel tool writes.
   # A failed verification is not a hard stop: the channel_write MCP tool reports it
   # (verification.verified: false), osprey.runtime.write_channel discards it (a readback
-  # mismatch is logged at debug level only), and only write_channel_checked raises (scan
-  # plans, which write through the Bluesky bridge's connector-backed devices). A write
+  # mismatch is logged at debug level only), and only write_channel_checked raises (plans,
+  # which write through the Bluesky bridge's connector-backed devices). A write
   # the CA layer could not deliver at all - for example a PV that never connects -
   # sets success: false, which does raise from osprey.runtime.write_channel.
   write_verification:

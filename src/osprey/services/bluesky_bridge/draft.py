@@ -144,7 +144,7 @@ class LaunchRejected:
       launched, OR another caller's launch of it is in flight right now (a
       reservation held in `_launching`, see :func:`check_launchable`); the
       guard against a replayed or concurrent launch firing a duplicate
-      hardware scan. One code for both on purpose: the caller's remedy is
+      hardware run. One code for both on purpose: the caller's remedy is
       identical (edit the draft to bump the revision, or resync), and clients
       already branch on exactly two codes — the two situations differ only in
       wording of `detail`. A later `PATCH` bumps the revision and re-arms
@@ -169,7 +169,7 @@ class LaunchRejected:
 # `_last_launched_revision` lives alongside `_revision` under the same lock:
 # it is the revision most recently enqueued via `POST /queue/items` (0 = none
 # launched this process). `check_launchable` refuses to re-launch a revision
-# equal to it, so a replayed launch can't fire a second hardware scan; a
+# equal to it, so a replayed launch can't fire a second hardware run; a
 # `PATCH` that bumps `_revision` past it re-arms launch. Like `_revision` it
 # is monotonic in practice and never reset for real drafts — only `_clear()`
 # (test isolation) resets it.
@@ -363,7 +363,7 @@ async def check_launchable(draft_revision: int) -> LaunchSnapshot | LaunchReject
     (see :class:`LaunchRejected` for why) with in-flight-specific wording:
     without the reservation, two concurrent callers pinning the same
     revision could both pass (b) — neither has recorded yet — and each fire
-    a real hardware scan; the guard would only defeat sequential replays.
+    a real hardware run; the guard would only defeat sequential replays.
 
     Taking the snapshot, all three checks, and the reservation in the same
     critical section is what guarantees the caller launches exactly the

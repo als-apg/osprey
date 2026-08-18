@@ -33,7 +33,7 @@ KNOWN_MATRIX = np.array(
 )
 
 
-def _rows_for_matrix(matrix: np.ndarray, correctors: list[str], bpms: list[str]) -> list:
+def _rows_for_matrix(matrix: np.ndarray, correctors: list[str], readbacks: list[str]) -> list:
     """Synthetic ORM rows: one dict per (corrector, current) point, each
     carrying only the swept corrector's key (others are a different
     corrector's sweep and never appear in this row) plus every BPM reading --
@@ -44,7 +44,7 @@ def _rows_for_matrix(matrix: np.ndarray, correctors: list[str], bpms: list[str])
     for j, corrector in enumerate(correctors):
         for current in currents:
             row = {corrector: float(current)}
-            for i, bpm in enumerate(bpms):
+            for i, bpm in enumerate(readbacks):
                 row[bpm] = float(matrix[i, j] * current)
             rows.append(row)
     return rows
@@ -144,7 +144,7 @@ def test_matrix_on_empty_rows_is_all_zero() -> None:
 
 
 def _real_shape_rows(
-    matrix: np.ndarray, correctors: list[str], bpms: list[str], sweeps: list[np.ndarray]
+    matrix: np.ndarray, correctors: list[str], readbacks: list[str], sweeps: list[np.ndarray]
 ) -> list[dict]:
     """Rows shaped like a real `orm` plan run: every row carries EVERY
     corrector's key (idle ones at 0.0), not just the one being swept --
@@ -155,7 +155,7 @@ def _real_shape_rows(
         for current in sweeps[j]:
             row = dict.fromkeys(correctors, 0.0)
             row[corrector] = float(current)
-            for i, bpm in enumerate(bpms):
+            for i, bpm in enumerate(readbacks):
                 row[bpm] = float(matrix[i, j] * current)
             rows.append(row)
     return rows
@@ -179,7 +179,7 @@ def test_guard_is_quiet_on_a_real_shaped_symmetric_sweep() -> None:
 def _relative_shape_rows(
     matrix: np.ndarray,
     correctors: list[str],
-    bpms: list[str],
+    readbacks: list[str],
     kicks: np.ndarray,
     working_points: list[float],
 ) -> list[dict]:
@@ -193,20 +193,20 @@ def _relative_shape_rows(
     orbit those working points are already holding, so a fit that mistook the
     absolute setpoint for the kick would land on the wrong slope.
     """
-    base_orbit = np.linspace(-3e-4, 3e-4, len(bpms))
+    base_orbit = np.linspace(-3e-4, 3e-4, len(readbacks))
     rows = []
     for j, corrector in enumerate(correctors):
         for kick in kicks:
             row = {name: working_points[k] for k, name in enumerate(correctors)}
             row[corrector] = working_points[j] + float(kick)
-            for i, bpm in enumerate(bpms):
+            for i, bpm in enumerate(readbacks):
                 row[bpm] = float(base_orbit[i] + matrix[i, j] * kick)
             rows.append(row)
     return rows
 
 
 def test_guard_is_quiet_on_a_sweep_about_a_nonzero_working_point() -> None:
-    """The real plan sweeps each corrector about its own pre-scan working
+    """The real plan sweeps each corrector about its own pre-plan working
     point, so an idle corrector reads back that working point, not 0.0.
 
     The zero-leverage argument survives that intact — a sweep symmetric about

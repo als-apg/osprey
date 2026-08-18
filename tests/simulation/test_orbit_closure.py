@@ -3,7 +3,7 @@
 This is throwaway physics insurance: it locks down that ``at.find_orbit4``
 actually converges on the shared ring topology (not a given for a hand-ported
 lattice) and that a single corrector kick produces a bounded, sign-odd orbit
-response, before later phases build orbit-response-matrix scan plans on top
+response, before later phases build orbit-response-matrix plans on top
 of it.
 
 Elements are selected by pyAT element TYPE (``at.Corrector``, ``at.Monitor``),

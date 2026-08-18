@@ -32,8 +32,8 @@ const ORM_SCHEMA = {
       type: 'array',
       'x-widget': 'channel-list',
     },
-    detectors: {
-      description: 'BPM detector device names to read at every point.',
+    readbacks: {
+      description: 'BPM readback device names to read at every point.',
       items: { type: 'string' },
       minItems: 1,
       title: 'BPMs',
@@ -62,7 +62,7 @@ const ORM_SCHEMA = {
       'x-widget': 'segmented',
     },
   },
-  required: ['correctors', 'detectors', 'span_a', 'num'],
+  required: ['correctors', 'readbacks', 'span_a', 'num'],
   title: 'PARAMS',
   type: 'object',
 };
@@ -88,11 +88,11 @@ const GRID_SCAN_SCHEMA = {
     },
   },
   properties: {
-    detectors: {
+    readbacks: {
       description: 'Device names to read at each grid point.',
       items: { type: 'string' },
       minItems: 1,
-      title: 'Detectors',
+      title: 'Readbacks',
       type: 'array',
     },
     axes: {
@@ -109,7 +109,7 @@ const GRID_SCAN_SCHEMA = {
       type: 'boolean',
     },
   },
-  required: ['detectors', 'axes'],
+  required: ['readbacks', 'axes'],
   title: 'PARAMS',
   type: 'object',
 };
@@ -217,7 +217,7 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
 
   test('a layout option places fields into side-by-side rows', () => {
     renderSchemaForm(form, ORM_SCHEMA, {
-      layout: [['correctors', 'detectors'], ['span_a', 'num'], ['sweep']],
+      layout: [['correctors', 'readbacks'], ['span_a', 'num'], ['sweep']],
     });
     const rows = $$(form, '.form-row');
     expect(rows.length).toBe(3);
@@ -232,11 +232,11 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
 
   test('channel entries commit on Enter, split pasted lists, and collect as arrays', () => {
     const collect = renderSchemaForm(form, ORM_SCHEMA);
-    const [correctors, detectors] = $$(form, '.channel-list');
+    const [correctors, readbacks] = $$(form, '.channel-list');
 
     addChannel(correctors, 'HCM1');
     addChannel(correctors, 'HCM2, HCM3'); // comma-separated paste → two entries
-    addChannel(detectors, 'BPM1');
+    addChannel(readbacks, 'BPM1');
 
     expect($$(correctors, '.channel-item').length).toBe(3);
 
@@ -247,7 +247,7 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
 
     expect(collect()).toEqual({
       correctors: ['HCM1', 'HCM2', 'HCM3'],
-      detectors: ['BPM1'],
+      readbacks: ['BPM1'],
       span_a: 2.5,
       num: 7,
       // The segmented control always contributes; untouched, it is its default.
@@ -382,7 +382,7 @@ describe('grid_scan schema (axes table + toggle)', () => {
     expect(headCols).toEqual(['col-text', 'col-enum', 'col-bool']);
   });
 
-  test('collects detectors + nested axes rows + toggled snake_axes', () => {
+  test('collects readbacks + nested axes rows + toggled snake_axes', () => {
     const collect = renderSchemaForm(form, GRID_SCAN_SCHEMA);
 
     addChip($(form, '.chips'), 'BPM1');
@@ -407,7 +407,7 @@ describe('grid_scan schema (axes table + toggle)', () => {
     $(form, '.switch-input').checked = true;
 
     expect(collect()).toEqual({
-      detectors: ['BPM1'],
+      readbacks: ['BPM1'],
       axes: [
         { setpoint: 'QF1', start: -1.5, stop: 1.5, num_points: 11 },
         { setpoint: 'QD2', start: 0, stop: 2, num_points: 5 },
@@ -592,10 +592,10 @@ describe('applyValues (field registry / programmatic draft application)', () => 
   test('applies chip lists as a whole-value replacement', () => {
     const collect = renderSchemaForm(form, GRID_SCAN_SCHEMA);
     const nativeCount = countNativeEvents(form);
-    collect.applyValues({ detectors: ['BPM1', 'BPM2'] });
+    collect.applyValues({ readbacks: ['BPM1', 'BPM2'] });
     expect(nativeCount()).toBe(0);
     expect($$(form, '.chip').length).toBe(2);
-    expect(collect().detectors).toEqual(['BPM1', 'BPM2']);
+    expect(collect().readbacks).toEqual(['BPM1', 'BPM2']);
   });
 
   test('applies channel-list and segmented fields via the orm fixture', () => {
@@ -603,14 +603,14 @@ describe('applyValues (field registry / programmatic draft application)', () => 
     const nativeCount = countNativeEvents(form);
     collect.applyValues({
       correctors: ['HCM1', 'HCM2'],
-      detectors: ['BPM1'],
+      readbacks: ['BPM1'],
       sweep: 'monodirectional',
     });
     expect(nativeCount()).toBe(0);
 
-    const [correctors, detectors] = $$(form, '.channel-list');
+    const [correctors, readbacks] = $$(form, '.channel-list');
     expect($$(correctors, '.channel-item').length).toBe(2);
-    expect($$(detectors, '.channel-item').length).toBe(1);
+    expect($$(readbacks, '.channel-item').length).toBe(1);
 
     const options = $$(form, '.segmented-option');
     expect(options[0].getAttribute('aria-checked')).toBe('false');
@@ -618,7 +618,7 @@ describe('applyValues (field registry / programmatic draft application)', () => 
 
     expect(collect()).toEqual({
       correctors: ['HCM1', 'HCM2'],
-      detectors: ['BPM1'],
+      readbacks: ['BPM1'],
       sweep: 'monodirectional',
     });
   });
@@ -689,7 +689,7 @@ describe('applyValues (field registry / programmatic draft application)', () => 
   test('exposes a top-level field registry keyed by schema property name', () => {
     const collect = renderSchemaForm(form, ORM_SCHEMA);
     expect(Object.keys(collect.fields).sort()).toEqual(
-      ['correctors', 'detectors', 'num', 'span_a', 'sweep'].sort()
+      ['correctors', 'readbacks', 'num', 'span_a', 'sweep'].sort()
     );
     expect(typeof collect.fields.span_a.setValue).toBe('function');
     expect(collect.fields.span_a.el).toBeTruthy();

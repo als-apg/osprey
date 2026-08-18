@@ -93,7 +93,7 @@ def _bpm_axis_address(bpm: str, axis: str) -> str:
     return f"SR:DIAG:BPM:{device}:POSITION:{axis}"
 
 
-def _detector_key(bpm: str, axis: str) -> str:
+def _readback_key(bpm: str, axis: str) -> str:
     return f"{bpm}:{axis}"
 
 
@@ -131,7 +131,7 @@ def _measure_rows(
                 row = {c: (current if c == corrector else 0.0) for c in correctors}
                 for bpm in bpms:
                     for axis in _AXES:
-                        row[_detector_key(bpm, axis)] = by_axis[(bpm, axis)].value
+                        row[_readback_key(bpm, axis)] = by_axis[(bpm, axis)].value
                 rows.append(row)
         finally:
             bridge.on_setpoint(_sp_address(corrector), 0.0)
@@ -156,8 +156,8 @@ def _model_matrix(correctors: list[str], bpms: list[str], currents: list[float])
     failure can only mean the two code paths (bridge vs. oracle) disagree.
     """
     n_axes = len(_AXES)
-    detectors = [_detector_key(bpm, axis) for bpm in bpms for axis in _AXES]
-    matrix = np.zeros((len(detectors), len(correctors)))
+    readbacks = [_readback_key(bpm, axis) for bpm in bpms for axis in _AXES]
+    matrix = np.zeros((len(readbacks), len(correctors)))
     for j, corrector in enumerate(correctors):
         readings = [orbit_response(corrector, current) for current in currents]
         for i, bpm in enumerate(bpms):
@@ -171,11 +171,11 @@ def _model_matrix(correctors: list[str], bpms: list[str], currents: list[float])
 def test_measured_orm_matches_model_oracle_to_1e9_relative():
     """SC: measured ORM == lattice/response.py model oracle to <=1e-9 relative."""
     correctors, bpms = _corrector_and_bpm_names()
-    detectors = [_detector_key(bpm, axis) for bpm in bpms for axis in _AXES]
+    readbacks = [_readback_key(bpm, axis) for bpm in bpms for axis in _AXES]
 
     bridge = PhysicsBridge()
     rows = _measure_rows(bridge, correctors, bpms, SPAN_A, NUM_POINTS)
-    measured = build_response_matrix(rows, correctors, detectors)
+    measured = build_response_matrix(rows, correctors, readbacks)
     model = _model_matrix(correctors, bpms, _sweep_currents(SPAN_A, NUM_POINTS))
 
     nonzero = np.abs(model) > 1e-15
@@ -196,22 +196,22 @@ def test_seeded_bpm_offset_leaves_measured_orm_unchanged():
     """SC: a seeded BPM electrical offset leaves the measured ORM unchanged
     within the noise floor -- the ORM's structural blind spot (E5)."""
     correctors, bpms = _corrector_and_bpm_names()
-    detectors = [_detector_key(bpm, axis) for bpm in bpms for axis in _AXES]
+    readbacks = [_readback_key(bpm, axis) for bpm in bpms for axis in _AXES]
     offset_bpm = bpms[0]
 
     clean_bridge = PhysicsBridge()
     clean_rows = _measure_rows(clean_bridge, correctors, bpms, SPAN_A, NUM_POINTS)
-    clean_matrix = build_response_matrix(clean_rows, correctors, detectors)
+    clean_matrix = build_response_matrix(clean_rows, correctors, readbacks)
 
     offset_bridge = PhysicsBridge(bpm_errors={offset_bpm: {"offset_x": 50e-6, "offset_y": 30e-6}})
     offset_rows = _measure_rows(offset_bridge, correctors, bpms, SPAN_A, NUM_POINTS)
-    offset_matrix = build_response_matrix(offset_rows, correctors, detectors)
+    offset_matrix = build_response_matrix(offset_rows, correctors, readbacks)
 
     # Sanity: the offset actually perturbed the offset BPM's *readings* --
     # otherwise this test would vacuously pass by comparing two identical
     # matrices for the wrong reason.
-    clean_first_reading = clean_rows[0][_detector_key(offset_bpm, "X")]
-    offset_first_reading = offset_rows[0][_detector_key(offset_bpm, "X")]
+    clean_first_reading = clean_rows[0][_readback_key(offset_bpm, "X")]
+    offset_first_reading = offset_rows[0][_readback_key(offset_bpm, "X")]
     assert offset_first_reading == pytest.approx(clean_first_reading - 50e-6, abs=1e-12)
 
     delta = float(np.max(np.abs(offset_matrix - clean_matrix)))

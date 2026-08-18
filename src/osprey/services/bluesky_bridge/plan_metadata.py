@@ -1,4 +1,4 @@
-"""Authoring metadata for scan plans: the ``PlanMetadata`` model and its parser.
+"""Authoring metadata for plans: the ``PlanMetadata`` model and its parser.
 
 A plan module (built-in, preset, or facility-supplied) declares a module-level
 ``PLAN_METADATA`` dict describing itself to operators and to the agent's
@@ -31,7 +31,7 @@ class PlanMetadataError(ValueError):
 
 
 class PlanMetadata(BaseModel):
-    """Authoring-declared metadata for one scan plan, surfaced via `GET /plans`.
+    """Authoring-declared metadata for one plan, surfaced via `GET /plans`.
 
     Exactly three fields, all required: a plan lacking one is an authoring
     error to be rejected at load time, not a gap to paper over with a default.

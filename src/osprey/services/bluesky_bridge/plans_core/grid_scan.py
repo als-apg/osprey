@@ -6,7 +6,7 @@ set of channels over a rectangular grid, reading a set of channels at every
 grid point, wrapping ``bluesky.plans.grid_scan``.
 
 Device-agnostic: the movable ``axes[].setpoint`` channels and the
-``readables`` channels are resolved by string name against whatever
+``readbacks`` channels are resolved by string name against whatever
 ``devices`` dict the bridge passes in; nothing here names a facility PV or a
 fixed device set.
 
@@ -52,7 +52,7 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.grid_scan"
 PLAN_METADATA = {
     "name": "grid_scan",
     "description": (
-        "Move a rectangular grid of channels, reading all readable channels at "
+        "Move a rectangular grid of channels, reading all readback channels at "
         "every grid point (bluesky bp.grid_scan)."
     ),
     "writes": True,
@@ -72,12 +72,12 @@ class PARAMS(BaseModel):
     """Parameters for ``grid_scan``: one `GridAxis` per grid dimension.
 
     Steps each axis's movable channel over its own ``[start, stop]`` range in
-    ``num_points`` evenly-spaced steps, reading every channel in ``readables``
+    ``num_points`` evenly-spaced steps, reading every channel in ``readbacks``
     at each combination of axis positions (a rectangular grid of
     ``prod(num_points)`` total points).
     """
 
-    readables: ReadableChannels = Field(
+    readbacks: ReadableChannels = Field(
         ..., min_length=1, description="Channel names to read at each grid point."
     )
     axes: list[GridAxis] = Field(..., min_length=1, description="One entry per grid dimension.")
@@ -89,10 +89,10 @@ class PARAMS(BaseModel):
     def _setpoints_and_readables_disjoint(self) -> PARAMS:
         """Reject a channel named as both a moved setpoint and a read channel."""
         setpoints = {axis.setpoint for axis in self.axes}
-        overlap = setpoints & set(self.readables)
+        overlap = setpoints & set(self.readbacks)
         if overlap:
             raise ValueError(
-                f"setpoints and readables must be disjoint (overlap: {sorted(overlap)})"
+                f"setpoints and readbacks must be disjoint (overlap: {sorted(overlap)})"
             )
         return self
 
@@ -101,16 +101,16 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """Build the n-dimensional grid-scan generator.
 
     Mirrors the built-in ``grid_scan`` plan's (``plans.py``) idiom: resolves
-    each axis's movable channel and each readable channel by string name
+    each axis's movable channel and each readback channel by string name
     against ``devices`` and hands the flattened
     ``(device, start, stop, num_points)`` triples straight to ``bp.grid_scan``,
     which opens the run and stamps its own metadata.
     """
-    readables = [devices[name] for name in params.readables]
+    readbacks = [devices[name] for name in params.readbacks]
     args: list[Any] = []
     for axis in params.axes:
         args.extend([devices[axis.setpoint], axis.start, axis.stop, axis.num_points])
-    return bp.grid_scan(readables, *args, snake_axes=params.snake_axes)
+    return bp.grid_scan(readbacks, *args, snake_axes=params.snake_axes)
 
 
 # --- Rendering ---------------------------------------------------------------
@@ -196,7 +196,7 @@ def _grid_index(axis: GridAxis, value: float) -> int | None:
 
 
 def _format_number(value: float) -> str:
-    """A short, human-readable spelling of an axis position for a label."""
+    """A short, human-readback spelling of an axis position for a label."""
     return f"{value:g}"
 
 
@@ -225,7 +225,7 @@ def _lines_mark(series: list[Series]) -> LinesMark:
 
 
 def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
-    """One readable-versus-setpoint line panel per readable channel.
+    """One readback-versus-setpoint line panel per readback channel.
 
     ``snake_axes`` is a no-op with a single axis (there is no outer axis to
     snake against), so the sweep is one monotone pass and the panel is one line.
@@ -242,8 +242,8 @@ def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
         return []
 
     panels: list[Panel] = []
-    for readable in params.readables:
-        readable_column = resolve_column(readable, rows[0])
+    for readback in params.readbacks:
+        readable_column = resolve_column(readback, rows[0])
         if readable_column is None:
             continue
 
@@ -266,18 +266,18 @@ def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
 
         panels.append(
             Panel(
-                title=f"{readable} vs {axis.setpoint}",
+                title=f"{readback} vs {axis.setpoint}",
                 x_label=axis.setpoint,
-                y_label=readable,
+                y_label=readback,
                 annotations=annotations,
-                mark=_lines_mark([Series(label=readable, **kept._asdict())]),
+                mark=_lines_mark([Series(label=readback, **kept._asdict())]),
             )
         )
     return panels
 
 
 def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
-    """One heatmap panel per readable channel over the two-axis grid.
+    """One heatmap panel per readback channel over the two-axis grid.
 
     The inner (fast) axis runs along x and the outer (slow) axis along y, the
     orientation bluesky's own ``LiveGrid`` uses, so a snaked scan fills the
@@ -301,8 +301,8 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
     x_labels = [_format_number(inner.start + i * inner_step) for i in range(inner.num_points)]
 
     panels: list[Panel] = []
-    for readable in params.readables:
-        readable_column = resolve_column(readable, rows[0])
+    for readback in params.readbacks:
+        readable_column = resolve_column(readback, rows[0])
         if readable_column is None:
             continue
 
@@ -325,7 +325,7 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
 
         panels.append(
             Panel(
-                title=f"{readable} over the {outer.setpoint} × {inner.setpoint} grid",
+                title=f"{readback} over the {outer.setpoint} × {inner.setpoint} grid",
                 x_label=inner.setpoint,
                 y_label=outer.setpoint,
                 annotations=annotations,
@@ -333,7 +333,7 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
                     x_labels=x_labels,
                     y_labels=y_labels,
                     values=values,
-                    value_label=readable,
+                    value_label=readback,
                     source_points=len(cells),
                 ),
             )
@@ -354,7 +354,7 @@ def _combination_label(axes: list[GridAxis], indices: tuple[int, ...]) -> str:
 
 
 def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
-    """One panel per readable channel: lines along the innermost axis.
+    """One panel per readback channel: lines along the innermost axis.
 
     A 3-D grid has no honest single picture, so this draws the scan the way it
     was run -- one line per pass along the fast axis -- and names each line by
@@ -375,8 +375,8 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
     outer_columns = [column for column in resolved if column is not None]
 
     panels: list[Panel] = []
-    for readable in params.readables:
-        readable_column = resolve_column(readable, rows[0])
+    for readback in params.readbacks:
+        readable_column = resolve_column(readback, rows[0])
         if readable_column is None:
             continue
 
@@ -420,9 +420,9 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
 
         panels.append(
             Panel(
-                title=f"{readable} vs {inner.setpoint}",
+                title=f"{readback} vs {inner.setpoint}",
                 x_label=inner.setpoint,
-                y_label=readable,
+                y_label=readback,
                 annotations=annotations,
                 mark=_lines_mark(series),
             )
@@ -449,7 +449,7 @@ def render(window: RowWindow, params: PARAMS) -> Figure:
             comes from.
 
     Returns:
-        A `Figure` with one panel per readable channel, or no panels at all when the
+        A `Figure` with one panel per readback channel, or no panels at all when the
         rows carry nothing this plan can place on a grid. ``partial`` and
         ``source`` are placeholders: the figure route knows which store the
         rows came from and whether the run is still producing them, and stamps

@@ -339,7 +339,7 @@ def test_a_channel_whose_fit_raises_is_absent_beside_the_ones_that_worked(
 
 
 class _ScanParams(BaseModel):
-    """A one-movable scan, declared the way a plan author declares it."""
+    """A one-movable plan, declared the way a plan author declares it."""
 
     axis: MovableChannel = Field(...)
     monitors: ReadableChannels = Field(default_factory=list)

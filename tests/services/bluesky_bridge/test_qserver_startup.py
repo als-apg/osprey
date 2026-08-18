@@ -192,8 +192,8 @@ def test_no_substrate_env_builds_no_devices_and_does_not_raise() -> None:
 
 def test_substrate_off_ignores_a_populated_pv_list() -> None:
     env = {
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     assert asyncio.run(qserver_startup.build_devices(env=env)) == {}
 
@@ -212,8 +212,8 @@ def test_build_devices_builds_connector_mediated_devices_from_the_pv_lists() -> 
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
 
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
@@ -245,8 +245,8 @@ def test_address_named_devices_build_and_stay_visible_to_queueserver() -> None:
     bpm = "SR:DIAG:BPM:01:POSITION:X"
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": f"{setpoint}={setpoint}|{readback}",
-        "BLUESKY_EPICS_DETECTORS": f"{bpm}={bpm}",
+        "BLUESKY_EPICS_SETPOINTS": f"{setpoint}={setpoint}|{readback}",
+        "BLUESKY_EPICS_READBACKS": f"{bpm}={bpm}",
     }
 
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
@@ -269,7 +269,7 @@ def test_built_devices_read_through_the_connector() -> None:
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
 
@@ -580,8 +580,8 @@ def test_namespace_builds_devices_on_the_run_engine_loop_when_none_are_supplied(
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     monkeypatch.setattr(
         qserver_startup,
@@ -613,8 +613,8 @@ def test_queueserver_recognizes_every_plan_and_device_in_the_namespace(
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
     namespace = qserver_startup.build_namespace(
@@ -925,8 +925,8 @@ def _trajectory_namespace(
         qserver_startup.build_devices(
             env={
                 "BLUESKY_EPICS_SUBSTRATE": "1",
-                "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-                "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+                "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
+                "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
             },
             connector=connector,
         )

@@ -16,7 +16,7 @@ any other process that can reach the socket. It is not a secret the agent
 is unable to obtain — agent-authored Python runs on the host as the same
 user and can read the deploy ``.env`` or ``config.yml``'s
 ``bluesky.launch_token``. Treat the token as caller authentication, never as
-the thing that stops a scan from moving hardware.
+the thing that stops a plan from moving hardware.
 
 **Where the security boundary is.** The control-system connector. Every
 setpoint a running plan writes goes through
