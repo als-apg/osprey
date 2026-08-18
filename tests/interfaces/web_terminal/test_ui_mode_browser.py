@@ -168,14 +168,12 @@ def _open_hub_page(browser: Browser, base_url: str, query: str = "") -> Page:
 
     ``browser.new_page()`` mints a new browser context, so localStorage never
     leaks between tests.  The probe is registered before navigation; the page
-    then waits for the artifacts tab (async panel init done) and drops the
-    first-visit welcome overlay so header controls are interactable.
+    then waits for the artifacts tab (async panel init done).
     """
     page = browser.new_page()
     page.add_init_script(_MODE_LOG_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
-    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
     return page
 
 

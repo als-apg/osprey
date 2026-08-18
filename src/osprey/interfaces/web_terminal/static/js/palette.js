@@ -92,12 +92,6 @@ let currentQuery = '';
 let fetchSeq = 0;
 let closeSeq = 0;
 
-/** @returns {boolean} True when the first-visit welcome modal is present + visible. */
-function isWelcomeVisible() {
-  const w = document.getElementById('welcome-overlay');
-  return !!w && !w.classList.contains('hidden');
-}
-
 /**
  * Stable identity for an item across registry rebuilds (group + label). The
  * \x1f (unit separator) delimiter cannot occur in a group name or label, so
@@ -388,13 +382,10 @@ function restoreFocus() {
 }
 
 /**
- * Open the command palette. No-op (re-focuses input) if already open; a no-op
- * entirely if the welcome modal is present + visible (its any-Enter dismiss
- * handler would collide).
+ * Open the command palette. No-op (re-focuses input) if already open.
  * @param {OpenDeps} [deps]
  */
 export function openPalette(deps) {
-  if (isWelcomeVisible()) return;
   if (opened) {
     if (inputEl) inputEl.focus();
     return;

@@ -5,7 +5,7 @@
  *
  * maybeShowRailHint() shows a small dismissible callout anchored to the rail
  * region — at most once EVER (localStorage flag, deliberately not keyed to
- * the server session like the welcome modal). Suppressed when the flag is
+ * the server session). Suppressed when the flag is
  * set, the rail is already top, the page is embedded, or the rail region is
  * absent. "Move to top" flips the rail AND sets the flag; "Got it" just sets
  * the flag.

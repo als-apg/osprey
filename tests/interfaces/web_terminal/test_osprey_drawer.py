@@ -40,7 +40,6 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import re
-import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -87,7 +86,6 @@ RESIZE_HANDLE_SELECTOR = ".drawer-resize-handle"
 WARNING_PROCEED_SELECTOR = ".settings-warning-proceed"
 WARNING_CANCEL_SELECTOR = ".settings-warning-cancel"
 WARNING_OVERLAY_SELECTOR = ".settings-warning-overlay"
-WELCOME_OVERLAY_SELECTOR = "#welcome-overlay"
 
 VIEWPORT = {"width": 1280, "height": 800}
 
@@ -122,26 +120,8 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
 
 
 def _goto(page: Page, base_url: str) -> None:
-    """Navigate to the hub and dismiss the first-visit welcome banner.
-
-    ``app.js``'s ``initWelcomeModal()`` shows a full-screen overlay on every
-    fresh (no prior localStorage ack) session that otherwise intercepts every
-    click, including the display menu -- unrelated to the drawer itself, but
-    every test needs it out of the way first. Its Enter-to-dismiss keydown
-    listener is only attached after its own internal ``await fetchJSON('/health')``
-    resolves, so a single blind keypress races that attachment (it can lose,
-    especially once a test's own ``page.route`` adds latency to every
-    request) -- retry the press in a short bounded poll instead.
-    """
+    """Navigate to the hub."""
     page.goto(base_url, wait_until="domcontentloaded")
-    overlay = page.locator(WELCOME_OVERLAY_SELECTOR)
-    if overlay.count() == 0:
-        return
-    deadline = time.monotonic() + 5.0
-    while overlay.count() > 0 and time.monotonic() < deadline:
-        page.keyboard.press("Enter")
-        page.wait_for_timeout(100)
-    expect(overlay).to_have_count(0, timeout=5_000)
 
 
 def _click_settings_trigger(page: Page) -> None:

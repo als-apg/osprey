@@ -239,24 +239,3 @@ describe('concurrent config fetch', () => {
   });
 });
 
-describe('welcome-overlay guard', () => {
-  test('openPalette is a no-op when a visible #welcome-overlay exists', () => {
-    const welcome = document.createElement('div');
-    welcome.id = 'welcome-overlay';
-    document.body.appendChild(welcome);
-
-    openPalette(makeDeps());
-    expect(isOpen()).toBe(false);
-    expect(document.querySelector('.command-palette-overlay')).toBeNull();
-  });
-
-  test('a hidden welcome overlay does not block opening', () => {
-    const welcome = document.createElement('div');
-    welcome.id = 'welcome-overlay';
-    welcome.classList.add('hidden');
-    document.body.appendChild(welcome);
-
-    openPalette(makeDeps());
-    expect(isOpen()).toBe(true);
-  });
-});

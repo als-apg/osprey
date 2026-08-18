@@ -84,7 +84,6 @@ DISPLAY_MENU_BTN_SELECTOR = "#display-menu-btn"
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
 WARNING_PROCEED_SELECTOR = ".settings-warning-proceed"
-WELCOME_OVERLAY_SELECTOR = "#welcome-overlay"
 
 # rules/safety: a framework (never user-owned) artifact with front matter
 # that has no `model` field, so Edit mode falls to the plain-text editor
@@ -145,22 +144,8 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
 
 
 def _goto(page: Page, base_url: str) -> None:
-    """Navigate to the hub and dismiss the first-visit welcome banner.
-
-    See test_osprey_drawer.py's `_goto` docstring for the retry rationale
-    (the welcome modal's Enter-to-dismiss listener attaches only after its
-    own `/health` fetch resolves, so a single blind keypress can race it).
-    """
+    """Navigate to the hub."""
     page.goto(base_url, wait_until="domcontentloaded")
-    overlay = page.locator(WELCOME_OVERLAY_SELECTOR)
-    if overlay.count() == 0:
-        return
-    for _ in range(50):
-        if overlay.count() == 0:
-            break
-        page.keyboard.press("Enter")
-        page.wait_for_timeout(100)
-    expect(overlay).to_have_count(0, timeout=5_000)
 
 
 def _open_settings_drawer(page: Page) -> None:

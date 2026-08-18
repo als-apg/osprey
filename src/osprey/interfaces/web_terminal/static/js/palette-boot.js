@@ -20,7 +20,6 @@
  */
 
 import { restartTerminal, startTerminal } from './terminal.js';
-import { withPrefix } from './api.js';
 import {
   getHiddenPanels,
   getVisiblePanels,
@@ -87,9 +86,6 @@ function buildPaletteDeps() {
   actions.push({ label: 'Open Settings', run: () => { openDrawerTab('tab-config'); } });
   actions.push({ label: 'Open Memory gallery', run: () => { openDrawerTab('tab-memory'); } });
   actions.push({ label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } });
-  // New tab — a same-window navigation would tear down the PTY.
-  actions.push({ label: 'Open Safety reference', run: () => window.open(withPrefix('/static/safety.html'), '_blank', 'noopener') });
-
   // Logout only exists in multi-user deployments (the button is server-gated).
   if (document.getElementById('logout-btn')) {
     actions.push({ label: 'Log out', run: () => document.getElementById('logout-btn')?.click() });

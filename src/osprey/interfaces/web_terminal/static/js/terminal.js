@@ -15,8 +15,7 @@ let currentSessionId = null;
 
 // localStorage key for persisting the active PTY session ID across page
 // loads, so a kept-warm session survives a logout -> landing page ->
-// return round trip. Scoped to the terminal origin, same style as the
-// welcome-modal's 'osprey-server-session' key in app.js.
+// return round trip. Scoped to the terminal origin.
 const PTY_SESSION_STORAGE_KEY = 'osprey-pty-session';
 
 // A resume connection now gets a 'session_info' confirmation too —

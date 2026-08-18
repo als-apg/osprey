@@ -115,6 +115,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   filename on every row, and its long values wrap under their own bullet rather
   than running off the terminal. It now prints before the closing summary card,
   so a run ends on where to go rather than on what it wrote.
+- The web terminal no longer opens with a full-screen welcome banner. The
+  OSPREY wordmark now heads the landing page, and the safety guidelines live at
+  the bottom of that page instead of behind a link in a banner nobody sees
+  twice.
 
 - `osprey up` now writes the OpenObserve account name `ZO_ROOT_USER_EMAIL` into
   `.env` alongside the minted password, so both halves of the telemetry login

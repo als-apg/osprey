@@ -196,17 +196,6 @@ def _goto_with_seeded_theme(
     expect(page.locator(f'button[data-panel-id="{first_tab_id}"]')).to_be_attached(timeout=10_000)
 
 
-def _dismiss_welcome_modal(page: Page) -> None:
-    """Click through the first-visit welcome modal.
-
-    A fresh browser context + a fresh server session ID means this modal
-    shows every time; it's a full-viewport overlay that intercepts every
-    other click until dismissed. ``.click()`` auto-waits for the dismiss
-    button's staggered reveal animation to finish.
-    """
-    page.locator("#welcome-dismiss").click(timeout=15_000)
-
-
 def _flip_hub_theme(page: Page) -> None:
     """Flip the hub's light/dark appearance via the header display-menu popover.
 
@@ -306,7 +295,6 @@ def test_toggle_flips_theme_and_persists_across_reload(tmp_path, chromium_browse
         errors = _collect_sentinel_errors(page)
 
         _goto_with_seeded_theme(page, base_url, "dark")
-        _dismiss_welcome_modal(page)
         assert page.evaluate("document.documentElement.getAttribute('data-theme')") == "dark"
 
         _flip_hub_theme(page)
@@ -353,7 +341,6 @@ def test_auto_follows_os_preference_until_explicit_choice(tmp_path, chromium_bro
 
         # Make an explicit choice; theme-manager must not treat the
         # preference as 'auto', so a subsequent OS flip must be ignored.
-        _dismiss_welcome_modal(page)
         _flip_hub_theme(page)
         explicit_theme = page.evaluate("document.documentElement.getAttribute('data-theme')")
         assert explicit_theme in ("dark", "light")
@@ -398,7 +385,6 @@ def test_broadcast_reaches_embedded_iframe(tmp_path, chromium_browser):
             errors = _collect_sentinel_errors(page)
 
             _goto_with_seeded_theme(page, base_url, "dark")
-            _dismiss_welcome_modal(page)
 
             follower_tab = page.locator('button[data-panel-id="follower"]')
             expect(follower_tab).to_be_attached(timeout=10_000)
@@ -451,7 +437,6 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
             errors = _collect_sentinel_errors(page)
 
             _goto_with_seeded_theme(page, base_url, "dark")
-            _dismiss_welcome_modal(page)
 
             follower_tab = page.locator('button[data-panel-id="follower"]')
             expect(follower_tab).to_be_attached(timeout=10_000)
@@ -513,7 +498,6 @@ def test_xterm_palette_switches_on_toggle(tmp_path, chromium_browser):
         errors = _collect_sentinel_errors(page)
 
         _goto_with_seeded_theme(page, base_url, "dark")
-        _dismiss_welcome_modal(page)
         page.wait_for_selector(".xterm-viewport", timeout=10_000)
 
         def _viewport_bg() -> str:

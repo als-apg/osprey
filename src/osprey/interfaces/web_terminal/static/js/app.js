@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
 import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
-import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
+import { onConnectionStateChange, withPrefix } from './api.js';
 import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
@@ -19,17 +19,14 @@ import { followThemeFamily, getRailPosition, setRailPosition } from './rail-posi
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
-  // Welcome modal FIRST: #welcome-overlay ships in the DOM from first paint
-  // (opaque, full-viewport, z-index 10000) and only this init wires its
-  // dismiss controls. Any earlier throw would leave the page permanently
-  // covered with no way out — so the overlay must be dismissable before any
-  // fallible init runs. Self-contained: needs only the DOM and /health.
-  void initWelcomeModal();
   // Guarded: xterm.js loads from a CDN by default (local only in
   // OSPREY_OFFLINE), so a network blip must degrade the terminal card, not
   // kill the whole boot.
   try {
     initTerminal('terminal-container');
+    // The page opens straight onto the prompt, and nothing else claims focus
+    // at boot — so boot hands it to the terminal.
+    focusTerminal();
   } catch (err) {
     console.error('Failed to init terminal:', err);
   }
@@ -399,126 +396,6 @@ function initIframePasteBridge() {
       }
     });
   }
-}
-
-/* ---- Welcome Modal (terminal banner) ---- */
-
-async function initWelcomeModal() {
-  const overlay = document.getElementById('welcome-overlay');
-  if (!overlay) return;
-
-  // Check server session ID — show modal once per server instance
-  const STORAGE_KEY = 'osprey-server-session';
-  let version = '';
-  try {
-    const health = await fetchJSON('/health');
-    const serverSession = health.session_id;
-    version = health.version || '';
-    if (serverSession && localStorage.getItem(STORAGE_KEY) === serverSession) {
-      overlay.remove();
-      focusTerminal();
-      return;
-    }
-  } catch {
-    // Health endpoint unreachable — show modal to be safe
-  }
-
-  const pre = document.getElementById('welcome-ascii');
-  const btn = document.getElementById('welcome-dismiss');
-  if (!pre || !btn) return;
-
-  // Build subtitle: "Web Terminal" left, version right (58 chars inner width)
-  const leftText = 'Web Terminal';
-  const rightText = version ? `v${version}` : '';
-  const innerWidth = 58; // matches box width (no Unicode offset needed — plain text line)
-  const pad = 4; // padding from box edges
-  // Clamped: dev builds carry long post-release versions (`v2026.6.2.post1058+g….d…`)
-  // that overflow the box; a negative gap would make repeat() throw and leave the
-  // overlay undismissable. A too-wide line just overhangs the border harmlessly.
-  const gap = Math.max(1, innerWidth - pad - leftText.length - rightText.length - pad);
-  const versionLine = '    ║' + ' '.repeat(pad) + leftText + ' '.repeat(gap) + rightText + ' '.repeat(pad) + '║';
-
-  // ASCII banner — uses the original OSPREY CLI banner art
-  const lines = [
-    '    ╔══════════════════════════════════════════════════════════╗',
-    '    ║                                                          ║',
-    '    ║                                                          ║',
-    '    ║    ░█████╗░░██████╗██████╗░██████╗░███████╗██╗░░░██╗     ║',
-    '    ║    ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝╚██╗░██╔╝     ║',
-    '    ║    ██║░░██║╚█████╗░██████╔╝██████╔╝█████╗░░░╚████╔╝░     ║',
-    '    ║    ██║░░██║░╚═══██╗██╔═══╝░██╔══██╗██╔══╝░░░░╚██╔╝░░     ║',
-    '    ║    ╚█████╔╝██████╔╝██║░░░░░██║░░██║███████╗░░░██║░░░     ║',
-    '    ║    ░╚════╝░╚═════╝░╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░     ║',
-    '    ║                                                          ║',
-    versionLine,
-    '    ╚══════════════════════════════════════════════════════════╝',
-    '',
-    '        Experimental system. Proceed with caution.',
-    '',
-  ];
-
-  // Reveal lines one by one with staggered delay
-  const lineDelay = 35; // ms between lines
-  lines.forEach((line, i) => {
-    const span = document.createElement('span');
-    span.className = 'wl';
-    span.style.animationDelay = (i * lineDelay) + 'ms';
-
-    // Box content lines (║...║): split so the right border is pinned via flex
-    const trimmed = line.trimEnd();
-    if (trimmed.startsWith('    ║') && trimmed.endsWith('║') && !trimmed.startsWith('    ╔') && !trimmed.startsWith('    ╚')) {
-      span.classList.add('wl-box');
-      const lastBar = trimmed.lastIndexOf('║');
-      const left = document.createElement('span');
-      left.textContent = trimmed.substring(0, lastBar);
-      const right = document.createElement('span');
-      right.textContent = '║';
-      span.appendChild(left);
-      span.appendChild(right);
-      span.appendChild(document.createTextNode('\n'));
-    } else {
-      span.textContent = line + '\n';
-    }
-
-    pre.appendChild(span);
-  });
-
-  // Show the safety link + prompt after all lines have appeared
-  const safetyLink = document.getElementById('welcome-safety-link');
-  const promptDelay = lines.length * lineDelay + 200;
-  setTimeout(() => {
-    if (safetyLink) safetyLink.style.visibility = 'visible';
-    btn.style.visibility = 'visible';
-  }, promptDelay);
-
-  // Safety link always points to the local safety guidelines page
-
-  // Dismiss handlers
-  const dismiss = async () => {
-    // Store current server session ID so modal won't show again until restart
-    try {
-      const health = await fetchJSON('/health');
-      if (health.session_id) {
-        localStorage.setItem(STORAGE_KEY, health.session_id);
-      }
-    } catch { /* best effort */ }
-    overlay.classList.add('hidden');
-    setTimeout(() => {
-      overlay.remove();
-      focusTerminal();
-    }, 500);
-  };
-
-  btn.addEventListener('click', dismiss);
-
-  // Also dismiss on Enter key
-  document.addEventListener('keydown', function handler(e) {
-    if (e.key === 'Enter' && overlay.parentNode) {
-      e.preventDefault();
-      document.removeEventListener('keydown', handler);
-      dismiss();
-    }
-  });
 }
 
 /* ---- Keyboard Shortcuts ---- */
