@@ -326,7 +326,21 @@ def main():
     except Exception as e:
         from .output import fail
 
-        fail(str(e))
+        # Split at the first newline rather than handed over whole. What
+        # reaches here is overwhelmingly a refusal written for an operator to
+        # read -- the container-runtime checks are the loudest of them -- and
+        # those are a headline followed by the steps that fix it. `fail` paints
+        # its first argument in the error style and documents it as one line,
+        # so the undivided block prints as a red paragraph with a numbered list
+        # inside it. The headline stays the summary and the rest becomes the
+        # indented cause, which is the shape every deliberately-rendered
+        # refusal in the CLI already wears.
+        summary, _, cause = str(e).partition("\n")
+        if not summary.strip():
+            # A raise with no message at all. The type is the only thing left
+            # that says anything, and is what a bug report needs to name.
+            summary = type(e).__name__
+        fail(summary, cause.strip("\n") or None)
         sys.exit(1)
 
 

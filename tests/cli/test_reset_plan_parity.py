@@ -106,6 +106,22 @@ def runtime(target: Path, monkeypatch: pytest.MonkeyPatch) -> FakeRuntime:
     return fake
 
 
+@pytest.fixture(autouse=True)
+def container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Get ``init --reset`` past its up-front runtime check.
+
+    That check reads the real daemon on purpose — it is what stops the verb
+    from creating a repo it cannot finish — and it is upstream of the
+    ``_default_probe`` seam the ``runtime`` fixture injects at, so without this
+    the file's subject would depend on whether the host running it has Docker
+    open.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.runtime_helper.verify_runtime_is_running",
+        lambda config=None: (True, ""),
+    )
+
+
 @pytest.fixture
 def no_destruction(monkeypatch: pytest.MonkeyPatch) -> list[ResetPlan]:
     """Stub the removals, and record the plan each verb was about to run.

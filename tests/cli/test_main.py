@@ -3,6 +3,11 @@
 Tests the main CLI group and lazy command loading mechanism.
 """
 
+import importlib
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -329,3 +334,141 @@ class TestEdgeCases:
 
         assert result.exit_code == 0
         assert "Usage: cli health" in result.output
+
+
+def _console_script_target() -> tuple[str, str]:
+    """The ``module``, ``attribute`` the ``osprey`` console script is wired to.
+
+    Read out of ``pyproject.toml`` rather than out of installed metadata: the
+    metadata of an editable install is written once, at install time, so it
+    answers with the wiring of whenever the developer last ran `uv sync` and
+    would keep a fixed entry point looking broken (or a broken one looking
+    fixed). The manifest is what actually ships.
+    """
+    import tomllib
+
+    root = Path(__file__).resolve().parents[2]
+    with (root / "pyproject.toml").open("rb") as handle:
+        target = tomllib.load(handle)["project"]["scripts"]["osprey"]
+    module, _, attribute = target.partition(":")
+    return module, attribute
+
+
+class TestConsoleScriptWiring:
+    """What `osprey` on an operator's PATH actually calls.
+
+    :class:`TestMainFunction` above proves :func:`~osprey.cli.main.main`
+    handles a failure well. It cannot prove anything about whether that
+    function is reached: it imports the symbol directly, so it stayed green
+    through the entire period the console script was wired past it, straight to
+    the bare Click group. Every uncaught exception in every verb reached
+    operators as a traceback the whole time. These tests enter the CLI the way
+    the shell does — through whatever `[project.scripts]` names — so the wiring
+    is what is under test, not the handler alone.
+    """
+
+    def test_the_console_script_target_handles_an_uncaught_failure(self, capsys):
+        """The entry point is a handler, not the raw Click group.
+
+        Asserted on behavior rather than on the target's name so the pin is
+        about what an operator sees, not about which function happens to
+        provide it.
+        """
+        module, attribute = _console_script_target()
+
+        entry = getattr(importlib.import_module(module), attribute)
+        with mock.patch(f"{module}.cli", side_effect=RuntimeError("Docker is not running")):
+            with pytest.raises(SystemExit) as exc_info:
+                entry()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "✗" in captured.err
+        assert "Docker is not running" in captured.err
+
+    def test_the_console_script_target_handles_an_interrupt(self, capsys):
+        """Ctrl+C through the shipped entry point is a goodbye, not a stack."""
+        module, attribute = _console_script_target()
+
+        entry = getattr(importlib.import_module(module), attribute)
+        with mock.patch(f"{module}.cli", side_effect=KeyboardInterrupt()):
+            with pytest.raises(SystemExit) as exc_info:
+                entry()
+
+        assert exc_info.value.code == 130
+        assert "⚠" in capsys.readouterr().err
+
+    def test_a_verb_that_raises_prints_no_traceback(self):
+        """End to end, in the shape the console script runs: no stack, exit 1.
+
+        A subprocess because that is the only place the whole path exists at
+        once — the entry point resolved from the manifest, Click's own
+        dispatch, and the process exiting. The failing verb is injected rather
+        than borrowed from the real command set: the assertion is about what
+        the CLI does with an exception no one caught, and pinning it to a verb
+        that happens to raise today would make this test a hostage to that
+        verb's error handling improving.
+        """
+        module, attribute = _console_script_target()
+        program = textwrap.dedent(
+            f"""
+            import importlib
+            import sys
+            import click
+            from {module} import {attribute} as entry
+
+            main_module = importlib.import_module("osprey.cli.main")
+
+            @click.command("boom")
+            def boom():
+                raise RuntimeError("Container runtime installed but not running")
+
+            # LazyGroup resolves verbs from a fixed table and returns None for
+            # anything else, so the failing verb is spliced into that lookup.
+            original = main_module.LazyGroup.get_command
+            main_module.LazyGroup.get_command = (
+                lambda self, ctx, name: boom if name == "boom" else original(self, ctx, name)
+            )
+            sys.exit(entry())
+            """
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", program, "boom"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert "Traceback (most recent call last)" not in result.stderr
+        assert "Container runtime installed but not running" in result.stderr
+        assert result.returncode == 1
+
+    def test_a_multi_line_failure_keeps_its_headline_on_the_summary_line(self, capsys):
+        """A raised message with detail arrives as summary + indented cause.
+
+        Nearly every failure that reaches this handler is a refusal written for
+        an operator to read — the container-runtime checks are the loudest of
+        them — and those arrive as a headline followed by the steps that fix
+        it. :func:`osprey.cli.output.fail` documents its first argument as one
+        line and paints it in the error style, so handing it the whole block
+        prints a numbered list in red with no structure. The split is what
+        makes the last-resort path wear the same shape as the refusals the
+        verbs render deliberately.
+        """
+        module, attribute = _console_script_target()
+        message = (
+            "Docker Desktop is not running.\n"
+            "\n"
+            "To fix this:\n"
+            "1. Open Docker Desktop from Applications"
+        )
+
+        entry = getattr(importlib.import_module(module), attribute)
+        with mock.patch(f"{module}.cli", side_effect=RuntimeError(message)):
+            with pytest.raises(SystemExit):
+                entry()
+
+        lines = capsys.readouterr().err.splitlines()
+        assert lines[0] == "✗ Docker Desktop is not running."
+        assert "  To fix this:" in lines
+        assert "  1. Open Docker Desktop from Applications" in lines

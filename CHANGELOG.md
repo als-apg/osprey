@@ -39,6 +39,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   the store from the process running the CLI, not from the project's
   `build/.venv` — so a `dependencies:` entry in the build profile is visibly
   the wrong lever.
+- The `osprey` command no longer prints a Python traceback when something goes
+  wrong. Its console script was wired straight to the Click group, past the
+  handler that turns an error into a `✗` line with a cause and a remedy, so
+  every failure no verb caught reached the terminal as a stack trace ending in
+  installed-package paths. Affects every verb.
+- `osprey init --reset` and `osprey init --up` now check for a running
+  container runtime before they create anything. Both need one — `--reset` to
+  read what the previous deployment owns, `--up` to start the new one — but the
+  check ran after the repo had been written, git-initialized and committed, so
+  a stopped Docker left a repo behind that nobody asked for.
+- `osprey init --provider cborg` (and `--model`, `--connector`,
+  `--channel-finder-mode`) now say which spelling works — `--set
+  provider=cborg` — instead of suggesting the unrelated `--override`.
 - `osprey init --reset` no longer crashes with a Python traceback when the
   containers it would remove belong to another copy of this repo. `osprey
   reset` has always caught that refusal and rendered it; this path never did,

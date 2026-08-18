@@ -377,8 +377,11 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 
 # Define console scripts for CLI entry points
 [project.scripts]
-# Main CLI entry point (Click group with subcommands)
-osprey = "osprey.cli.main:cli"
+# Main CLI entry point. Points at `main`, NOT at the `cli` group it wraps:
+# `main` is where the last-resort handlers live, and an entry point naming the
+# bare group routes every uncaught exception past them into a traceback on an
+# operator's terminal. Pinned by tests/cli/test_main.py::TestConsoleScriptWiring.
+osprey = "osprey.cli.main:main"
 
 # Built-in trigger sources for the event dispatcher, discovered by
 # osprey.dispatch.source_registry.SourceRegistry at startup.
