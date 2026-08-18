@@ -194,6 +194,14 @@ channels. Four annotations from
 | `ReadableChannels` | `list[str]` | channels the plan records without driving |
 | `MovableChannel` | `str` | one driven channel, for a nested model |
 | `ReadableChannel` | `str` | one recorded channel, for a nested model |
+| `OptionalMovableChannel` | `str \| None` | one driven channel the operator may leave unset |
+| `OptionalReadableChannel` | `str \| None` | one recorded channel the operator may leave unset |
+
+**An optional channel takes the `Optional…` type, never `MovableChannel |
+None`.** Spelled as a union at the field site, the role silently vanishes
+(pydantic only reads an `Annotated` declaration when it is the outermost
+annotation), and a channel with no role gets no mock, no pre-enqueue check
+and no device at run time. An unset optional simply contributes no channel.
 
 A flat list of channels, the `orm` shape:
 

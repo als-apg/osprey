@@ -40,6 +40,8 @@ from osprey.services.bluesky_bridge.plan_fields import (
     READABLE_ROLE,
     MovableChannel,
     MovableChannels,
+    OptionalMovableChannel,
+    OptionalReadableChannel,
     ReadableChannel,
     ReadableChannels,
     channel_roles,
@@ -295,6 +297,48 @@ def test_channel_roles_reaches_roles_through_optional_and_mapping_fields() -> No
         ("one.probe", READABLE_ROLE),
         ("many[].probe", READABLE_ROLE),
     ]
+
+
+def test_optional_singles_declare_their_role_and_skip_an_unset_value() -> None:
+    """The optional singles carry the same role a required single carries, and
+    a ``None`` value simply contributes no channel -- the shape a plan with an
+    optional guard channel (set it and the run is gated, leave it unset and it
+    is not) depends on.
+    """
+
+    class _Guarded(BaseModel):
+        gate: OptionalReadableChannel = Field(default=None, title="Gate")
+        trim: OptionalMovableChannel = Field(default=None, title="Trim")
+
+    assert channel_roles(_Guarded) == [
+        ("gate", READABLE_ROLE),
+        ("trim", MOVABLE_ROLE),
+    ]
+    schema = _Guarded.model_json_schema()
+    assert schema["properties"]["gate"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert schema["properties"]["gate"]["title"] == "Gate"
+    assert collect_channels(_Guarded, {"gate": "SR:DCCT", "trim": None}, READABLE_ROLE) == [
+        "SR:DCCT"
+    ]
+    assert collect_channels(_Guarded, {"gate": None, "trim": None}, MOVABLE_ROLE) == []
+    assert collect_channels(_Guarded, {}, READABLE_ROLE) == []
+
+
+def test_a_union_spelled_at_the_field_site_is_no_declaration() -> None:
+    """Why the optional singles exist as their own types.
+
+    Pydantic lifts an ``Annotated`` declaration into the field's metadata only
+    when it is the outermost annotation, so ``ReadableChannel | None`` reads
+    back as *no role at all* -- silently, which for a channel field means no
+    mock, no pre-enqueue check and no device at run time. This pin is the
+    tripwire: if pydantic ever starts lifting union-inner metadata, the
+    optional types stop being load-bearing and this test says so.
+    """
+
+    class _UnionSpelling(BaseModel):
+        gate: ReadableChannel | None = Field(default=None)
+
+    assert channel_roles(_UnionSpelling) == []
 
 
 def test_channel_roles_terminates_on_a_self_referential_model() -> None:
