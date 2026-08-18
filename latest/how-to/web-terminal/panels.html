@@ -515,7 +515,7 @@ with the retro theme for a navy-and-teal terminal — see <a class="reference in
 <h2>Panels backed by a URL<a class="headerlink" href="#panels-backed-by-a-url" title="Link to this heading">#</a></h2>
 <p>An entry under <code class="docutils literal notranslate"><span class="pre">web.panels</span></code> can also declare a <strong>URL-backed panel</strong> — a tab
 that shows another web service inside the terminal. This is how the EVENTS
-dashboard and the Bluesky PLAN / BLUESKY tabs ship in the
+dashboard and the BLUESKY tab ship in the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset (a build that includes those stacks registers
 the entries for you):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
@@ -532,7 +532,7 @@ origin, so the browser never needs direct access to the backing port.</p>
 </section>
 <section id="the-bluesky-panel">
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
-<p>One tab covers a plan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-panels</span></code> sidecar.
+<p>One tab covers a plan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-web</span></code> sidecar.
 <strong>BLUESKY</strong> (<code class="docutils literal notranslate"><span class="pre">/bluesky/</span></code>) has three views, and the queue’s state — with
 <strong>Stop after current item</strong> and <strong>Abort running plan</strong> — stays on screen across
 all three:</p>
@@ -546,20 +546,6 @@ opens it under Results. <a class="reference internal" href="../bluesky/queue.htm
 do.</p>
 <p><strong>Results</strong> shows the selected run’s record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><strong>PLAN and RESULTS were separate tabs.</strong> RESULTS became BLUESKY when that
-bundle absorbed the queue, and PLAN then became BLUESKY’s Plans view. The
-sidecar still serves the same bundle at <code class="docutils literal notranslate"><span class="pre">/results/</span></code> and <code class="docutils literal notranslate"><span class="pre">/plan/</span></code> <strong>for
-one release</strong>, so existing bookmarks and panel entries keep resolving; the
-aliases go away after that, so drop any <code class="docutils literal notranslate"><span class="pre">web.panels.plan.*</span></code> entry of your
-own and move <code class="docutils literal notranslate"><span class="pre">web.panels.results.*</span></code> to <code class="docutils literal notranslate"><span class="pre">web.panels.bluesky.*</span></code>.</p>
-<p>In the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset both changes are already made. They
-change the preset’s resolved content, so an <strong>already-deployed project will
-report staleness</strong> on its next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. That advisory is
-correct rather than noise — unlike a cosmetic re-pin, this one changes the
-tabs a user sees — and the remedy is the rebuild the advisory prints.</p>
-</div>
 </section>
 <section id="adding-your-own-panel">
 <h2>Adding your own panel<a class="headerlink" href="#adding-your-own-panel" title="Link to this heading">#</a></h2>

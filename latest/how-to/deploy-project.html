@@ -516,7 +516,7 @@ copies source and configuration into a per-service build directory; <code class=
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset deploys a full stack out of the box:
 <code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>,
 <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> (with its co-deployed Tiled data server), <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>,
-<code class="docutils literal notranslate"><span class="pre">bluesky_panels</span></code>, and the multi-user web-terminal stack. Even the minimal
+<code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code>, and the multi-user web-terminal stack. Even the minimal
 <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys one service (<code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, for telemetry).
 You only need this page when you add or customize a containerized service.</p>
 </section>
@@ -874,9 +874,9 @@ default:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TILED_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_image</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>bluesky_panels</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_PANELS_IMAGE</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_panels.image</span></code></p></td>
+<tr class="row-even"><td><p>bluesky_web</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_WEB_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.image</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>virtual_accelerator</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
