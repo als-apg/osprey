@@ -13,6 +13,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- New `ariel.default_search_mode` setting names the search module that answers
+  when a caller asks for no mode — the web interface's opening tab, `osprey
+  ariel search` without `--mode`, and the service API. The shipped templates
+  set it to `hybrid`. A name that no enabled module matches is refused at
+  startup instead of being answered by a different mode; left unset, it
+  resolves to `hybrid` where that module is enabled and `keyword` elsewhere.
+
 - The `orbit_bump_sweep` plan can now assert bump closure at its monitor BPMs:
   an optional `leakage_tolerance` band judges every `readbacks` BPM against the
   reference orbit at each settled step, failing the run (or recording the miss
@@ -75,6 +82,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   a connection reset partway through a batch could fail the whole image even
   though retries were configured.
 
+- Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
+  first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.
+  Seeding skips the enhancement passes, so `hybrid` search previously searched
+  an index nothing had built and returned no hits — which reads as "the logbook
+  has nothing on that" rather than as a missing index.
 - Container builds now hand apt the proxy settings they were given. A facility
   proxy arrives as `HTTP_PROXY`/`HTTPS_PROXY`, which apt does not read, so on a
   network with no direct egress every image build stalled in its first package

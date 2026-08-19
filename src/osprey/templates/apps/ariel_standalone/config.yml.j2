@@ -272,6 +272,13 @@ ariel:
     adapter: generic_json
     source_url: data/logbook_seed/demo_logbook.json
 
+  # Which module answers a search that names no mode — the web interface's
+  # opening tab, `osprey ariel search` without `--mode`, and the service API.
+  # Naming a module that is not enabled below is refused at startup rather
+  # than quietly answered by a different one. Unset, this resolves to `hybrid`
+  # where that module is enabled and `keyword` everywhere else.
+  default_search_mode: hybrid
+
   # Search modules (leaf-level search functions)
   # Both keyword and semantic are enabled out of the box.
   # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
