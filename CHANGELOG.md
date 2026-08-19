@@ -9,16 +9,6 @@ Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
 the micro segment increments for hotfixes and same-month follow-up releases.
 Compatibility is documented in release notes, not encoded in the version string.
 
-### Changed
-
-- Logging out now starts where operators look for it: the chip in the web
-  terminal's top-left corner naming the terminal. Clicking it opens a small
-  session menu with the signed-in user and **Log out**. The display menu keeps
-  Settings and is about display again.
-
-- The multi-user landing page drops the drawn ASCII wordmark; the page
-  now shows the text OSPREY at every window width.
-
 ## [Unreleased]
 
 ### Added
@@ -114,6 +104,21 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - The multi-user landing page drops the drawn ASCII wordmark; the page
   now shows the text OSPREY at every window width.
+
+- Logging out now starts where operators look for it: the chip in the web
+  terminal's top-left corner naming the terminal. Clicking it opens a small
+  session menu with the signed-in user and **Log out**. The display menu keeps
+  Settings and is about display again.
+
+- The multi-user landing page drops the drawn ASCII wordmark; the page
+  now shows the text OSPREY at every window width.
+
+- The control assistant writes for the control room. Its answers now follow a
+  plain-language style: one idea per sentence, active voice naming the actor,
+  abbreviations expanded on first use, and no filler. Facility terms like
+  "abort" and "interlock" are kept exactly as the facility says them. The
+  rules are in `.claude/output-styles/control-operator.md`, so a facility can
+  claim that file and set its own house style.
 
 ### Fixed
 
