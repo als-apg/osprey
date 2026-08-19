@@ -164,6 +164,20 @@ control_system:
     database_path: "data/channel_limits.json"
     allow_unlisted_channels: true
 
+  # How much of an array channel comes back inline. Waveforms and camera frames
+  # can be far larger than the agent's context, so channel_read inlines an array
+  # only while it fits the budget below and saves anything larger as an artifact,
+  # reporting a summary plus a handle instead. Strings and scalars always inline.
+  # 2000 is the same inline budget the plotting path uses. One channel_read call
+  # inlines at most 4x that many elements in total across the channels asked for.
+  read_inline_max_elements: 2000
+  # Newest N UNPINNED read artifacts per channel are kept; older ones are pruned
+  # on save. Pinned entries are never pruned. 0 = keep everything.
+  channel_read_artifact_retention: 20
+  # Reading arrays over PVAccess (the `pva_channels` / `pva_gateway` keys under
+  # control_system.connector.epics) needs the EPICS connector, which this
+  # mock-only preset does not ship — the control-assistant preset shows it.
+
 # Archiver — historical channel data behind the archiver_read tool.
 # mock_archiver generates synthetic history, so "plot the beam current
 # over the last hour" works out of the box. A real deployment points

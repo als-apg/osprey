@@ -202,6 +202,10 @@ keys:
     evidence: 'get_config_value\("control_system\.write_verification\.default_level", "callback"\)'
   control_system.write_verification.default_tolerance_percent:
     evidence: 'default_tolerance_percent'
+  control_system.read_inline_max_elements:
+    evidence: '"control_system\.read_inline_max_elements"'
+  control_system.channel_read_artifact_retention:
+    evidence: '"control_system\.channel_read_artifact_retention"'
   control_system.connector: {covered-by: control_system}
   control_system.connector.mock: {covered-by: control_system.connector}
   control_system.connector.mock.simulation_file: {evidence: 'simulation_file'}
@@ -804,7 +808,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 273
+  expected_union_size: 275
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
