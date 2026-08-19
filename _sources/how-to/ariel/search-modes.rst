@@ -29,7 +29,7 @@ The service refuses a mode that is not registered, or is registered but disabled
 
 .. code-block:: bash
 
-   osprey ariel search "RF cavity fault"                  # default: keyword
+   osprey ariel search "RF cavity fault"                  # ariel.default_search_mode
    osprey ariel search "RF cavity fault" --mode keyword
    osprey ariel search "RF cavity fault" --mode semantic
    osprey ariel search "RF cavity fault" --mode hybrid
@@ -229,23 +229,42 @@ Modules may also export ``get_parameter_descriptors()`` to declare tunable param
    If you implement a search module that could benefit other facilities --- for example, a structured-metadata search, a time-series correlation search, or a cross-entry linking search --- we encourage you to open a pull request so it becomes natively available in Osprey.
 
 
-.. _semantic-mode-retirement:
+.. _choosing-semantic-or-hybrid:
 
-The Semantic Mode's Planned Retirement
-======================================
+Choosing Between Semantic and Hybrid
+====================================
 
-``hybrid`` covers what ``semantic`` covers and more: it is hybrid rather than
-vector-only, it needs no embedding provider and no pgvector extension, and it
-keeps its index in its own container instead of in the logbook database. The
-plan is therefore to retire the semantic leg once ``hybrid`` has been through a
-burn-in comparison against it in production.
+Both modes retrieve by meaning rather than by matching words, and a deployment
+can run either, both, or neither. They differ in what they depend on, what they
+cost per query, and how much of their ranking you can inspect.
 
-Nothing has been removed and no date has been set. ``semantic`` is fully
-supported in this release, and the burn-in is the gate --- if it does not show
-``hybrid`` matching or beating ``semantic`` on real queries, the semantic leg
-stays. Treat this as a direction to plan for, not a deprecation to act on: keep
-``semantic`` configured if you use it, and read the release notes before
-assuming otherwise.
+``hybrid`` is the stronger default for most deployments. It combines BM25 with
+vector search and an LLM reranker, and its models ship inside the qmd sidecar's
+image, so it needs no embedding provider on the host and no pgvector extension
+in the logbook database. It is also the mode the shipped templates set as
+``default_search_mode``.
+
+``semantic`` is worth keeping — or choosing — when any of the following applies:
+
+* **You want a stronger embedding model than the sidecar bakes in.** ``semantic``
+  takes its embeddings from a configured provider, so a facility with its own
+  inference endpoint can point it at a far larger model than the 300M embedder
+  qmd ships.
+* **You need the ranking to be inspectable.** ``semantic`` is cosine distance
+  over a pgvector column and nothing else --- no reranker, no query expansion.
+  Any result can be explained with a single SQL query, which matters where
+  retrieval has to be auditable.
+* **You want it composable with structured filters.** The embeddings live in
+  ``text_embeddings_*`` tables in the logbook database, so they join against
+  ordinary columns and are reachable from the ``sql_query`` tool. ``hybrid``
+  ranks a markdown mirror and post-filters instead.
+* **Query latency matters more than ranking quality.** Reranking dominates a
+  hybrid query's cost; a pure vector lookup is the fast path. (``hybrid`` can
+  also be run with ``rerank: false``.)
+
+Running both is a reasonable configuration: they are independent modules, and
+``default_search_mode`` decides only which one answers when the caller names no
+mode.
 
 
 Need behavior beyond these search modules --- multi-step reasoning, answer

@@ -508,7 +508,7 @@ ARIELSearchResult (entries, search_modes_used)
 </div>
 <p>The service refuses a mode that is not registered, or is registered but disabled in configuration, rather than quietly falling back to another one.</p>
 <p><strong>CLI usage:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w">                  </span><span class="c1"># default: keyword</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w">                  </span><span class="c1"># ariel.default_search_mode</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>keyword
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>semantic
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>hybrid
@@ -691,19 +691,37 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <p>If you implement a search module that could benefit other facilities — for example, a structured-metadata search, a time-series correlation search, or a cross-entry linking search — we encourage you to open a pull request so it becomes natively available in Osprey.</p>
 </div>
 </section>
-<section id="the-semantic-mode-s-planned-retirement">
-<span id="semantic-mode-retirement"></span><h3>The Semantic Mode’s Planned Retirement<a class="headerlink" href="#the-semantic-mode-s-planned-retirement" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> covers what <code class="docutils literal notranslate"><span class="pre">semantic</span></code> covers and more: it is hybrid rather than
-vector-only, it needs no embedding provider and no pgvector extension, and it
-keeps its index in its own container instead of in the logbook database. The
-plan is therefore to retire the semantic leg once <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> has been through a
-burn-in comparison against it in production.</p>
-<p>Nothing has been removed and no date has been set. <code class="docutils literal notranslate"><span class="pre">semantic</span></code> is fully
-supported in this release, and the burn-in is the gate — if it does not show
-<code class="docutils literal notranslate"><span class="pre">hybrid</span></code> matching or beating <code class="docutils literal notranslate"><span class="pre">semantic</span></code> on real queries, the semantic leg
-stays. Treat this as a direction to plan for, not a deprecation to act on: keep
-<code class="docutils literal notranslate"><span class="pre">semantic</span></code> configured if you use it, and read the release notes before
-assuming otherwise.</p>
+<section id="choosing-between-semantic-and-hybrid">
+<span id="choosing-semantic-or-hybrid"></span><h3>Choosing Between Semantic and Hybrid<a class="headerlink" href="#choosing-between-semantic-and-hybrid" title="Link to this heading">#</a></h3>
+<p>Both modes retrieve by meaning rather than by matching words, and a deployment
+can run either, both, or neither. They differ in what they depend on, what they
+cost per query, and how much of their ranking you can inspect.</p>
+<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> is the stronger default for most deployments. It combines BM25 with
+vector search and an LLM reranker, and its models ship inside the qmd sidecar’s
+image, so it needs no embedding provider on the host and no pgvector extension
+in the logbook database. It is also the mode the shipped templates set as
+<code class="docutils literal notranslate"><span class="pre">default_search_mode</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">semantic</span></code> is worth keeping — or choosing — when any of the following applies:</p>
+<ul class="simple">
+<li><p><strong>You want a stronger embedding model than the sidecar bakes in.</strong> <code class="docutils literal notranslate"><span class="pre">semantic</span></code>
+takes its embeddings from a configured provider, so a facility with its own
+inference endpoint can point it at a far larger model than the 300M embedder
+qmd ships.</p></li>
+<li><p><strong>You need the ranking to be inspectable.</strong> <code class="docutils literal notranslate"><span class="pre">semantic</span></code> is cosine distance
+over a pgvector column and nothing else — no reranker, no query expansion.
+Any result can be explained with a single SQL query, which matters where
+retrieval has to be auditable.</p></li>
+<li><p><strong>You want it composable with structured filters.</strong> The embeddings live in
+<code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables in the logbook database, so they join against
+ordinary columns and are reachable from the <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> tool. <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>
+ranks a markdown mirror and post-filters instead.</p></li>
+<li><p><strong>Query latency matters more than ranking quality.</strong> Reranking dominates a
+hybrid query’s cost; a pure vector lookup is the fast path. (<code class="docutils literal notranslate"><span class="pre">hybrid</span></code> can
+also be run with <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code>.)</p></li>
+</ul>
+<p>Running both is a reasonable configuration: they are independent modules, and
+<code class="docutils literal notranslate"><span class="pre">default_search_mode</span></code> decides only which one answers when the caller names no
+mode.</p>
 <p>Need behavior beyond these search modules — multi-step reasoning, answer
 synthesis, custom prompting? That lives in the Osprey agent layer; see
 <a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a> under “Extending the integration.”</p>
@@ -771,7 +789,7 @@ synthesis, custom prompting? That lives in the Osprey agent layer; see
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-architecture">Search Architecture</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#search-modules">Search Modules</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-semantic-mode-s-planned-retirement">The Semantic Mode’s Planned Retirement</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-between-semantic-and-hybrid">Choosing Between Semantic and Hybrid</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
 </ul>
 </li>

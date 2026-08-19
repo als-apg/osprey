@@ -983,7 +983,8 @@ Safe to run on every build; on a fresh database, runs a full ingest.</p>
 <p><code class="docutils literal notranslate"><span class="pre">enhance</span> <span class="pre">[--module</span> <span class="pre">NAME]</span> <span class="pre">[--force]</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Run enhancement modules.</p>
 <p><code class="docutils literal notranslate"><span class="pre">models</span></code> – List embedding models and tables.</p>
 <dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">QUERY</span> <span class="pre">[--mode</span> <span class="pre">keyword|semantic]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--json]</span></code></dt><dd><p>Execute a search query (default mode: <code class="docutils literal notranslate"><span class="pre">keyword</span></code>).</p>
+<dt><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">QUERY</span> <span class="pre">[--mode</span> <span class="pre">keyword|semantic|hybrid]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--json]</span></code></dt><dd><p>Execute a search query. Without <code class="docutils literal notranslate"><span class="pre">--mode</span></code>, the deployment’s
+<code class="docutils literal notranslate"><span class="pre">ariel.default_search_mode</span></code> decides.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span></code></dt><dd><p>Re-embed entries with a different model.</p>
 </dd>
