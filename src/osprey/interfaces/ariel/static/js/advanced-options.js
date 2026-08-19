@@ -48,6 +48,7 @@ import { escapeHtml } from '/design-system/js/dom.js';
  * @typedef {Object} Capabilities
  * @property {Object<string, AdvancedCategory>} categories
  * @property {AdvancedParam[]} [shared_parameters]
+ * @property {string} [default_mode]
  */
 
 // --- State ---
