@@ -362,7 +362,7 @@ design:
 1. **Hub chrome adopts `<osprey-display-menu>`.** `web_terminal`'s own
    popover (`web_terminal/static/js/display-menu.js` plus the
    `.display-menu-*`/`.display-seg-*`/`.display-family-*` rules in
-   `terminal.css:222-547`) is the original the shared component was factored
+   `terminal.css:85-410`) is the original the shared component was factored
    out of, and it stays the drift surface until the hub mounts the element.
    The two share a class vocabulary on purpose, so the swap is markup rather
    than a rename. Three things travel with that change, and one optional
@@ -371,7 +371,7 @@ design:
      own under the `osprey-display-menu` tag name; the hub's are bare class
      selectors, so on a page carrying both, the hub's rules bleed into the
      component. They have to go in the same change that mounts it.
-   - **Re-home the session footer.** `terminal.css:413-542` styles the hub's
+   - **Re-home the session footer.** `terminal.css:276-405` styles the hub's
      identity row, Settings entry and logout button. The shared component
      renders no identity and no logout — those are hub-only chrome — so that
      part of the block cannot simply be deleted along with the rest. Either
