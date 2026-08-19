@@ -8,6 +8,10 @@
  * - `embedded` — `"true"` marks the page as running inside a host frame; see
  *   {@link applyEmbedded}, which adds the `embedded` class to `document.body`
  *   when set.
+ * - `mode` — a one-shot Expert/Simple hint, resolved pre-paint by
+ *   mode-boot.js. It is not re-read here, but {@link stripQueryMode} drops it
+ *   from the URL once the operator makes an explicit choice, so a leftover
+ *   `?mode=` can't out-rank that choice on the next reload.
  * - `theme` — owned and read pre-paint by theme-boot.js / theme-manager.js.
  *   It is deliberately NOT read here: theme-boot.js is a non-module inline
  *   script that resolves and applies `data-theme` before first paint, so
@@ -20,7 +24,8 @@
  *
  * Note (decision OC-1): a generic `frameParam()` / `frameParams()` getter is
  * intentionally NOT provided here — that surface is deferred until a second
- * consumer actually needs it.
+ * consumer actually needs it. What this module does export are helpers for
+ * one named param each ({@link applyEmbedded}, {@link stripQueryMode}).
  *
  * Beyond query params, this module also owns the receive side of the host's
  * runtime `osprey-mode-change` postMessage broadcast — see
@@ -49,6 +54,26 @@ export function applyEmbedded() {
   if (embedded) {
     document.body.classList.add('embedded');
   }
+}
+
+/**
+ * Strip a one-shot `mode` param from the URL's query string, if present,
+ * without adding a history entry — the mode-axis twin of theme-manager's
+ * _stripQueryTheme(). Once the user makes an explicit choice, a leftover
+ * `?mode=` must not out-rank it (or localStorage) on the next reload. Other
+ * params and the hash are preserved.
+ *
+ * @returns {void}
+ */
+export function stripQueryMode() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('mode')) return;
+    params.delete('mode');
+    const query = params.toString();
+    const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', url);
+  } catch { /* non-browser environment or a blocked history API — non-fatal */ }
 }
 
 /**

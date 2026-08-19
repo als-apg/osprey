@@ -51,6 +51,7 @@ import {
   getTheme,
   setFamily,
   subscribe,
+  themeFamilies,
   toggleTheme,
 } from '/design-system/js/theme-manager.js';
 import { THEMES } from '/design-system/js/tokens.js';
@@ -68,23 +69,20 @@ const _themes = /** @type {ThemeEntry[]} */ (THEMES);
 // both pickers, which a second local derivation could not guarantee.
 export { familyLabel };
 
-/**
- * The available families, deduped, in THEMES declaration order — the same
- * order theme-manager.js's fallback resolution uses.
- * @returns {{id: string, label: string}[]}
- */
-export function themeFamilies() {
-  /** @type {Map<string, string>} */
-  const seen = new Map();
-  for (const theme of _themes) {
-    if (!seen.has(theme.family)) seen.set(theme.family, familyLabel(theme.family));
-  }
-  return Array.from(seen, ([id, label]) => ({ id, label }));
-}
+// The available families, deduped, in THEMES declaration order. Re-exported
+// from theme-manager.js for the same reason familyLabel is: it owns the single
+// implementation shared with <osprey-theme-switcher>, so the two pickers can
+// never offer a different set of families — or a different order — after a
+// token regeneration.
+export { themeFamilies };
 
 /**
  * The `mode` ('dark'|'light') of a concrete theme id, or null when `id` is
  * not a recognized theme (including `null` before initTheme() resolves one).
+ *
+ * Consolidating the three copies of this helper into theme-manager.js is
+ * tracked with the hub-adoption follow-up (see DESIGN.md).
+ *
  * @param {string|null} id
  * @returns {string|null}
  */

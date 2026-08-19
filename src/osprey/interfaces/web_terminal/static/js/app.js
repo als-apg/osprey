@@ -11,6 +11,7 @@ import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
+import { stripQueryMode } from '/design-system/js/frame-params.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
@@ -277,23 +278,6 @@ function isSafeLandingUrl(/** @type {string} */ url) {
   } catch {
     return false;
   }
-}
-
-/**
- * Strip a one-shot `mode` param from the URL's query string, if present,
- * without adding a history entry — the mode-axis twin of theme-manager's
- * _stripQueryTheme(). Once the user makes an explicit choice, a leftover
- * `?mode=` must not out-rank it (or localStorage) on the next reload.
- */
-function stripQueryMode() {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (!params.has('mode')) return;
-    params.delete('mode');
-    const query = params.toString();
-    const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
-    window.history.replaceState(window.history.state, '', url);
-  } catch { /* non-browser environment or a blocked history API — non-fatal */ }
 }
 
 /* ---- Drawer Trigger Highlight ---- */

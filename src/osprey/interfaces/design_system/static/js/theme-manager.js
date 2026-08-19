@@ -193,10 +193,11 @@ function _familyOf(id) {
  * ('high-contrast' -> 'High Contrast'). The declared label exists for families
  * whose id does not title-case correctly -- 'desy' -> 'DESY', not 'Desy'.
  *
- * The single implementation for every family picker in the fleet: both
- * web-terminal's display menu and <osprey-theme-switcher> import this rather
- * than deriving a label of their own, so a newly-labelled family can never
- * render one way in one picker and another way in the other.
+ * The single implementation for every family picker in the fleet: no picker
+ * derives a label of its own -- web-terminal's display menu imports this
+ * directly and <osprey-theme-switcher> gets it through `themeFamilies()`
+ * below -- so a newly-labelled family can never render one way in one picker
+ * and another way in the other.
  *
  * @param {string} family
  * @returns {string}
@@ -208,6 +209,30 @@ export function familyLabel(family) {
     .split('-')
     .map((word) => (word.length ? word[0].toUpperCase() + word.slice(1) : word))
     .join(' ');
+}
+
+/**
+ * The available families, deduped, in `THEMES` declaration order. As long as
+ * the generator emits the `DEFAULT_FAMILY` themes first (true of every
+ * catalog emitted so far), that fallback family is also the first entry --
+ * but that is a property of the declaration order, not a guarantee this
+ * function enforces.
+ *
+ * The single implementation for every family picker in the fleet, for the same
+ * reason `familyLabel` is: both web-terminal's display menu and
+ * <osprey-theme-switcher> import this rather than deduping `THEMES`
+ * themselves, so the two pickers can never offer a different set of families
+ * (or a different order) after a token regeneration.
+ *
+ * @returns {{id: string, label: string}[]}
+ */
+export function themeFamilies() {
+  /** @type {Map<string, string>} */
+  const seen = new Map();
+  for (const theme of _themes) {
+    if (!seen.has(theme.family)) seen.set(theme.family, familyLabel(theme.family));
+  }
+  return Array.from(seen, ([id, label]) => ({ id, label }));
 }
 
 function _prefersDarkOS() {
