@@ -32,9 +32,9 @@
  * plain underlying key, from whichever copy was executed.
  */
 
-import { fuzzyMatch } from './fuzzy.js';
 import { buildRegistry } from './palette-registry.js';
 import { fetchJSON } from './api.js';
+import { fuzzyMatch } from '/design-system/js/fuzzy.js';
 import { el } from '/design-system/js/dom.js';
 
 /** @typedef {import('./palette-registry.js').Item} Item */
