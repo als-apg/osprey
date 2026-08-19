@@ -98,7 +98,44 @@
            whereas everything on the right is something you can DO. It used to
            render as a second grey chip beside the user name, where the two read
            as a pair of unrelated badges. -->
-      {% if app_name %}<span class="header-deployment" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
+      {#- Where the deployment knows a user, this chip is the identity menu's
+          trigger: operators read the name in the corner as "who am I / where am
+          I" and reach for it to leave. It opens a popover holding the identity
+          and Log out. Without a user (single-user terminals) there is nothing
+          to open, so it stays the plain label it has always been.
+
+          The popover is rendered here rather than built on demand: `#logout-btn`
+          is looked up BY ID by app.js's initLogoutButton() and by
+          palette-boot.js's "Log out" command, so it has to be in the DOM while
+          the menu is closed. Hidden by CSS, not by absence. -#}
+      {% if terminal_user %}
+      <div class="header-identity">
+        <button class="header-deployment header-identity-trigger" id="header-identity-trigger"
+                type="button" aria-haspopup="true" aria-expanded="false"
+                aria-controls="header-identity-menu"
+                title="{{ app_name or terminal_user }} — session menu">
+          <span class="header-identity-label">{{ app_name or terminal_user }}</span>
+          <span class="header-identity-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="header-identity-menu" id="header-identity-menu" role="menu">
+          <div class="header-identity-who">
+            <span class="header-identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
+            <span class="header-identity-who-name">{{ terminal_user }}</span>
+            {% if app_name %}<span class="header-identity-who-sub">{{ app_name }}</span>{% endif %}
+          </div>
+          {#- Only the ACTION depends on landing_url. A user with nowhere to
+              return to is still identified: the who-line states a fact. -#}
+          {% if landing_url %}
+          <button class="header-identity-logout" id="logout-btn" type="button" role="menuitem"
+                  data-landing-url="{{ landing_url }}"
+                  title="Log out {{ terminal_user }} and return to the landing page"
+                  aria-label="Log out {{ terminal_user }} and return to the landing page">
+            <span class="header-identity-logout-icon" aria-hidden="true">&#128682;</span>Log out
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% elif app_name %}<span class="header-deployment" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
     </div>
     <div class="header-right">
       <div class="header-actions">
@@ -162,48 +199,21 @@
                 <!-- One pill per theme family, rendered by display-menu.js -->
               </div>
             </div>
-            <!-- Session footer: who you are, then the two actions this card
-                 offers on the terminal itself. Identity used to sit in a header
-                 chip of its own whose popover held Log out; with that action
-                 moved here, the chip would have been a popover wrapped around a
-                 static label, so the name folded in beside the action it
-                 qualifies. An operator on several terminals can still confirm
-                 WHICH deployment they are about to leave before they leave it.
+            <!-- Settings row. Identity and Log out used to sit here too; they
+                 moved to the header identity chip, because that is where
+                 operators actually reach for them — the name in the corner
+                 reads as "who am I", and clicking it to leave is the gesture
+                 people arrive with. This card is about display again.
 
-                 Rendered only when the server knows a user
-                 (OSPREY_TERMINAL_USER), i.e. multi-user deployments. -->
-            {% if terminal_user %}
-            <div class="display-menu-identity">
-              <span class="display-menu-identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
-              <span class="display-menu-identity-name">{{ terminal_user }}</span>
-              {% if app_name %}<span class="display-menu-identity-sub">{{ app_name }}</span>{% endif %}
-            </div>
-            {% endif %}
-            <!-- Both buttons keep the contracts they arrived with, so this is a
-                 placement change and nothing else: Settings keeps
-                 `data-drawer-trigger` (settings.js's warning gate is the sole
-                 open path; app.js mirrors `.active` onto it), and Log out keeps
-                 `#logout-btn` + `data-landing-url` (app.js's initLogoutButton()
-                 and palette-boot.js's "Log out" command both find it by id).
-
-                 A flex pair, not a 2-column grid: a single-user terminal renders
-                 no logout, and Settings should then fill the row rather than
-                 sit in half of it. Both are present in BOTH ui modes — the
-                 warning gate, not the mode, is what guards expert
-                 configuration. -->
+                 Settings keeps `data-drawer-trigger` (settings.js's warning gate
+                 is the sole open path; app.js mirrors `.active` onto it), and is
+                 present in BOTH ui modes — the warning gate, not the mode, is
+                 what guards expert configuration. -->
             <div class="display-menu-actions">
               <button class="display-menu-settings" id="display-menu-settings" type="button"
                       data-drawer-trigger="settings-drawer" title="Open system settings">
                 <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>Settings
               </button>
-              {% if terminal_user and landing_url %}
-              <button class="display-menu-logout" id="logout-btn" type="button"
-                      data-landing-url="{{ landing_url }}"
-                      title="Log out {{ terminal_user }} and return to the landing page"
-                      aria-label="Log out {{ terminal_user }} and return to the landing page">
-                <span class="display-menu-logout-icon" aria-hidden="true">&#128682;</span>Log out
-              </button>
-              {% endif %}
             </div>
           </div>
         </div>

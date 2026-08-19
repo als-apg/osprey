@@ -9,6 +9,16 @@ Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
 the micro segment increments for hotfixes and same-month follow-up releases.
 Compatibility is documented in release notes, not encoded in the version string.
 
+### Changed
+
+- Logging out now starts where operators look for it: the chip in the web
+  terminal's top-left corner naming the terminal. Clicking it opens a small
+  session menu with the signed-in user and **Log out**. The display menu keeps
+  Settings and is about display again.
+
+- The multi-user landing page drops the drawn ASCII wordmark; the page
+  now shows the text OSPREY at every window width.
+
 ## [Unreleased]
 
 ### Added
