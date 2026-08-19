@@ -127,6 +127,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   outline. It stays reachable either way: the strip opens the recent-activity
   history, which lives on the server and is there after a reload even when the
   strip itself is empty.
+- Channel suggestions in the Bluesky plan form are visible again. The popup
+  opened correctly but was drawn inside containers that clip their overflow for
+  rounded corners, so in a channel list it was cut to nothing and in a table
+  cell to a two-pixel sliver — most channel fields appeared to offer no
+  suggestions at all. It now floats above the form, and flips above the field
+  when there is no room below.
+- The arrow-key cursor in the channel suggestion popup is visible in the
+  `light` theme, where it previously took the same colour as the popup behind
+  it. Hover and the armed row are now told apart as well.
 - Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
   first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.
   Seeding skips the enhancement passes, so `hybrid` search previously searched
