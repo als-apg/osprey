@@ -165,7 +165,13 @@ keys:
       approval-governed tool (setup_patch) is covered by default_policy.
       See governed_sets.
   approval.tools.channel_write: {evidence: 'channel_write'}
-  approval.tools.channel_read: {evidence: 'channel_read'}
+  approval.tools.channel_read:
+    evidence: 'approval\.tools\.channel_read'
+    note: >-
+      Anchored on the settings-panel schema that serves this key rather than
+      on the bare word. `channel_read` names the MCP tool as well as the
+      policy, so the literal spread across enough modules to trip the
+      vacuity guard -- a match that no longer proved a reader existed.
   approval.tools.archiver_read: {evidence: 'archiver_read'}
   approval.tools.execute: {covered-by: approval.tools}
   approval.tools.setup_patch: {evidence: 'setup_patch'}
