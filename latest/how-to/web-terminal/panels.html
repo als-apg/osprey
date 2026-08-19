@@ -547,6 +547,39 @@ do.</p>
 <p><strong>Results</strong> shows the selected run’s record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.</p>
 </section>
+<section id="channel-suggestions-in-plan-forms">
+<h2>Channel suggestions in plan forms<a class="headerlink" href="#channel-suggestions-in-plan-forms" title="Link to this heading">#</a></h2>
+<p>A plan-form field that asks for a channel completes what you type: a popup
+lists matching channel names — substring matches first, looser fuzzy matches
+when those run dry. Arrow keys move through the list, <strong>Enter</strong> takes the
+highlighted name, <strong>Escape</strong> dismisses it. The suggestions only suggest — a
+name typed in full is accepted whether or not it appears in the list.</p>
+<p>The names come from the project’s Channel Finder catalog: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+writes a snapshot of it next to the generated config, and the panel reads
+that snapshot — no control-system traffic, and nothing to keep in sync at run
+time. A project with no channel database configured shows no suggestions and
+is otherwise unchanged.</p>
+<p>The feature is on by default, tuned under <code class="docutils literal notranslate"><span class="pre">web.channel_suggestions</span></code> in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">channel_suggestions</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">         </span><span class="c1"># the default</span>
+<span class="w">    </span><span class="nt">max_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50000</span><span class="w">   </span><span class="c1"># the default</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">max_channels</span></code> guards the browser, not the build: every panel load fetches
+the whole snapshot, so a database holding more channels than the limit is
+skipped instead of shipped — the build log names the limit it hit, and the
+form falls back to plain fields. Raise the limit to cover a larger facility,
+or set <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code> to turn the feature off and write no snapshot at
+all. A build profile overrides these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
+dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.channel_suggestions.max_channels:</span> <span class="pre">200000</span></code>.</p>
+<p>One staleness rule to know: editing a channel database inside the profile’s
+<code class="docutils literal notranslate"><span class="pre">data/</span></code> tree changes the build fingerprint, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses until
+you rebuild — the snapshot cannot silently go stale on that path. A database
+referenced from <em>outside</em> the profile tree is not fingerprinted; its snapshot
+refreshes only on the next explicit <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+</section>
 <section id="adding-your-own-panel">
 <h2>Adding your own panel<a class="headerlink" href="#adding-your-own-panel" title="Link to this heading">#</a></h2>
 <p>The easy path is the guided skill — a coding agent follows it to produce a
@@ -694,6 +727,7 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panel-rail-lives">Where the panel rail lives</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-layouts-presets">Panel layouts (“presets”)</a></li>
 </ul>
