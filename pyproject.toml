@@ -435,10 +435,18 @@ raw-options = { version_scheme = "post-release", git_describe_command = "git des
 version-file = "src/osprey/_version.py"
 
 [tool.hatch.build]
-# Never package benchmark results produced by running the channel-finder
-# benchmark from inside the template tree (untracked in git, but hatchling
-# packages the working tree — see the matching .gitignore entry).
-exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results"]
+# Directories a working tree can hold but a distribution must never carry.
+# Hatchling packages the working tree, so each entry here is half a pair: the
+# exclude keeps the files out of the sdist/wheel, a matching .gitignore entry
+# keeps them out of git. Add one, add the other — tests/cli/test_dockerfile_template.py
+# fails if the pair comes apart.
+#
+# - benchmarks/results: written by running the channel-finder benchmark from
+#   inside the packaged template tree.
+# - prefetched-models: GGUF model files staged on disk where the model host is
+#   unreachable, for the qmd sidecar to load over a read-only mount. Gigabytes
+#   each — unexcluded they turn a small wheel into an unusable one.
+exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results", "**/prefetched-models"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey"]

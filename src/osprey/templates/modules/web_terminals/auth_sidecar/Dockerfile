@@ -38,7 +38,8 @@ WORKDIR /app
 # broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
 # bounded apt retries with backoff so a transient network blip mid-build does
 # not fail the whole image.
-RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
@@ -56,7 +57,8 @@ RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
-RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && { pip install --no-cache-dir "osprey-framework==$OSPREY_VERSION" \

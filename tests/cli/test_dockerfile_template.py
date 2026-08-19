@@ -6,6 +6,8 @@
 - content invariants (base image, port, project path, the 3-ARG site
   extension contract),
 - the security-critical .dockerignore entries (secrets never enter the image),
+- the pairing between the repo's hatch exclude list and its .gitignore (what
+  must not ship has to be kept out of both),
 - that a Claude Code regeneration never touches the Dockerfile (it is
   rendered by `osprey build` and owned by the user in between), and
 - the anti-drift guard: every `osprey <cmd>` invocation inside the rendered
@@ -21,12 +23,14 @@ import pathlib
 import re
 import shlex
 import subprocess
+import tomllib
 
 import click
 import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
 
 # The site-extension contract: exactly these quoted build ARGs, with these
 # defaults. (CLAUDE_CLI_VERSION is rendered without quotes and is not captured.)
@@ -98,6 +102,85 @@ class TestDockerfileContent:
             text = (hello_project / name).read_text()
             assert "{{" not in text, f"unrendered Jinja in {name}"
             assert "{%" not in text, f"unrendered Jinja in {name}"
+
+    @classmethod
+    def _node_run_body(cls, text: str) -> str:
+        """The single apt RUN that installs Node."""
+        bodies = [b for b in cls._run_command_bodies(text) if "nodejs" in b]
+        assert len(bodies) == 1, f"expected exactly one node-install RUN, got {len(bodies)}"
+        return bodies[0]
+
+    def test_node_comes_from_the_base_image_distro(self, hello_project):
+        """Node and npm are Debian packages, installed in the same apt RUN as the
+        agent's shell tools — one package provenance, and no network beyond the
+        Debian mirror. The list is this image's own (curl/git/procps are runtime
+        tools the agent's shell reaches for); the dispatch image installs a
+        smaller one, so the two are deliberately not asserted as a shared list.
+        """
+        node = self._node_run_body((hello_project / "Dockerfile").read_text())
+        assert (
+            "apt-get install -y --no-install-recommends "
+            "curl git procps ca-certificates nodejs npm" in node
+        ), node
+        assert "rm -rf /var/lib/apt/lists/*" in node
+
+    def test_no_third_party_node_apt_repo(self, hello_project):
+        """No third-party apt repo, and none of the machinery one needs.
+
+        Fetching a vendor's setup script and piping it to a shell adds a second
+        package source to the image, a key to trust, and a network dependency
+        that fails the build wherever that host is unreachable. Asserted over
+        the whole file as an absence, because that is the shape of the
+        regression: any of these tokens reappearing means the pipeline came
+        back.
+        """
+        text = (hello_project / "Dockerfile").read_text()
+        for token in ("nodesource", "gnupg", "setup_20.x", "apt-key"):
+            assert token not in text, f"{token} is back in the Dockerfile — third-party Node repo"
+        node = self._node_run_body(text)
+        assert "| bash" not in node and "| sh" not in node, (
+            "the node layer pipes a downloaded script into a shell"
+        )
+
+    def test_npm_survives_into_the_final_image(self, hello_project):
+        """npm is a runtime dependency, not a build-time convenience.
+
+        The agent is launched as ``npx -y @anthropic-ai/claude-code@<version>``
+        (claude_launcher.py), so an apt cleanup that treats npm as build-only
+        breaks the agent at run time, not at build time. The reason is pinned
+        alongside the absence of any purge in this layer, so a future edit has
+        to confront it.
+        """
+        text = (hello_project / "Dockerfile").read_text()
+        node = self._node_run_body(text)
+        assert "apt-get purge" not in node, "the node layer purges packages"
+        assert "autoremove" not in node, "the node layer autoremoves packages"
+        assert "npm is a runtime dependency, not a build-time convenience" in text
+
+    def test_apt_runs_deliver_the_proxy_settings(self, hello_project):
+        """Every apt-using RUN hands apt the proxy settings before it fetches.
+
+        The rendered project image is the ninth recipe under the same rule as
+        the eight on-disk ones in
+        :mod:`tests.deployment.test_service_dockerfiles`; the idiom itself is
+        spelled once, in :mod:`tests.deployment._proxy_idiom`.
+        """
+        assert_apt_runs_carry_proxy_idiom(
+            (hello_project / "Dockerfile").read_text(), "rendered project template"
+        )
+
+    def test_cli_pin_is_its_own_layer(self, hello_project):
+        """The pinned CLI install stays a separate RUN from the apt layer, so
+        bumping ``CLAUDE_CLI_VERSION`` does not re-run apt."""
+        text = (hello_project / "Dockerfile").read_text()
+        cli_bodies = [
+            b
+            for b in self._run_command_bodies(text)
+            if "npm install -g" in b and "@anthropic-ai/claude-code" in b
+        ]
+        assert len(cli_bodies) == 1, f"expected exactly one CLI-install RUN, got {len(cli_bodies)}"
+        assert 'npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"' in cli_bodies[0]
+        assert "nodejs" not in cli_bodies[0], "the CLI pin shares a RUN with the apt install"
 
     @classmethod
     def _deps_run_body(cls, text: str) -> str:
@@ -436,6 +519,67 @@ class TestDockerignore:
         assert ".dockerignore" not in entries, (
             ".dockerignore must not self-exclude — the wheel-staging COPY relies on it"
         )
+
+    def test_staged_models_excluded(self, hello_project):
+        """Model files staged by hand are qmd build inputs, not image content.
+
+        Pinned with its ``**/`` prefix, which is the one deviation from the
+        root-anchored spelling the rest of the list uses: the staged directory
+        sits beside the qmd service's Dockerfile inside the render, so a
+        root-anchored pattern would name nothing and gigabytes of GGUF would
+        ride into the project image.
+        """
+        assert "**/prefetched-models/" in self._entries(hello_project)
+
+
+class TestPackagingExcludePairing:
+    """The hatch exclude list and .gitignore are one list, spelled twice.
+
+    Hatchling packages the working tree rather than what git tracks, so a
+    directory that must never ship needs both halves: the
+    ``[tool.hatch.build]`` exclude keeps it out of the sdist and wheel, the
+    ``.gitignore`` entry keeps it out of the repo. Either half alone leaves a
+    way in, and the failure is quiet at the moment it is introduced — a staged
+    model directory that was gitignored but not excluded produced a
+    multi-gigabyte wheel, and nothing said so until someone installed it.
+
+    Asserted as a pairing over the whole list rather than entry by entry, so a
+    future exclude added with no ``.gitignore`` sibling fails here too.
+    """
+
+    @staticmethod
+    def _repo_root() -> pathlib.Path:
+        return pathlib.Path(__file__).resolve().parents[2]
+
+    @classmethod
+    def _hatch_excludes(cls) -> list[str]:
+        with (cls._repo_root() / "pyproject.toml").open("rb") as handle:
+            return tomllib.load(handle)["tool"]["hatch"]["build"]["exclude"]
+
+    @classmethod
+    def _gitignore_entries(cls) -> set[str]:
+        text = (cls._repo_root() / ".gitignore").read_text(encoding="utf-8")
+        return {
+            line.strip().rstrip("/")
+            for line in text.splitlines()
+            if line.strip() and not line.startswith("#")
+        }
+
+    def test_every_hatch_exclude_is_gitignored(self):
+        # Compared with the trailing slash normalized away: .gitignore spells a
+        # directory `foo/` and hatch spells it `foo`, and the pairing is about
+        # the path, not the punctuation.
+        gitignored = self._gitignore_entries()
+        for pattern in self._hatch_excludes():
+            assert pattern.rstrip("/") in gitignored, (
+                f"{pattern} is excluded from the build but not gitignored — "
+                "add the matching .gitignore entry"
+            )
+
+    def test_staged_models_are_excluded_from_the_distribution(self):
+        """Named guard for the pair that motivated the rule."""
+        assert "**/prefetched-models" in self._hatch_excludes()
+        assert "**/prefetched-models" in self._gitignore_entries()
 
 
 class TestRegenOwnership:

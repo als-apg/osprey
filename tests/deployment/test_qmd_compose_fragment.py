@@ -9,23 +9,36 @@ so the agreement is asserted here rather than assumed, and both renders go
 through the production injection (``_inject_project_metadata``) so what is
 tested is the derivation a deploy actually uses.
 
-Three further properties carry the design and each has its own test:
+Four further properties carry the design and each has its own test:
 
 * **The published port is 8180, never 8181.** qmd's own daemon hardcodes
-  ``listen(port, "localhost")`` and binds ``[::1]`` only, so it is unreachable
-  from any other container; the entrypoint fronts it with a forwarder that owns
-  the routable port. Publishing 8181 would publish nothing.
+  ``listen(port, "localhost")`` — no ``--host`` flag, no env override — so it
+  answers only on a loopback address inside the container, unreachable from any
+  other container. Which loopback family that is depends on the host: Node
+  resolves ``localhost`` to ``[::1]`` on some image/host combinations and to
+  ``127.0.0.1`` on others. So the entrypoint runs the daemon on an internal
+  port, probes both families for ``/health``, and points a socat forwarder at
+  whichever one answered; the forwarder owns the published port. Publishing
+  8181 would publish nothing.
 * **The publish interface is project-wide.** ``deployment.bind_address``
   decides it, and a per-service ``bind_address`` is deliberately inert — the
   endpoint is unauthenticated, so it must not be possible to expose it on an
   interface the rest of the stack is not on.
 * **The index survives a recreate.** It is a named volume, not a bind and not
   container-local: rebuilding it costs ~41 minutes at ALS scale.
+* **Pre-staged models are two edits or none.** ``services.qmd.models_dir`` gates
+  a build arg (which tells the image build to skip the 2.1 GB of downloads) and
+  a read-only bind mount (which supplies those same files at runtime). One
+  without the other is the silent no-models failure: an image built with nothing
+  baked in and nothing mounted. The last two sections assert that the two sites
+  fire together, and that the literal strings they share with the image's
+  Dockerfile still agree with it.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 
 import pytest
@@ -112,6 +125,20 @@ def compose_service(**kwargs) -> dict:
     return yaml.safe_load(render_compose(**kwargs))["services"]["qmd"]
 
 
+def _packaged_text(rel_path: str) -> str:
+    """Read a packaged sidecar file that is NOT a template.
+
+    The Dockerfile and the entrypoint carry no Jinja — they are copied into the
+    build context verbatim — so the tests that pair the fragment with them read
+    the shipped bytes rather than a render.
+    """
+    from importlib import resources
+
+    import osprey
+
+    return resources.files(osprey).joinpath("templates", rel_path).read_text()
+
+
 #: The two corpora a fully-configured deployment mounts, as they appear in
 #: config. Spelled once so every test that needs "both corpora" agrees.
 BOTH_CORPORA = {
@@ -130,9 +157,10 @@ BOTH_CORPORA = {
 def test_publishes_8180_not_qmds_own_8181():
     """8180 is the forwarder's port; 8181 is the unreachable daemon's.
 
-    qmd binds IPv6 loopback only and offers no ``--host`` flag, so a fragment
-    that published 8181 would publish a port nothing outside the container's own
-    namespace can reach.
+    qmd binds a loopback address — whichever family the host resolves
+    ``localhost`` to — and offers no ``--host`` flag, so a fragment that
+    published 8181 would publish a port nothing outside the container's own
+    namespace can reach on either family.
     """
     service = compose_service()
 
@@ -544,3 +572,253 @@ def test_setup_build_dir_produces_both_of_the_sidecars_artifacts(tmp_path, monke
     assert index["collections"]["okf"]["path"] == "/corpus/okf"
     # The templates themselves must never land in a build context.
     assert not list(out.glob("*.j2"))
+
+
+# ---------------------------------------------------------------------------
+# Pre-staged models
+# ---------------------------------------------------------------------------
+
+#: A host directory of pre-staged GGUF files, as an operator would configure it.
+MODELS_DIR = "/srv/osprey/qmd-models"
+
+#: Where the image looks for them. Spelled here and checked against the
+#: Dockerfile's ``OSPREY_QMD_MODEL_DIR`` in the drift section below — compose
+#: cannot expand the image's own ENV, so the fragment has to carry the literal.
+MODELS_TARGET = "/opt/qmd/.cache/qmd/models"
+
+#: Build arg that tells the image build the models arrive at runtime. Same
+#: pairing: the name is a literal on both sides, drift-checked below.
+MODELS_BUILD_ARG = "OSPREY_QMD_MODELS_MOUNTED"
+
+
+def _build_args(service: dict) -> dict:
+    return service["build"]["args"]
+
+
+def _models_mounts(service: dict) -> list[str]:
+    return [v for v in service["volumes"] if MODELS_TARGET in v]
+
+
+def test_no_models_dir_renders_neither_the_build_arg_nor_the_mount():
+    service = compose_service()
+
+    assert MODELS_BUILD_ARG not in _build_args(service)
+    assert _models_mounts(service) == []
+
+
+def test_no_models_dir_leaves_the_fragment_exactly_as_it_was():
+    """The unset state is the default, so it has to render the pre-change shape.
+
+    Asserted as whole collections rather than as absences: an extra build arg or
+    an extra volume that happened not to mention the model directory would slip
+    past a negative check, and both are things a deployment acts on.
+    """
+    service = compose_service()
+
+    assert _build_args(service) == {"OSPREY_PROJECT_NAME": "demo"}
+    assert service["volumes"] == [
+        "qmd_index:/var/lib/qmd",
+        "./build/services/qmd/index.yml:/etc/qmd/index.yml:ro",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("qmd", "expected"),
+    [({}, False), ({"models_dir": MODELS_DIR}, True)],
+    ids=["unset", "set"],
+)
+def test_the_build_arg_and_the_mount_fire_together(qmd, expected):
+    """One config key drives both sites, and neither may render without the other.
+
+    The build arg alone builds an image with no models baked in and nothing
+    mounted to supply them; the mount alone mounts three files over models the
+    image already has. The first is the silent failure this pairing exists to
+    prevent — the container starts, finds no model, and tries to download one on
+    a host that was configured this way precisely because it cannot.
+    """
+    service = compose_service(qmd=qmd)
+
+    fired = (MODELS_BUILD_ARG in _build_args(service), bool(_models_mounts(service)))
+    assert fired == (expected, expected)
+
+
+def test_models_dir_mounts_the_staged_directory_read_only():
+    service = compose_service(qmd={"models_dir": MODELS_DIR})
+
+    assert _models_mounts(service) == [f"{MODELS_DIR}:{MODELS_TARGET}:ro"]
+
+
+def test_the_build_arg_is_truthy_only_and_carries_no_path():
+    """The Dockerfile tests it with ``-n``. The host path is a HOST path — it
+    means nothing inside the build, and passing it would bake an operator's
+    directory layout into the image for no reader."""
+    args = _build_args(compose_service(qmd={"models_dir": MODELS_DIR}))
+
+    assert args[MODELS_BUILD_ARG] == "1"
+    assert MODELS_DIR not in yaml.safe_dump(args)
+
+
+def test_the_mount_source_is_trimmed_like_the_schema_trims_it():
+    """The preflight checks the stripped path; a bind spec that kept the padding
+    would name a different directory than the one that was checked."""
+    service = compose_service(qmd={"models_dir": f"  {MODELS_DIR}  "})
+
+    assert _models_mounts(service) == [f"{MODELS_DIR}:{MODELS_TARGET}:ro"]
+
+
+def test_a_relative_models_dir_refuses_the_render():
+    """Rendering resolves the block through the schema, so a relative path is
+    refused here rather than mounted: the runtime would resolve it against the
+    compose project directory, not against the directory the operator meant."""
+    with pytest.raises(ValueError, match=r"services\.qmd\.models_dir"):
+        compose_service(qmd={"models_dir": "qmd-models"})
+
+
+def test_the_models_mount_precedes_the_corpus_mounts():
+    """Position is not cosmetic: the corpus mounts are emitted by a Jinja loop,
+    and a models mount rendered inside that loop would repeat per corpus."""
+    volumes = compose_service(qmd={"models_dir": MODELS_DIR}, **BOTH_CORPORA)["volumes"]
+
+    models = volumes.index(f"{MODELS_DIR}:{MODELS_TARGET}:ro")
+    corpora = [i for i, v in enumerate(volumes) if ":/corpus/" in v]
+    assert volumes.index("./build/services/qmd/index.yml:/etc/qmd/index.yml:ro") < models
+    assert models < min(corpora)
+
+
+def test_the_models_mount_survives_host_networking():
+    """The network axis suppresses ports and the network stanza. It must not
+    take an unrelated volume with it."""
+    service = yaml.safe_load(render_compose(qmd={"network": "host", "models_dir": MODELS_DIR}))[
+        "services"
+    ]["qmd"]
+
+    assert _models_mounts(service) == [f"{MODELS_DIR}:{MODELS_TARGET}:ro"]
+
+
+# ---------------------------------------------------------------------------
+# The fragment against the image it configures
+# ---------------------------------------------------------------------------
+# Two literal strings cross from the Dockerfile into the compose fragment — the
+# directory the models are mounted at and the name of the build arg that gates
+# the fetches. Neither can be expanded at render or at compose time: the ENV and
+# the ARG exist only inside the image, while `${...}` in a compose file expands
+# against the HOST environment, where both are unset. So they are spelled twice
+# on purpose, and held together here.
+
+
+def _dockerfile() -> str:
+    return _packaged_text("services/qmd/Dockerfile")
+
+
+def _entrypoint() -> str:
+    return _packaged_text("services/qmd/entrypoint.sh")
+
+
+def _dockerfile_env(name: str) -> str:
+    """The value of one ``ENV NAME=value`` assignment.
+
+    Matches the assignment at the start of a line (``ENV`` blocks continue with
+    a backslash, so most assignments carry no keyword of their own) and so does
+    not match a ``$NAME`` reference further along a ``RUN``.
+    """
+    match = re.search(rf"^[ \t]*(?:ENV[ \t]+)?{re.escape(name)}=(\S+)", _dockerfile(), re.MULTILINE)
+    assert match is not None, f"the Dockerfile no longer sets ENV {name}"
+    return match.group(1)
+
+
+def _dockerfile_arg_default(name: str) -> str:
+    match = re.search(rf"^ARG\s+{re.escape(name)}=(.*)$", _dockerfile(), re.MULTILINE)
+    assert match is not None, f"the Dockerfile no longer declares ARG {name}"
+    return match.group(1).strip().strip('"')
+
+
+def _dockerfile_label_pins() -> dict[str, str]:
+    """The ``com.osprey.qmd.<kind>_sha256`` label literals, by kind."""
+    return dict(re.findall(r'com\.osprey\.qmd\.([a-z]+)_sha256="([0-9a-f]{64})"', _dockerfile()))
+
+
+def test_the_mount_target_is_the_images_model_directory():
+    assert MODELS_TARGET == _dockerfile_env("OSPREY_QMD_MODEL_DIR")
+
+
+def test_the_build_arg_name_is_the_one_the_dockerfile_declares():
+    assert _dockerfile_arg_default(MODELS_BUILD_ARG) == ""
+
+
+def test_only_the_models_leaf_is_read_only_never_qmds_writable_cache():
+    """qmd owns the cache tree above the models directory and writes into it.
+    Mounting the tree read-only instead of the leaf would break the daemon on a
+    write it makes for reasons that have nothing to do with models."""
+    cache_home = _dockerfile_env("XDG_CACHE_HOME")
+    service = compose_service(qmd={"models_dir": MODELS_DIR})
+
+    assert MODELS_TARGET.startswith(f"{cache_home}/")
+    assert MODELS_TARGET != cache_home
+    assert [v for v in service["volumes"] if v.endswith(f":{cache_home}:ro")] == []
+
+
+def test_the_writable_state_directory_is_outside_the_model_tree():
+    """Everything the sidecar writes at runtime — the index, and the digest
+    stamp the model check records — lands in the named volume. If the state
+    directory sat under the model cache, the read-only mount would turn those
+    writes into EROFS on a container that is otherwise configured correctly."""
+    cache_home = _dockerfile_env("XDG_CACHE_HOME")
+    state_dir = compose_service()["environment"]["OSPREY_QMD_STATE_DIR"]
+
+    assert not state_dir.startswith(cache_home)
+    assert 'MODEL_STAMP="$STATE_DIR/' in _entrypoint()
+
+
+#: Every qmd subcommand the entrypoint is allowed to run. The exclusion that
+#: matters is ``pull``: it HEAD-checks the model registry, treats an unreachable
+#: registry as "stale", and DELETES the model files before failing to replace
+#: them — which against a read-only mount cannot even be undone by a rebuild of
+#: the index. The rest of the CLI resolves models from the cache and reads only.
+READ_ONLY_QMD_SUBCOMMANDS = {"update", "embed", "mcp", "status", "collection"}
+
+
+def test_the_entrypoint_runs_no_qmd_command_that_writes_to_the_model_cache():
+    """The read-only mount is the last line of defence, not the first.
+
+    A runtime write into the models leaf fails with EROFS and takes the sidecar
+    down; the same command against a *baked* image silently deletes the models
+    instead. So the check is on what the entrypoint invokes rather than on what
+    the mount permits.
+
+    Comment lines and quoted strings are stripped before the scan, because the
+    file talks about qmd as well as running it: the paragraph explaining why
+    ``qmd pull`` is never called must not read as a call, and neither must the
+    log line "qmd daemon exited".
+    """
+    body = "\n".join(
+        line for line in _entrypoint().splitlines() if not line.lstrip().startswith("#")
+    )
+    body = re.sub(r"\"[^\"]*\"|'[^']*'", " ", body)
+    invoked = set(re.findall(r"\bqmd ([a-z-]+)", body))
+
+    assert invoked <= READ_ONLY_QMD_SUBCOMMANDS, (
+        f"the entrypoint invokes qmd subcommands outside the read-only set: "
+        f"{sorted(invoked - READ_ONLY_QMD_SUBCOMMANDS)}. `qmd pull` in particular "
+        f"deletes model files it then cannot re-download."
+    )
+    # Not vacuous: the three phases each have to still be there.
+    assert {"update", "embed", "mcp"} <= invoked
+
+
+def test_the_label_pins_are_the_arg_defaults_verbatim():
+    """The labels are a deliberate second copy of the three SHA256 pins — CI
+    greps them out of this file before any build, to key the layer cache — so
+    they cannot reference the ARGs. This is what keeps the copy honest."""
+    pins = _dockerfile_label_pins()
+
+    assert set(pins) == {"embed", "rerank", "generate"}
+    assert pins == {
+        kind: _dockerfile_arg_default(f"OSPREY_QMD_{kind.upper()}_SHA256") for kind in pins
+    }
+
+
+def test_exactly_three_pin_labels_carry_a_bare_digest():
+    """CI's cache-key step fails unless it greps exactly three 64-hex label
+    literals out of the Dockerfile. A fourth — or a digest smuggled into
+    ``model_delivery`` — reds that step long after the edit that caused it."""
+    assert len(re.findall(r'com\.osprey\.qmd\.[a-z]+_sha256="[0-9a-f]{64}"', _dockerfile())) == 3

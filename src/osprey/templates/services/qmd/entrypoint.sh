@@ -17,6 +17,9 @@
 # The ordering is the safety property: nothing outside the container can reach
 # a half-built index, because the port that reaches it does not exist yet.
 #
+# Ahead of all three, the model files are checked against the digests this image
+# was built with -- see "model verification".
+#
 # POSIX sh on purpose -- this runs as PID 1 in a slim image and has no bash.
 set -eu
 
@@ -32,6 +35,19 @@ set -eu
 # the 2.1 GB of baked models.
 STATE_DIR="${OSPREY_QMD_STATE_DIR:-/var/lib/qmd}"
 
+# Where the three model files live, and how they got there ("baked" into the
+# image, or "mounted" from the host at runtime). Both come from the image; an
+# unset MODEL_DIR is an error rather than a guess, because guessing wrong here
+# would report every model as missing.
+MODEL_DIR="${OSPREY_QMD_MODEL_DIR:-}"
+MODEL_DELIVERY="${OSPREY_QMD_MODEL_DELIVERY:-baked}"
+
+# The names node-llama-cpp resolves an `hf:` URI to. A model under any other
+# name reads as absent, so these are exact, not conventional.
+MODEL_FILES="hf_ggml-org_embeddinggemma-300M-Q8_0.gguf
+hf_ggml-org_qwen3-reranker-0.6b-q8_0.gguf
+hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf"
+
 # Rendered collection config, mounted read-only by the deployment. Copied into
 # place on every start, so editing the deployment's config and restarting is
 # enough to change what gets indexed.
@@ -42,11 +58,12 @@ INDEX_CONFIG="${OSPREY_QMD_INDEX_CONFIG:-/etc/qmd/index.yml}"
 # supported here; use the rendered config for those.
 COLLECTIONS_SPEC="${OSPREY_QMD_COLLECTIONS:-}"
 
-# Port split. qmd hardcodes `httpServer.listen(port, "localhost")`, which
-# resolves to IPv6 loopback only -- there is no --host flag and no env
-# override, so the daemon is unreachable from outside its own network
-# namespace. INTERNAL_PORT is where the daemon actually listens; PORT is the
-# routable port the forwarder owns and clients connect to.
+# Port split. qmd hardcodes `httpServer.listen(port, "localhost")` -- there is
+# no --host flag and no env override -- so the daemon only ever answers on a
+# loopback address inside the container, and which family "localhost" resolves
+# to depends on the environment. Either way it is unreachable from outside its
+# own network namespace. INTERNAL_PORT is where the daemon actually listens;
+# PORT is the routable port the forwarder owns and clients connect to.
 PORT="${OSPREY_QMD_PORT:-8180}"
 INTERNAL_PORT="${OSPREY_QMD_INTERNAL_PORT:-8181}"
 
@@ -74,6 +91,7 @@ FORCE_REINDEX="${OSPREY_QMD_FORCE_REINDEX:-0}"
 CONFIG_FILE="$STATE_DIR/.qmd/index.yml"
 DB_FILE="$STATE_DIR/.qmd/index.sqlite"
 IDENTITY_STAMP="$STATE_DIR/.qmd/osprey-embed-identity"
+MODEL_STAMP="$STATE_DIR/.qmd/osprey-model-digests"
 
 QMD_PID=""
 SOCAT_PID=""
@@ -201,6 +219,89 @@ corpus_roots() {
             if (length($0) > 0) print
         }
     ' "$CONFIG_FILE"
+}
+
+# ── model verification ───────────────────────────────────────────────────────
+# Unconditional, for both delivery modes. qmd's own reaction to a model file it
+# cannot make sense of -- missing, truncated, or not the file the image expects
+# -- is to download a replacement, which stalls on a network with no route to
+# huggingface.co and cannot write into a read-only mount either way. Under the
+# compose healthcheck's hour-long start_period that failure is invisible: the
+# container just sits there. Checking first turns it into one loud refusal.
+#
+# It runs for baked images too, because the mismatches worth catching are the
+# ones the deployment cannot see: a `mounted` image whose bind mount was removed
+# again, a stale image left behind by a toggled build, or a prebuilt image
+# substituted through OSPREY_QMD_IMAGE that baked different models.
+
+# The digest this image expects for one model file.
+expected_digest() {
+    case "$1" in
+        *embeddinggemma*) printf '%s' "${OSPREY_QMD_EMBED_SHA256:-}" ;;
+        *reranker*) printf '%s' "${OSPREY_QMD_RERANK_SHA256:-}" ;;
+        *query-expansion*) printf '%s' "${OSPREY_QMD_GENERATE_SHA256:-}" ;;
+    esac
+}
+
+# Refuse to start, saying what is wrong with which file and what to do about it.
+model_refusal() {
+    # No half-written stamp left behind in the state volume.
+    rm -f "$MODEL_STAMP.new"
+    log "FATAL: model file '$1' cannot be used: $2"
+    log "  Not starting qmd: it would read this model as absent and try to"
+    log "  download a replacement, which is exactly what this deployment cannot"
+    log "  do. Stage all three model files in $MODEL_DIR, named exactly:"
+    for _mr_name in $MODEL_FILES; do
+        log "    $_mr_name"
+    done
+    if [ "$MODEL_DELIVERY" = mounted ]; then
+        log "  This image expects the models at runtime, so stage them under those"
+        log "  names in the host directory bind-mounted at $MODEL_DIR."
+    else
+        log "  This image baked its models in, so seeing this means the image is"
+        log "  stale or a substituted one carries different models; rebuild the"
+        log "  qmd service image."
+    fi
+    exit 1
+}
+
+# Compare every model against its baked-in digest before the startup pass.
+#
+# Hashing 2.1 GB costs about half a minute, which is fine once and wasteful on
+# every restart -- so a stamp file in the state volume records `name size mtime
+# sha256` per verified file, and a file whose size and mtime are unchanged is
+# accepted from it. The recorded digest is still compared against the expected
+# one, so an image that changes a pin without changing the file is caught.
+verify_models() {
+    [ -n "$MODEL_DIR" ] || die "OSPREY_QMD_MODEL_DIR is unset; cannot tell where the models should be"
+
+    _vm_new="$MODEL_STAMP.new"
+    : > "$_vm_new"
+
+    for _vm_name in $MODEL_FILES; do
+        _vm_path="$MODEL_DIR/$_vm_name"
+        _vm_want=$(expected_digest "$_vm_name")
+        [ -n "$_vm_want" ] || model_refusal "$_vm_name" \
+            "this image records no expected SHA256 for it"
+        _vm_size=$(stat -c %s "$_vm_path" 2>/dev/null || printf '')
+        [ -n "$_vm_size" ] || model_refusal "$_vm_name" "no such file in $MODEL_DIR"
+        [ "$_vm_size" -gt 0 ] || model_refusal "$_vm_name" "the file is empty (0 bytes)"
+        _vm_mtime=$(stat -c %Y "$_vm_path")
+
+        _vm_got=$(awk -v n="$_vm_name" -v s="$_vm_size" -v m="$_vm_mtime" \
+            '$1 == n && $2 == s && $3 == m { print $4; exit }' "$MODEL_STAMP" 2>/dev/null || printf '')
+        if [ -z "$_vm_got" ]; then
+            log "hashing $_vm_name ($_vm_size bytes)"
+            _vm_got=$(sha256sum "$_vm_path" | cut -d' ' -f1)
+        fi
+        [ "$_vm_got" = "$_vm_want" ] || model_refusal "$_vm_name" \
+            "SHA256 mismatch: this image expects $_vm_want, the file on disk is $_vm_got"
+
+        printf '%s %s %s %s\n' "$_vm_name" "$_vm_size" "$_vm_mtime" "$_vm_got" >> "$_vm_new"
+    done
+
+    mv "$_vm_new" "$MODEL_STAMP"
+    log "models verified against the digests this image was built with ($MODEL_DELIVERY delivery)"
 }
 
 # ── phase 1: startup pass ────────────────────────────────────────────────────
@@ -365,34 +466,49 @@ assert_index_populated() {
 # ── phase 2: serve ───────────────────────────────────────────────────────────
 
 start_daemon() {
-    log "starting qmd MCP daemon on internal [::1]:$INTERNAL_PORT"
+    log "starting qmd MCP daemon on internal loopback:$INTERNAL_PORT"
     qmd mcp --http --port "$INTERNAL_PORT" &
     QMD_PID=$!
 
+    # qmd hardcodes listen(port, "localhost"), and which loopback family that
+    # binds is environment-dependent: Node resolves localhost to ::1 on some
+    # images/hosts and to 127.0.0.1 on others (observed: 127.0.0.1 under
+    # rootless podman on RHEL-family hosts, where the [::1]-only probe made
+    # the sidecar die at HEALTH_TIMEOUT and crash-loop the container). Probe
+    # both families and remember the one that answers for the forwarder.
+    DAEMON_TARGET=""
     _waited=0
     while :; do
         if ! kill -0 "$QMD_PID" 2>/dev/null; then
             QMD_PID=""
             die "qmd daemon exited during startup; see its output above"
         fi
-        if curl -fsS -o /dev/null --max-time 5 "http://[::1]:$INTERNAL_PORT/health" 2>/dev/null; then
-            log "daemon healthy after ${_waited}s"
-            return 0
-        fi
+        for _a in "[::1]" "127.0.0.1"; do
+            if curl -fsS -o /dev/null --max-time 5 "http://$_a:$INTERNAL_PORT/health" 2>/dev/null; then
+                DAEMON_TARGET="$_a"
+                log "daemon healthy after ${_waited}s on $_a"
+                return 0
+            fi
+        done
         [ "$_waited" -lt "$HEALTH_TIMEOUT" ] \
-            || die "qmd daemon did not answer /health within ${HEALTH_TIMEOUT}s"
+            || die "qmd daemon did not answer /health on [::1] or 127.0.0.1 within ${HEALTH_TIMEOUT}s"
         sleep 1
         _waited=$((_waited + 1))
     done
 }
 
 start_forwarder() {
-    # qmd binds IPv6 loopback only, which is unreachable from any other
-    # container. socat owns the routable port and forwards to it. The security
-    # posture is unchanged -- qmd itself still never listens on a routable
-    # address; only this forwarder does, inside the container.
-    log "publishing MCP endpoint on 0.0.0.0:$PORT (POST /mcp, GET /health)"
-    socat "TCP4-LISTEN:$PORT,fork,reuseaddr" "TCP6:[::1]:$INTERNAL_PORT" &
+    # qmd answers on the container's loopback only, which is unreachable from
+    # any other container. socat owns the routable port and forwards to the
+    # loopback family the health probe found answering. The security posture is
+    # unchanged -- qmd itself still never listens on a routable address; only
+    # this forwarder does, inside the container.
+    log "publishing MCP endpoint on 0.0.0.0:$PORT (POST /mcp, GET /health) -> $DAEMON_TARGET:$INTERNAL_PORT"
+    if [ "$DAEMON_TARGET" = "127.0.0.1" ]; then
+        socat "TCP4-LISTEN:$PORT,fork,reuseaddr" "TCP4:127.0.0.1:$INTERNAL_PORT" &
+    else
+        socat "TCP4-LISTEN:$PORT,fork,reuseaddr" "TCP6:[::1]:$INTERNAL_PORT" &
+    fi
     SOCAT_PID=$!
 }
 
@@ -537,9 +653,10 @@ main() {
     # and are safe.
 
     command -v qmd > /dev/null 2>&1 || die "qmd is not on PATH"
-    command -v socat > /dev/null 2>&1 || die "socat is not installed; the IPv6-loopback forwarder cannot start"
+    command -v socat > /dev/null 2>&1 || die "socat is not installed; the loopback forwarder cannot start"
 
     prepare_state
+    verify_models
     run_startup_pass
     seed_markers
     start_daemon

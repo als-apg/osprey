@@ -23,21 +23,27 @@ FROM python:3.11-slim
 # broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
 # bounded apt retries with backoff so a transient network blip mid-build does
 # not fail the whole image.
-RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
-# Node.js 20 + the Claude Code CLI (the dispatch-worker shells out to `claude`).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+# Node + the Claude Code CLI (the dispatch-worker shells out to `claude`).
+# Node comes from the base image's own Debian release rather than a third-party
+# apt repo, so the image has a single package provenance and needs no network
+# beyond the Debian mirror to build. The CLI's engines floor is node >= 18,
+# which every Debian release the slim bases resolve to satisfies.
+#
+# npm is a runtime dependency, not a build-time convenience: the agent is
+# launched as `npx -y @anthropic-ai/claude-code@<version>` (claude_launcher.py),
+# so npm must remain in the final image.
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
     # Pin the Claude Code CLI so an upstream release cannot silently change the
     # headless agent's behavior between image builds (matches the cli_version
     # OSPREY documents in config.yml). Bump deliberately.
     && npm install -g @anthropic-ai/claude-code@2.1.146 \
-    && apt-get purge -y curl gnupg \
-    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -60,7 +66,8 @@ COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
 # pip's isolated build environments. Drop once a fixed release is out.
-RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \

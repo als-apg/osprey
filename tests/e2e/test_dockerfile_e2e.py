@@ -30,6 +30,12 @@ the als-apg provider. This is the only test that proves the *shipped*
 entrypoint actually serves an agent — ``claude --version`` proves the binary
 launches, not that the assembled image answers a prompt.
 
+``test_node_runtime_satisfies_the_cli_engine_floor`` — the Node runtime the
+image installs from its own Debian release clears the CLI's engines floor
+(node >= 18, never an exact major), npm is present for the ``npx`` launch path,
+and the image's size is reported so a provenance change's size delta is on the
+record.
+
 Three further tests cover the fast-dev-rebuild layer split:
 
 - ``test_rebuild_without_changes_is_fully_cached`` — a no-change rebuild runs
@@ -243,6 +249,66 @@ def test_generated_dockerfile_builds_and_boots(built_image):
     assert not env_check.stdout.strip(), (
         f".env must never enter the image, found: {env_check.stdout.strip()}"
     )
+
+
+def _report_image_size(tag: str) -> int:
+    """Report the built image's size, and return it in bytes.
+
+    Node now comes from the base image's own Debian release instead of a
+    third-party apt repo, which moves the image size — the number belongs in
+    the change that moves it. The lane runs pytest without ``-s``, so stdout
+    alone would only surface on a failure; ``$GITHUB_STEP_SUMMARY`` is the
+    channel that shows it on a green run, and is simply absent locally.
+    """
+    out = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Size}}", tag],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert out.returncode == 0, out.stderr
+    size = int(out.stdout.strip())
+    line = f"generated image size: {size} bytes ({size / 1e9:.2f} GB)"
+    print(line)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"- {line}\n")
+    return size
+
+
+def test_node_runtime_satisfies_the_cli_engine_floor(built_image):
+    """Node and npm work in the image, and Node clears the CLI's engines floor.
+
+    The floor is the contract — ``@anthropic-ai/claude-code`` requires node >=
+    18 — and the version above it is whatever the base image's Debian release
+    ships. Asserting an exact major would be asserting a pin this image
+    deliberately does not have: it would fail the day the base image moves,
+    for a change that is not a regression.
+
+    npm is checked separately because it is a *runtime* dependency here: the
+    agent is launched via ``npx``, so an image with node but no npm boots and
+    then fails on the first turn.
+    """
+    tag, _repo, _project_name, _out_dir = built_image
+
+    node = _docker_run(tag, "node", "-v")
+    assert node.returncode == 0, f"node is not runnable in the image:\n{node.stderr}"
+    raw = node.stdout.strip()
+    match = re.match(r"v?(\d+)\.", raw)
+    assert match, f"unparseable `node -v` output: {raw!r}"
+    assert int(match.group(1)) >= 18, (
+        f"node {raw} is below the Claude Code CLI's engines floor (node >= 18)"
+    )
+
+    npm = _docker_run(tag, "npm", "--version")
+    assert npm.returncode == 0, (
+        f"npm is not runnable in the image — the agent is launched via `npx`, "
+        f"so this fails at the first turn, not at build time:\n{npm.stderr}"
+    )
+    assert npm.stdout.strip(), "npm --version printed nothing"
+
+    _report_image_size(tag)
 
 
 # ── The container layout contract ────────────────────────────────────────────

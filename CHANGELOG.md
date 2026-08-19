@@ -36,8 +36,32 @@ Compatibility is documented in release notes, not encoded in the version string.
   text), so the context every seeded user starts from is visible and editable
   in the deployment repo instead of hidden in the installed package.
 
+- A host that cannot build images can now skip the dev-mode image build, with
+  `prebuilt_images: true` in `config.yml` or `OSPREY_PREBUILT_IMAGES=1` for one
+  shell. `osprey up --dev` then starts the containers from the image tags
+  already on the host.
+- The qmd search sidecar can take its three model files from a host directory
+  instead of downloading them during the image build. Point
+  `services.qmd.models_dir` at a directory holding the staged files: the build
+  skips the downloads and the directory is mounted read-only into the
+  container, with the same SHA256 check moved to container start. For build
+  hosts with no route to the model host.
+
 ### Fixed
 
+- Container builds now hand apt the proxy settings they were given. A facility
+  proxy arrives as `HTTP_PROXY`/`HTTPS_PROXY`, which apt does not read, so on a
+  network with no direct egress every image build stalled in its first package
+  install.
+- The project and dispatch images install Node and npm from the base image's
+  own Debian release instead of a third-party apt repository. That repository's
+  setup step had stopped configuring anything on current base images, leaving
+  them without npm and without a working agent launch path.
+- Model files staged inside the project tree no longer end up in the built
+  wheel, which they had been inflating to several gigabytes.
+- The qmd sidecar now finds its own daemon on hosts where `localhost` resolves
+  to IPv4. It previously probed only the IPv6 loopback, and where that was the
+  wrong one the container crash-looped while the deploy still reported success.
 - Agents now route a measurement that needs more than one setting through the
   Bluesky queue instead of stepping a setpoint with repeated `channel_write`
   calls. The `operating-bluesky-plans` skill also triggers on requests phrased

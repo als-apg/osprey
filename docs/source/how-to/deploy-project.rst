@@ -427,6 +427,37 @@ default:
 Point either layer at an internal registry mirror or a pinned digest when
 your deployment host cannot (or should not) pull public images.
 
+Deploying Prebuilt Images
+=========================
+
+Some hosts cannot build images at all — no build tooling, no registry in
+reach — and run instead on images built elsewhere and loaded from a tarball.
+There, the image build that a :ref:`dev-mode <development-mode>` deploy
+normally runs is not merely slow but impossible. The top-level
+``prebuilt_images`` key skips it, so ``osprey up --dev`` starts the containers
+from the tags already on the host:
+
+.. code-block:: yaml
+
+   # config.yml
+   prebuilt_images: true
+
+.. code-block:: bash
+
+   # or, for one shell
+   OSPREY_PREBUILT_IMAGES=1 osprey up --dev
+
+``1``, ``true``, ``yes`` and ``on`` turn the switch on; ``0``, ``false``,
+``no`` and ``off`` turn it off — case does not matter. The variable wins over
+the config key in both directions, so ``OSPREY_PREBUILT_IMAGES=0`` forces a
+build for one shell even on a host whose ``config.yml`` pins the key. With
+neither set, deploys build as they always have.
+
+The deploy reports ``skipped image build (prebuilt images)`` where it would
+otherwise have built. Nothing checks up front that the tags are really
+present — a missing one surfaces as compose's own ``No such image`` error,
+which names the image to load.
+
 .. _qmd-search-sidecar:
 
 The Search Sidecar (``qmd``)
@@ -583,9 +614,9 @@ Where the sidecar listens
 
 The sidecar publishes port **8180**. qmd's own daemon runs on **8181** on the
 container's internal loopback and is fronted by a small forwarder. That split is
-not cosmetic: qmd hardcodes a loopback-only, IPv6-only bind with no option to
-change it, which makes it unreachable from any other container. Only the
-forwarder owns a routable port.
+not cosmetic: qmd hardcodes a loopback-only bind with no option to change it,
+which makes it unreachable from any other container. Only the forwarder owns a
+routable port.
 
 .. warning::
 
@@ -848,6 +879,8 @@ are.
    from ``services.postgresql`` — keeps such deployments working. To adopt
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
+
+.. _development-mode:
 
 Development Mode
 ================

@@ -25,12 +25,16 @@
 # never race to tag one shared image. To use a prebuilt/published image instead,
 # set OSPREY_QMD_IMAGE (e.g. OSPREY_QMD_IMAGE=my-registry/osprey-qmd:2.5.3).
 #
-# PORT SPLIT. qmd's daemon hardcodes `httpServer.listen(port, "localhost")`,
-# which resolves to IPv6 loopback only — there is no --host flag and no env
-# override — so it is unreachable from any other container. The entrypoint runs
-# it on the container's internal 8181 and fronts it with a socat forwarder that
-# owns the port published below, which is the one clients talk to. The security
-# posture is the point: qmd itself never listens on a routable address.
+# PORT SPLIT. qmd's daemon hardcodes `httpServer.listen(port, "localhost")` —
+# there is no --host flag and no env override — so it answers only on a loopback
+# address inside the container, unreachable from any other container. WHICH
+# loopback family "localhost" lands on is not fixed: Node resolves it to [::1]
+# on some image/host combinations and to 127.0.0.1 on others (observed under
+# rootless podman on RHEL-family hosts). So the entrypoint runs the daemon on
+# the container's internal 8181, probes BOTH families for /health, and points a
+# socat forwarder at whichever one answered. The forwarder owns the port
+# published below, which is the one clients talk to. The security posture is the
+# point: qmd itself never listens on a routable address, on either family.
 #
 # The endpoint carries no token, no TLS and no per-caller identity — it answers
 # any request that reaches it. That is safe exactly as long as only this host
@@ -54,6 +58,22 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{%- if services.qmd.models_dir %}
+        # Pre-staged models: the operator named a host directory that already
+        # holds the three GGUF files, so the build must not fetch them. Without
+        # this the image build reaches huggingface.co — the one step in it that
+        # needs egress — and on a network that has none it hangs there. The
+        # value is truthy-only ("1"); the Dockerfile tests it with `-n`, and the
+        # model SHA pins still travel with the image, so verification moves to
+        # container startup rather than being skipped.
+        #
+        # Gated at RENDER time off the config key, never with a `${VAR}`
+        # default at compose time: a config-keyed conditional produces static
+        # YAML that docker compose and podman-compose read identically, whereas
+        # interpolation-driven conditionality is exactly where those two
+        # disagree.
+        OSPREY_QMD_MODELS_MOUNTED: "1"
+{%- endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy a sidecar on one host without colliding
     # on one name. In-network consumers reach this service by its compose
@@ -106,6 +126,29 @@ services:
       # container recreate.
       - qmd_index:{{ state_dir }}
       - ./build/services/qmd/index.yml:{{ index_config }}:ro
+{%- if services.qmd.models_dir %}
+      # The three pre-staged GGUF model files, supplied at runtime because the
+      # build skipped their download (same config key drives the build arg
+      # above — set one without the other and the container starts with no
+      # models at all). The host path is `services.qmd.models_dir`, guaranteed
+      # absolute by the schema and checked for the three expected filenames by
+      # the deploy-time preflight before compose ever runs.
+      #
+      # The container target is the LITERAL value of the image's
+      # OSPREY_QMD_MODEL_DIR, not `$OSPREY_QMD_MODEL_DIR`: that name exists only
+      # as an ENV inside the image, while compose expands `${...}` against the
+      # HOST environment, where it is unset — which would mount the models at
+      # the container root and leave qmd's cache empty. The two spellings are
+      # held together by a test, not by expansion.
+      #
+      # Only the models leaf is read-only. qmd owns the cache tree above it
+      # (/opt/qmd/.cache) and writes there; mounting the whole tree read-only
+      # would break it.
+      # `| trim` mirrors the stripping the schema does when it resolves and
+      # validates this key, so the bind spec names the same directory the
+      # preflight checked.
+      - {{ services.qmd.models_dir | trim }}:/opt/qmd/.cache/qmd/models:ro
+{%- endif %}
 {#- One read-only mount per configured corpus. The list is resolved in
     compose_generator._resolve_qmd_corpora, which the collection config below
     is rendered from as well, so a corpus cannot end up mounted without a

@@ -3834,3 +3834,307 @@ def test_parse_only_step_proves_the_env_chain_interpolates__mutation_drops_a_sen
     assert "local-wins" in step["run"]  # the other sentinel survives
     with pytest.raises(AssertionError, match="shared-loses"):
         test_parse_only_step_proves_the_env_chain_interpolates(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The proxied build inside dockerfile-e2e
+# ---------------------------------------------------------------------------
+#
+# The nine template Dockerfiles bridge the uppercase proxy variables a facility
+# hands a build into the lowercase ones apt reads. Nothing about that bridge is
+# observable from a build's exit status on a runner with open egress: delete
+# the export and apt simply fetches directly, and the build still succeeds. The
+# lane therefore routes a real build through a tinyproxy and asserts on the
+# PROXY'S ACCESS LOG, and what is pinned here is that it keeps doing exactly
+# that — the failure mode these guards exist for is a sequence that survives as
+# a green step while proving nothing.
+
+DOCKERFILE_E2E_JOB = "dockerfile-e2e"
+PROXY_START_STEP = "Start a logging forward proxy (tinyproxy)"
+PROXY_CONTRACT_STEP = "Assert the uppercase-only proxy contract reaches the build"
+PROXY_BUILD_STEP = "Build the web-terminal auth sidecar through the proxy"
+PROXY_ASSERT_STEP = "Assert apt and pip traffic went through the proxy"
+PROXY_STOP_STEP = "Stop the forward proxy"
+PROXY_SEQUENCE = (
+    PROXY_START_STEP,
+    PROXY_CONTRACT_STEP,
+    PROXY_BUILD_STEP,
+    PROXY_ASSERT_STEP,
+    PROXY_STOP_STEP,
+)
+#: The host-side path the proxy's access log is mounted to and read back from.
+PROXY_ACCESS_LOG = "/tmp/osprey-proxy/access.log"
+#: The apt mirror the template Dockerfiles rewrite their sources to. This is
+#: the half that proves the BRIDGE: apt reads no uppercase proxy variable, so
+#: its traffic can only reach the proxy through the Dockerfile's export.
+PROXY_APT_HOST = "deb.debian.org"
+#: The pip side — either host is enough to show the framework install was
+#: proxied too.
+PROXY_PIP_HOSTS = ("pypi.org", "files.pythonhosted.org")
+#: The build context: small, and it uses both apt and pip.
+PROXIED_BUILD_TARGET = "src/osprey/templates/modules/web_terminals/auth_sidecar"
+_UPPERCASE_PROXY_ARG_RE = re.compile(r"--build-arg\s+(HTTP_PROXY|HTTPS_PROXY)=")
+_LOWERCASE_PROXY_ARG_RE = re.compile(r"--build-arg\s+(http_proxy|https_proxy)=")
+
+
+def _proxy_step_run(wf: dict[str, Any], step_name: str) -> str:
+    return _find_named_step(wf, DOCKERFILE_E2E_JOB, step_name)["run"]
+
+
+def test_dockerfile_e2e_carries_the_whole_proxied_sequence(workflow: dict[str, Any]) -> None:
+    """All five steps, checked by name. They are one proof split across steps
+    for readability, and each is independently droppable in a way that leaves
+    the lane green: without the start step the build is unproxied, without the
+    contract probe the log assertion can be satisfied by a runtime rather than
+    by the Dockerfile, without the assertion the build's exit status is all
+    that is left, and without the teardown a fixed-name container keeps port
+    8888 on a shared runner."""
+    for step_name in PROXY_SEQUENCE:
+        _find_named_step(workflow, DOCKERFILE_E2E_JOB, step_name)
+
+
+@pytest.mark.parametrize("dropped", PROXY_SEQUENCE)
+def test_dockerfile_e2e_carries_the_whole_proxied_sequence__mutation_drops_one(
+    dropped: str,
+) -> None:
+    """Dropping any single step must fail — otherwise the check is satisfied
+    by the other four and the sequence can be dismantled one step at a time."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[DOCKERFILE_E2E_JOB]["steps"]
+    steps.remove(_find_named_step(mutated, DOCKERFILE_E2E_JOB, dropped))
+    with pytest.raises(AssertionError, match=re.escape(dropped)):
+        test_dockerfile_e2e_carries_the_whole_proxied_sequence(mutated)
+
+
+def test_proxy_assertion_reads_the_access_log(workflow: dict[str, Any]) -> None:
+    """The assertion must be about LOG CONTENT. On this runner the internet is
+    directly reachable, so a build whose bridge was deleted exits 0 all the
+    same: an exit-status check would be a green step over a broken bridge.
+    Both host classes are required, and separately — apt proves the lowercase
+    bridge, pip proves the proxy was engaged for the framework install."""
+    run_text = _proxy_step_run(workflow, PROXY_ASSERT_STEP)
+    assert PROXY_ACCESS_LOG in run_text, (
+        f"'{PROXY_ASSERT_STEP}' must read the proxy's access log at {PROXY_ACCESS_LOG}"
+    )
+    assert PROXY_APT_HOST in run_text, (
+        f"'{PROXY_ASSERT_STEP}' must assert that {PROXY_APT_HOST} traffic reached the proxy"
+    )
+    assert any(host in run_text for host in PROXY_PIP_HOSTS), (
+        f"'{PROXY_ASSERT_STEP}' must assert that pip traffic ({' or '.join(PROXY_PIP_HOSTS)}) "
+        f"reached the proxy"
+    )
+
+
+def test_proxy_assertion_reads_the_access_log__mutation_checks_exit_status_instead() -> None:
+    """The shape this guard exists for: an assertion step reduced to "the build
+    exited 0", which on an open-egress runner is true whether or not anything
+    was proxied."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
+    step["run"] = 'set -euo pipefail\necho "✅ the proxied build exited 0"\n'
+    with pytest.raises(AssertionError, match="access log"):
+        test_proxy_assertion_reads_the_access_log(mutated)
+
+
+def test_proxy_assertion_reads_the_access_log__mutation_drops_only_the_apt_host() -> None:
+    """Losing the apt half must fail on its own. It is the half that proves the
+    bridge — pip honours the uppercase names unaided, so a pip-only assertion
+    would stay green with every `export http_proxy=…` line deleted."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
+    original = step["run"]
+    step["run"] = original.replace(PROXY_APT_HOST, "example.invalid")
+    assert step["run"] != original, f"no {PROXY_APT_HOST} in the step — mutation is stale"
+    assert any(host in step["run"] for host in PROXY_PIP_HOSTS)  # the pip half survives
+    with pytest.raises(AssertionError, match=PROXY_APT_HOST):
+        test_proxy_assertion_reads_the_access_log(mutated)
+
+
+def test_proxy_assertion_reads_the_access_log__mutation_drops_only_the_pip_hosts() -> None:
+    """And losing the pip half must fail too, so the two are independent."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
+    original = step["run"]
+    for host in PROXY_PIP_HOSTS:
+        step["run"] = step["run"].replace(host, "example.invalid")
+    assert step["run"] != original, "no pip host in the step — mutation is stale"
+    assert PROXY_APT_HOST in step["run"]  # the apt half survives
+    with pytest.raises(AssertionError, match="pip traffic"):
+        test_proxy_assertion_reads_the_access_log(mutated)
+
+
+def test_proxied_build_passes_only_uppercase_proxy_build_args(workflow: dict[str, Any]) -> None:
+    """Uppercase in, and nothing else. The lowercase spelling is what the
+    Dockerfile itself is supposed to derive; handing it to the build directly
+    would satisfy apt without the export ever running, which is the same
+    vacuous green as asserting on exit status."""
+    run_text = _proxy_step_run(workflow, PROXY_BUILD_STEP)
+    passed = {match.group(1) for match in _UPPERCASE_PROXY_ARG_RE.finditer(run_text)}
+    assert passed == {"HTTP_PROXY", "HTTPS_PROXY"}, (
+        f"'{PROXY_BUILD_STEP}' must pass both uppercase proxy build-args; got {sorted(passed)}"
+    )
+    lowercase = _LOWERCASE_PROXY_ARG_RE.search(run_text)
+    assert lowercase is None, (
+        f"'{PROXY_BUILD_STEP}' passes a lowercase proxy build-arg "
+        f"({lowercase.group(1) if lowercase else ''}) — the Dockerfile's bridge must be the "
+        f"only source of it, or the lane proves nothing"
+    )
+
+
+def test_proxied_build_passes_only_uppercase_proxy_build_args__mutation_drops_https() -> None:
+    """Dropping either uppercase arg must fail: pip and apt both reach their
+    hosts over HTTPS, so HTTP_PROXY alone routes neither."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
+    original = step["run"]
+    step["run"] = re.sub(r"\s*--build-arg\s+HTTPS_PROXY=\S+\s*\\\n", "\n", original)
+    assert step["run"] != original, "HTTPS_PROXY build-arg not found — mutation is stale"
+    with pytest.raises(AssertionError, match="both uppercase proxy build-args"):
+        test_proxied_build_passes_only_uppercase_proxy_build_args(mutated)
+
+
+def test_proxied_build_passes_only_uppercase_proxy_build_args__mutation_adds_lowercase() -> None:
+    """Adding the lowercase spelling alongside is the plausible "just make the
+    build work" edit, and it silently retires the thing under test."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
+    original = step["run"]
+    step["run"] = original.replace(
+        "--build-arg HTTP_PROXY=",
+        "--build-arg http_proxy=http://127.0.0.1:8888 \\\n  --build-arg HTTP_PROXY=",
+    )
+    assert step["run"] != original, "HTTP_PROXY build-arg not found — mutation is stale"
+    with pytest.raises(AssertionError, match="lowercase proxy build-arg"):
+        test_proxied_build_passes_only_uppercase_proxy_build_args(mutated)
+
+
+def test_proxied_build_uses_a_case_preserving_runtime(workflow: dict[str, Any]) -> None:
+    """Measured, not assumed: docker's BuildKit expands `--build-arg
+    HTTP_PROXY=…` into BOTH `HTTP_PROXY` and `http_proxy` inside RUN, so a
+    docker build would satisfy the access-log assertion with the Dockerfile's
+    bridge deleted. podman (buildah) passes the names it is given. The runtime
+    is therefore part of the proof, and the contract probe step re-checks it on
+    the runner every run."""
+    run_text = _proxy_step_run(workflow, PROXY_BUILD_STEP)
+    assert "podman build" in run_text, (
+        f"'{PROXY_BUILD_STEP}' must build with podman — see the docstring"
+    )
+    assert "docker build" not in run_text, (
+        f"'{PROXY_BUILD_STEP}' must not build with docker: BuildKit supplies the lowercase "
+        f"proxy variables itself, which is precisely what the Dockerfile bridge is for"
+    )
+
+
+def test_proxied_build_uses_a_case_preserving_runtime__mutation_switches_to_docker() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
+    original = step["run"]
+    step["run"] = original.replace("podman build", "docker build")
+    assert step["run"] != original, "no podman build in the step — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_proxied_build_uses_a_case_preserving_runtime(mutated)
+
+
+def test_contract_probe_rejects_a_runtime_that_injects_lowercase(workflow: dict[str, Any]) -> None:
+    """The probe is what keeps the whole sequence honest across runtime
+    upgrades, so its two halves are pinned: the uppercase value must be seen to
+    arrive, and a lowercase one must be seen NOT to. A probe that only checked
+    the first would go on passing on a runtime that supplies both."""
+    run_text = _proxy_step_run(workflow, PROXY_CONTRACT_STEP)
+    assert "HTTP_PROXY=" in run_text, (
+        f"'{PROXY_CONTRACT_STEP}' must assert the uppercase value reaches the RUN environment"
+    )
+    assert "http_proxy=" in run_text, (
+        f"'{PROXY_CONTRACT_STEP}' must fail when the runtime injects a lowercase proxy "
+        f"variable of its own — without that half the log assertion can be satisfied by "
+        f"the build runtime instead of by the Dockerfile"
+    )
+
+
+def test_contract_probe_rejects_a_runtime_that_injects_lowercase__mutation_drops_the_half() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_CONTRACT_STEP)
+    original = step["run"]
+    step["run"] = "\n".join(line for line in original.splitlines() if "http_proxy=" not in line)
+    assert step["run"] != original, "no lowercase check in the probe — mutation is stale"
+    assert "HTTP_PROXY=" in step["run"]  # the uppercase half survives
+    with pytest.raises(AssertionError, match="lowercase proxy"):
+        test_contract_probe_rejects_a_runtime_that_injects_lowercase(mutated)
+
+
+def test_proxied_build_threads_the_version_args(workflow: dict[str, Any]) -> None:
+    """The sidecar Dockerfile exits non-zero on an empty ``OSPREY_VERSION``,
+    and a branch version is usually not on PyPI — ``OSPREY_DEV=1`` is what
+    turns that pin miss into an unpinned prime. Both are threaded explicitly so
+    the proxy bridge stays the only thing that can fail in this build."""
+    run_text = _proxy_step_run(workflow, PROXY_BUILD_STEP)
+    assert "--build-arg OSPREY_VERSION=" in run_text, (
+        f"'{PROXY_BUILD_STEP}' must pass OSPREY_VERSION; the Dockerfile requires it"
+    )
+    assert "--build-arg OSPREY_DEV=1" in run_text, (
+        f"'{PROXY_BUILD_STEP}' must pass OSPREY_DEV=1 so an unreleased pin falls back "
+        f"to an unpinned prime instead of failing the build"
+    )
+    assert PROXIED_BUILD_TARGET in run_text, (
+        f"'{PROXY_BUILD_STEP}' must build from {PROXIED_BUILD_TARGET}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("dropped", "message"),
+    [
+        ("--build-arg OSPREY_DEV=1", "OSPREY_DEV=1"),
+        ("--build-arg OSPREY_VERSION=", "OSPREY_VERSION"),
+    ],
+)
+def test_proxied_build_threads_the_version_args__mutation_drops_one(
+    dropped: str, message: str
+) -> None:
+    """Either one missing turns a bridge failure and a version failure into the
+    same red step, which is the reading problem this threading exists to avoid."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
+    original = step["run"]
+    step["run"] = original.replace(dropped, "--build-arg UNRELATED=")
+    assert step["run"] != original, f"{dropped!r} not found — mutation is stale"
+    with pytest.raises(AssertionError, match=message):
+        test_proxied_build_threads_the_version_args(mutated)
+
+
+def test_every_proxied_step_sets_pipefail(workflow: dict[str, Any]) -> None:
+    """GitHub's default shell is ``bash -e`` WITHOUT pipefail, so a pipeline
+    reports its last command's status. These steps grep for evidence of
+    absence, which is exactly the shape a swallowed status turns into a silent
+    pass."""
+    for step_name in PROXY_SEQUENCE:
+        run_text = _proxy_step_run(workflow, step_name)
+        assert "set -euo pipefail" in run_text, f"'{step_name}' must open with `set -euo pipefail`"
+
+
+def test_every_proxied_step_sets_pipefail__mutation_drops_it_from_one() -> None:
+    """One step losing it is enough to fail — the guard must not be satisfied
+    by its neighbours."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
+    original = step["run"]
+    step["run"] = original.replace("set -euo pipefail", "set -e")
+    assert step["run"] != original, "no pipefail in the step — mutation is stale"
+    with pytest.raises(AssertionError, match=re.escape(PROXY_ASSERT_STEP)):
+        test_every_proxied_step_sets_pipefail(mutated)
+
+
+def test_proxy_teardown_runs_even_when_the_assertion_fails(workflow: dict[str, Any]) -> None:
+    """The proxy is a fixed-name container holding a fixed port on a runner
+    other steps share. A teardown that only runs on success leaves it behind
+    for precisely the run that failed."""
+    step = _find_named_step(workflow, DOCKERFILE_E2E_JOB, PROXY_STOP_STEP)
+    assert step.get("if") == "always()", (
+        f"'{PROXY_STOP_STEP}' must carry `if: always()`; got {step.get('if')!r}"
+    )
+
+
+def test_proxy_teardown_runs_even_when_the_assertion_fails__mutation_drops_the_condition() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_STOP_STEP)["if"]
+    with pytest.raises(AssertionError, match="always"):
+        test_proxy_teardown_runs_even_when_the_assertion_fails(mutated)
