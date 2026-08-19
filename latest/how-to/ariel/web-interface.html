@@ -554,8 +554,46 @@ Status</label><div class="sd-tab-content docutils">
 </figure>
 </div>
 </div>
-<p>The four ARIEL views above were captured with OSPREY v2026.6.3 from the
+<p>The four ARIEL views above were captured with OSPREY v2026.6.2.post1352+geab911034.d20260819 from the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> tutorial’s seeded logbook.</p>
+</section>
+<section id="display-preferences">
+<h2>Display Preferences<a class="headerlink" href="#display-preferences" title="Link to this heading">#</a></h2>
+<p>The button at the top right of the header — the one drawn as three sliders
+— opens a small card holding everything about how the interface looks, plus
+the way in to its settings:</p>
+<dl class="simple">
+<dt><strong>Appearance</strong></dt><dd><p>Light or Dark. It flips the shade without changing which theme you are in.</p>
+</dd>
+<dt><strong>View</strong></dt><dd><p>Expert or Simple. Expert is the full interface. Simple clears away the
+extras — the four-tab strip becomes a single “Browse all entries” link,
+the search mode tabs and advanced options disappear, and results lose their
+relevance scores — leaving a search box and a list of entries.</p>
+</dd>
+<dt><strong>Theme</strong></dt><dd><p>One button per theme family: Main, DESY, High Contrast, and Retro. Picking
+a family keeps whichever appearance you are already in, so a switch from
+Main to High Contrast in dark stays dark.</p>
+</dd>
+<dt><strong>Settings</strong></dt><dd><p>Opens the settings drawer, where you can read and edit ARIEL’s
+configuration block.</p>
+</dd>
+</dl>
+<p>Appearance, View, and Theme take effect straight away and leave the card open,
+so you can compare two looks without re-opening the menu. Settings closes it,
+because it takes you to a different surface. Click anywhere outside the card,
+or press <code class="docutils literal notranslate"><span class="pre">Escape</span></code>, to dismiss it.</p>
+<p><strong>Your picks follow you.</strong> The theme and view you choose here are remembered by
+your browser and shared with every OSPREY interface served from the same
+address — pick a dark High Contrast look in ARIEL and the OSPREY web terminal
+comes up that way the next time you load it, and the other way round too. There
+is no separate preference to keep in step.</p>
+<p>ARIEL running <em>inside</em> the web terminal, as a panel, behaves differently on
+purpose. The terminal passes its own theme and view to the panel in the page
+address, and an address always outranks the remembered preference, so an
+embedded panel matches the terminal it sits in no matter what was set
+elsewhere. The embedded panel has no header of its own either — the
+terminal’s tile bar is the one header — so the sliders button does not
+appear there.</p>
 </section>
 <section id="capabilities-api">
 <h2>Capabilities API<a class="headerlink" href="#capabilities-api" title="Link to this heading">#</a></h2>
@@ -821,7 +859,15 @@ entry form (split across the four modules)</p></td>
 </div>
 <p class="sd-card-text">Side-drawer behavior (filters, advanced options, settings panels) comes
 from the shared <code class="docutils literal notranslate"><span class="pre">&lt;osprey-drawer&gt;</span></code> design-system component rather than
-a page-local module.</p>
+a page-local module. The header’s display-preferences popover is the
+shared <code class="docutils literal notranslate"><span class="pre">&lt;osprey-display-menu&gt;</span></code> component in the same way: ARIEL
+mounts the element and passes it the settings drawer’s id, and the
+component supplies the trigger, the card, the Appearance/View/Theme
+rows, and the hiding-when-embedded rule.</p>
+<p class="sd-card-text">Theming role: standalone, ARIEL is the <em>hub</em> — the display menu is
+the operator’s control and its pick is the one that gets remembered.
+Embedded, it is a <em>follower</em>: the web terminal owns the pick and
+broadcasts it, and ARIEL applies what it is sent.</p>
 <p class="sd-card-text"><strong>CSS architecture:</strong></p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -952,6 +998,7 @@ such as PostgreSQL.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#views">Views</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#display-preferences">Display Preferences</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capabilities-api">Capabilities API</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-web-interface">Running the Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
