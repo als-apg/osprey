@@ -20,12 +20,13 @@
 FROM node:22-bookworm-slim
 
 # Bounded apt retries with backoff so a transient network blip mid-build does
-# not fail the whole image, then the CA bundle. `node:22-bookworm-slim` ships
-# with no ca-certificates at all, so this first fetch has to go over plain HTTP
-# — switching the mirror to HTTPS before the CA bundle exists fails apt with
-# "certificate issuer is unknown".
+# not fail the whole image (with pipelining off — see any sibling service
+# Dockerfile for why retries alone were not enough), then the CA bundle.
+# `node:22-bookworm-slim` ships with no ca-certificates at all, so this first
+# fetch has to go over plain HTTP — switching the mirror to HTTPS before the CA
+# bundle exists fails apt with "certificate issuer is unknown".
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
-    printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
+    printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
  && apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*

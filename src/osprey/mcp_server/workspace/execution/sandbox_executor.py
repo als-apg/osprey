@@ -343,6 +343,7 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None, cat
       - str -> markdown or HTML (auto-detected)
       - dict / list -> JSON
       - bytes -> binary file
+      - numpy ndarray -> .npy file
 
     Args:
         obj: The object to save.
@@ -450,6 +451,24 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None, cat
         detected_type = "binary"
         filename = f"{{art_id}}_{{_slug}}.bin"
         mime_type = "application/octet-stream"
+
+    # numpy ndarray -- last of the type branches so every type already handled
+    # above keeps its exact sniffing order. Object dtypes are left out:
+    # np.save cannot write them without pickle, so they keep falling through
+    # to the repr() fallback.
+    if content is None:
+        try:
+            import numpy as _np
+            if isinstance(obj, _np.ndarray) and not obj.dtype.hasobject:
+                import io as _nio
+                _nbuf = _nio.BytesIO()
+                _np.save(_nbuf, obj, allow_pickle=False)
+                content = _nbuf.getvalue()
+                detected_type = "file"
+                filename = f"{{art_id}}_{{_slug}}.npy"
+                mime_type = "application/octet-stream"
+        except ImportError:
+            pass
 
     # Fallback: repr as text
     if content is None:

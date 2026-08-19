@@ -24,6 +24,7 @@ import pytest
 from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
 from osprey.connectors.control_system.epics_connector import (
     EPICSConnector,
+    _ChannelSubscription,
     _configure_pyepics_libca,
 )
 
@@ -186,7 +187,7 @@ class TestDisconnect:
         cached_bad = MagicMock()
         cached_bad.disconnect.side_effect = RuntimeError("already gone")
         connector = _connector()
-        connector._subscriptions = {"sub1": sub_pv}
+        connector._subscriptions = {"sub1": _ChannelSubscription("ca", sub_pv)}
         connector._pv_cache = {"A": cached_ok, "B": cached_bad}
 
         await connector.disconnect()
@@ -518,7 +519,7 @@ class TestSubscribe:
         sub_id = await connector.subscribe("SR:CH", lambda v: None)
 
         assert sub_id.startswith("SR:CH_")
-        assert connector._subscriptions[sub_id] is pv
+        assert connector._subscriptions[sub_id].handle is pv
 
     @pytest.mark.asyncio
     async def test_epics_callback_converts_to_channel_value(self, monkeypatch):

@@ -975,6 +975,56 @@ def test_fallback_pattern_parity_with_framework(hook_module):
 
 
 @pytest.mark.unit
+def test_fallback_covers_p4p_write_idioms(hook_module):
+    """The fallback list must carry the p4p (PVAccess) write spellings.
+
+    Parity alone would stay green if both lists lost p4p together, so the
+    idioms are pinned here as well: put and post anchored to p4p, the rpc
+    round trip, and SharedPV (serving a PV puts values on the wire). There is
+    deliberately no bare ``.post(`` entry - it would flag every requests.post()
+    in ordinary analysis code.
+    """
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
+
+    for pattern in (
+        r"\bp4p\b[\s\S]*?\.put\s*\(",
+        r"\bp4p\b[\s\S]*?\.post\s*\(",
+        r"\.rpc\s*\(",
+        r"\bSharedPV\b",
+    ):
+        assert pattern in fallback_patterns
+
+    assert r"\.post\s*\(" not in fallback_patterns
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "import p4p.client.thread\np4p.client.thread.Context('pva').put('SR:A:SP', 1)\n",
+            id="p4p-put",
+        ),
+        pytest.param(
+            "from p4p.server.thread import SharedPV\npv = SharedPV()\npv.post(1.0)\n",
+            id="p4p-sharedpv-post",
+        ),
+        pytest.param(
+            "from p4p.client.asyncio import Context\nr = await Context('pva').rpc('SR:C', a)\n",
+            id="p4p-rpc",
+        ),
+    ],
+)
+def test_fallback_regexes_match_p4p_code(hook_module, code):
+    """The pinned fallback regexes fire on code an agent would actually write."""
+    import re as _re
+
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
+
+    assert any(_re.search(p, code) for p in fallback_patterns)
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],
