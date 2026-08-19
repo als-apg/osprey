@@ -1,24 +1,117 @@
-Non-Interactive Agent Queries
-==============================
+===================================
+Run the Agent from the Command Line
+===================================
 
-How to use ``osprey query`` to run the OSPREY agent headlessly — in CI
-pipelines, health checks, and automated workflows.
+Two commands run the Osprey agent without the web terminal. ``osprey chat``
+opens an interactive session in your native terminal; ``osprey query`` runs a
+single headless prompt and exits with a meaningful code, for CI pipelines and
+automated workflows.
 
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
 
-   - What ``osprey query`` does and when to reach for it
-   - How deployment resolution works (nearest ``profile.yml``, or ``--repo``)
-   - The ``--json`` flag for machine-readable output
-   - Exit codes and what each means
-   - The read-only guarantee and how it is enforced
-   - How ``osprey query`` differs from ``osprey health``
+   - Launching interactive terminal sessions with ``osprey chat``, and how they
+     compare to the web terminal
+   - The companion web services both modes share
+   - Headless one-shot runs with ``osprey query``: exit codes, ``--json``
+     output, and the read-only guarantee
+   - CI patterns, and how ``osprey query`` differs from ``osprey health``
 
    **Prerequisites:** A project built with ``osprey build``.
 
-Overview
-========
+Interactive Sessions (``osprey chat``)
+======================================
+
+The CLI chat interface launches the Osprey agent in your native terminal while
+running OSPREY's companion services in the background. This runs the agent
+in the full terminal TUI — keyboard shortcuts, slash commands, native
+scrollback — with access to companion services (artifact gallery, session
+analytics, etc.) via their URLs in a browser.
+
+Launching
+---------
+
+From anywhere inside a deployment repository:
+
+.. code-block:: bash
+
+   osprey chat
+
+This command:
+
+1. Finds the deployment by walking up to the nearest ``profile.yml``, and starts
+   the agent in that repository's ``build/`` — nothing is re-rendered, since
+   ``osprey build`` owns that. A profile that has changed since the last build
+   is reported as a warning and the session starts anyway.
+2. Resolves the configured LLM provider and injects authentication.
+3. Starts the translation proxy if the provider needs it (see
+   :doc:`configure-providers`).
+4. Launches companion web servers in the background.
+5. Opens the Osprey agent TUI in your terminal.
+
+Options
+^^^^^^^
+
+.. code-block:: bash
+
+   osprey chat --repo /path/to/deployment    # explicit deployment repo
+   osprey chat --resume SESSION_ID           # resume a previous session
+   osprey chat --print                       # non-interactive (pipe-friendly)
+   osprey chat --effort high                 # set effort level
+   osprey chat --no-pin                      # ignore the pinned CLI version
+
+When ``--repo`` is omitted, the deployment enclosing the current directory is used.
+
+If ``claude_code.cli_version`` is set in ``config.yml``, chat launches that
+exact agent CLI version instead of whatever is installed globally, so every
+launch of the project behaves the same. ``--no-pin`` opts out and uses the
+global installation.
+
+Companion Services
+------------------
+
+On startup, ``osprey chat`` launches the same companion servers as
+``osprey web``. Each server's URL is printed before the Osprey agent starts:
+
+.. code-block:: text
+
+   Companion servers
+     Artifact gallery   http://127.0.0.1:8086
+     ARIEL server       http://127.0.0.1:8085
+
+Open any of these URLs in a browser to access the service while the Osprey agent
+runs in your terminal. Which servers start depends on your ``config.yml`` —
+each server respects its own ``auto_launch`` setting.
+
+The servers run as background threads and stop automatically when you exit
+the Osprey agent.
+
+When to Use CLI vs. Web Terminal
+--------------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 50 50
+
+   * - CLI chat (``osprey chat``)
+     - Web terminal (``osprey web``)
+   * - Native terminal experience
+     - Browser-based split-pane UI
+   * - Full Osprey agent TUI with keyboard shortcuts
+     - Embedded terminal emulator
+   * - Companion services in separate browser tabs
+     - Companion services as side panels
+   * - No additional port for the terminal itself
+     - Terminal served on port 8087
+   * - Ideal for SSH or remote sessions
+     - Ideal for local development with visual tools
+
+Both modes launch the same MCP servers, companion services, and translation
+proxy. The agent capabilities are identical.
+
+Headless Queries (``osprey query``)
+===================================
 
 ``osprey query "<prompt>"`` boots the full OSPREY agent — MCP servers,
 tools, provider authentication — passes your prompt, waits for a response,
@@ -34,7 +127,7 @@ works end-to-end against your real control system, not just that the model
 is reachable.
 
 Deployment Resolution
-=====================
+---------------------
 
 ``osprey query`` asks the deployment enclosing the current directory: it walks
 up to the nearest ``profile.yml`` and answers from that repository's ``build/``
@@ -54,7 +147,7 @@ warning on stderr says so and the query runs anyway. The command exits with
 code ``2`` if there is no build to answer from.
 
 Exit Codes
-==========
+----------
 
 .. list-table::
    :header-rows: 1
@@ -78,7 +171,7 @@ Exit Codes
        agent SDK is not installed, or the provider is not configured.
 
 Machine-Readable Output (``--json``)
-=====================================
+------------------------------------
 
 Pass ``--json`` to receive a structured JSON object instead of plain text:
 
@@ -105,7 +198,7 @@ the prompt is sent. ``exit_code`` repeats the shell exit code so the whole
 verdict is self-contained in the JSON object.
 
 Read-Only Guarantee
-===================
+-------------------
 
 ``osprey query`` enforces read-only execution at the SDK level by passing a
 comprehensive ``disallowed_tools`` list directly to the runner. The agent
@@ -149,7 +242,7 @@ use ``osprey chat`` or the event-dispatch pipeline instead.
    approval-required tools above, not just the ``hook_config.json`` write list.
 
 CI Loop Pattern
-===============
+---------------
 
 .. important::
 
@@ -182,7 +275,7 @@ For a deployment not in the current directory:
      || exit 1
 
 ``osprey query`` vs. ``osprey health``
-=======================================
+--------------------------------------
 
 .. list-table::
    :header-rows: 1
@@ -207,11 +300,12 @@ correctly once the install is healthy.
 
 .. seealso::
 
-   :doc:`use-cli-chat`
-       Interactive agent sessions in your native terminal.
+   :doc:`web-terminal/index`
+       The browser cockpit — the interactive alternative to ``osprey chat``.
 
    :doc:`event-dispatch`
        Turn external events into headless agent runs via webhooks and cron.
 
    :doc:`/cli-reference/index`
-       Full ``osprey query`` and ``osprey health`` command reference.
+       Full ``osprey chat``, ``osprey query``, and ``osprey health`` command
+       reference.

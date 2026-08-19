@@ -496,7 +496,7 @@ Run comprehensive system health check.
 osprey chat
 ===========
 
-Talk to this deployment's agent. See :doc:`/how-to/use-cli-chat`.
+Talk to this deployment's agent. See :doc:`/how-to/cli-agent`.
 
 .. code-block:: bash
 

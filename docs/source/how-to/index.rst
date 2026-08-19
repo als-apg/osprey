@@ -76,19 +76,13 @@ Run & Operate the Agent
       containerized Web Terminal per user, in read-only and write-capable
       capability tiers.
 
-   .. grid-item-card:: Use the CLI Chat Interface
-      :link: use-cli-chat
+   .. grid-item-card:: Command-Line Agent
+      :link: cli-agent
       :link-type: doc
 
-      Run the Osprey agent in your native terminal with companion services accessible
-      in a browser.
-
-   .. grid-item-card:: Non-Interactive Agent Queries
-      :link: non_interactive_query
-      :link-type: doc
-
-      Run the OSPREY agent headlessly from CI pipelines and automated workflows
-      with ``osprey query`` — read-only, structured JSON output, and clear exit codes.
+      Run the Osprey agent from your terminal — interactively with ``osprey
+      chat``, or headlessly with ``osprey query`` for CI pipelines: read-only,
+      structured JSON output, and clear exit codes.
 
    .. grid-item-card:: Event Dispatch
       :link: event-dispatch
@@ -205,8 +199,7 @@ Bundled Services & Tutorials
    containerize-project
    web-terminal/index
    multi-user
-   use-cli-chat
-   non_interactive_query
+   cli-agent
    event-dispatch
    chat-bridges/index
    monitor-agent
