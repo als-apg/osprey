@@ -401,18 +401,6 @@
     </div>
   </osprey-drawer>
 
-  <!-- Welcome Modal (first visit only) -->
-  <div class="welcome-overlay" id="welcome-overlay">
-    <div class="welcome-terminal">
-      <pre class="welcome-ascii" id="welcome-ascii" aria-hidden="true"></pre>
-      <a class="welcome-safety-link" id="welcome-safety-link" style="visibility:hidden"
-         href="{{ prefixed('/static/safety.html') }}" target="_blank" rel="noopener">Read the safety guidelines</a>
-      <button class="welcome-prompt" id="welcome-dismiss" style="visibility:hidden">
-        <span class="welcome-cursor"></span> Press ENTER to continue
-      </button>
-    </div>
-  </div>
-
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
 
@@ -420,8 +408,8 @@
        binds #activity-strip above to panel-manager's activity seam. -->
   <script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
 
-  <!-- One-time rail hint: self-registering module; waits out the welcome
-       overlay, then points operators from the old tab bar to the rail. -->
+  <!-- One-time rail hint: self-registering module; points operators from the
+       old tab bar to the rail. -->
   <script type="module" src="{{ prefixed('/static/js/rail-hint.js') }}"></script>
 
 </body>

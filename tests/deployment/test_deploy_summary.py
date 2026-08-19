@@ -31,6 +31,11 @@ from osprey.deployment import deploy_summary
 #: Anything Rich writes that is not text: styles, cursor moves, erases.
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 
+#: The other escape family, and the one a URL arrives wrapped in: an OSC string
+#: (``\x1b]8;;<url>\x1b\\``) is how Rich emits a terminal hyperlink. Stripped
+#: alongside the CSI codes, since neither is text.
+_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
 
 @pytest.fixture
 def compose_file(tmp_path):
@@ -150,12 +155,12 @@ class _Probe:
     @property
     def printed(self) -> str:
         """The verb's own output, with escape sequences stripped."""
-        return _ANSI.sub("", self._printed.getvalue())
+        return _OSC.sub("", _ANSI.sub("", self._printed.getvalue()))
 
     @property
     def rendered(self) -> str:
         """What the logging handler painted, with escape sequences stripped."""
-        return _ANSI.sub("", self._painted.getvalue())
+        return _OSC.sub("", _ANSI.sub("", self._painted.getvalue()))
 
     @property
     def messages(self) -> list[str]:

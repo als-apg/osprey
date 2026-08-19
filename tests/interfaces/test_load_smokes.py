@@ -148,7 +148,6 @@ _ALLOWLISTS: dict[str, object] = {
     "lattice_dashboard": None,
     "okf_panel": None,
     "web_terminal_session": None,
-    "web_terminal_safety": None,
 }
 
 
@@ -192,9 +191,9 @@ def test_interface_loads_clean(
 
 
 # ---------------------------------------------------------------------------
-# Web-terminal static pages (session.html, safety.html) -- CC-11
+# Web-terminal static pages (session.html) -- CC-11
 # ---------------------------------------------------------------------------
-# Both are static assets under the hub's own /static mount (configure_interface_app
+# A static asset under the hub's own /static mount (configure_interface_app
 # mounts the whole static/ dir), not a second app -- a path-override on the
 # same _launch_web_terminal hub server above, mirroring test_visual.py's
 # _web_terminal_static_page_server (which likewise reuses its hub server
@@ -202,7 +201,6 @@ def test_interface_loads_clean(
 
 _WEB_TERMINAL_STATIC_PAGES = [
     ("web_terminal_session", "/static/session.html"),
-    ("web_terminal_safety", "/static/safety.html"),
 ]
 
 
@@ -218,7 +216,7 @@ def test_web_terminal_static_page_loads_clean(
     monkeypatch,
     chromium_browser: Browser,
 ) -> None:
-    """session.html/safety.html load with no uncaught error or failed asset."""
+    """session.html loads with no uncaught error or failed asset."""
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         assert_page_loads_clean(page, f"{base_url}{path}", allowlist=_ALLOWLISTS[name])

@@ -1098,19 +1098,15 @@ def create_app(
             },
         )
 
-    # session.html/safety.html are otherwise plain static files under
-    # STATIC_DIR (served verbatim by the /static mount below); these two
-    # routes shadow that mount for exactly those two paths so they, too, get
-    # the Jinja-rendered prefix injection. Must be registered before
-    # configure_interface_app() mounts /static (Starlette matches routes in
-    # registration order, so an explicit route ahead of a Mount wins).
+    # session.html is otherwise a plain static file under STATIC_DIR (served
+    # verbatim by the /static mount below); this route shadows that mount for
+    # exactly that path so it, too, gets the Jinja-rendered prefix injection.
+    # Must be registered before configure_interface_app() mounts /static
+    # (Starlette matches routes in registration order, so an explicit route
+    # ahead of a Mount wins).
     @app.get("/static/session.html")
     async def session_page(request: Request):
         return templates.TemplateResponse(request, "session.html", {"url_prefix": url_prefix})
-
-    @app.get("/static/safety.html")
-    async def safety_page(request: Request):
-        return templates.TemplateResponse(request, "safety.html", {"url_prefix": url_prefix})
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 

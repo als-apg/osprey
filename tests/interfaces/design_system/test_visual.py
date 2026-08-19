@@ -229,10 +229,6 @@ class VisualTarget:
     name: str
     server_factory: Callable[[Path], AbstractContextManager[str]]
     path: str = "/"
-    # The web-terminal hub shows a first-visit welcome modal (full-viewport
-    # overlay) that would otherwise dominate the screenshot; dismiss it so
-    # the baseline shows the actual working interface.
-    dismiss_welcome: bool = False
     wait_selector: str | None = None
     # The web-terminal hub now boots a dockview workspace (dock-workspace.js)
     # whose default artifacts panel docks as an overlay iframe (dock-iframe.js).
@@ -323,7 +319,7 @@ def _web_terminal_hub_server(tmp_path: Path) -> Iterator[str]:
 
 
 def _web_terminal_static_page_server(tmp_path: Path):
-    """session.html/safety.html are served from the hub's /static mount."""
+    """session.html is served from the hub's /static mount."""
     return _web_terminal_hub_server(tmp_path)
 
 
@@ -335,7 +331,6 @@ TARGETS: list[VisualTarget] = [
         "web_terminal_hub",
         _web_terminal_hub_server,
         path="/",
-        dismiss_welcome=True,
         # Scope to the rail button: overlay iframes now also carry
         # data-panel-id="artifacts" in the docked shell, so the bare attribute
         # selector is ambiguous.
@@ -347,11 +342,6 @@ TARGETS: list[VisualTarget] = [
         "web_terminal_session",
         _web_terminal_static_page_server,
         path="/static/session.html",
-    ),
-    VisualTarget(
-        "web_terminal_safety",
-        _web_terminal_static_page_server,
-        path="/static/safety.html",
     ),
     VisualTarget("artifacts_gallery", _artifacts_server, path="/", modes=MODES),
     VisualTarget("ariel", _ariel_server, path="/", modes=MODES),
@@ -478,8 +468,6 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                     page.goto(url, wait_until="domcontentloaded", timeout=15_000)
                     if target.wait_selector:
                         expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
-                    if target.dismiss_welcome:
-                        page.locator("#welcome-dismiss").click(timeout=15_000)
                     if target.dock_shell:
                         # The dockview grid settles a beat after the rail renders;
                         # wait for it so the baseline captures the built layout,

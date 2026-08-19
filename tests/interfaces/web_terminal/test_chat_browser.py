@@ -272,15 +272,12 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
 
 
 def _open_chat_page(browser, base_url: str, query: str = "") -> Page:
-    """Open a fresh page, wait for the console, and drop the welcome overlay."""
+    """Open a fresh page and wait for the console."""
     page = browser.new_page()
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     # initChat builds the console on DOMContentLoaded; the input row is the
     # last thing appended, so its presence means the console is mounted.
     expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_visible(timeout=10_000)
-    # The first-visit overlay intercepts pointer events; remove it so the
-    # textarea and header controls are genuinely interactable.
-    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
     return page
 
 

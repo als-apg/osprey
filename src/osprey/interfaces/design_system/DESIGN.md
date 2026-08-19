@@ -157,7 +157,7 @@ that's the documented on-ramp path, not a fleet-wide requirement today.
 
 | File | Styles |
 |---|---|
-| `terminal.css` | Main terminal shell: welcome modal/banner, terminal chrome |
+| `terminal.css` | Main terminal shell: terminal chrome |
 | `files.css` | Files panel + resize/layout |
 | `operator.css` | Operator mode (control-room log console) |
 | `md-rendered.css` | Shared markdown rendering (`.osprey-md-rendered`) |
@@ -165,7 +165,6 @@ that's the documented on-ramp path, not a fleet-wide requirement today.
 | `sessions.css` | Session picker |
 | `settings.css` | Settings panel |
 | `session.css` | Standalone session activity log page (`session.html`) |
-| `safety.css` | Standalone safety-guidelines page (`safety.html`) |
 | `scaffold/10-prompt-gallery.css` | Prompt gallery |
 | `scaffold/20-memory-gallery.css` | Memory gallery ("Lab Notebook") |
 | `scaffold/30-config-structured-renderers.css` | Structured renderers for `settings.json`/`.mcp.json` |

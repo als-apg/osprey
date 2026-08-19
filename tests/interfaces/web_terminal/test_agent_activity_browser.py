@@ -245,7 +245,6 @@ def _open_hub_page(browser: Browser, base_url: str) -> Page:
         timeout=10_000
     )
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
     _wait_for_sse_open(page, "/api/files/events")
     return page
 
@@ -276,7 +275,6 @@ def _reload_hub_page(page: Page) -> None:
     """
     page.reload(wait_until="domcontentloaded")
     expect(page.locator(_ARTIFACTS_RAIL)).to_be_attached(timeout=10_000)
-    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
     _wait_for_sse_open(page, "/api/files/events")
 
 

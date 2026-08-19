@@ -337,7 +337,10 @@
 }
 
 .status-link:hover {
-  color: var(--accent);
+  /* Was the bare `--accent` name, which nothing in the hub declared: it
+     resolved only inside the deleted safety.html, whose own :root aliased it to
+     this token. In the hub the hover simply never changed color. */
+  color: var(--color-accent-secondary-light);
 }
 
 .status-dot {

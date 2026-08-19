@@ -758,15 +758,42 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     connector = _connector(archiver_world)
     channel = str(_manifest_channels(archiver_world)[0]["address"])
 
+    # "The oldest sample really held" is a moving target: every document carries
+    # its own expireAt (sample time + retention span), and mongod's TTL monitor
+    # sweeps on its own once-a-minute phase, eating one coarse bucket per pass.
+    # Comparing a probe against a store read taken seconds apart is a race lost
+    # whenever a sweep lands between them. So bracket each probe with a store
+    # read on both sides: a truthful bound must lie inside the bracket, and when
+    # no sweep intervenes the bracket collapses to the old exact comparison.
+    def oldest_held() -> datetime:
+        with _collection(archiver_world) as collection:
+            from osprey.simulation.archiver_seed import oldest_sample
+
+            oldest = oldest_sample(collection)
+        assert oldest is not None, "the seeded store reports no oldest sample"
+        # pymongo hands back naive datetimes read as UTC; the arithmetic below
+        # mixes them with aware ones, so pin the zone rather than letting it
+        # depend on which layer happened to attach it.
+        return oldest if oldest.tzinfo else oldest.replace(tzinfo=UTC)
+
+    oldest_before = oldest_held()
     metadata = asyncio.run(connector.get_metadata(channel))
     assert metadata.archival_start is not None, "get_metadata reported no archival_start"
+    oldest_after = oldest_held()
 
-    # pymongo hands back naive datetimes read as UTC; the arithmetic below mixes
-    # them with aware ones, so pin the zone rather than letting it depend on
-    # which layer happened to attach it.
     archival_start = metadata.archival_start
     if archival_start.tzinfo is None:
         archival_start = archival_start.replace(tzinfo=UTC)
+
+    # Reported coverage is the oldest sample really held, not a declared window.
+    assert (oldest_before - archival_start).total_seconds() < 1.0, (
+        f"archival_start {archival_start} precedes every sample the store held "
+        f"(oldest was {oldest_before}); the bound must be real history, not a declared window"
+    )
+    assert (archival_start - oldest_after).total_seconds() < 1.0, (
+        f"archival_start {archival_start} postdates the oldest sample the store held "
+        f"({oldest_after}); the bound must be real history, not a declared window"
+    )
 
     before = archival_start - timedelta(days=2)
     frame = asyncio.run(connector.get_data([channel], before, archival_start - timedelta(hours=1)))
@@ -774,14 +801,6 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
         f"a window entirely before coverage began returned {len(frame)} points for "
         f"{channel}; the archive must report what it does not have, not fill it in"
     )
-
-    with _collection(archiver_world) as collection:
-        from osprey.simulation.archiver_seed import oldest_sample
-
-        actual_oldest = oldest_sample(collection)
-    assert actual_oldest is not None
-    # Reported coverage is the oldest sample really held, not a declared window.
-    assert abs((archival_start - actual_oldest).total_seconds()) < 1.0
 
     # -- the same emptiness, as the AGENT is told it --------------------------
     # Through the real MCP tool against the deployed store: the connector
@@ -796,6 +815,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     from osprey.mcp_server.control_system.tools.archiver_read import archiver_read
 
     tool = get_tool_fn(archiver_read)
+    oldest_before_tool = oldest_held()
     response = asyncio.run(
         tool(
             channels=[channel],
@@ -803,6 +823,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
             end_time=(archival_start - timedelta(hours=1)).isoformat(),
         )
     )
+    oldest_after_tool = oldest_held()
     payload = extract_response_dict(response)
     assert payload["status"] == "success"
     coverage = payload["summary"]["coverage"]
@@ -810,8 +831,16 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     # The bound the agent is shown is the store's true oldest sample, not a
     # declared window — same claim as above, now at the tool surface.
     reported_start = datetime.fromisoformat(coverage["channels"][channel]["archive_start"])
-    oldest_utc = actual_oldest if actual_oldest.tzinfo else actual_oldest.replace(tzinfo=UTC)
-    assert abs((reported_start - oldest_utc).total_seconds()) < 1.0
+    assert (oldest_before_tool - reported_start).total_seconds() < 1.0, (
+        f"the tool reported archive_start {reported_start}, before every sample the "
+        f"store held (oldest was {oldest_before_tool}); the agent-facing bound must be "
+        f"real history, not a declared window"
+    )
+    assert (reported_start - oldest_after_tool).total_seconds() < 1.0, (
+        f"the tool reported archive_start {reported_start}, after the oldest sample "
+        f"the store held ({oldest_after_tool}); the agent-facing bound must be "
+        f"real history, not a declared window"
+    )
 
 
 # ---------------------------------------------------------------------------
