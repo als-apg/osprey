@@ -159,7 +159,14 @@ The contributor edits code; the skill is mostly absent. Two reminders:
    ```
 
    Where `type ∈ {feat, fix, docs, refactor, test, chore, ci, build, perf}`.
-   Subject ≤ 70 chars, imperative mood ("add", not "added").
+   Subject ≤ 70 chars, imperative mood ("add", not "added"), no trailing
+   period. Separate the subject from the body with a blank line, and wrap the
+   body at 72 columns so `git log` stays readable in a narrow terminal.
+
+   The conventions come from Tim Pope, [A Note About Git Commit
+   Messages](https://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html),
+   and Chris Beams, [How to Write a Git Commit
+   Message](https://cbea.ms/git-commit/).
 
    **Soft prompt**: if the contributor's preferred message doesn't match the
    conventional form, propose a rewrite once. Accept their version on insist.
