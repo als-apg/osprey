@@ -4,10 +4,9 @@ Bluesky Plans
 
 The Osprey agent can run real measurement plans — sweep magnets, read beam
 monitors, and collect the data — through the same chat and panels you already
-use. Three promises shape everything on these pages: a plan waits in a
-**queue** until a human deliberately starts it, the queue **survives
-restarts**, and **stopping is never locked** — not by any switch, on any
-surface.
+use. The plans and the queue are `Bluesky <https://blueskyproject.io/>`_'s;
+Osprey deploys those services, wires them to your control system, and puts the
+agent and a human approval step in front.
 
 .. mermaid::
 
