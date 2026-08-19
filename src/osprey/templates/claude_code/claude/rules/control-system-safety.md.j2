@@ -41,6 +41,24 @@ from epics import PV
 pv = PV("SR:MAG:QF:01:CURRENT:SP")
 pv.put(150)  # Bypasses all safety layers
 ```
+
+The same prohibition covers pvAccess (PVA) through the `p4p` library — every
+client flavor, not just the threaded one:
+
+```python
+# DO NOT use these — they bypass safety controls
+from p4p.client.thread import Context      # Bypasses all safety layers
+from p4p.client.asyncio import Context     # Same bypass, async client flavor
+ctxt = Context("pva")
+ctxt.get("SR:CAM:01:IMAGE")                 # Bypasses audit logging
+ctxt.put("SR:MAG:QF:01:CURRENT:SP", 150)    # Bypasses limits + approval
+ctxt.rpc("SR:SVC:ORBIT", request)           # Not approvable — refused at runtime
+```
+
+`ctxt.rpc(...)` is the one to remember: it is refused at runtime and no
+approval can let it through. An rpc call carries an arbitrary payload, so
+limits checking cannot apply to it — there is nothing for the approval
+workflow to check. Use `write_channel` for the write you actually need.
 {% elif cs_type == 'tango' %}
 ```python
 # DO NOT use these — they bypass safety controls
