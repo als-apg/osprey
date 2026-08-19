@@ -48,7 +48,8 @@ The image is built locally, never pulled. ``osprey build`` renders
 ``./services/qmd``; ``osprey up`` builds the image on first run and tags it
 ``<project>-qmd:local``, project-prefixed so two OSPREY projects on one host
 cannot race for one tag. The baked-in models make that first build about
-2.1 GB of download; later runs reuse the local tag.
+2.1 GB of download; later runs reuse the local tag. A host with no route to
+the internet can supply the models itself --- see `Building without egress`_.
 
 Configuration
 -------------
@@ -64,8 +65,10 @@ Configuration
    deployed_services:
      - qmd
 
-Those three keys are the whole schema. Notably **there is no
-``bind_address`` here** --- see `Where the sidecar listens`_ below.
+Those three keys are the whole schema for a host that can reach the internet;
+a fourth, ``models_dir``, covers one that cannot (see `Building without
+egress`_). Notably **there is no ``bind_address`` here** --- see `Where the
+sidecar listens`_ below.
 
 Neither consumer strictly needs the sidecar --- OKF search falls back to
 substring matching and hybrid logbook search reports an outage --- so a
@@ -82,6 +85,31 @@ The interval only catches writers that forgot to touch it. Raise it on a large
 corpus --- a sweep that finds nothing changed still costs about 12.5 seconds at
 135,000 documents, so the 30-second default leaves the loop busy roughly 42% of
 the time discovering nothing.
+
+Building without egress
+-----------------------
+
+Downloading the three model files is the one step of the image build that
+reaches the internet, so on a host without egress the build stalls there.
+``models_dir`` names a host directory that already holds those three files:
+
+.. code-block:: yaml
+
+   services:
+     qmd:
+       path: ./services/qmd
+       models_dir: /opt/qmd-models   # absolute path, three GGUF files
+
+One key does both halves of the job --- the build skips the download, and the
+directory is bind-mounted read-only where the image expects to load models
+from. Setting only one half would leave the container with no models at all,
+which is why it is a single key rather than two.
+
+Skipping the download does not skip verification, it moves it: the checksums
+travel with the image, and the entrypoint checks all three files on every
+start. A missing or misnamed file is refused before compose runs, by a
+deploy-time check that looks for the three expected filenames --- rather than
+surfacing an hour later as a container that never became healthy.
 
 What gets mounted
 -----------------
