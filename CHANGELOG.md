@@ -35,6 +35,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   init` materializes it from the preset (the control assistant ships its own
   text), so the context every seeded user starts from is visible and editable
   in the deployment repo instead of hidden in the installed package.
+- The EPICS connector now reads pvAccess (PVA) channels alongside Channel
+  Access, routed by a `pva_channels` glob so one deployment can mix both
+  protocols; PVA writes are refused with a typed reason rather than
+  attempted. Oversized reads — camera images and long waveforms, from either
+  protocol — now come back as gallery artifacts (an interactive chart for
+  1-D data, an image preview plus the raw array for 2-D and up) with an
+  inline summary instead of flooding the context or being stringified, which
+  also fixes oversized Channel Access waveform reads. p4p write patterns are
+  now checked by the same pattern-detection, limits, and safety-rule layers
+  as pyepics writes, and PVA RPC calls are refused outright.
 
 - A host that cannot build images can now skip the dev-mode image build, with
   `prebuilt_images: true` in `config.yml` or `OSPREY_PREBUILT_IMAGES=1` for one
