@@ -132,6 +132,7 @@ from tests.e2e.sdk_helpers import (
     SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     HookEvent,
     _default_opus_model,
+    dump_agent_transcript,
     is_claude_code_available,
     promote_ask_to_allow,
     render_dir,
@@ -2819,6 +2820,12 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
         disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
 
+    # Before any assertion — see dump_agent_transcript. The judge's criterion 2
+    # turns on numbers it is never shown, so when it reports that a response
+    # "cannot be verified from the execution trace" this file is the only place
+    # the real tool output survives to settle it.
+    dump_agent_transcript("orbit_response", result)
+
     run_id = assert_orbit_response_scan_executed(result)
 
     # The liveness floor reads the run from the bridge directly — what the
@@ -2888,6 +2895,8 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
         model=_default_opus_model(repo),
         disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
+
+    dump_agent_transcript("grid_scan", result)
 
     run_id = assert_grid_scan_executed(result)
 
@@ -2999,6 +3008,8 @@ async def test_agent_authors_and_runs_a_hysteresis_loop(
             model=_default_opus_model(repo),
             disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
+
+    dump_agent_transcript("hysteresis_loop", result)
 
     run_id, _ = assert_authored_scan_executed(result)
 
@@ -3271,6 +3282,8 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
             model=_default_opus_model(repo),
             disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
+
+    dump_agent_transcript("one_action_approval", result)
 
     # The plan itself first: a transcript assertion over a run that never
     # staged anything would be counting prompts that were never going to fire.
