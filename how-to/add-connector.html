@@ -581,6 +581,77 @@ archiver (synthetic data) to the EPICS Archiver Appliance the same way:</p>
 <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> setting that controls write permissions.</p>
 </div>
 </section>
+<section id="pvaccess-channels-pva">
+<h3>PVAccess Channels (PVA)<a class="headerlink" href="#pvaccess-channels-pva" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">epics</span></code> connector speaks Channel Access by default. Some data – camera
+frames above all – is served only over pvAccess, EPICS’ second protocol. List
+those addresses as glob patterns under <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> and the connector reads
+them through pvAccess, while every other address keeps using Channel Access. One
+deployment covers both:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
+<span class="w">      </span><span class="nt">pva_channels</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*:IMAGE*&quot;</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;BL:CAM?:ARRAY&quot;</span>
+<span class="w">      </span><span class="nt">pva_gateway</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pvagw.facility.edu</span>
+<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5075</span><span class="w">               </span><span class="c1"># default</span>
+<span class="w">        </span><span class="nt">use_name_server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">      </span><span class="nt">gateways</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">read_only</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5064</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>Patterns are matched with <code class="docutils literal notranslate"><span class="pre">fnmatch.fnmatchcase</span></code> – case-sensitive, and the
+same on every operating system. Addresses stay exactly as you write them: no
+<code class="docutils literal notranslate"><span class="pre">pva://</span></code> prefix is ever added, so the limits database, channel databases and
+audit records keep matching the strings they already use. An absent or empty
+<code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> list is a complete no-op – the connector behaves exactly as it
+did before and never even imports the pvAccess client.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pva_gateway</span></code> is a single flat block, unlike the <code class="docutils literal notranslate"><span class="pre">read_only</span></code> /
+<code class="docutils literal notranslate"><span class="pre">write_access</span></code> pair on the Channel Access side, because pvAccess is read-only
+here. The block is only consulted when <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> is non-empty, and it becomes
+<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_ADDR_LIST</span></code> in the form <code class="docutils literal notranslate"><span class="pre">address:port</span></code> – or
+<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_NAME_SERVERS</span></code>, same form, when <code class="docutils literal notranslate"><span class="pre">use_name_server</span></code> is true, which
+makes the client connect over TCP instead of searching by UDP broadcast (that is
+what an SSH tunnel needs). Whenever the block is present,
+<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_AUTO_ADDR_LIST</span></code> is forced to <code class="docutils literal notranslate"><span class="pre">&quot;NO&quot;</span></code> – the same containment the
+Channel Access side applies, so a deployment deliberately pinned to one gateway
+cannot also broadcast-discover servers on the local subnet.</p>
+<p><strong>PVA channels are read-only.</strong> A write to an address matching a
+<code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> pattern comes straight back as a blocked
+<code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code> naming the reason, with nothing sent on the network. That
+is a deliberate safety decision rather than an unfinished feature: a supervised
+pvAccess write path is separate work with its own review, and until it exists a
+refusal is the honest answer.</p>
+<p>pvAccess <strong>RPC services</strong> are refused too, and for a different reason. Code the
+agent runs through the Python executor cannot call <code class="docutils literal notranslate"><span class="pre">Context.rpc(...)</span></code>: it is
+blocked at runtime and no approval can let it through, because an rpc payload
+carries an arbitrary request – there is no way to tell a read from a write, and
+nothing for limits checking to validate. Use <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> and
+<code class="docutils literal notranslate"><span class="pre">channel_write</span></code> for the operation you actually need.</p>
+<p>A camera frame is almost always too large to return to the agent as raw
+numbers; see <a class="reference internal" href="#reading-large-values">Reading Large Values</a> below for what comes back instead.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Compressed NTNDArray frames are not decoded. When a camera’s areaDetector
+pvAccess plugin is configured with a codec (blosc, lz4, jpeg), the read fails
+with an error naming the codec and the remedy – disable pvAccess compression
+for that channel – rather than reshaping a compressed blob into a
+plausible-looking image full of meaningless statistics.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The pvAccess client (<code class="docutils literal notranslate"><span class="pre">p4p</span></code>) ships with OSPREY as an ordinary dependency, so
+there is normally nothing to install. The exception is a bare-metal install on
+arm64 Linux, where <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">pvxslibs</span></code> and <code class="docutils literal notranslate"><span class="pre">epicscorelibs</span></code> publish no
+wheels and pip builds them from source: that host needs a C toolchain
+(a compiler and <code class="docutils literal notranslate"><span class="pre">make</span></code>) present. OSPREY’s own project images already stage
+one, so containerized deployments are unaffected.</p>
+</div>
+</section>
 <section id="mongodb-archiver">
 <h3>MongoDB Archiver<a class="headerlink" href="#mongodb-archiver" title="Link to this heading">#</a></h3>
 <p>For facilities that store time-series PV data in MongoDB rather than EPICS Archiver
@@ -632,6 +703,65 @@ provides rather than PyPI; without it, <code class="docutils literal notranslate
 readback and reports the level as <code class="docutils literal notranslate"><span class="pre">readback</span></code>.</p>
 </div>
 </section>
+</section>
+<section id="reading-large-values">
+<h2>Reading Large Values<a class="headerlink" href="#reading-large-values" title="Link to this heading">#</a></h2>
+<p>Array-valued channels – camera frames, waveforms, orbit vectors – are often
+far too big to hand to the agent as raw numbers. <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> applies a size
+rule to every read, whatever protocol answered it: values within an element
+budget come back inline as JSON lists, and anything larger is saved to the
+artifact gallery and reported as a summary plus a handle to it. A Channel Access
+waveform takes exactly the same path as a pvAccess camera frame.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">read_inline_max_elements</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2000</span><span class="w">        </span><span class="c1"># per-value element budget</span>
+<span class="w">  </span><span class="nt">channel_read_artifact_retention</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">   </span><span class="c1"># readings kept per channel</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">read_inline_max_elements</span></code> (default 2000) is the per-value budget. The default
+is the same inline budget OSPREY already plots against, which keeps ordinary
+waveforms and orbit vectors inline while camera frames take the artifact path.
+Only arrays are measured – strings and single scalars are always inline,
+however long they are.</p>
+<p>One <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> call also has an aggregate budget of four times that
+number, spent in request order, so a batch of individually small arrays cannot
+add up to a flood. Every withheld value says which of the two limits it hit, as
+<code class="docutils literal notranslate"><span class="pre">artifact_reason</span></code>:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">per_value_threshold</span></code></dt><dd><p>The value on its own is over <code class="docutils literal notranslate"><span class="pre">read_inline_max_elements</span></code>. It will never
+come back inline.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">aggregate_budget</span></code></dt><dd><p>The value is small enough by itself, but earlier channels in the same
+request had already spent the call’s budget. Reading this channel in a
+smaller batch returns it inline.</p>
+</dd>
+</dl>
+<p>The summary that replaces the value reports shape, dtype and element count, plus
+min/max/mean for numeric data, along with the artifact’s id and its
+<code class="docutils literal notranslate"><span class="pre">data_file</span></code> path. What gets saved depends on the shape:</p>
+<ul class="simple">
+<li><p><strong>1-D</strong> – an interactive chart in the artifact gallery, with the values as
+JSON in <code class="docutils literal notranslate"><span class="pre">data_file</span></code>. The x axis is the sample index, not wall-clock time:
+one read of an array carries a single timestamp.</p></li>
+<li><p><strong>2-D and 3-D with a color axis</strong> – a PNG preview as the gallery image, with the raw array
+beside it as a <code class="docutils literal notranslate"><span class="pre">.npy</span></code> file (<code class="docutils literal notranslate"><span class="pre">data_file</span></code>). The preview is auto-scaled:
+brightness is relative to that frame’s own minimum and maximum, so it carries
+no absolute units. <code class="docutils literal notranslate"><span class="pre">data_file</span></code> is the authoritative copy of the values.</p></li>
+<li><p><strong>Layouts with no honest rendering</strong> – four dimensions and up, or a 3-D stack
+with no color axis – are still saved as a loadable <code class="docutils literal notranslate"><span class="pre">.npy</span></code>, just without a
+preview image.</p></li>
+</ul>
+<p>The agent reaches the numbers by loading <code class="docutils literal notranslate"><span class="pre">data_file</span></code> inside <code class="docutils literal notranslate"><span class="pre">execute</span></code>:
+<code class="docutils literal notranslate"><span class="pre">numpy.load(data_file)</span></code> returns the array with its original shape and dtype,
+and <code class="docutils literal notranslate"><span class="pre">json.load</span></code> opens a 1-D series file. If the artifact store cannot write at
+all, the read is still reported as successful, with an <code class="docutils literal notranslate"><span class="pre">artifact_error</span></code> field
+in place of the handle – the machine did answer, and reporting the read as
+failed would be a false alarm.</p>
+<p><code class="docutils literal notranslate"><span class="pre">channel_read_artifact_retention</span></code> (default 20) bounds how far these readings
+pile up: only the newest N <strong>unpinned</strong> artifacts per channel are kept, and
+older ones are pruned as new readings are saved. Pinning a reading exempts it –
+a pinned entry is never pruned and never occupies a slot in the window either.
+Set the key to <code class="docutils literal notranslate"><span class="pre">0</span></code> to keep everything, remembering that an unattended polling
+loop will then grow the gallery without bound.</p>
 </section>
 <section id="write-verification">
 <h2>Write Verification<a class="headerlink" href="#write-verification" title="Link to this heading">#</a></h2>
@@ -974,10 +1104,12 @@ don’t need a registry entry.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start-using-connectors">Quick Start: Using Connectors</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mock-mode-development-r-d">Mock Mode (Development &amp; R&amp;D)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#production-mode-epics">Production Mode (EPICS)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pvaccess-channels-pva">PVAccess Channels (PVA)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mongodb-archiver">MongoDB Archiver</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#production-mode-doocs">Production Mode (DOOCS)</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-large-values">Reading Large Values</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-verification">Write Verification</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
