@@ -64,6 +64,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Container builds no longer fail when one package download is cut short. apt
+  now fetches one request per connection: with pipelining left at its default,
+  a connection reset partway through a batch could fail the whole image even
+  though retries were configured.
+
 - Container builds now hand apt the proxy settings they were given. A facility
   proxy arrives as `HTTP_PROXY`/`HTTPS_PROXY`, which apt does not read, so on a
   network with no direct egress every image build stalled in its first package
