@@ -35,6 +35,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   init` materializes it from the preset (the control assistant ships its own
   text), so the context every seeded user starts from is visible and editable
   in the deployment repo instead of hidden in the installed package.
+- Channel fields in the BLUESKY panel's plan forms offer typeahead
+  suggestions drawn from the project's Channel Finder catalog, snapshotted at
+  build time. On by default when a channel database is configured;
+  `web.channel_suggestions.enabled` and `web.channel_suggestions.max_channels`
+  tune or disable it.
 
 - A host that cannot build images can now skip the dev-mode image build, with
   `prebuilt_images: true` in `config.yml` or `OSPREY_PREBUILT_IMAGES=1` for one

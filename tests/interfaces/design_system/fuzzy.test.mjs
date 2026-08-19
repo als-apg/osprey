@@ -1,6 +1,7 @@
 /**
- * Unit tests for fuzzy.js — the pure command-palette scorer. Pins the
- * load-bearing contract that a naive subsequence matcher fails:
+ * Unit tests for fuzzy.js — the design system's pure fuzzy scorer (shared by
+ * the command palette and the channel-catalog matcher). Pins the load-bearing
+ * contract that a naive subsequence matcher fails:
  *
  *   - the query is tokenized on whitespace and EVERY token must independently
  *     subsequence-match the candidate (all-tokens-AND), so "wrt vrf" matches
@@ -12,12 +13,12 @@
  *     spans, and an empty query matches everything with score 0
  *
  * Pure module, no DOM:
- *   npx vitest run tests/interfaces/web_terminal/fuzzy.test.mjs
+ *   npx vitest run tests/interfaces/design_system/fuzzy.test.mjs
  */
 
 import { describe, it, expect } from 'vitest';
 
-import { fuzzyMatch } from '../../../src/osprey/interfaces/web_terminal/static/js/fuzzy.js';
+import { fuzzyMatch } from '/design-system/js/fuzzy.js';
 
 /** Reconstruct the matched substring set by slicing the candidate by spans.
  * @param {string} candidate

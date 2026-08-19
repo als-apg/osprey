@@ -90,6 +90,14 @@ services:
       # (build/services/), not this file's own subdir — hence the
       # bluesky-web/ prefix (mirrors the bridge's config.yml:ro convention).
       - ./build/services/bluesky_web/config.yml:/app/project/config.yml:ro
+{% if channel_snapshot | default(false) %}
+      # Only when the build emitted a channel snapshot (channel_snapshot is
+      # true exactly when build/services/bluesky_web/channels.json was staged
+      # — see compose_generator._stage_channel_snapshot): an unconditional
+      # bind mount of a file the build never wrote would fail
+      # `docker compose up` on the missing source.
+      - ./build/services/bluesky_web/channels.json:/app/project/channels.json:ro
+{% endif %}
     networks:
       - osprey-network
     healthcheck:

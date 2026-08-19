@@ -62,6 +62,8 @@
  * @module schema-form
  */
 
+import { attachChannelCombobox } from '/design-system/js/channel-combobox.js';
+
 import { h } from './hyperscript.js';
 
 /**
@@ -93,7 +95,45 @@ export const OMIT = Symbol('omit');
  * @property {number} [exclusiveMaximum]
  * @property {number} [minItems]
  * @property {string} [x-widget]
+ * @property {string} [x-channel-role]
  */
+
+/**
+ * Channel-address catalog backing the suggestion comboboxes, or ``null`` while
+ * none is loaded. Installed at most once per panel load via
+ * ``setChannelCatalog``; forms rendered while this is ``null`` build exactly
+ * the DOM they always did, and are not retrofitted when the catalog arrives —
+ * only fields (including dynamically added list rows / table cells) built
+ * after it is set get a combobox.
+ *
+ * @type {string[]|null}
+ */
+let channelCatalog = null;
+
+/**
+ * Install the channel catalog for suggestion comboboxes. The panel bootstrap
+ * calls this once after a successful ``/channels`` fetch; an empty list is
+ * stored as "no catalog" so the feature stays entirely invisible.
+ *
+ * @param {string[]} channels
+ */
+export function setChannelCatalog(channels) {
+  channelCatalog = Array.isArray(channels) && channels.length > 0 ? channels : null;
+}
+
+/**
+ * The catalog a field should offer suggestions from, or ``null`` when the
+ * field is not channel-tagged or no catalog is loaded. Mirrors the
+ * ``x-widget`` convention: any truthy ``x-channel-role`` (Pydantic
+ * ``json_schema_extra``) tags the field as holding a channel address — the
+ * role's *value* only says why, it never filters the suggestions.
+ *
+ * @param {JsonSchemaNode} node A resolved node.
+ * @returns {string[]|null}
+ */
+function channelSuggestionsFor(node) {
+  return node['x-channel-role'] && channelCatalog ? channelCatalog : null;
+}
 
 /**
  * @typedef {object} Field
@@ -387,8 +427,20 @@ function buildString(node, seed) {
       value: seed === undefined || seed === null ? '' : String(seed),
     })
   );
+  // A channel-tagged field gets a suggestion combobox. The combobox wraps the
+  // input in place, which needs the input parented *now* — buildString's
+  // input is otherwise mounted later by its caller (a labeled row, a table
+  // cell) — so the tagged variant mounts via a plain host div. The untagged
+  // variant returns the bare input, byte-identical to before.
+  const catalog = channelSuggestionsFor(node);
+  /** @type {HTMLElement} */
+  let el = input;
+  if (catalog) {
+    el = h('div', undefined, input);
+    attachChannelCombobox(input, catalog);
+  }
   return {
-    el: input,
+    el,
     collect: () => (input.value === '' ? OMIT : input.value),
     setValue: (value) => {
       input.value = value === undefined || value === null ? '' : String(value);
@@ -603,6 +655,29 @@ function buildChips(node, itemSchema, seed) {
   );
   const el = h('div', { class: 'chips' }, input);
 
+  // Channel-tagged chip wells get a suggestion combobox on the add-input.
+  // Attached BEFORE buildCommitList wires its own keydown handler, so on an
+  // arrow-armed Enter the combobox (registered first) writes the accepted
+  // suggestion into the input and the commit handler then commits that value
+  // — not the half-typed text it would otherwise see.
+  const catalog = channelSuggestionsFor(node);
+  /**
+   * The node re-appended after the chips on every render: the bare input, or
+   * — once the combobox wraps it — the wrapper, so a re-render doesn't pull
+   * the input back out of its popup anchor. The wrapper also takes over the
+   * input's role as the chip row's growing flex item.
+   *
+   * @type {HTMLElement}
+   */
+  let inputMount = input;
+  if (catalog) {
+    attachChannelCombobox(input, catalog);
+    inputMount = /** @type {HTMLElement} */ (input.parentElement);
+    inputMount.style.flex = '1';
+    inputMount.style.minWidth = '110px';
+    input.style.width = '100%';
+  }
+
   // Paint `values` into the chip well — a removable chip each, add-input last —
   // rebuilding the whole well every call.
   /** @param {unknown[]} values */
@@ -622,7 +697,7 @@ function buildChips(node, itemSchema, seed) {
       });
       el.appendChild(h('span', { class: 'chip' }, h('span', { text: String(value) }), remove));
     });
-    el.appendChild(input);
+    el.appendChild(inputMount);
   }
 
   // Clicking anywhere in the chip well focuses the input, like a real tag box.
@@ -693,6 +768,13 @@ function buildChannelList(node, itemSchema, seed) {
     const n = values.length;
     count.textContent = `${n} channel${n === 1 ? '' : 's'}`;
   }
+
+  // Same ordering rationale as buildChips: attach before buildCommitList so
+  // an armed Enter commits the accepted suggestion, not the half-typed text.
+  // No mount juggling here — render only rebuilds the <ul>, so the wrapper
+  // simply takes the add-input's slot in the column flex and stays put.
+  const catalog = channelSuggestionsFor(node);
+  if (catalog) attachChannelCombobox(input, catalog);
 
   return buildCommitList(itemSchema, seed, input, el, render);
 }
