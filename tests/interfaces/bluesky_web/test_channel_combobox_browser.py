@@ -38,6 +38,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -138,7 +139,17 @@ def _plan_form_target(page: Page) -> Locator:
 
 
 def _listbox_for(page: Page, input_locator: Locator) -> Locator:
-    """Resolve an input's own popup listbox via its aria-controls id."""
+    """Resolve an input's own popup listbox via its aria-controls id.
+
+    The combobox stamps ``aria-controls`` when it attaches to an input, which
+    for a field the caller has not already waited on can land after the first
+    read. Poll for the attribute rather than sampling it once: it is removed
+    only on ``destroy()``, so an input that is genuinely never enhanced still
+    fails here, just on the timeout instead of on a race.
+    """
+    expect(input_locator).to_have_attribute(
+        "aria-controls", re.compile(r".+"), timeout=_FORM_TIMEOUT_MS
+    )
     list_id = input_locator.get_attribute("aria-controls")
     assert list_id, "input carries no aria-controls — combobox not attached"
     return page.locator(f"#{list_id}")

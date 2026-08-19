@@ -350,6 +350,31 @@ def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogb
     return [_to_enhanced_entry(entry, anchor) for entry in engine.active_logbook()]
 
 
+async def _export_qmd_mirror(ariel_config: dict) -> None:
+    """Write the markdown mirror for entries that were just seeded.
+
+    Seeding upserts rows straight into the logbook and skips the enhancement
+    passes, so nothing writes the mirror the qmd sidecar indexes. Without this
+    pass a seeded deployment answers ``keyword`` searches fine while ``hybrid``
+    searches an index that was never built — the failure mode is an empty
+    result set, not an error, so it reads as "the logbook has nothing on that".
+
+    The rebuild variant is deliberate: seeding is preceded by a purge in one
+    caller and gated on an empty logbook in the other, and a full rebuild is
+    the only pass that also clears mirrored files for entries that are gone.
+
+    A deployment without the ``qmd_export`` module has no mirror to keep, and
+    :func:`~osprey.services.ariel_search.cli_operations.run_qmd_resync` makes
+    this a no-op there.
+
+    Args:
+        ariel_config: ARIEL config section with its DSN already resolved.
+    """
+    from osprey.services.ariel_search.cli_operations import run_qmd_resync
+
+    await run_qmd_resync(ariel_config, rebuild=True)
+
+
 def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> int:
     """Write the active narrative into a logbook that has none. Returns entries seeded.
 
@@ -383,7 +408,9 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
 
         if await cli_operations.logbook_entry_count(ariel_config) > 0:
             return 0
-        return await cli_operations.seed_logbook_entries(ariel_config, entries)
+        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries)
+        await _export_qmd_mirror(ariel_config)
+        return seeded
 
     return _run_coro(_seed_if_empty)
 
@@ -1712,4 +1739,5 @@ async def _seed_logbook(
     await run_migrate(ariel_config)
     await execute_purge(ariel_config, embeddings_only=False)
     seeded = await seed_logbook_entries(ariel_config, entries)
+    await _export_qmd_mirror(ariel_config)
     return seeded, True

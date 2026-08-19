@@ -408,6 +408,7 @@ keys:
   ariel.ingestion: {covered-by: ariel}
   ariel.ingestion.adapter: {covered-by: ariel.ingestion}
   ariel.ingestion.source_url: {evidence: 'source_url'}
+  ariel.default_search_mode: {evidence: 'default_search_mode'}
   ariel.search_modules: {evidence: 'search_modules'}
   ariel.search_modules.keyword: {covered-by: ariel.search_modules}
   ariel.search_modules.keyword.enabled: {covered-by: ariel.search_modules.keyword}

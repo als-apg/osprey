@@ -448,10 +448,15 @@ def models_command() -> None:
 
 @ariel_group.command("search")
 @click.argument("query")
-@click.option("--mode", type=_SearchModeChoice(), default="keyword")
+@click.option(
+    "--mode",
+    type=_SearchModeChoice(),
+    default=None,
+    help="Search module to use. Defaults to ariel.default_search_mode.",
+)
 @click.option("--limit", type=int, default=10, help="Maximum results")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
-def search_command(query: str, mode: str, limit: int, output_json: bool) -> None:
+def search_command(query: str, mode: str | None, limit: int, output_json: bool) -> None:
     """Search the logbook.
 
     Execute a search query using the ARIEL agent.

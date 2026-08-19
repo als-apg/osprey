@@ -1014,7 +1014,7 @@ def _entry_summary(entry: dict) -> dict:
     }
 
 
-async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> dict:
+async def run_search(config_dict: dict, query: str, mode: str | None, limit: int) -> dict:
     """Execute a search query and return the result as a dict.
 
     Args:
@@ -1022,7 +1022,8 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
         query: Search query text.
         mode: Search module name, e.g. ``"keyword"``. Case and surrounding
             whitespace are normalized; whether the name is registered and
-            enabled is decided by the search service.
+            enabled is decided by the search service. ``None`` leaves the
+            choice to the deployment's ``ariel.default_search_mode``.
         limit: Maximum number of entries to return.
 
     Returns:
@@ -1036,10 +1037,12 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
 
     config = _ariel_config(config_dict)
 
-    try:
-        search_mode = normalize_search_mode(mode)
-    except ValueError as e:
-        return {"error": str(e)}
+    search_mode: str | None = None
+    if mode is not None:
+        try:
+            search_mode = normalize_search_mode(mode)
+        except ValueError as e:
+            return {"error": str(e)}
 
     try:
         service = await create_ariel_service(config)
