@@ -10,9 +10,11 @@ here, so nothing has to import a conftest.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,43 @@ DEFAULT_QMD_SIDECAR_IMAGE = "osprey-qmd:local-validate"
 #: The deployment-wide override for the sidecar image, established by the image
 #: task and consumed by the compose ``image:`` line.
 QMD_IMAGE_ENV = "OSPREY_QMD_IMAGE"
+
+
+#: The other image this lane builds: the same Dockerfile with the three model
+#: fetches skipped (``--build-arg OSPREY_QMD_MODELS_MOUNTED=1``), which is what
+#: a build host with no route to huggingface.co produces. Cheap to build — it
+#: downloads none of the 2.1 GB — and it is the only image the mounted-delivery
+#: path can be tested against, because a baked image already has the models.
+MOUNTED_IMAGE_ENV = "OSPREY_QMD_MOUNTED_IMAGE"
+
+#: Where that image looks for its models, and therefore where the deployment's
+#: read-only bind mount lands. The literal is the image's own
+#: ``OSPREY_QMD_MODEL_DIR``; ``tests/deployment/test_qmd_compose_fragment.py``
+#: pins the compose fragment's copy of it to the Dockerfile.
+SIDECAR_MODEL_DIR = "/opt/qmd/.cache/qmd/models"
+
+#: The sidecar's writable state directory — the index, and the stamp file that
+#: records which model files were already verified. Deliberately outside the
+#: model tree, so nothing the container writes lands on the read-only mount.
+SIDECAR_STATE_DIR = "/var/lib/qmd"
+
+#: Per-model environment variable carrying the digest the image expects, keyed
+#: by the model's on-disk name. Setting these at ``docker run`` overrides the
+#: ENV the build baked in, which is what lets a kilobyte fixture stand in for a
+#: 318 MB model: the check is "this file is the file this image was built with",
+#: and both halves of that are supplied here. The identity file the entrypoint
+#: sources uses different names (``OSPREY_QMD_EMBED_MODEL_SHA256``), so it
+#: cannot clobber them.
+MODEL_DIGEST_ENV = {
+    "hf_ggml-org_embeddinggemma-300M-Q8_0.gguf": "OSPREY_QMD_EMBED_SHA256",
+    "hf_ggml-org_qwen3-reranker-0.6b-q8_0.gguf": "OSPREY_QMD_RERANK_SHA256",
+    "hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf": "OSPREY_QMD_GENERATE_SHA256",
+}
+
+#: How long the model check gets to reach its verdict. It runs before anything
+#: slow — before the index pass, before the daemon — so this covers container
+#: start plus three sha256sums of whatever was staged.
+MODEL_VERDICT_TIMEOUT = 120.0
 
 
 def qmd_sidecar_image() -> str:
@@ -292,6 +331,180 @@ def wait_for_indexed(client, collection: str, query: str, predicate, *, what: st
         f"the sidecar never reported {what} within {SIDECAR_REINDEX_TIMEOUT:.0f}s; "
         f"last hit files: {[h.file for h in hits]}"
     )
+
+
+def require_mounted_models_image() -> str:
+    """The skip-ARG image, or the right kind of non-result.
+
+    Same split as :func:`require_sidecar_image`, for the same reason and with
+    the opposite default. The variable is set by one CI step, the one that
+    builds this image; anywhere else — a developer machine, or this lane's
+    other steps, which run before that build — its absence is honest and a skip
+    is the correct outcome. A variable that IS set and names an absent image is
+    a failed build, and skipping there would report success having proved
+    nothing about the delivery path this whole feature exists for.
+
+    Returns:
+        The image reference to run.
+
+    Raises:
+        AssertionError: If the named image is not present on this daemon.
+        Skipped: Via ``pytest.skip`` when the variable is unset.
+    """
+    image = os.environ.get(MOUNTED_IMAGE_ENV)
+    if not image:
+        pytest.skip(
+            f"{MOUNTED_IMAGE_ENV} is unset; these cases need the sidecar image built "
+            "with the model fetches skipped (--build-arg OSPREY_QMD_MODELS_MOUNTED=1), "
+            "which only the qmd sidecar CI lane builds"
+        )
+    if not is_image_present(image):
+        raise AssertionError(
+            f"{MOUNTED_IMAGE_ENV}={image!r} names an image that is not present on this "
+            "daemon. The step that sets this variable builds the image first, so this "
+            "is a failed or mis-tagged build, not a missing dependency."
+        )
+    return image
+
+
+def stage_model_fixtures(directory: Path) -> dict[str, str]:
+    """Write three stand-in model files and return their digests.
+
+    Kilobyte files, not models: the entrypoint's check is a name, a non-zero
+    size and a SHA256 comparison, and none of those care what the bytes mean.
+    Staging the real 2.1 GB in CI to assert a digest comparison would buy
+    nothing and cost the download this feature exists to avoid. The contents
+    differ per file so a check that compared the wrong file against the wrong
+    digest would fail rather than pass by coincidence.
+
+    Args:
+        directory: Host directory to stage into, mounted read-only afterwards.
+
+    Returns:
+        Mapping of ``OSPREY_QMD_*_SHA256`` variable name to the digest of the
+        file it describes, ready to pass as container environment.
+    """
+    digests = {}
+    for index, (name, variable) in enumerate(MODEL_DIGEST_ENV.items()):
+        payload = bytes([index + 1]) * 1024
+        (directory / name).write_bytes(payload)
+        digests[variable] = hashlib.sha256(payload).hexdigest()
+    return digests
+
+
+@contextmanager
+def sidecar_over_models_dir(
+    image: str,
+    models_dir: Path,
+    env: dict[str, str] | None = None,
+    state_volume: str | None = None,
+):
+    """Run the sidecar over ``models_dir``, mounted where the image looks.
+
+    Detached and unpublished: every case here is decided by what the container
+    logs before it opens a port, and both of them end with the container
+    exiting on its own — a refusal immediately, a verified start once the
+    fail-closed index gate finds nothing to serve. Neither is a container to
+    wait on with a health probe.
+
+    Args:
+        image: Image reference to run.
+        models_dir: Host directory to bind read-only at the image's model
+            directory.
+        env: Extra environment for the container.
+        state_volume: Named volume to mount as the writable state directory, for
+            the cases that need one container's state to reach the next.
+
+    Yields:
+        The started container.
+    """
+    import docker
+
+    client = docker.from_env()
+    volumes: dict[str, dict[str, str]] = {
+        str(models_dir): {"bind": SIDECAR_MODEL_DIR, "mode": "ro"}
+    }
+    if state_volume:
+        volumes[state_volume] = {"bind": SIDECAR_STATE_DIR, "mode": "rw"}
+    container = client.containers.run(
+        image,
+        detach=True,
+        environment=dict(env or {}),
+        volumes=volumes,
+    )
+    try:
+        yield container
+    finally:
+        with suppress(Exception):
+            container.remove(force=True)
+
+
+def wait_for_sidecar_log(container, needle: str, timeout: float = MODEL_VERDICT_TIMEOUT) -> str:
+    """Block until ``needle`` appears in the container's output.
+
+    A container that exits without it gets one final read before the failure,
+    because the last lines and the exit are written at the same moment.
+
+    Args:
+        container: A started container.
+        needle: Substring to wait for.
+        timeout: Seconds to wait.
+
+    Returns:
+        The full log text at the moment the needle was found.
+
+    Raises:
+        AssertionError: If the container exits or the timeout passes first. The
+            message carries the log, which is the diagnosis.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        text = _combined_logs(container)
+        if needle in text:
+            return text
+        exited = _exit_code(container) is not None
+        if exited or time.monotonic() >= deadline:
+            raise AssertionError(
+                f"the sidecar never logged {needle!r} "
+                + ("before exiting" if exited else f"within {timeout:.0f}s")
+                + f"\n--- container logs ---\n{text[-4000:]}"
+            )
+        time.sleep(0.5)
+
+
+def wait_for_sidecar_exit(container, timeout: float = MODEL_VERDICT_TIMEOUT) -> int:
+    """Return the container's exit status, waiting for it if necessary."""
+    result = container.wait(timeout=timeout)
+    return int(result.get("StatusCode", -1))
+
+
+def sidecar_logs(container) -> str:
+    """Everything the container has written so far.
+
+    Read a refusal through this only after the container has exited. A refusal
+    is several lines long — the cause, the staging instructions, the three
+    names — and a read that lands between the first line and the last returns a
+    truthfully incomplete message, which reads exactly like a message that was
+    never finished.
+    """
+    return _combined_logs(container)
+
+
+def _exit_code(container) -> int | None:
+    """The container's exit status, or ``None`` while it is still running."""
+    with suppress(Exception):
+        container.reload()
+        if container.status == "exited":
+            return int(container.attrs["State"]["ExitCode"])
+    return None
+
+
+def _combined_logs(container) -> str:
+    """Everything the container has written so far, best effort."""
+    try:
+        return container.logs().decode("utf-8", errors="replace")
+    except Exception as exc:  # pragma: no cover - diagnostic path only
+        return f"(could not read container logs: {exc})"
 
 
 def _tail_logs(container) -> str:

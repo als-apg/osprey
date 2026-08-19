@@ -58,3 +58,15 @@ CLAUDE.local.md
 # NOT excluded — the wheel layer's `COPY .dockerignore *.wh[l]` relies on it as a
 # guaranteed-present sibling so the COPY never fails when no wheel is staged.
 Dockerfile
+
+# Model files an operator stages by hand where the model host is unreachable.
+# They belong to the qmd sidecar, which loads them over a read-only mount and
+# never from an image — gigabytes of GGUF that this image would carry for no
+# reader.
+#
+# The one `**/`-anchored entry in this file, deliberately: the staged directory
+# sits beside the qmd service's Dockerfile deep in the render, not at the
+# project root, so the root-anchored spelling the rest of the list uses would
+# match nothing here. The derivation described above prefixes another `**/`,
+# which is redundant but harmless.
+**/prefetched-models/

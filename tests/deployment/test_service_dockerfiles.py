@@ -1,10 +1,16 @@
-"""Layer-split invariants for the four service Dockerfiles.
+"""Build invariants for the shipped service Dockerfiles.
 
-`osprey up` builds each managed service (event_dispatcher,
-virtual_accelerator, bluesky, bluesky_web) from a template Dockerfile shipped
-under ``osprey/templates/services/<name>/``. This module pins the shared layer
-contract those recipes follow so a fast per-project dev rebuild only re-runs the
-cheap wheel layer, never the expensive framework/deps install:
+`osprey up` builds each managed service from a template Dockerfile shipped
+under ``osprey/templates/services/<name>/``. Two sets of checks live here, over
+two different sets of files.
+
+The **layer-split contract**, over the four framework-primed services
+(event_dispatcher, virtual_accelerator, bluesky, bluesky_web) that
+:data:`PRIMER_SPEC` names with the exact spec their deps layer installs — those
+recipes are not only parsed but executed, so each has to be named with its spec
+rather than discovered. This module pins the shared layer contract they follow
+so a fast per-project dev rebuild only re-runs the cheap wheel layer, never the
+expensive framework/deps install:
 
 - a **deps layer** (one RUN) that primes the pinned framework release + deps,
   with a dev-gated fallback for an unreleased pin, then installs an optional
@@ -19,6 +25,11 @@ followed by a metadata-only ``ARG OSPREY_PROJECT_NAME`` / ``LABEL
 com.osprey.project`` pair kept last so a per-project value never invalidates the
 shared deps cache. Each RUN body is parsed under ``sh -n`` so a shell syntax
 error in the conditional install fails here rather than at ``docker build``.
+
+The **whole-file invariants**, over every Dockerfile shipped as a literal file —
+all seven services plus the web-terminal auth sidecar, discovered by glob rather
+than listed: the proxy-delivery idiom on every apt-using RUN, and a
+non-self-excluding ``.dockerignore`` beside every service recipe.
 """
 
 import os
@@ -29,11 +40,26 @@ import subprocess
 import pytest
 
 import osprey
+from tests.deployment._proxy_idiom import (
+    assert_apt_runs_carry_proxy_idiom,
+    carries_proxy_idiom,
+    run_instructions,
+)
 
-SERVICES_DIR = pathlib.Path(osprey.__file__).parent / "templates" / "services"
+TEMPLATES_DIR = pathlib.Path(osprey.__file__).parent / "templates"
+SERVICES_DIR = TEMPLATES_DIR / "services"
 
-# The four managed services and their pinned primer spec (what the deps layer
-# installs from PyPI). Only the virtual accelerator carries an extra.
+# Every Dockerfile shipped as a literal file — the managed services plus the
+# web-terminal auth sidecar. Discovered rather than listed, so a new service
+# recipe is covered by the shared invariants below the day it lands. The
+# project image's recipe is a Jinja template and is checked from the rendered
+# output instead (tests/cli/test_dockerfile_template.py).
+SHIPPED_DOCKERFILES = sorted(TEMPLATES_DIR.rglob("Dockerfile"))
+SHIPPED_DOCKERFILE_IDS = [str(p.parent.relative_to(TEMPLATES_DIR)) for p in SHIPPED_DOCKERFILES]
+
+# The four services whose layer split is checked here, and the pinned primer
+# spec each one's deps layer installs from PyPI. Only the virtual accelerator
+# carries an extra.
 PRIMER_SPEC = {
     "event_dispatcher": "osprey-framework==$OSPREY_VERSION",
     "virtual_accelerator": "osprey-framework[virtual-accelerator]==$OSPREY_VERSION",
@@ -302,6 +328,65 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     return result, ctx
 
 
+# ── Node provenance (event_dispatcher) ───────────────────────────────────────
+#
+# Only the dispatch image ships Node — the worker shells out to the Claude Code
+# CLI, which is a Node package. It comes from the base image's own Debian
+# release rather than a third-party apt repo, so the image has one package
+# provenance and needs no network beyond the Debian mirror to build.
+
+
+def _run_instruction_source(text: str, needle: str) -> str:
+    """The single RUN instruction containing *needle*, as Docker executes it.
+
+    :func:`_run_bodies` joins continuations naively, which folds any comment
+    line *inside* a continued RUN into the middle of the body — everything
+    after it then reads as inert shell comment, though Docker strips those
+    lines and runs what follows. This helper drops them the way Docker does:
+    a comment inside a continuation is removed entirely, and so neither ends
+    the instruction nor comments out the commands below it. The reconstruction
+    itself lives in :func:`tests.deployment._proxy_idiom.run_instructions`,
+    which the shared proxy-idiom assertion parses with too.
+    """
+    matches = [instr for instr in run_instructions(text) if needle in instr]
+    assert len(matches) == 1, f"expected exactly one RUN containing {needle!r}, got {len(matches)}"
+    return matches[0]
+
+
+def test_event_dispatcher_node_comes_from_the_base_image_distro():
+    node = _run_instruction_source(_dockerfile("event_dispatcher"), "nodejs")
+    assert "apt-get install -y --no-install-recommends ca-certificates nodejs npm" in node, node
+    # The pinned CLI install and the apt cleanup both follow an inline comment
+    # inside the continuation, so they are only reachable in the comment-
+    # stripped body above — a naive join would leave them commented out.
+    assert "npm install -g @anthropic-ai/claude-code@" in node
+    assert "rm -rf /var/lib/apt/lists/*" in node
+
+
+def test_event_dispatcher_has_no_third_party_node_apt_repo():
+    """Asserted as an absence over the whole file: any of these tokens coming
+    back means the vendor setup-script pipeline came back with them."""
+    text = _dockerfile("event_dispatcher")
+    for token in ("nodesource", "gnupg", "setup_20.x", "apt-key"):
+        assert token not in text, f"{token} is back in the Dockerfile — third-party Node repo"
+    node = _run_instruction_source(text, "nodejs")
+    assert "| bash" not in node and "| sh" not in node, (
+        "the node layer pipes a downloaded script into a shell"
+    )
+
+
+def test_event_dispatcher_keeps_npm_in_the_final_image():
+    """npm is a runtime dependency, not a build-time convenience: the worker
+    launches the agent as ``npx -y @anthropic-ai/claude-code@<version>``
+    (claude_launcher.py). The deps layer's own toolchain purge is asserted
+    elsewhere; what must not appear is a purge in *this* layer."""
+    text = _dockerfile("event_dispatcher")
+    node = _run_instruction_source(text, "nodejs")
+    assert "apt-get purge" not in node, "the node layer purges packages"
+    assert "autoremove" not in node, "the node layer autoremoves packages"
+    assert "npm is a runtime dependency, not a build-time convenience" in text
+
+
 def test_virtual_accelerator_wheel_extra_placement():
     """The VA extra is primed in the deps layer and re-resolved on the wheel
     layer's FIRST install (so a dev wheel that adds/bumps a dep inside the extra
@@ -332,6 +417,46 @@ def test_every_service_ships_non_self_excluding_dockerignore():
         }
         offenders = {e for e in entries if e.strip("/") == ".dockerignore"}
         assert not offenders, f"{d.name}: .dockerignore self-excludes: {offenders}"
+
+
+# ── Proxy delivery ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_apt_runs_deliver_the_proxy_settings(dockerfile):
+    """Every apt-using RUN in every shipped recipe hands apt the proxy.
+
+    The rule, and the idiom that satisfies it, are spelled once in
+    :mod:`tests.deployment._proxy_idiom` — here and in the rendered project
+    template's copy of this test, so a change of idiom is one edit.
+    """
+    assert_apt_runs_carry_proxy_idiom(
+        dockerfile.read_text(), str(dockerfile.parent.relative_to(TEMPLATES_DIR))
+    )
+
+
+def test_shipped_dockerfiles_are_all_discovered():
+    """Floor on the discovery glob: a typo that finds nothing would make the
+    parametrization above vacuous rather than red."""
+    assert "modules/web_terminals/auth_sidecar" in SHIPPED_DOCKERFILE_IDS
+    assert {f"services/{s}" for s in SERVICES} <= set(SHIPPED_DOCKERFILE_IDS)
+
+
+def test_proxy_guard_catches_a_bare_apt_run():
+    """Meta-test: an apt RUN with no proxy delivery must fail the guard."""
+    bare = "RUN apt-get update \\\n && apt-get install -y --no-install-recommends curl\n"
+    assert not carries_proxy_idiom(run_instructions(bare)[0])
+    with pytest.raises(AssertionError, match="proxy-delivery idiom"):
+        assert_apt_runs_carry_proxy_idiom(bare, "synthetic")
+
+
+def test_proxy_guard_accepts_the_declared_arg_idiom():
+    """Meta-test: delivering the settings from a declared build ARG counts too
+    — the project template's deps layer follows its bridge with exactly this."""
+    from_arg = (
+        'RUN export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \\\n && apt-get update\n'
+    )
+    assert carries_proxy_idiom(run_instructions(from_arg)[0])
 
 
 if __name__ == "__main__":

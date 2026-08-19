@@ -395,6 +395,10 @@ def _repo(tmp_path: Path) -> Path:
 @pytest.fixture
 def start_stack_stubs(monkeypatch):
     """The host-touching preflights ``_start_stack`` runs before its compose calls."""
+    # An operator who exported the prebuilt-images switch in their shell would
+    # otherwise silently delete `compose build` from every start sequence below,
+    # reddening tests that are about spooling and have no stake in the switch.
+    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
     # Asks the runtime which of this project's data volumes exist. Stubbed for
@@ -412,9 +416,15 @@ def start_stack_stubs(monkeypatch):
     )
 
 
-def _start(repo: Path, *, dev_mode: bool = False, detached: bool = True) -> None:
+def _start(
+    repo: Path,
+    *,
+    dev_mode: bool = False,
+    detached: bool = True,
+    config_extra: dict | None = None,
+) -> None:
     container_lifecycle._start_stack(
-        {"project_name": "proj", "deployed_services": ["postgresql"]},
+        {"project_name": "proj", "deployed_services": ["postgresql"], **(config_extra or {})},
         ["build/services/docker-compose.0.yml"],
         repo,
         detached=detached,
@@ -467,6 +477,93 @@ def test_a_non_dev_deploy_does_not_build(captured, reporter, start_stack_stubs, 
 
     assert captured.spool_names == ["compose-rm", "compose-up"]
     assert "service images built" not in reporter.steps
+
+
+def test_prebuilt_images_replace_the_build_with_a_step_that_says_so(
+    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path, monkeypatch
+):
+    """A host with the tags already loaded runs the same sequence minus the build.
+
+    The step line is the whole point of skipping in place rather than silently:
+    a deploy that prints nothing where the longest step used to be reads as a
+    build that finished suspiciously fast, and the operator has no way to tell
+    whether the images running are the ones they loaded.
+    """
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+    repo = _repo(tmp_path)
+
+    _start(repo, dev_mode=True)
+
+    assert captured.spool_names == ["compose-rm", "compose-up"]
+    assert reporter.steps == [
+        "cleared stopped containers",
+        "skipped image build (prebuilt images)",
+        "containers started",
+    ]
+
+
+def test_prebuilt_images_leave_the_up_asking_not_to_build(
+    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path, monkeypatch
+):
+    """``--no-build`` has to survive the skip.
+
+    Dropping it here would hand the build back to compose's implicit
+    build-on-up — on the one kind of host that cannot build — and the deploy
+    would fail at the step the switch exists to remove.
+    """
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+
+    _start(_repo(tmp_path), dev_mode=True)
+
+    assert "--no-build" in captured.call("compose-up")["cmd"]
+
+
+def test_the_config_key_skips_the_build_without_an_env_var(
+    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
+):
+    """The switch has to be a property of the deployment, not of one shell.
+
+    A host that can never build should say so once in its config rather than
+    relying on every operator exporting the variable before every deploy.
+    """
+    _start(_repo(tmp_path), dev_mode=True, config_extra={"prebuilt_images": True})
+
+    assert captured.spool_names == ["compose-rm", "compose-up"]
+    assert "skipped image build (prebuilt images)" in reporter.steps
+
+
+def test_the_env_var_can_force_a_build_the_config_would_have_skipped(
+    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path, monkeypatch
+):
+    """The override runs both ways, so a pinned host stays debuggable.
+
+    Once build tooling is available again, proving it works must not require
+    editing the deploy config — otherwise the first thing anyone tries is a
+    change they then have to remember to revert.
+    """
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "0")
+
+    _start(_repo(tmp_path), dev_mode=True, config_extra={"prebuilt_images": True})
+
+    assert captured.spool_names == ["compose-rm", "compose-build", "compose-up"]
+    assert "service images built" in reporter.steps
+    assert "skipped image build (prebuilt images)" not in reporter.steps
+
+
+def test_a_non_dev_deploy_is_unaffected_by_the_switch(
+    captured, reporter, start_stack_stubs, tmp_path, monkeypatch
+):
+    """Non-dev never ran a separate build, so there is nothing for it to skip.
+
+    Emitting the skip line here would claim a decision the switch did not make,
+    and would report it on every ordinary deploy.
+    """
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+
+    _start(_repo(tmp_path))
+
+    assert captured.spool_names == ["compose-rm", "compose-up"]
+    assert "skipped image build (prebuilt images)" not in reporter.steps
 
 
 # ---------------------------------------------------------------------------

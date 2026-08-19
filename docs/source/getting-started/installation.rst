@@ -36,20 +36,21 @@ Claude Code requires `Node.js <https://nodejs.org/>`_ 18+.
 
       .. code-block:: bash
 
-         # Ubuntu/Debian
-         curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-         sudo apt-get install -y nodejs
+         # Debian/Ubuntu — npm is a separate package here, and Claude Code needs it
+         sudo apt-get install -y nodejs npm
 
-         # Or use your distribution's package manager
+      Your distribution's own packages are the simplest route and the one the
+      OSPREY container images take. Check what yours ships (``node --version``):
+      a few older releases package a Node below the 18 floor, and there the
+      cleanest fix is a current Node from `nvm <https://github.com/nvm-sh/nvm>`_.
 
    .. tab-item:: Windows (WSL2)
 
-      Install Node.js inside your WSL2 environment:
+      Install Node.js inside your WSL2 environment, the same way as on Linux:
 
       .. code-block:: bash
 
-         curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-         sudo apt-get install -y nodejs
+         sudo apt-get install -y nodejs npm
 
 Verify:
 
