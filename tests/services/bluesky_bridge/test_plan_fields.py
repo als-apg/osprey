@@ -594,20 +594,29 @@ def test_resolve_column_accepts_a_data_row_directly() -> None:
 # --- panel tolerance --------------------------------------------------------
 
 
-def test_form_generator_never_reads_the_role_key() -> None:
-    """The panel's schema-driven form generator ignores the role extra.
+def test_form_generator_reads_the_role_key_only_to_offer_suggestions() -> None:
+    """The panel's schema-driven form generator reads the role extra at one site.
 
-    It dispatches on a fixed set of schema keys and never mentions
-    ``x-channel-role``, so the declared role is inert there -- combined with the
-    additivity test above, that is what makes adding roles to a shipped plan's
-    parameters a no-op for the operator's form.
+    The channel-suggestions feature ended the old "never reads it" rule: a
+    truthy ``x-channel-role`` now tags a field as eligible for the typeahead.
+    What survives, and what this pins, is the property the old rule existed
+    for -- the role never drives control dispatch, so adding roles to a
+    shipped plan's parameters still renders the same controls. The single
+    permitted read is ``channelSuggestionsFor``, which only decides whether a
+    field OFFERS suggestions; with no catalog loaded the rendered form is
+    byte-identical to the untagged baseline (pinned by the no-catalog case in
+    ``tests/interfaces/bluesky_web/test_channel_combobox_browser.py``).
     """
     source = _SCHEMA_FORM_JS.read_text(encoding="utf-8")
     assert "x-widget" in source, (
         f"{_SCHEMA_FORM_JS} is not the schema-driven form generator this test "
         "means to check -- it no longer reads any schema extras"
     )
-    assert CHANNEL_ROLE_KEY not in source
+    reads = [line.strip() for line in source.splitlines() if f"node['{CHANNEL_ROLE_KEY}']" in line]
+    assert len(reads) == 1, (
+        "the role key must be read at exactly one site (channelSuggestionsFor), "
+        f"never in control dispatch; found {len(reads)}: {reads}"
+    )
 
 
 # --- import cleanliness -----------------------------------------------------
