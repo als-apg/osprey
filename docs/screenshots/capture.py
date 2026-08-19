@@ -640,7 +640,12 @@ def capture_tutorial_stack(
 
         from osprey.interfaces.ariel.app import create_app
 
-        app = create_app(config_path=str(project_dir / "config.yml"))
+        # The rendered config moved under build/; older layouts kept it at the repo root.
+        config_path = project_dir / "build" / "config.yml"
+        if not config_path.is_file():
+            config_path = project_dir / "config.yml"
+
+        app = create_app(config_path=str(config_path))
         with run_app_server(app) as ariel_url:
             return capture_shot(browser, ariel_url, shot)
 
