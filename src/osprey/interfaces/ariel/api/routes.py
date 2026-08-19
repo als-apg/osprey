@@ -142,10 +142,10 @@ def _resolve_search_mode(service: ARIELSearchService, requested: str | None) -> 
     Raises:
         HTTPException: 400 if the mode is malformed, or names no enabled module.
     """
-    from osprey.services.ariel_search.models import DEFAULT_SEARCH_MODE, normalize_search_mode
+    from osprey.services.ariel_search.models import normalize_search_mode
 
     if requested is None:
-        mode = DEFAULT_SEARCH_MODE
+        mode = service.config.resolve_default_search_mode()
     else:
         try:
             mode = normalize_search_mode(requested)

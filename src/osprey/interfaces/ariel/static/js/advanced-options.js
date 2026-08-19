@@ -82,6 +82,15 @@ const FALLBACK_CAPABILITIES = {
 export function initAdvancedOptions(caps) {
   capabilities = caps || FALLBACK_CAPABILITIES;
 
+  // The deployment decides which mode a search runs in when the user picks
+  // none, so the opening tab follows ariel.default_search_mode rather than a
+  // hardcoded guess. A capabilities payload without it (or naming a mode this
+  // build does not render) leaves the module-level default in place.
+  const advertised = capabilities?.default_mode;
+  if (advertised && _modeExists(advertised)) {
+    currentMode = advertised;
+  }
+
   // Set defaults from capabilities
   resetToDefaults();
 
@@ -237,6 +246,23 @@ function selectMode(mode) {
   if (isPanelOpen) {
     renderAdvancedPanel();
   }
+}
+
+/**
+ * Whether the capabilities payload advertises a mode by this name.
+ * @param {string} modeName - Mode name
+ * @returns {boolean} True when a rendered tab exists for the mode
+ */
+function _modeExists(modeName) {
+  const categories = capabilities?.categories || {};
+  for (const cat of Object.values(categories)) {
+    for (const mode of (cat.modes || [])) {
+      if (mode.name === modeName) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**

@@ -78,6 +78,7 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
             "categories": {
                 "direct": {"label": "Direct", "modes": [...]},
             },
+            "default_mode": "hybrid",
             "shared_parameters": [...],
         }
     """
@@ -89,6 +90,7 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
 
     return {
         "categories": categories,
+        "default_mode": config.resolve_default_search_mode(),
         "shared_parameters": [p.to_dict() for p in SHARED_PARAMETERS],
     }
 

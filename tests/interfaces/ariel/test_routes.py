@@ -679,3 +679,30 @@ def test_search_defaults_to_keyword_mode(client, mock_ariel_service):
 
     call_kwargs = mock_ariel_service.search.call_args.kwargs
     assert call_kwargs["mode"] == "keyword"
+
+
+def test_search_honors_configured_default_mode(client, mock_ariel_service):
+    """Omitting mode follows ariel.default_search_mode, not a fixed name."""
+    mock_ariel_service.config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "test-model"},
+            },
+            "default_search_mode": "semantic",
+        }
+    )
+
+    response = client.post("/api/search", json={"query": "test", "max_results": 10})
+
+    assert response.status_code == 200
+    assert mock_ariel_service.search.call_args.kwargs["mode"] == "semantic"
+
+
+def test_capabilities_advertises_default_mode(client, mock_ariel_service):
+    """The capabilities payload carries the mode the UI should open on."""
+    response = client.get("/api/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["default_mode"] == "keyword"

@@ -222,6 +222,7 @@ class TestGetCapabilities:
     def _make_config(
         self,
         search_modules: dict | None = None,
+        default_search_mode: str | None = None,
     ) -> ARIELConfig:
         """Create an ARIELConfig for testing."""
         config_dict: dict = {
@@ -229,7 +230,24 @@ class TestGetCapabilities:
         }
         if search_modules:
             config_dict["search_modules"] = search_modules
+        if default_search_mode:
+            config_dict["default_search_mode"] = default_search_mode
         return ARIELConfig.from_dict(config_dict)
+
+    def test_advertises_the_configured_default_mode(self):
+        """The frontend's opening tab follows ariel.default_search_mode."""
+        config = self._make_config(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}},
+            default_search_mode="keyword",
+        )
+        assert get_capabilities(config)["default_mode"] == "keyword"
+
+    def test_advertises_the_implicit_default_mode(self):
+        """With no configured default, capabilities advertise the implicit one."""
+        config = self._make_config(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}}
+        )
+        assert get_capabilities(config)["default_mode"] == "hybrid"
 
     def test_returns_correct_structure(self):
         """get_capabilities returns correct top-level structure."""
