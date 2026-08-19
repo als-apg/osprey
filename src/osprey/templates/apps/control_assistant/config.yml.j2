@@ -1315,6 +1315,14 @@ web:
 #       per-user port families, and the user list. Per-user containers share
 #       the host network namespace, so each companion panel needs its own port
 #       family; families left unset fall back to the registry defaults.
+#   modules.web_terminals.landing.notices
+#       Markdown files shown as collapsible sections on the landing page —
+#       what operators read before opening a terminal. Each file's first
+#       heading is its section label. `data/landing/working-safely.md` ships
+#       with the multi-user presets and is yours to rewrite; add your own for
+#       local procedures or contacts. Omit the key for OSPREY's built-in
+#       safety notice, or set it to [] for none. `landing.footer` sets the
+#       line underneath.
 #
 # See docs/how-to/web-terminal/multi-user.rst for the full schema. The build
 # interview (/osprey-build-interview) fills these in when you tell it the

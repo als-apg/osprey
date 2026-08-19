@@ -354,6 +354,52 @@ badge answers *which tier is this user on?* and here the card and its persona
 are the same word. Clicking any card opens that session at ``/u/<name>/``,
 proxied by nginx to its own container.
 
+What your operators read first
+------------------------------
+
+At the bottom of the landing page sit collapsible **notices** — the things your
+facility wants people to read before they open a terminal. Each notice is one
+markdown file, listed in config:
+
+.. code-block:: yaml
+
+   modules.web_terminals:
+     landing:
+       notices:
+       - data/landing/working-safely.md
+       - data/landing/local-procedures.md
+       footer: "ALS control room. Questions: ext. 5555."
+
+The file's first heading (``# Working safely with the agent``) becomes the
+section label, and everything after it becomes the panel. So adding a section
+means writing a file and listing it — there is no schema to learn, and nothing
+about the text lives in ``config.yml``.
+
+``osprey init`` writes a starter ``data/landing/working-safely.md`` into your
+project. It is yours: rewrite it for your facility, or drop it and list your own
+files instead. Sections appear in the order you list them, and each one gets an
+id from its filename, so you can point someone at
+``http://…:9080/#local-procedures`` rather than at the page.
+
+Two edge cases are worth knowing:
+
+* **Leave ``notices`` out entirely** and you get OSPREY's built-in safety
+  notice. A config that says nothing still ships something.
+* **Set ``notices: []``** for no notices at all. That is the explicit way to
+  turn them off.
+
+A file you list that does not exist is skipped and reported by ``osprey build``
+as a warning. It is *not* replaced by the built-in notice — showing OSPREY's
+safety text where your own procedures should have been would be worse than
+showing a gap.
+
+.. note::
+
+   Notice files are rendered to HTML at build time, so they are trusted input
+   at the same level as ``config.yml`` itself — anyone who can edit a notice can
+   already edit your deployment's configuration. The ``footer`` is a plain
+   string and is always escaped.
+
 Two sessions, two write postures
 --------------------------------
 

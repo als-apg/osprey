@@ -9,11 +9,6 @@ Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
 the micro segment increments for hotfixes and same-month follow-up releases.
 Compatibility is documented in release notes, not encoded in the version string.
 
-### Changed
-
-- The multi-user landing page drops the drawn ASCII wordmark; the page
-  now shows the text OSPREY at every window width.
-
 ## [Unreleased]
 
 ### Added
@@ -34,6 +29,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   Long lines scroll rather than wrapping mid-identifier, and the view stays
   read-only. Offline deployments pick the highlighter up on their next `osprey
   vendor fetch`; until then the tab shows plain, uncoloured source.
+- The multi-user landing page's text is now yours. Files listed in
+  `modules.web_terminals.landing.notices` render as collapsible sections at the
+  bottom of the page — safety guidance, local procedures, contacts, whatever
+  operators should read first. Each file is markdown; its first heading becomes
+  the section label. `osprey init` writes a starter
+  `data/landing/working-safely.md` you can rewrite. Omit the key for the
+  built-in safety notice, or set it to `[]` for none. `landing.footer` sets the
+  line underneath.
 
 - New `ariel.default_search_mode` setting names the search module that answers
   when a caller asks for no mode — the web interface's opening tab, `osprey
@@ -96,6 +99,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   Bluesky bridge removes a session-tier plan file, which until now stayed in
   the catalog until the container restarted. The plan leaves `GET /plans`
   immediately; anything already queued or running is unaffected.
+
+### Changed
+
+- The multi-user landing page drops the drawn ASCII wordmark; the page
+  now shows the text OSPREY at every window width.
 
 ### Fixed
 

@@ -206,18 +206,18 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    /* The safety guidelines, at the bottom of the page everyone passes through
-       on the way to a terminal. Collapsed, because a person who has read them
-       is opening a terminal rather than reading them again, and an expanded
-       wall of rules above the fold would train exactly the skimming it is
-       trying to prevent. Native <details>: no script on this page. */
-    .landing-safety {
+    /* Facility notices, at the bottom of the page everyone passes through on
+       the way to a terminal. Collapsed, because a person who has read them is
+       opening a terminal rather than reading them again, and an expanded wall
+       of text above the fold would train exactly the skimming it is trying to
+       prevent. Native <details>: no script on this page. */
+    .landing-notices {
       width: 100%;
       max-width: 960px;
       margin-top: 2.5rem;
       padding: 0 1.5rem;
     }
-    .landing-safety > summary {
+    .landing-notice > summary {
       cursor: pointer;
       padding: 0.7rem 0;
       border-top: 1px solid var(--border-default);
@@ -226,17 +226,18 @@
       letter-spacing: 0.04em;
       color: var(--text-secondary);
     }
-    .landing-safety > summary:hover {
+    .landing-notice > summary:hover {
       color: var(--text-primary);
     }
-    .landing-safety-body {
+    .landing-notice-body {
       padding-bottom: 0.5rem;
       font-size: 0.86rem;
       line-height: 1.55;
       color: var(--text-secondary);
       max-width: 46rem;
     }
-    .landing-safety-body h3 {
+    .landing-notice-body h2,
+    .landing-notice-body h3 {
       margin: 1.4rem 0 0.4rem;
       font-size: 0.8rem;
       font-weight: 600;
@@ -244,14 +245,14 @@
       text-transform: uppercase;
       color: var(--color-accent);
     }
-    .landing-safety-body ul {
+    .landing-notice-body ul {
       margin: 0.3rem 0;
       padding-left: 1.1rem;
     }
-    .landing-safety-body li {
+    .landing-notice-body li {
       margin: 0.25rem 0;
     }
-    .landing-safety-body strong {
+    .landing-notice-body strong {
       color: var(--text-primary);
       font-weight: 600;
     }
@@ -348,63 +349,52 @@
       
     
   </main>
-  <details class="landing-safety" id="safety">
-    <summary>Before you start: working safely with the agent</summary>
-    <div class="landing-safety-body">
-      <p>
-        OSPREY connects an AI agent to <strong>live control systems</strong>. Every action
-        it proposes can affect real hardware. You are the operator and the agent is a
-        tool: you are responsible for every action it takes.
-      </p>
+  
+  <section class="landing-notices">
+    
+    <details class="landing-notice" id="working-safely">
+      <summary>Before you start: working safely with the agent</summary>
+      <div class="landing-notice-body"><p>OSPREY connects an AI agent to <strong>live control systems</strong>. Every action it proposes
+can affect real hardware. You are the operator and the agent is a tool: you are
+responsible for every action it takes.</p>
+<h2>Be mindful of what you approve</h2>
+<p>OSPREY asks for your approval before any hardware write. That gate is where you
+decide, and it is worth the moment it takes.</p>
+<ul>
+<li>Read the proposed command before approving it: the target channels, the values
+  and the units.</li>
+<li>If something looks unfamiliar or unexpected, find out why it was proposed
+  before you approve it.</li>
+<li>Go through a batch item by item. Approving a batch as one thing is how an
+  unread command slips through.</li>
+</ul>
+<h2>Follow what the agent is doing</h2>
+<p>The agent works on its own between approval gates. Following along is how you
+learn the workflow, the tool, and where its information came from, which is what
+lets you judge the next thing it proposes.</p>
+<ul>
+<li>Read its reasoning, not only the action at the end of it.</li>
+<li>Notice which channels and sources it drew on.</li>
+<li>Stop the session if it starts looping or heads somewhere you did not intend.</li>
+</ul>
+<h2>Know what this deployment covers</h2>
+<p>Every deployment is set up for a particular set of systems and channels.</p>
+<ul>
+<li>Know which subsystems and channels yours is configured for.</li>
+<li>Narrow open-ended asks ("fix everything", "optimize the beam") yourself before
+  handing them over.</li>
+</ul>
+<p>When in doubt, stop the session and talk to your control system team.</p></div>
+    </details>
+    
+  </section>
+  
 
-      <h3>Never auto-approve</h3>
-      <p>
-        OSPREY asks for human approval before any hardware write. That gate is the
-        whole safety model, and automatic approval defeats it.
-      </p>
-      <ul>
-        <li>Read every proposed command in full before approving it.</li>
-        <li>Check the target channels, the values and the units.</li>
-        <li>Reject anything unfamiliar or unexpected, then find out why it was proposed.</li>
-        <li>Review a batch item by item. Approving a batch as one thing is how an
-            unread command gets through.</li>
-      </ul>
-
-      <h3>Watch the agent while it works</h3>
-      <p>
-        The agent works on its own between approval gates. Watching it is part of
-        operating it, not something to do only when it asks.
-      </p>
-      <ul>
-        <li>Keep the terminal visible while a session is running.</li>
-        <li>Stop the session if the agent starts looping or looks confused.</li>
-        <li>Read its reasoning, not only the action at the end of it.</li>
-        <li>Reads are not harmless: a wrong conclusion drawn from a read is what the
-            next write is built on.</li>
-      </ul>
-
-      <h3>Reject anything outside this deployment's scope</h3>
-      <p>
-        Every deployment is configured for a set of systems, channels and actions.
-        Requests outside that set are the highest-risk ones, because the agent does
-        not know the constraints on equipment it was not given.
-      </p>
-      <ul>
-        <li>Know your deployment's scope: which subsystems, which channels, which ranges.</li>
-        <li>Reject a request that reaches past it rather than letting the agent try.</li>
-        <li>Treat open-ended asks ("fix everything", "optimize the beam") as unsafe
-            until you have narrowed them yourself.</li>
-      </ul>
-
-      <p>
-        When in doubt, stop the session and talk to your control system team.
-      </p>
-    </div>
-  </details>
-
+  
   <footer class="landing-footer">
     OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
   </footer>
+  
 
 </body>
 </html>
