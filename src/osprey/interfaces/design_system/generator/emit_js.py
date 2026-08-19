@@ -345,16 +345,36 @@ def render_theme_boot_js(tree: TokenTree) -> str:
 
     Resolution order, matching the design spec (finding I4): read
     ``?theme=``, then ``localStorage['osprey-theme']``, then the
-    server-rendered ``<html data-theme>`` attribute, each validated
-    against the baked-in id list (the query/storage rungs also accept the
-    special ``'auto'`` value); the first candidate that validates wins,
-    and anything left over (missing or unrecognized) falls all the way
-    through to ``'auto'``. ``'auto'`` resolves via
-    ``matchMedia('(prefers-color-scheme: dark)')`` against ``DEFAULTS``.
-    ``data-theme`` is set synchronously as the script's last statement, so
-    it must be loaded as a blocking, non-module, non-deferred ``<script>``
-    first in ``<head>`` — no other script in this design system may run
-    before it.
+    server-rendered ``<html data-theme>`` attribute; the first candidate
+    that validates wins, and anything left over (missing or
+    unrecognized) falls all the way through to ``'auto'``. ``'auto'``
+    resolves via ``matchMedia('(prefers-color-scheme: dark)')`` against
+    ``DEFAULTS``. ``data-theme`` is set synchronously as the script's
+    last statement, so it must be loaded as a blocking, non-module,
+    non-deferred ``<script>`` first in ``<head>`` — no other script in
+    this design system may run before it.
+
+    The storage rung has two formats, read in the same order (and with
+    the same acceptance rules) as ``theme-manager.js``'s
+    ``_readStoredPreference``, because both read the *same* key:
+
+    1. The current structured format ``{"family": ..., "mode": ...}``,
+       which is what theme-manager persists. It is honored when the
+       stored string parses as JSON, ``family`` is one of the baked
+       ``DEFAULTS`` families, and ``mode`` is ``'dark'``, ``'light'`` or
+       ``'auto'``; it resolves to ``DEFAULTS[family][mode]``, or — for
+       ``'auto'`` — to that family's OS-preferred default. Without this
+       rung a returning visitor's stored preference would be unreadable
+       pre-paint and the page would flash the wrong theme before
+       theme-manager caught up.
+    2. The pre-family-model bare token (``'auto'`` or a concrete valid
+       id), still written by older builds and still migrated forward by
+       theme-manager. Reached only when the stored string is not
+       structured JSON naming a known family and mode.
+
+    The ``?theme=`` rung accepts only a bare token (``'auto'`` or a
+    concrete valid id) — a URL carries a single value, never the
+    structured pair.
 
     Server-attribute contract (for whoever renders ``<html>`` server-side,
     e.g. the web_terminal server): the boot script reads
@@ -469,6 +489,36 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     }}
   }}
 
+  // The structured storage format: the {{family, mode}} pair theme-manager
+  // persists under the same key (see its _readStoredPreference). Resolves
+  // to the concrete id that pair names, or null when the stored string
+  // isn't that format -- a legacy bare token, an unknown family or mode,
+  // or a family that declares no theme for the requested mode -- so
+  // resolution falls through to the legacy bare-token rung below.
+  /** @param {{string|null}} raw @returns {{string|null}} */
+  function resolveStoredPreference(raw) {{
+    if (raw === null) return null;
+    let parsed;
+    try {{
+      parsed = JSON.parse(raw);
+    }} catch {{
+      return null;
+    }}
+    if (!parsed || typeof parsed !== "object") return null;
+    // Typed as unknown, not left as JSON.parse's any: the checks below then
+    // genuinely narrow both fields instead of being erased by any.
+    /** @type {{unknown}} */
+    const family = parsed.family;
+    /** @type {{unknown}} */
+    const mode = parsed.mode;
+    if (typeof family !== "string" || !Object.prototype.hasOwnProperty.call(DEFAULTS, family)) {{
+      return null;
+    }}
+    if (mode === "auto") return resolveAuto(family) || null;
+    if (mode === "dark" || mode === "light") return DEFAULTS[family][mode] || null;
+    return null;
+  }}
+
   // The server-rendered rung (finding I4): whatever data-theme already
   // sits on <html> when this script runs, e.g. stamped by the web server
   // from config. Read once so both the resolution candidate
@@ -484,17 +534,25 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   const queryTheme = readQueryTheme();
   const storedTheme = readStoredTheme();
   const serverTheme = readServerTheme();
-  // auto's family: the valid server theme's declared family wins over
-  // DEFAULT_FAMILY, even if the final candidate below turns out to be a
-  // literal "auto" from ?theme=/localStorage rather than serverTheme
-  // itself — see docstring. (isValidId is called inline, not via a
-  // stored boolean, so its type-predicate narrows serverTheme for the
-  // FAMILY_BY_ID lookup.)
+  const storedPreferenceId = resolveStoredPreference(storedTheme);
+  // auto's family for the bare-token rungs: the valid server theme's
+  // declared family wins over DEFAULT_FAMILY, even if the final candidate
+  // below turns out to be a literal "auto" from ?theme=/legacy storage
+  // rather than serverTheme itself — see docstring. (A structured stored
+  // preference names its own family and never comes through here; it is
+  // already resolved by resolveStoredPreference.) isValidId is called
+  // inline, not via a stored boolean, so its type-predicate narrows
+  // serverTheme for the FAMILY_BY_ID lookup.
   const familyForAuto = isValidId(serverTheme) ? FAMILY_BY_ID[serverTheme] : DEFAULT_FAMILY;
 
+  // Storage contributes two rungs: the structured {{family, mode}} pair
+  // first (already resolved to a concrete id above), then the legacy bare
+  // token for preferences written before the family model existed.
   let candidate = "auto";
   if (isKnownId(queryTheme)) {{
     candidate = queryTheme;
+  }} else if (isValidId(storedPreferenceId)) {{
+    candidate = storedPreferenceId;
   }} else if (isKnownId(storedTheme)) {{
     candidate = storedTheme;
   }} else if (isValidId(serverTheme)) {{
