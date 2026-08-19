@@ -59,34 +59,11 @@
       gap: 0.75rem;
       flex-wrap: wrap;
     }
-    /* The drawn wordmark. 49 columns wide, so its size is tied to the viewport
-       rather than fixed: below roughly 30rem the glyphs stop being legible at
-       any size that fits, and the text wordmark below takes over. */
-    .landing-ascii {
-      flex-basis: 100%;
-      margin: 0 0 0.35rem;
-      font-family: ui-monospace, "JetBrains Mono", monospace;
-      font-size: clamp(0.5rem, 1.9vw, 0.75rem);
-      /* Exactly 1: any leading opens a white seam between the rows of block
-         glyphs, and the wordmark reads as a grid of fragments instead of
-         letters. */
-      line-height: 1;
-      white-space: pre;
-      color: var(--color-accent);
-      overflow: hidden;
-    }
     .landing-logo {
       font-weight: 700;
       font-size: 1.35rem;
       letter-spacing: 0.06em;
       color: var(--color-accent);
-    }
-    /* One or the other, never both: the art IS the wordmark where it fits. */
-    @media (min-width: 30rem) {
-      .landing-logo { display: none; }
-    }
-    @media (max-width: 29.999rem) {
-      .landing-ascii { display: none; }
     }
     .landing-subtitle {
       font-size: 1.05rem;
@@ -292,12 +269,6 @@
 
   <header class="landing-header">
     <h1 class="landing-title">
-      <pre class="landing-ascii" aria-hidden="true">░█████╗░░██████╗██████╗░██████╗░███████╗██╗░░░██╗
-██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝╚██╗░██╔╝
-██║░░██║╚█████╗░██████╔╝██████╔╝█████╗░░░╚████╔╝░
-██║░░██║░╚═══██╗██╔═══╝░██╔══██╗██╔══╝░░░░╚██╔╝░░
-╚█████╔╝██████╔╝██║░░░░░██║░░██║███████╗░░░██║░░░
-░╚════╝░╚═════╝░╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░</pre>
       <span class="landing-logo">OSPREY</span>
       <span class="landing-subtitle">Demo Light Source</span>
     </h1>

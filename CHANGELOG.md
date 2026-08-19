@@ -9,6 +9,11 @@ Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
 the micro segment increments for hotfixes and same-month follow-up releases.
 Compatibility is documented in release notes, not encoded in the version string.
 
+### Changed
+
+- The multi-user landing page drops the drawn ASCII wordmark; the page
+  now shows the text OSPREY at every window width.
+
 ## [Unreleased]
 
 ### Added
