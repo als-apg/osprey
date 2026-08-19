@@ -773,6 +773,7 @@ jobs:
             - 'src/osprey/dispatch/**'
             - 'tests/interfaces/design_system/**'
             - 'tests/interfaces/web_terminal/**'
+            - 'tests/interfaces/bluesky_web/**'
             - 'tests/interfaces/ariel/**'
             - 'tests/interfaces/conftest.py'
             - 'tests/interfaces/_browser.py'
@@ -817,6 +818,7 @@ jobs:
           tests/interfaces/web_terminal/test_contract_params.py \
           tests/interfaces/web_terminal/test_logout_resume_browser.py \
           tests/interfaces/web_terminal/test_auth_login_browser.py \
+          tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 

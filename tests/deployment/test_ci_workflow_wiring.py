@@ -2115,6 +2115,40 @@ def test_browser_lane_is_triggered_by_the_perimeter__mutation_drops_the_sidecar_
 
 
 # ---------------------------------------------------------------------------
+# (h2) channel-combobox browser test: same vacuous-green shape as (h) — the
+# lane runs an explicit file list and a paths filter, and a suite missing
+# from either silently never runs
+# ---------------------------------------------------------------------------
+
+COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
+COMBOBOX_TESTS_FILTER_PATH = "tests/interfaces/bluesky_web/**"
+
+
+def test_channel_combobox_browser_test_runs_in_the_browser_lane(
+    workflow: dict[str, Any],
+) -> None:
+    """The combobox suite has to be NAMED in the lane's pytest invocation —
+    the unit lane skips browser-marked files, so this lane is the only place
+    it is ever collected."""
+    assert COMBOBOX_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+
+
+def test_channel_combobox_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+    """Removing the file from the invocation must fail the guard."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{COMBOBOX_BROWSER_TEST_FILE} \\\n", "")
+    assert COMBOBOX_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+
+
+def test_browser_lane_is_triggered_by_the_bluesky_web_tests(workflow: dict[str, Any]) -> None:
+    """The suite's own directory must arm the lane: the filter covers
+    ``src/osprey/interfaces/**`` already, but a PR that only edits the tests
+    (fixtures, assertions) would otherwise green-skip the job."""
+    assert COMBOBOX_TESTS_FILTER_PATH in _browser_lane_filter_paths(workflow)
+
+
+# ---------------------------------------------------------------------------
 # (i) bluesky-queue-e2e: the queue stack's own lane, secret-free
 # ---------------------------------------------------------------------------
 
