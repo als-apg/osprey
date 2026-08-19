@@ -18,6 +18,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     ensure_auth_credentials,
     ensure_auth_session_secrets,
     purge_auth_credentials,
+    seeded_logins,
     set_auth_password,
 )
 from osprey.services.auth_sidecar.passwords import (
@@ -845,3 +846,76 @@ def test_set_auth_password_write_failure_never_names_the_password(tmp_path: Path
         project_root.chmod(0o700)
 
     assert "unmistakable-cleartext" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# seeded_logins: the narrow case where a password may be printed
+# ---------------------------------------------------------------------------
+
+
+def write_seeded_repo(root: Path, declared: str, in_env: str) -> None:
+    """A deployment repo whose profile declares one login and whose .env sets it."""
+    (root / "profile.yml").write_text(
+        f"name: demo\nenv:\n  defaults:\n    {PW_PLAINTEXT_VAR_PREFIX}ALICE: {declared}\n"
+    )
+    (root / ".env").write_text(f"{PW_PLAINTEXT_VAR_PREFIX}ALICE={in_env}\n")
+
+
+def test_a_password_still_matching_the_profile_default_is_named(tmp_path: Path) -> None:
+    """The whole point: `osprey init` wrote this value from the profile, so
+    nobody was ever told it, and both files it lives in are tracked."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+
+    assert seeded_logins(tmp_path, ["alice"]) == [("alice", "alice")]
+
+
+def test_a_password_the_operator_changed_is_not_named(tmp_path: Path) -> None:
+    """One edit to .env and the value is theirs, not the profile's."""
+    write_seeded_repo(tmp_path, "alice", "s3cret-for-the-control-room")
+
+    assert seeded_logins(tmp_path, ["alice"]) == []
+
+
+def test_whitespace_around_the_env_value_does_not_hide_the_login(tmp_path: Path) -> None:
+    """`ensure_auth_credentials` trims before hashing, so a padded value IS the
+    default: the two readings have to agree about what was deployed."""
+    write_seeded_repo(tmp_path, "alice", "alice  ")
+
+    assert seeded_logins(tmp_path, ["alice"]) == [("alice", "alice")]
+
+
+def test_a_password_the_profile_never_declared_is_not_named(tmp_path: Path) -> None:
+    """A plaintext .env password with no profile default behind it is the
+    operator's own, and stays unprinted."""
+    (tmp_path / "profile.yml").write_text("name: demo\nenv:\n  defaults:\n    OTHER_VAR: x\n")
+    (tmp_path / ".env").write_text(f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=alice\n")
+
+    assert seeded_logins(tmp_path, ["alice"]) == []
+
+
+def test_a_repo_with_no_profile_names_nothing(tmp_path: Path) -> None:
+    """Advisory: nothing here is load-bearing for a deployment already running."""
+    (tmp_path / ".env").write_text(f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=alice\n")
+
+    assert seeded_logins(tmp_path, ["alice"]) == []
+
+
+def test_an_unparseable_profile_names_nothing(tmp_path: Path) -> None:
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / "profile.yml").write_text("env:\n  defaults:\n   - not: a mapping\n  bad: [\n")
+
+    assert seeded_logins(tmp_path, ["alice"]) == []
+
+
+def test_logins_come_back_in_roster_order(tmp_path: Path) -> None:
+    (tmp_path / "profile.yml").write_text(
+        "env:\n"
+        "  defaults:\n"
+        f"    {PW_PLAINTEXT_VAR_PREFIX}ALICE: alice\n"
+        f"    {PW_PLAINTEXT_VAR_PREFIX}BOB: bob\n"
+    )
+    (tmp_path / ".env").write_text(
+        f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=alice\n{PW_PLAINTEXT_VAR_PREFIX}BOB=bob\n"
+    )
+
+    assert seeded_logins(tmp_path, ["bob", "alice"]) == [("bob", "bob"), ("alice", "alice")]

@@ -1,14 +1,17 @@
 """The bluesky-web sidecar's FastAPI app: the operator panel bundles plus a
 shared HTTP client onto the Bluesky bridge.
 
-What the app owns is serving and plumbing: its container healthcheck, a blanket
-no-cache header on everything it serves, one ``httpx.AsyncClient`` and resolved
+What the app owns is serving and plumbing: its container healthcheck, a default
+no-cache header on everything that does not set one itself, one
+``httpx.AsyncClient`` and resolved
 bridge URL published on ``app.state`` for every router to use, and the static
 mounts for the panel bundles plus the shared design-system assets.
 
-What it does NOT own is policy. The routers it composes — the read proxy, the
-plan-draft relay and the plan-queue relay — relay to the bridge verbatim, body
-and status code alike; the bridge decides what a request is allowed to do.
+What it does NOT own is policy. The bridge-facing routers it composes — the read
+proxy, the plan-draft relay and the plan-queue relay — relay to the bridge
+verbatim, body and status code alike; the bridge decides what a request is
+allowed to do. The one router that reaches no bridge is the channel catalog,
+which serves the build-time ``channels.json`` mounted beside the config.
 
 Panel mounts (panel bundles must agree with this mapping — see
 ``_PANEL_MOUNTS`` below):
@@ -32,7 +35,7 @@ from starlette.staticfiles import StaticFiles
 
 from osprey.bluesky_bridge_connection import resolve_bridge_url
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.interfaces.bluesky_web import draft_relay, queue_relay, read_proxy
+from osprey.interfaces.bluesky_web import channels, draft_relay, queue_relay, read_proxy
 
 # Panel bundle directories (relative to this module's directory) and the mount
 # path each is served under. Directories are created on startup if absent, so
@@ -83,9 +86,14 @@ async def _no_cache(request, call_next):  # type: ignore[no-untyped-def]
     uncached branch (that middleware's path rules are interface-app specific
     — ``/static/``, ``/api/`` — and match nothing this sidecar mounts, hence
     the blanket rule; on a loopback service re-fetching is free).
+
+    Filled in with ``setdefault``, never overridden, mirroring the web-terminal
+    hub proxy's convention: a route that made its own caching decision (e.g. a
+    revalidated ETag response) keeps it, and every route that made none still
+    gets the full no-store string.
     """
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers.setdefault("Cache-Control", "no-cache, no-store, must-revalidate")
     return response
 
 
@@ -101,6 +109,9 @@ def health() -> dict:
 app.include_router(read_proxy.router)
 app.include_router(draft_relay.router)
 app.include_router(queue_relay.router)
+# The channel catalog is the one router that talks to no bridge at all — it
+# serves the build-time channels.json mounted beside the container's config.
+app.include_router(channels.router)
 
 
 for _mount_path, _panel_name in _PANEL_MOUNTS:

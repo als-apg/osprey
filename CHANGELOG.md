@@ -46,6 +46,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   now checked by the same pattern-detection, limits, and safety-rule layers
   as pyepics writes, and PVA RPC calls are refused outright.
 
+- Channel fields in the BLUESKY panel's plan forms offer typeahead
+  suggestions drawn from the project's Channel Finder catalog, snapshotted at
+  build time. On by default when a channel database is configured;
+  `web.channel_suggestions.enabled` and `web.channel_suggestions.max_channels`
+  tune or disable it.
+
 - A host that cannot build images can now skip the dev-mode image build, with
   `prebuilt_images: true` in `config.yml` or `OSPREY_PREBUILT_IMAGES=1` for one
   shell. `osprey up --dev` then starts the containers from the image tags
@@ -179,6 +185,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   something to check.
 
 ### Changed
+
+- A finished `osprey up -d` now ends by saying what to do next: one line naming
+  the landing page, and, when the roster's passwords are still the ones the
+  profile declared, the logins to sign in with. URLs the CLI prints are
+  clickable in terminals that support it.
+- The "This deploy wrote" block is grouped by file instead of repeating the
+  filename on every row, and its long values wrap under their own bullet rather
+  than running off the terminal. It now prints before the closing summary card,
+  so a run ends on where to go rather than on what it wrote.
+- The web terminal no longer opens with a full-screen welcome banner. The
+  OSPREY wordmark now heads the landing page, and the safety guidelines live at
+  the bottom of that page instead of behind a link in a banner nobody sees
+  twice.
 
 - `osprey up` now writes the OpenObserve account name `ZO_ROOT_USER_EMAIL` into
   `.env` alongside the minted password, so both halves of the telemetry login

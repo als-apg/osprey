@@ -14,6 +14,7 @@ listens on the landing port" from a silent absence into a stated fact.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from osprey.cli import output
@@ -89,14 +90,30 @@ def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, 
             address = f"{address}  (host network)"
         entries.append((binding.service, address))
 
-    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    nginx_port = web_terminals.get("nginx_port")
-    if web_terminals.get("enabled") and isinstance(nginx_port, int):
-        entries.append(("web terminal", f"http://127.0.0.1:{nginx_port}  (landing page)"))
+    landing_url = landing_page_url(config)
+    if landing_url:
+        entries.append(("web terminal", f"{landing_url}  (landing page)"))
     else:
         entries.append(("web terminal", "(not configured in this project)"))
 
     return entries
+
+
+def landing_page_url(config: dict) -> str | None:
+    """Where this deployment's landing page answers, or ``None`` if it has none.
+
+    The one derivation of that address: the endpoint list above spells it into a
+    row, and the closing call to action hands it to the operator as the thing to
+    open. A deployment with ``modules.web_terminals`` disabled has no landing
+    page at all, which is what ``None`` says.
+
+    :param config: Loaded configuration dictionary
+    """
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    nginx_port = web_terminals.get("nginx_port")
+    if web_terminals.get("enabled") and isinstance(nginx_port, int):
+        return f"http://127.0.0.1:{nginx_port}"
+    return None
 
 
 def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str]]:
@@ -111,19 +128,102 @@ def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str]]:
     Compose paths come back relative to the repo root and are anchored on it
     here, because :func:`endpoint_entries` opens them itself.
     """
-    from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
-    from osprey.utils.config import load_project_config
+    from osprey.deployment.container_lifecycle import as_built_compose_files
 
     root = Path(repo_root)
-    config_path = as_built_config_path(root)
-    if not config_path.is_file():
+    config = _as_built_config(root)
+    if config is None:
         return []
-    config = load_project_config(str(config_path), wrap_errors=True)
     files = [
         str(path if path.is_absolute() else root / path)
         for path in (Path(name) for name in as_built_compose_files(config, root))
     ]
     return endpoint_entries(config, files)
+
+
+def _as_built_config(root: Path) -> dict | None:
+    """The rendered ``build/config.yml`` of the deployment at ``root``, or ``None``.
+
+    The one load the ``as_built_*`` readers start from, so a caller that wants
+    two facts about a built deployment pays for one parse and cannot get the two
+    answers out of two different renders.
+    """
+    from osprey.deployment.container_lifecycle import as_built_config_path
+    from osprey.utils.config import load_project_config
+
+    config_path = as_built_config_path(root)
+    if not config_path.is_file():
+        return None
+    return load_project_config(str(config_path), wrap_errors=True)
+
+
+@dataclass(frozen=True)
+class ClosingFacts:
+    """What a finished ``up`` needs in order to say where to go next.
+
+    :param landing_url: The landing page's address, or ``None`` for a
+        deployment that runs no web terminals.
+    :param logins: ``(username, password)`` pairs safe to print -- the roster
+        logins still carrying the password ``profile.yml`` declared. Empty
+        whenever the operator owns the credentials; see
+        :func:`~osprey.deployment.web_terminals.auth_credentials.seeded_logins`.
+    """
+
+    landing_url: str | None
+    logins: tuple[tuple[str, str], ...]
+
+
+def as_built_closing_facts(repo_root: Path | str) -> ClosingFacts:
+    """The closing facts of the deployment ``repo_root`` has BUILT.
+
+    Read off the same rendered ``build/config.yml`` every other ``as_built_*``
+    reader uses, so the address printed at the end of a deploy is the address
+    the endpoint list printed a few lines above it.
+
+    Advisory: anything unreadable -- no build, a config that will not parse, an
+    ``auth`` stanza naming a method that does not exist -- comes back as "no
+    landing page, no logins" rather than as an error. This is the last thing a
+    successful deploy prints, and it must not be what fails it.
+    """
+    try:
+        root = Path(repo_root)
+        config = _as_built_config(root)
+        if config is None:
+            return ClosingFacts(landing_url=None, logins=())
+        return ClosingFacts(
+            landing_url=landing_page_url(config),
+            logins=tuple(_seeded_logins(root, config)),
+        )
+    except Exception as exc:
+        logger.debug(f"Closing facts skipped: {exc}")
+        return ClosingFacts(landing_url=None, logins=())
+
+
+def _seeded_logins(root: Path, config: dict) -> list[tuple[str, str]]:
+    """The profile-seeded logins of this deployment's roster, in roster order.
+
+    Gated on there being a login to have: with ``auth.method`` at anything but
+    ``password`` no OSPREY-held credential exists (``none`` has none at all, and
+    under ``oidc`` the facility's identity provider holds them), so a password
+    named here would be one nothing ever checks. Roster entries carrying
+    ``login: false`` sit outside the wall and are skipped for the same reason --
+    the same predicate credential provisioning itself uses.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import seeded_logins
+    from osprey.deployment.web_terminals.personas import entry_requires_login, normalize_users
+    from osprey.deployment.web_terminals.render import _auth_tls_context
+
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if not web_terminals.get("enabled"):
+        return []
+    if _auth_tls_context(web_terminals).get("auth_method") != "password":
+        return []
+    names = [
+        entry["name"]
+        for entry in normalize_users(web_terminals.get("users"))
+        if entry_requires_login(entry)
+    ]
+    return seeded_logins(root, names)
 
 
 def _summary_title(config: dict) -> str:

@@ -148,7 +148,7 @@ def plain_client(workspace_dir, monkeypatch):
 class TestHtmlShellUnderPrefix:
     """The served index page carries the full injection contract (Task 2.1),
     exercised through the real app rather than a bare template render. The
-    exhaustive per-page/per-asset matrix (session.html, safety.html, every
+    exhaustive per-page/per-asset matrix (session.html, every
     head asset) is ``test_prefix_injection.py``'s job; this only needs to
     prove the SAME mechanism holds on the real, fully-wired app.
     """

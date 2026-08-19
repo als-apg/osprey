@@ -227,11 +227,9 @@ def _live_server(
 # ---------------------------------------------------------------------------
 
 #: Seeded into every page before load: marks the one-time rail hint as already
-#: dismissed. The hint appears asynchronously once the welcome overlay leaves
-#: the DOM and floats over the dock tab strip (dropdown z-index), so on the
-#: fresh profile these tests run under it would intercept the tab clicks and
-#: drags they drive. Same spirit as removing the welcome overlay below; the
-#: hint has its own dedicated coverage (rail-hint.test.mjs).
+#: dismissed. The hint floats over the dock tab strip (dropdown z-index), so on
+#: the fresh profile these tests run under it would intercept the tab clicks and
+#: drags they drive. It has its own dedicated coverage (rail-hint.test.mjs).
 _DISMISS_RAIL_HINT = (
     "try { localStorage.setItem('osprey-rail-hint-dismissed-v1', '1') } catch (e) {}"
 )
@@ -256,9 +254,6 @@ def _open_page(browser, base_url: str) -> Page:
     )
     # The dockview grid is up once at least one group is on screen.
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-    # The first-visit welcome overlay intercepts pointer events; remove it so
-    # tests that click header controls get a genuinely interactable starting DOM.
-    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
     return page
 
 
@@ -1307,7 +1302,6 @@ def test_layout_persists_across_reload(tmp_path, chromium_browser):
 
         # Reload; the arrangement must be restored.
         page.reload(wait_until="domcontentloaded")
-        page.evaluate("document.getElementById('welcome-overlay')?.remove()")
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1366,7 +1360,6 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         # Switch to project B and reload — a different key, no stored layout.
         app.state.project_cwd = cwd_b
         page.reload(wait_until="domcontentloaded")
-        page.evaluate("document.getElementById('welcome-overlay')?.remove()")
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1383,7 +1376,6 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         # Switch back to A — its arrangement (terminal left) returns.
         app.state.project_cwd = cwd_a
         page.reload(wait_until="domcontentloaded")
-        page.evaluate("document.getElementById('welcome-overlay')?.remove()")
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1441,7 +1433,6 @@ def test_reset_restores_default_layout(tmp_path, chromium_browser):
         # And the reset persists across a reload (custom arrangement is gone).
         page.wait_for_timeout(500)
         page.reload(wait_until="domcontentloaded")
-        page.evaluate("document.getElementById('welcome-overlay')?.remove()")
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
         groups = _dock_groups(page)
@@ -1490,7 +1481,6 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
         # Corrupt it and reload.
         page.evaluate("(k) => localStorage.setItem(k, '{ not valid json')", key)
         page.reload(wait_until="domcontentloaded")
-        page.evaluate("document.getElementById('welcome-overlay')?.remove()")
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1913,7 +1903,6 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             page.add_init_script(_DISMISS_RAIL_HINT)
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
-            page.evaluate("document.getElementById('welcome-overlay')?.remove()")
 
             # The visible, healthy panel is the one docked and on screen.
             expect(
@@ -1963,7 +1952,6 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             page.add_init_script(_DISMISS_RAIL_HINT)
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
-            page.evaluate("document.getElementById('welcome-overlay')?.remove()")
 
             # Give the async init + health poll time to (wrongly) surface it —
             # data-viz's poll against the live stub goes healthy in this window,
@@ -3162,17 +3150,15 @@ def _palette_query(page: Page, query: str) -> None:
 def _palette_reload(page: Page) -> None:
     """Reload the page and wait for the same steady state ``_open_page`` does.
 
-    The welcome overlay ships in the served HTML and only self-dismisses once
-    the operator clicks through it (which stores the server session id), so a
-    reload brings it back and it has to be removed again - it intercepts
-    pointer events over the whole viewport, the palette trigger included.
+    A reload tears down the rail and the dock grid and rebuilds both
+    asynchronously, so a test that reaches for the palette straight after one
+    would race the rebuild rather than the behaviour it means to assert.
     """
     page.reload(wait_until="domcontentloaded")
     expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
         timeout=10_000
     )
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
 
 
 def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path, chromium_browser):

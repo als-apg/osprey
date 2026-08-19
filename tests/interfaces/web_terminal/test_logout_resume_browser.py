@@ -211,12 +211,6 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         captured = page.evaluate("() => localStorage.getItem('osprey-pty-session')")
         assert captured == stored_id
 
-        # Dismiss the first-visit welcome overlay so it can't intercept the click
-        # (it covers the header on a fresh server session).
-        page.evaluate(
-            "() => { const o = document.getElementById('welcome-overlay'); if (o) o.remove(); }"
-        )
-
         # Record the auth-sidecar chaining request. This deployment has NO
         # sidecar (no auth stanza, so nginx renders no `location /auth/` and
         # nothing is listening), which makes this the live proof of the

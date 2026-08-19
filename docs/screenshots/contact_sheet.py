@@ -893,8 +893,6 @@ def _capture_variant(
             wait_until="domcontentloaded",
             timeout=_NAV_TIMEOUT_MS,
         )
-        page.locator("#welcome-dismiss").click(timeout=_NAV_TIMEOUT_MS)
-
         # Wait for the canned transcript's sentinel to land in the terminal
         # (xterm's DOM renderer keeps the text in .xterm-rows). This also implies
         # the PTY has spawned and the hub's session snapshot has been taken.

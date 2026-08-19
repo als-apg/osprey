@@ -35,6 +35,9 @@ import secrets
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 # The service-token recipes are imported rather than restated so the signing
 # secrets below are minted and validated exactly like every other deploy-time
@@ -390,6 +393,83 @@ def ensure_auth_credentials(
         preexisting=tuple(preexisting),
         missing=tuple(missing),
     )
+
+
+def seeded_logins(project_root: str | Path, usernames: Iterable[str]) -> list[tuple[str, str]]:
+    """The roster logins whose password is still the one the PROFILE shipped.
+
+    :func:`ensure_auth_credentials` documents why a plaintext password is never
+    echoed: the operator typed it into ``.env``, so they already know it. That
+    reasoning holds for a password an operator chose and fails for one a profile
+    seeded — ``control-assistant.yml`` declares ``OSPREY_AUTH_PW_ALICE: alice``
+    under ``env.defaults`` and ``osprey init`` writes it into ``.env``, so the
+    login exists and nobody was ever told what it is. This function names that
+    narrow case, and only it.
+
+    A password qualifies when the value in the project ``.env`` is still
+    IDENTICAL to the one ``profile.yml`` declares for that variable. Such a
+    value is published in the profile — in this repo and, for a preset, in the
+    OSPREY source tree — so printing it discloses nothing that reading two
+    tracked files would not. The moment an operator edits either file the values
+    stop matching and the login drops out of the result, which is what keeps a
+    real facility's credential out of a terminal and out of any transcript.
+
+    Advisory throughout: an unreadable, absent or malformed ``profile.yml`` or
+    ``.env`` yields no logins rather than an error. Nothing here is load-bearing
+    for a deployment that has already started.
+
+    :param project_root: The deployment repo — the directory holding
+        ``profile.yml`` and ``.env``.
+    :param usernames: Roster usernames that sit behind the login wall, in the
+        order they should be shown.
+    :return: ``(username, password)`` pairs, in ``usernames`` order, holding
+        only the users whose password is still the profile's declared default.
+    """
+    root = Path(project_root)
+    try:
+        declared = _profile_env_defaults(root)
+        if not declared:
+            return []
+        env_path = root / ".env"
+        project_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    except Exception as exc:  # pragma: no cover - advisory read
+        logger.debug(f"Seeded logins skipped: {exc}")
+        return []
+
+    logins: list[tuple[str, str]] = []
+    for name in usernames:
+        variable = f"{PW_PLAINTEXT_VAR_PREFIX}{env_var_suffix(name)}"
+        # Trimmed on both sides, because that is what `ensure_auth_credentials`
+        # hashed: comparing the raw values would drop a login whose `.env` entry
+        # an editor padded, even though the padded value produced exactly the
+        # profile default's hash.
+        current = project_env.get(variable, "").strip()
+        if current and current == str(declared.get(variable, "")).strip():
+            logins.append((name, current))
+    return logins
+
+
+def _profile_env_defaults(root: Path) -> dict[str, Any]:
+    """``env.defaults`` as ``profile.yml`` declares it, or an empty mapping.
+
+    Read from the repo's own ``profile.yml`` rather than from the preset it was
+    materialized from: the profile is what an operator edits, so it is the only
+    file whose values can honestly be called "what this deployment declared".
+    """
+    from osprey.cli.repo_resolver import PROFILE_FILENAME
+
+    profile_path = root / PROFILE_FILENAME
+    if not profile_path.is_file():
+        return {}
+    with profile_path.open(encoding="utf-8") as handle:
+        profile = yaml.safe_load(handle)
+    if not isinstance(profile, dict):
+        return {}
+    env_section = profile.get("env")
+    if not isinstance(env_section, dict):
+        return {}
+    defaults = env_section.get("defaults")
+    return defaults if isinstance(defaults, dict) else {}
 
 
 @dataclass(frozen=True)

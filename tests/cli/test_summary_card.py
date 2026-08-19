@@ -27,7 +27,7 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from osprey.cli import phase_reporter, summary_card
+from osprey.cli import output, phase_reporter, summary_card
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import (
     NullReporter,
@@ -127,6 +127,19 @@ def restore_reporter():
         install_reporter(previous)
 
 
+@pytest.fixture(autouse=True)
+def empty_ledger():
+    """Start and leave every test with no collected rows.
+
+    The ledger is process-scoped and the card flushes it before printing, so a
+    row some earlier test left behind would print above the card and shift
+    every line index asserted here.
+    """
+    output.clear_ledger()
+    yield
+    output.clear_ledger()
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A deployment repo whose build declares one web-terminal endpoint."""
@@ -155,6 +168,33 @@ def cards(monkeypatch) -> list[tuple[Path, str]]:
         summary_card, "print_summary_card", lambda root, state: printed.append((Path(root), state))
     )
     return printed
+
+
+@pytest.fixture
+def repo_with_logins(repo: Path) -> Path:
+    """The same repo, with a password-authenticated roster whose two logins the
+    profile declared and nobody has since edited."""
+    build = repo / "build" / "config.yml"
+    build.write_text(
+        "project_name: demo\n"
+        "deployed_services: []\n"
+        "modules:\n"
+        "  web_terminals:\n"
+        "    enabled: true\n"
+        "    nginx_port: 8080\n"
+        "    auth:\n"
+        "      method: password\n"
+        "    users:\n"
+        "      - name: alice\n"
+        "        index: 0\n"
+        "      - name: bob\n"
+        "        index: 1\n"
+    )
+    (repo / "profile.yml").write_text(
+        "env:\n  defaults:\n    OSPREY_AUTH_PW_ALICE: alice\n    OSPREY_AUTH_PW_BOB: bob\n"
+    )
+    (repo / ".env").write_text("OSPREY_AUTH_PW_ALICE=alice\nOSPREY_AUTH_PW_BOB=bob\n")
+    return repo
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +338,8 @@ class TestCardPrinting:
         layouts cannot drift into two different cards."""
         print_summary_card(repo, "running")
 
-        assert recorder.lines == [""] + format_summary_card(repo, "running")
+        card = format_summary_card(repo, "running")
+        assert recorder.lines[: len(card) + 1] == [""] + card
 
     def test_a_verbose_run_still_ends_with_the_card(
         self, repo: Path, restore_reporter, monkeypatch
@@ -312,7 +353,8 @@ class TestCardPrinting:
 
         print_summary_card(repo, "running")
 
-        assert Recorded(buffer).lines == [""] + format_summary_card(repo, "running")
+        card = format_summary_card(repo, "running")
+        assert Recorded(buffer).lines[: len(card) + 1] == [""] + card
 
     def test_the_heading_is_styled_on_a_terminal(
         self, repo: Path, restore_reporter, monkeypatch
@@ -559,3 +601,93 @@ class TestResetGetsALineNotACard:
         assert lines[-1] == "Reset complete. `osprey build && osprey up -d` starts demo again."
         assert lines.count("Reset complete. `osprey build && osprey up -d` starts demo again.") == 1
         assert recorder.lines == []
+
+
+# ---------------------------------------------------------------------------
+# The line under the card
+# ---------------------------------------------------------------------------
+
+
+class TestClosingCallToAction:
+    """A card is an inventory; this is the instruction under it.
+
+    Six equally-prominent addresses leave the reader to work out which one is
+    the front door, so the closing line names it and says what to sign in with.
+    """
+
+    def test_the_closing_line_names_the_landing_page(self, repo: Path, recorder: Recorded) -> None:
+        print_summary_card(repo, "running")
+
+        assert recorder.lines[-1] == "Everything is running. Open http://127.0.0.1:8080 to start."
+
+    def test_the_closing_line_comes_after_the_card(self, repo: Path, recorder: Recorded) -> None:
+        """Order is the point: what was written, then where it answers, then
+        what to do about it."""
+        print_summary_card(repo, "running")
+
+        card_line = recorder.lines.index(f"{repo.name} — running")
+        closing = next(i for i, line in enumerate(recorder.lines) if line.startswith("Everything"))
+        assert card_line < closing
+
+    def test_the_ledger_comes_before_the_card(self, repo: Path, recorder: Recorded) -> None:
+        """The receipt belongs with the run that wrote it, so the card and the
+        line under it close the run together."""
+        from osprey.cli import output
+
+        class _Logger:
+            def key_info(self, message: str) -> None: ...
+
+        output.report_fact(_Logger(), "minted a token", wrote=(".env", "A_TOKEN"))
+        try:
+            print_summary_card(repo, "running")
+        finally:
+            output.clear_ledger()
+
+        assert recorder.lines.index("This deploy wrote") < recorder.lines.index(
+            f"{repo.name} — running"
+        )
+
+    def test_seeded_logins_are_shown_with_the_landing_page(
+        self, repo_with_logins: Path, recorder: Recorded
+    ) -> None:
+        """`osprey init` wrote these from the profile, so nobody was ever told
+        them."""
+        print_summary_card(repo_with_logins, "running")
+
+        assert any("alice / alice · bob / bob" in line for line in recorder.lines)
+
+    def test_a_password_the_operator_changed_is_not_shown(
+        self, repo_with_logins: Path, recorder: Recorded
+    ) -> None:
+        (repo_with_logins / ".env").write_text(
+            "OSPREY_AUTH_PW_ALICE=chosen-by-the-operator\nOSPREY_AUTH_PW_BOB=bob\n"
+        )
+
+        print_summary_card(repo_with_logins, "running")
+
+        printed = "\n".join(recorder.lines)
+        assert "chosen-by-the-operator" not in printed
+        assert "bob / bob" in printed
+
+    def test_no_closing_line_for_a_deployment_that_is_not_running(
+        self, repo: Path, recorder: Recorded
+    ) -> None:
+        print_summary_card(repo, "built")
+
+        assert not any(line.startswith("Everything is running") for line in recorder.lines)
+
+    def test_no_closing_line_without_a_landing_page(
+        self, tmp_path: Path, recorder: Recorded
+    ) -> None:
+        """A backend-only project has no front door to send anyone to; the
+        card's `next` row is already the right answer for it."""
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "config.yml").write_text(
+            "project_name: demo\ndeployed_services: []\nmodules:\n  web_terminals:\n"
+            "    enabled: false\n"
+        )
+
+        print_summary_card(tmp_path, "running")
+
+        assert not any(line.startswith("Everything is running") for line in recorder.lines)

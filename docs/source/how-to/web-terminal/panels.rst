@@ -70,6 +70,45 @@ do.
 **Results** shows the selected run's record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.
 
+Channel suggestions in plan forms
+---------------------------------
+
+A plan-form field that asks for a channel completes what you type: a popup
+lists matching channel names — substring matches first, looser fuzzy matches
+when those run dry. Arrow keys move through the list, **Enter** takes the
+highlighted name, **Escape** dismisses it. The suggestions only suggest — a
+name typed in full is accepted whether or not it appears in the list.
+
+The names come from the project's Channel Finder catalog: ``osprey build``
+writes a snapshot of it next to the generated config, and the panel reads
+that snapshot — no control-system traffic, and nothing to keep in sync at run
+time. A project with no channel database configured shows no suggestions and
+is otherwise unchanged.
+
+The feature is on by default, tuned under ``web.channel_suggestions`` in
+``config.yml``:
+
+.. code-block:: yaml
+
+   web:
+     channel_suggestions:
+       enabled: true         # the default
+       max_channels: 50000   # the default
+
+``max_channels`` guards the browser, not the build: every panel load fetches
+the whole snapshot, so a database holding more channels than the limit is
+skipped instead of shipped — the build log names the limit it hit, and the
+form falls back to plain fields. Raise the limit to cover a larger facility,
+or set ``enabled: false`` to turn the feature off and write no snapshot at
+all. A build profile overrides these keys from its ``config:`` block in the
+dotted form, e.g. ``web.channel_suggestions.max_channels: 200000``.
+
+One staleness rule to know: editing a channel database inside the profile's
+``data/`` tree changes the build fingerprint, so ``osprey up`` refuses until
+you rebuild — the snapshot cannot silently go stale on that path. A database
+referenced from *outside* the profile tree is not fingerprinted; its snapshot
+refreshes only on the next explicit ``osprey build``.
+
 Adding your own panel
 ---------------------
 

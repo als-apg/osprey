@@ -242,7 +242,6 @@ def _open_page(browser, base_url: str) -> Page:
         timeout=15_000
     )
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
-    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
     return page
 
 

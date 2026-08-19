@@ -4,10 +4,8 @@
  * A small callout beside the rail for operators arriving from the
  * pre-redesign UI: "Panel tabs now live here", with a one-click "Move to
  * top" escape hatch to the pre-redesign arrangement. Shown at most once EVER
- * (boolean localStorage flag, deliberately not keyed to the server session
- * like the welcome modal — the hint is about a one-time transition, not a
- * per-deployment notice). Waits for the welcome overlay to be dismissed
- * before appearing, so the two never stack.
+ * (boolean localStorage flag, deliberately not keyed to the server session:
+ * the hint is about a one-time transition, not a per-deployment notice).
  *
  * Self-registering module, wired like activity-strip.js: the template loads
  * it, it finds its own anchor (.panel-rail-region) and no-ops harmlessly on
@@ -79,23 +77,10 @@ export function maybeShowRailHint() {
   return true;
 }
 
-/* ---- Self-boot: wait out the welcome overlay, then show ---- */
+/* ---- Self-boot ---- */
 
 function boot() {
-  const overlay = document.getElementById('welcome-overlay');
-  if (!overlay || !overlay.isConnected) {
-    maybeShowRailHint();
-    return;
-  }
-  // The welcome modal dismisses via overlay.remove() (see app.js), so watch
-  // for the node leaving the document rather than a class flip.
-  const observer = new MutationObserver(() => {
-    if (!overlay.isConnected) {
-      observer.disconnect();
-      maybeShowRailHint();
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
+  maybeShowRailHint();
 }
 
 // Skip the self-boot under vitest — tests drive maybeShowRailHint directly.
