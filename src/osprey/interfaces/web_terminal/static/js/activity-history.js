@@ -196,10 +196,8 @@ export function createActivityHistory({
   /** @param {KeyboardEvent} e */
   function onDocumentKeydown(e) {
     if (e.key === 'Escape') {
-      // Focus first, close second. Closing can drop the tab stop (the strip
-      // emptied while the popover was up), and focusing an unfocusable element
-      // is a silent no-op that would strand focus on <body>. While the popover
-      // is open the trigger is always focusable, so this always lands.
+      // Focus the trigger before closing, so Escape returns the keyboard to
+      // where it came from rather than stranding it on <body>.
       mount.focus();
       closeHistory();
     }
@@ -212,7 +210,6 @@ export function createActivityHistory({
   async function openHistory() {
     if (historyOpen) return;
     historyOpen = true;
-    syncFocusability();
     const generation = ++historyGeneration;
 
     const el = ensurePopover();
@@ -249,7 +246,6 @@ export function createActivityHistory({
     document.removeEventListener('click', onDocumentClick, true);
     document.removeEventListener('keydown', onDocumentKeydown, true);
     window.removeEventListener('resize', placeHistory);
-    syncFocusability();
   }
 
   function toggleHistory() {
@@ -261,39 +257,13 @@ export function createActivityHistory({
   mount.setAttribute('aria-expanded', 'false');
   mount.title = 'Recent agent activity';
 
-  /**
-   * Keep focusability in step with the strip's emptiness.
-   *
-   * An empty strip is hidden with `opacity: 0` rather than `display: none` —
-   * activity-strip.css explains why: it is an aria-live region, and a
-   * display-hidden region would enter the accessibility tree at the same moment
-   * as its content, so screen readers could drop the announcement. The side
-   * effect is that an empty strip is invisible AND zero-sized while still
-   * sitting in the DOM, so an unconditional `tabIndex = 0` left a permanent tab
-   * stop whose `:focus-visible` outline could not be seen. Keyboard users tabbed
-   * into a hole.
-   *
-   * This is the keyboard half of the `pointer-events: none` already on
-   * `.status-activity-floating:empty`. Three things keep the tab stop alive:
-   * the strip showing something, the popover being open (the strip may empty on
-   * its clear timer with the popover still up), and the trigger currently
-   * holding focus — dropping `tabindex` out from under the focused element is
-   * how you strand focus on `<body>`. The blur listener collects that last case
-   * once focus moves on.
-   */
-  function syncFocusability() {
-    const stillNeeded =
-      mount.childNodes.length > 0 || historyOpen || document.activeElement === mount;
-    if (stillNeeded) {
-      if (!mount.hasAttribute('tabindex')) mount.tabIndex = 0;
-    } else {
-      mount.removeAttribute('tabindex');
-    }
-  }
+  // The mount is the affordance for a history that lives on the SERVER, so it
+  // is operable whenever the page is — including when the live line is empty,
+  // which is every reload. Gating this on emptiness makes the history
+  // unreachable by keyboard in exactly that state. The floating variant's
+  // empty-state invisibility is handled where it exists, in activity-strip.css.
+  if (!mount.hasAttribute('tabindex')) mount.tabIndex = 0;
 
-  syncFocusability();
-  mount.addEventListener('blur', syncFocusability);
-  new MutationObserver(syncFocusability).observe(mount, { childList: true });
   mount.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleHistory();

@@ -111,9 +111,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   now fetches one request per connection: with pipelining left at its default,
   a connection reset partway through a batch could fail the whole image even
   though retries were configured.
-- The web terminal's agent-activity strip no longer takes keyboard focus while
-  it is empty. An empty strip is invisible, so tabbing through the page landed
-  on a control that showed no focus outline and appeared to swallow focus.
+- The web terminal's agent-activity strip no longer appears to swallow keyboard
+  focus while it is empty. On the pages where an empty strip is invisible it now
+  reveals itself when focused, instead of being a tab stop with no visible
+  outline. It stays reachable either way: the strip opens the recent-activity
+  history, which lives on the server and is there after a reload even when the
+  strip itself is empty.
 - Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
   first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.
   Seeding skips the enhancement passes, so `hybrid` search previously searched

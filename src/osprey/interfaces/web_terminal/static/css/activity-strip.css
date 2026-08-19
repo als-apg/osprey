@@ -82,13 +82,28 @@
    opacity hide keeps the (empty) live region pre-existing its content.
 
    The cost is that an empty strip is invisible and zero-sized yet still in the
-   DOM, so it must not be operable either. `pointer-events: none` covers the
-   mouse; the keyboard half cannot be expressed in CSS, so activity-history.js
-   drops the mount's tabindex while it is empty. Change one and change the
-   other, or an invisible tab stop comes back. */
+   DOM. `pointer-events: none` keeps the mouse out of it, but the strip is also
+   the TRIGGER for the recent-activity history, which lives on the server and
+   outlives the live line — after any reload the history is full and the strip
+   is empty. So it stays keyboard-operable, and instead reveals itself with a
+   label whenever focus or the open popover puts it in play. Dropping its
+   tabindex here would make the history unreachable by keyboard in the most
+   common state there is. */
 .status-activity-floating:empty {
   opacity: 0;
   pointer-events: none;
+}
+
+.status-activity-floating:empty:focus-visible,
+.status-activity-floating:empty[aria-expanded='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.status-activity-floating:empty:focus-visible::after,
+.status-activity-floating:empty[aria-expanded='true']::after {
+  content: 'Recent activity';
+  color: var(--text-secondary);
 }
 
 /* ---- History popover ----
