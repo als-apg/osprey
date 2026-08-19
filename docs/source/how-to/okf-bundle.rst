@@ -311,6 +311,8 @@ tool. It has two backends and picks between them by itself:
   a document matches only if it literally contains the string.
 
 You do not choose; a deployment without the sidecar simply gets the fallback.
+:ref:`retrieval-paths` shows both branches in context, and the sidecar section
+diagrams what a ranked query does internally.
 
 Tuning ranked search
 --------------------

@@ -264,3 +264,7 @@ See Also
 
 :doc:`web-interface`
     Web interface architecture and capabilities API
+
+:ref:`retrieval-paths`
+    How these modes relate to OSPREY's other retrieval stacks, and which of them
+    need an embedding provider reachable at query time

@@ -4,6 +4,16 @@
     "kind": "static",
     "osprey_version": "2026.6.3"
   },
+  "qmd_query_pipeline": {
+    "captured_utc": "2026-08-19T04:20:17.523563+00:00",
+    "kind": "static",
+    "osprey_version": "2026.6.2.post1352+geab911034"
+  },
+  "retrieval_map": {
+    "captured_utc": "2026-08-19T04:32:48.764938+00:00",
+    "kind": "static",
+    "osprey_version": "2026.6.2.post1352+geab911034"
+  },
   "theme_switcher": {
     "captured_utc": "2026-07-19T23:44:27.053288+00:00",
     "kind": "static",

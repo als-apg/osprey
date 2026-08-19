@@ -14,6 +14,10 @@ rather than exact channel names.
    Hellert et al. (2025), *From Natural Language to Control Signals*,
    `arXiv:2512.18779 <https://arxiv.org/abs/2512.18779>`_.
 
+   :ref:`retrieval-paths`
+      Where the Channel Finder sits among OSPREY's retrieval stacks --- it is
+      the one that uses no embeddings at all.
+
 
 Choosing a Pipeline
 ===================
