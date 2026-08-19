@@ -62,6 +62,9 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # Selectors
 # ---------------------------------------------------------------------------
 
+# The Settings entry lives inside <osprey-display-menu>'s popover card, so
+# reaching it means opening the popover first (see _open_settings_drawer).
+MENU_TRIGGER_SELECTOR = "osprey-display-menu .display-menu-trigger"
 TRIGGER_SELECTOR = '[data-drawer="settings-drawer"]'
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
@@ -91,7 +94,8 @@ def _launch_ariel(tmp_path, monkeypatch) -> Iterator[str]:
 
 
 def _open_settings_drawer(page: Page) -> None:
-    """Click the header trigger and wait for the drawer to report open."""
+    """Open the display-menu popover, click its Settings entry, await the drawer."""
+    page.click(MENU_TRIGGER_SELECTOR)
     page.click(TRIGGER_SELECTOR)
     expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=5_000)
 
@@ -124,7 +128,7 @@ def test_custom_element_upgrades_and_page_loads_clean(tmp_path, monkeypatch, chr
 
 
 def test_open_via_trigger_and_close_via_close_button(tmp_path, monkeypatch, chromium_browser):
-    """The header gear button opens the drawer; the header close button closes it."""
+    """The popover's Settings entry opens the drawer; the close button closes it."""
     with _launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
@@ -217,9 +221,7 @@ def test_focus_enters_traps_and_restores_on_close(tmp_path, monkeypatch, chromiu
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 
-        trigger = page.locator(TRIGGER_SELECTOR)
-        trigger.click()
-        expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=5_000)
+        _open_settings_drawer(page)
 
         # Focus enters: the first focusable descendant is the close button.
         expect(page.locator(CLOSE_BTN_SELECTOR)).to_be_focused(timeout=5_000)
@@ -232,10 +234,13 @@ def test_focus_enters_traps_and_restores_on_close(tmp_path, monkeypatch, chromiu
         page.keyboard.press("Tab")
         expect(page.locator(CLOSE_BTN_SELECTOR)).to_be_focused(timeout=5_000)
 
-        # Closing restores focus to whatever triggered the open.
+        # Closing restores focus to the display-menu trigger: the Settings
+        # entry that opened the drawer sits inside the popover card, which is
+        # display:none by now, so the component hands focus to its persistent
+        # trigger before the drawer records its return-focus target.
         page.click(CLOSE_BTN_SELECTOR)
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
-        expect(trigger).to_be_focused(timeout=5_000)
+        expect(page.locator(MENU_TRIGGER_SELECTOR)).to_be_focused(timeout=5_000)
         page.close()
 
 

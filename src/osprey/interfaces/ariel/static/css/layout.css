@@ -3,6 +3,12 @@
  *
  * Page structure and responsive layouts for the
  * ARIEL search interface.
+ *
+ * Layout is ARIEL's own, but every control and surface inside it uses the
+ * ladder components.css sets out: chips at --radius-sm, card surfaces at
+ * --radius-md, uppercase eyebrows at --text-sm, metadata at --text-md, prose
+ * at body size, and interaction transitions at --duration-instant naming the
+ * properties they animate.
  */
 
 /* === Main Layout === */
@@ -19,7 +25,7 @@
   height: var(--header-height);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--neutral-tint-10);
-  z-index: var(--ariel-z-sticky);
+  z-index: var(--z-sticky);
 }
 
 .header-inner {
@@ -29,21 +35,21 @@
   height: 100%;
   max-width: var(--container-max);
   margin: 0 auto;
-  padding: 0 var(--ariel-space-6);
+  padding: 0 var(--space-5);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: var(--ariel-space-6);
+  gap: var(--space-5);
 }
 
 .logo {
   display: flex;
   align-items: center;
-  gap: var(--ariel-space-3);
-  font-size: var(--ariel-text-xl);
-  font-weight: 700;
+  gap: var(--space-3);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
   color: var(--text-primary);
   text-decoration: none;
 }
@@ -63,19 +69,26 @@
 
 .nav {
   display: flex;
-  gap: var(--ariel-space-1);
+  gap: var(--space-1);
 }
 
 .nav-link {
-  padding: var(--ariel-space-2) var(--ariel-space-4);
-  font-size: var(--ariel-text-sm);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-secondary);
-  border-radius: var(--ariel-radius-md);
-  transition: all var(--transition-fast);
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-instant) ease,
+    background-color var(--duration-instant) ease;
   text-decoration: none;
 }
 
+/* Hover stays neutral so it reads as "you could go here"; only the tab you
+   are actually on takes the accent wash, matching how the product marks the
+   active surface everywhere else. */
 .nav-link:hover {
   color: var(--text-primary);
   background: var(--surface-hover);
@@ -83,23 +96,22 @@
 }
 
 .nav-link.active {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
+  color: var(--color-accent-light);
+  background: var(--accent-tint-10);
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: var(--ariel-space-3);
+  gap: var(--space-3);
 }
 
 /* Embedded in web terminal: the host tile header bar IS this panel's header —
  * it carries the panel name, the hub's theming, and (via app.js) the Browse /
  * New Entry nav contributed into it. The panel's own header would be a second
- * bar, so it goes away wholesale. The theme-switcher rule stays as the
- * explicit "hub owns theming" statement. */
+ * bar, so it goes away wholesale. The display menu needs no rule here: the
+ * component injects its own body.embedded hide rule. */
 body.embedded .header { display: none; }
-body.embedded osprey-theme-switcher { display: none; }
 
 /* === Main Content === */
 .main {
@@ -107,7 +119,7 @@ body.embedded osprey-theme-switcher { display: none; }
   max-width: var(--container-max);
   width: 100%;
   margin: 0 auto;
-  padding: var(--ariel-space-6);
+  padding: var(--space-5);
 }
 
 /* === Search View === */
@@ -118,11 +130,11 @@ body.embedded osprey-theme-switcher { display: none; }
 
 .search-hero {
   text-align: center;
-  padding: var(--ariel-space-8) 0 var(--ariel-space-6);
+  padding: var(--space-6) 0 var(--space-5);
 }
 
 .search-hero h1 {
-  margin-bottom: var(--ariel-space-2);
+  margin-bottom: var(--space-2);
   background: linear-gradient(90deg, var(--text-primary), var(--text-secondary));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -130,37 +142,38 @@ body.embedded osprey-theme-switcher { display: none; }
 }
 
 .search-hero p {
-  font-size: var(--ariel-text-lg);
+  font-size: var(--text-xl);
   max-width: 600px;
   margin: 0 auto;
 }
 
 .search-form {
-  margin-bottom: var(--ariel-space-6);
+  margin-bottom: var(--space-5);
 }
 
 .search-input-wrapper {
   position: relative;
-  margin-bottom: var(--ariel-space-4);
+  margin-bottom: var(--space-4);
 }
 
+/* The hero field keeps its height and body-size type — that is the deliberate
+   "start here" treatment — but its frame is a normal 1px field border, and
+   focus states it the way every other field does. */
 .search-input-wrapper .input {
-  padding-left: var(--ariel-space-12);
+  padding-left: var(--space-7);
   padding-right: 180px;
   height: 56px;
-  font-size: var(--ariel-text-lg);
+  font-size: var(--text-xl);
   background: var(--bg-secondary);
-  border: 2px solid var(--border-default);
 }
 
 .search-input-wrapper .input:focus {
   border-color: var(--color-accent);
-  box-shadow: var(--shadow-glow-accent);
 }
 
 .search-input-wrapper .search-icon {
   position: absolute;
-  left: var(--ariel-space-4);
+  left: var(--space-4);
   top: 50%;
   transform: translateY(-50%);
   width: 24px;
@@ -170,30 +183,30 @@ body.embedded osprey-theme-switcher { display: none; }
 
 .search-input-actions {
   position: absolute;
-  right: var(--ariel-space-3);
+  right: var(--space-3);
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
-  gap: var(--ariel-space-2);
+  gap: var(--space-2);
 }
 
 /* === Results Section === */
 .results-section {
-  margin-top: var(--ariel-space-6);
+  margin-top: var(--space-5);
 }
 
 .results-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--ariel-space-4);
-  padding-bottom: var(--ariel-space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .results-count {
-  font-size: var(--ariel-text-sm);
+  font-size: var(--text-md);
   color: var(--text-secondary);
 }
 
@@ -204,21 +217,21 @@ body.embedded osprey-theme-switcher { display: none; }
 .results-modes {
   display: flex;
   align-items: center;
-  gap: var(--ariel-space-2);
-  font-size: var(--ariel-text-sm);
+  gap: var(--space-2);
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 
 .results-list {
   display: flex;
   flex-direction: column;
-  gap: var(--ariel-space-4);
+  gap: var(--space-4);
 }
 
 .load-more {
   display: flex;
   justify-content: center;
-  padding: var(--ariel-space-6);
+  padding: var(--space-5);
 }
 
 /* === Entry Detail View === */
@@ -228,24 +241,24 @@ body.embedded osprey-theme-switcher { display: none; }
 }
 
 .entry-detail-header {
-  margin-bottom: var(--ariel-space-6);
+  margin-bottom: var(--space-5);
 }
 
 .entry-detail-title {
-  font-size: var(--ariel-text-2xl);
-  margin-bottom: var(--ariel-space-3);
+  font-size: var(--text-3xl);
+  margin-bottom: var(--space-3);
 }
 
 .entry-detail-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ariel-space-4);
+  gap: var(--space-4);
 }
 
 .entry-detail-grid {
   display: grid;
   grid-template-columns: 1fr 300px;
-  gap: var(--ariel-space-6);
+  gap: var(--space-5);
 }
 
 @media (max-width: 768px) {
@@ -257,21 +270,22 @@ body.embedded osprey-theme-switcher { display: none; }
 .entry-detail-content {
   background: var(--surface-card);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--ariel-radius-lg);
-  padding: var(--ariel-space-6);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
 }
 
 .entry-detail-content h3 {
-  font-size: var(--ariel-text-base);
-  color: var(--text-secondary);
-  margin-bottom: var(--ariel-space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
 
 .entry-detail-text {
   color: var(--text-primary);
-  line-height: var(--ariel-leading-relaxed);
+  line-height: var(--leading-relaxed);
   white-space: pre-wrap;
   max-height: 60vh;
   overflow-y: auto;
@@ -280,7 +294,7 @@ body.embedded osprey-theme-switcher { display: none; }
 .entry-detail-sidebar {
   display: flex;
   flex-direction: column;
-  gap: var(--ariel-space-4);
+  gap: var(--space-4);
   max-height: 80vh;
   overflow-y: auto;
 }
@@ -288,14 +302,15 @@ body.embedded osprey-theme-switcher { display: none; }
 .metadata-card {
   background: var(--surface-card);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--ariel-radius-lg);
-  padding: var(--ariel-space-4);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
 }
 
 .metadata-card h4 {
-  font-size: var(--ariel-text-sm);
-  color: var(--text-secondary);
-  margin-bottom: var(--ariel-space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
@@ -303,13 +318,13 @@ body.embedded osprey-theme-switcher { display: none; }
 .metadata-list {
   display: flex;
   flex-direction: column;
-  gap: var(--ariel-space-2);
+  gap: var(--space-1);
 }
 
 .metadata-item {
   display: flex;
   justify-content: space-between;
-  font-size: var(--ariel-text-sm);
+  font-size: var(--text-md);
 }
 
 .metadata-label {
@@ -329,47 +344,48 @@ body.embedded osprey-theme-switcher { display: none; }
 }
 
 .dashboard-header {
-  margin-bottom: var(--ariel-space-6);
+  margin-bottom: var(--space-5);
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: var(--ariel-space-5);
+  gap: var(--space-4);
 }
 
 .stat-card {
   background: var(--surface-card);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--ariel-radius-lg);
-  padding: var(--ariel-space-5);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
 }
 
 .stat-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--ariel-space-3);
+  margin-bottom: var(--space-3);
 }
 
 .stat-card-title {
-  font-size: var(--ariel-text-sm);
-  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
 
 .stat-card-value {
-  font-size: var(--ariel-text-3xl);
-  font-weight: 700;
+  font-size: var(--text-4xl);
+  font-weight: var(--weight-bold);
   color: var(--text-primary);
   font-family: var(--font-mono);
 }
 
 .stat-card-subtitle {
-  font-size: var(--ariel-text-sm);
+  font-size: var(--text-md);
   color: var(--text-muted);
-  margin-top: var(--ariel-space-1);
+  margin-top: var(--space-1);
 }
 
 /* === Create Entry View === */
@@ -381,12 +397,12 @@ body.embedded osprey-theme-switcher { display: none; }
 .create-entry-form {
   background: var(--surface-card);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--ariel-radius-lg);
-  padding: var(--ariel-space-6);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
 }
 
 .form-section {
-  margin-bottom: var(--ariel-space-6);
+  margin-bottom: var(--space-5);
 }
 
 .form-section:last-child {
@@ -394,27 +410,28 @@ body.embedded osprey-theme-switcher { display: none; }
 }
 
 .form-section-title {
-  font-size: var(--ariel-text-sm);
-  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
-  margin-bottom: var(--ariel-space-3);
-  padding-bottom: var(--ariel-space-2);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .form-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--ariel-space-4);
+  gap: var(--space-4);
 }
 
 .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--ariel-space-3);
-  margin-top: var(--ariel-space-6);
-  padding-top: var(--ariel-space-4);
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--neutral-tint-10);
 }
 
@@ -422,17 +439,17 @@ body.embedded osprey-theme-switcher { display: none; }
 .activity-log {
   background: var(--surface-card);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--ariel-radius-lg);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
 .activity-item {
   display: flex;
   align-items: flex-start;
-  gap: var(--ariel-space-3);
-  padding: var(--ariel-space-3) var(--ariel-space-4);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--neutral-tint-10);
-  font-size: var(--ariel-text-sm);
+  font-size: var(--text-md);
 }
 
 .activity-item:last-child {
@@ -452,11 +469,11 @@ body.embedded osprey-theme-switcher { display: none; }
 /* === Responsive Adjustments === */
 @media (max-width: 640px) {
   .header-inner {
-    padding: 0 var(--ariel-space-4);
+    padding: 0 var(--space-4);
   }
 
   .main {
-    padding: var(--ariel-space-4);
+    padding: var(--space-4);
   }
 
   .nav {
@@ -464,13 +481,13 @@ body.embedded osprey-theme-switcher { display: none; }
   }
 
   .search-hero {
-    padding: var(--ariel-space-4) 0;
+    padding: var(--space-4) 0;
   }
 
   .search-input-wrapper .input {
     height: 48px;
     padding-right: 120px;
-    font-size: var(--ariel-text-base);
+    font-size: var(--text-xl);
   }
 
   .filters-grid {
@@ -485,7 +502,7 @@ body.embedded osprey-theme-switcher { display: none; }
 
 .view.active {
   display: block;
-  animation: fadeIn var(--transition-base);
+  animation: fadeIn var(--duration-fast) ease;
 }
 
 /* === Loading overlay === */
@@ -493,11 +510,11 @@ body.embedded osprey-theme-switcher { display: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--ariel-space-12);
+  padding: var(--space-7);
 }
 
 .loading-text {
-  margin-top: var(--ariel-space-4);
+  margin-top: var(--space-4);
   color: var(--text-secondary);
 }
 
@@ -520,13 +537,15 @@ html[data-ui-mode="simple"] .nav {
 html[data-ui-mode="simple"] .nav-simple-link {
   display: inline-flex;
   align-items: center;
-  padding: var(--ariel-space-2) var(--ariel-space-4);
-  font-size: var(--ariel-text-sm);
-  font-weight: 500;
+  min-height: 28px;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--color-accent-light);
-  border-radius: var(--ariel-radius-md);
+  border-radius: var(--radius-sm);
   text-decoration: none;
-  transition: all var(--transition-fast);
+  transition: color var(--duration-instant) ease,
+    background-color var(--duration-instant) ease;
 }
 
 html[data-ui-mode="simple"] .nav-simple-link:hover {
@@ -565,35 +584,36 @@ html[data-ui-mode="simple"] .entry-card .entry-card-footer {
 .entry-card-simple {
   background: var(--surface-card);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--ariel-radius-lg);
-  padding: var(--ariel-space-5);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--duration-instant) ease,
+    border-color var(--duration-instant) ease;
 }
 
 .entry-card-simple:hover {
-  border-color: var(--neutral-tint-35);
-  background: var(--bg-secondary);
+  border-color: var(--border-accent);
+  background: var(--surface-hover);
 }
 
 .entry-card-simple-title {
-  font-size: var(--ariel-text-lg);
-  font-weight: 600;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-normal);
   color: var(--text-primary);
-  margin-bottom: var(--ariel-space-2);
+  margin-bottom: var(--space-2);
 }
 
 .entry-card-simple-meta {
-  font-size: var(--ariel-text-sm);
+  font-size: var(--text-md);
   color: var(--text-muted);
-  margin-bottom: var(--ariel-space-3);
+  margin-bottom: var(--space-2);
 }
 
 .entry-card-simple-summary {
   color: var(--text-secondary);
-  line-height: var(--ariel-leading-relaxed);
-  margin-bottom: var(--ariel-space-3);
+  line-height: var(--leading-relaxed);
+  margin-bottom: var(--space-3);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -601,7 +621,7 @@ html[data-ui-mode="simple"] .entry-card .entry-card-footer {
 }
 
 .entry-card-simple-link {
-  font-size: var(--ariel-text-sm);
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--color-accent-light);
 }

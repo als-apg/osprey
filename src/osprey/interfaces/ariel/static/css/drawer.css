@@ -2,6 +2,10 @@
  * Drawer component styles
  *
  * Slide-in panel from the right side.
+ *
+ * Same control idiom as components.css: the accent-lit left edge, the panel
+ * shadow, the --duration-base slide and the chip treatment on the two buttons
+ * are the web terminal's own drawer, so the two read as one surface.
  */
 
 /* === Drawer === */
@@ -13,13 +17,13 @@
   max-width: 90vw;
   height: 100vh;
   background: var(--bg-secondary);
-  border-left: 1px solid var(--border-default);
-  box-shadow: var(--shadow-lg);
-  z-index: var(--ariel-z-modal);
+  border-left: 1px solid var(--border-accent);
+  box-shadow: var(--shadow-panel);
+  z-index: var(--z-modal);
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
-  transition: transform var(--transition-slow);
+  transition: transform var(--duration-base) ease;
 }
 
 .drawer[open] {
@@ -29,11 +33,11 @@
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: color-mix(in srgb, var(--bg-terminal) 50%, transparent);
-  z-index: calc(var(--ariel-z-modal) - 1);
+  background: var(--overlay-black-50);
+  z-index: calc(var(--z-modal) - 1);
   opacity: 0;
   visibility: hidden;
-  transition: opacity var(--transition-slow), visibility var(--transition-slow);
+  transition: opacity var(--duration-base) ease, visibility var(--duration-base) ease;
 }
 
 .drawer-backdrop[open] {
@@ -45,14 +49,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--ariel-space-4) var(--ariel-space-5);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--neutral-tint-10);
   flex-shrink: 0;
 }
 
 .drawer-title {
-  font-size: var(--ariel-text-lg);
-  font-weight: 600;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
 
@@ -60,48 +64,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  font-size: var(--ariel-text-xl);
+  width: 28px;
+  height: 28px;
+  font-size: var(--text-2xl);
   color: var(--text-muted);
   background: transparent;
-  border: none;
-  border-radius: var(--ariel-radius-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: color var(--duration-instant) ease,
+    border-color var(--duration-instant) ease;
 }
 
+/* Dismissal is not an accent action, so the close chip brightens neutrally
+   rather than taking the accent hover the other controls use. */
 .drawer-close-btn:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  border-color: var(--text-secondary);
 }
 
 .drawer-body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--ariel-space-4) var(--ariel-space-5);
-}
-
-/* === Header icon button (gear) === */
-.header-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--ariel-radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.header-icon-btn:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-  border-color: var(--border-default);
+  padding: var(--space-4);
 }
 
 /* === Responsive === */
