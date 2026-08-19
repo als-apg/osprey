@@ -104,7 +104,41 @@ deactivate && rm -rf .venv-release-test
 
 Any failures stop the release. Fix forward, then re-run.
 
-## Step 2: Release-notes PR
+## Step 2: Refresh the doc screenshots
+
+The published docs embed committed PNGs, and each caption names the OSPREY
+version its image was captured with. Nothing refreshes them automatically —
+there is no CI job and no release step — so they age quietly, and a release is
+where that staleness becomes public.
+
+Read `docs/source/_static/screenshots/manifest.json`: every entry carries the
+version and timestamp of its last capture. Compare that against the UI work in
+this release. If a screen shown in the docs changed, re-capture it now, so the
+images and their captions ship with the version being released.
+
+```bash
+python -m docs.screenshots list      # every recipe, its kind, its output files
+cd docs && make screenshots          # all container-free recipes — no containers, no agent
+```
+
+Two recipes are opt-in because they cost more:
+
+- `ariel` needs a container runtime and a free port 5432 —
+  `make screenshots SCREENSHOTOPTS=--stack`.
+- `web_terminal_hero` drives a live agent session on that stack —
+  `python -m docs.screenshots --agentic --only web_terminal_hero`. It spends
+  real subscription budget, so re-capture it when the Web Terminal's appearance
+  has actually changed, not on every release.
+
+`channel_finder_*.png` has no recipe at all — it is hand-captured, so it can
+only be redone by hand.
+
+The framework itself — environments, provenance, and why it is capture-only and
+never a CI gate — is documented in the contributing guide under "Refreshing
+documentation screenshots". Whatever changed (the PNGs and the updated
+`manifest.json`) rides along in the release-notes PR below.
+
+## Step 3: Release-notes PR
 
 Release-notes commits cannot be pushed directly to `main` — branch protection
 rejects it. Open a PR instead.
@@ -114,7 +148,7 @@ git checkout main && git pull --ff-only origin main
 git checkout -b release/vYYYY.M.P
 ```
 
-There is **no version literal to edit** — the tag in Step 4 sets the version.
+There is **no version literal to edit** — the tag in Step 5 sets the version.
 This PR carries only the human-facing notes. Show the maintainer each diff
 before applying:
 
@@ -123,6 +157,7 @@ before applying:
 | `RELEASE_NOTES.md` | First line: `# Osprey Framework - Latest Release (vYYYY.M.P)` followed by the theme tagline |
 | `CHANGELOG.md` | Convert `## [Unreleased]` to `## [YYYY.M.P] - YYYY-MM-DD`; insert a fresh empty `## [Unreleased]` above it |
 | `README.md` | Update the "Latest Release" line with version + theme |
+| `docs/source/_static/screenshots/` | Any images re-captured in Step 2, plus the updated `manifest.json` |
 
 Then run a consistency check — every line should mention the same version:
 
@@ -141,7 +176,7 @@ The PR title should be `release: vYYYY.M.P — <theme>`. The PR body should
 include the CHANGELOG entries verbatim so reviewers see exactly what's being
 released.
 
-## Step 3: Merge the PR
+## Step 4: Merge the PR
 
 After CI passes (all 8 required checks green):
 
@@ -157,7 +192,7 @@ git checkout main && git pull --ff-only origin main
 
 Verify the latest commit on `main` is the version bump.
 
-## Step 4: Tag and push
+## Step 5: Tag and push
 
 Tags can be pushed directly — branch protection covers branches, not tags:
 
@@ -177,7 +212,7 @@ triggers on `v*.*.*` and:
 
 If step 2 fails, the publish aborts before any PyPI write — safe.
 
-## Step 5: Verify
+## Step 6: Verify
 
 ```bash
 gh run watch                                 # follow the release.yml run
