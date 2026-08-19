@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 19, 2026"/>
   </head>
   
   
@@ -892,6 +892,32 @@ default:</p>
 <p>Point either layer at an internal registry mirror or a pinned digest when
 your deployment host cannot (or should not) pull public images.</p>
 </section>
+<section id="deploying-prebuilt-images">
+<h2>Deploying Prebuilt Images<a class="headerlink" href="#deploying-prebuilt-images" title="Link to this heading">#</a></h2>
+<p>Some hosts cannot build images at all — no build tooling, no registry in
+reach — and run instead on images built elsewhere and loaded from a tarball.
+There, the image build that a <a class="reference internal" href="#development-mode"><span class="std std-ref">dev-mode</span></a> deploy
+normally runs is not merely slow but impossible. The top-level
+<code class="docutils literal notranslate"><span class="pre">prebuilt_images</span></code> key skips it, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> starts the containers
+from the tags already on the host:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
+<span class="nt">prebuilt_images</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># or, for one shell</span>
+<span class="nv">OSPREY_PREBUILT_IMAGES</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>osprey<span class="w"> </span>up<span class="w"> </span>--dev
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">yes</span></code> and <code class="docutils literal notranslate"><span class="pre">on</span></code> turn the switch on; <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">false</span></code>,
+<code class="docutils literal notranslate"><span class="pre">no</span></code> and <code class="docutils literal notranslate"><span class="pre">off</span></code> turn it off — case does not matter. The variable wins over
+the config key in both directions, so <code class="docutils literal notranslate"><span class="pre">OSPREY_PREBUILT_IMAGES=0</span></code> forces a
+build for one shell even on a host whose <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> pins the key. With
+neither set, deploys build as they always have.</p>
+<p>The deploy reports <code class="docutils literal notranslate"><span class="pre">skipped</span> <span class="pre">image</span> <span class="pre">build</span> <span class="pre">(prebuilt</span> <span class="pre">images)</span></code> where it would
+otherwise have built. Nothing checks up front that the tags are really
+present — a missing one surfaces as compose’s own <code class="docutils literal notranslate"><span class="pre">No</span> <span class="pre">such</span> <span class="pre">image</span></code> error,
+which names the image to load.</p>
+</section>
 <section id="the-search-sidecar-qmd">
 <span id="qmd-search-sidecar"></span><h2>The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)<a class="headerlink" href="#the-search-sidecar-qmd" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is a service that indexes the deployment’s <strong>markdown corpora</strong> and
@@ -1049,9 +1075,9 @@ entry count rather than with entry length.</p>
 <span id="qmd-where-the-sidecar-listens"></span><h3>Where the sidecar listens<a class="headerlink" href="#where-the-sidecar-listens" title="Link to this heading">#</a></h3>
 <p>The sidecar publishes port <strong>8180</strong>. qmd’s own daemon runs on <strong>8181</strong> on the
 container’s internal loopback and is fronted by a small forwarder. That split is
-not cosmetic: qmd hardcodes a loopback-only, IPv6-only bind with no option to
-change it, which makes it unreachable from any other container. Only the
-forwarder owns a routable port.</p>
+not cosmetic: qmd hardcodes a loopback-only bind with no option to change it,
+which makes it unreachable from any other container. Only the forwarder owns a
+routable port.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><strong>The sidecar has no authentication.</strong> No token, no TLS, no per-caller
@@ -1316,7 +1342,7 @@ the minted password, remove the <code class="docutils literal notranslate"><span
 </section>
 </section>
 <section id="development-mode">
-<h2>Development Mode<a class="headerlink" href="#development-mode" title="Link to this heading">#</a></h2>
+<span id="id1"></span><h2>Development Mode<a class="headerlink" href="#development-mode" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">--dev</span></code> flag runs the deployment on your locally installed Osprey
 source instead of the PyPI version. Dev-ness is a property of the <em>build</em>:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--dev</span></code> stages a wheel from your local source into each
@@ -1439,6 +1465,7 @@ containers this page covers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deploying-prebuilt-images">Deploying Prebuilt Images</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-search-sidecar-qmd">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-mounted">What gets mounted</a></li>

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 19, 2026"/>
   </head>
   
   
@@ -496,6 +496,7 @@ every project.</p>
 <li><p class="sd-card-text">How to keep a customized Dockerfile across rebuilds</p></li>
 <li><p class="sd-card-text">Building and running the image (ports, secrets, volumes)</p></li>
 <li><p class="sd-card-text">The three build-arg extension points for site-specific installs</p></li>
+<li><p class="sd-card-text">Building behind a proxy, and staging model files for the search sidecar</p></li>
 <li><p class="sd-card-text">Path relocation with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code></p></li>
 <li><p class="sd-card-text">Air-gapped images, the non-root requirement, and Kubernetes notes</p></li>
 </ul>
@@ -606,6 +607,95 @@ Never put credentials in <code class="docutils literal notranslate"><span class=
 distribute — prefer <a class="reference external" href="https://docs.docker.com/build/building/secrets/">Docker build secrets</a> or a credential-free
 internal mirror.</p>
 </div>
+<section id="building-behind-a-proxy">
+<h3>Building Behind a Proxy<a class="headerlink" href="#building-behind-a-proxy" title="Link to this heading">#</a></h3>
+<p>Two things have to line up for a build on a proxied network: the proxy values
+have to reach the build, and the tools inside it have to find them under the
+names they actually read.</p>
+<p><strong>Getting the values in.</strong> Docker takes them as build arguments —
+<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span> <span class="pre">--build-arg</span> <span class="pre">HTTP_PROXY=...</span> <span class="pre">--build-arg</span> <span class="pre">HTTPS_PROXY=...</span></code>. The
+uppercase spellings are predeclared by the builder, so no <code class="docutils literal notranslate"><span class="pre">ARG</span></code> line is needed
+for them. Podman does this for you: it forwards the host’s proxy environment
+into every build unless you pass <code class="docutils literal notranslate"><span class="pre">--http-proxy=false</span></code>.</p>
+<p><strong>Finding them inside a build step.</strong> <code class="docutils literal notranslate"><span class="pre">apt</span></code> and <code class="docutils literal notranslate"><span class="pre">pip</span></code> read only the
+lowercase <code class="docutils literal notranslate"><span class="pre">http_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">no_proxy</span></code>, and an uppercase
+build argument does not answer to a lowercase name. So every <code class="docutils literal notranslate"><span class="pre">RUN</span></code> that
+reaches the network in a generated Dockerfile opens with a bridge line:</p>
+<div class="highlight-dockerfile notranslate"><div class="highlight"><pre><span></span><span class="k">RUN</span><span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="nv">http_proxy</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">http_proxy</span><span class="k">:-</span><span class="si">${</span><span class="nv">HTTP_PROXY</span><span class="k">:-</span><span class="si">}}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">           </span><span class="nv">https_proxy</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">https_proxy</span><span class="k">:-</span><span class="si">${</span><span class="nv">HTTPS_PROXY</span><span class="k">:-</span><span class="si">}}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">           </span><span class="nv">no_proxy</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">no_proxy</span><span class="k">:-</span><span class="si">${</span><span class="nv">NO_PROXY</span><span class="k">:-</span><span class="si">}}</span><span class="s2">&quot;</span><span class="p">;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="se">\</span>
+<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>--no-install-recommends<span class="w"> </span>ca-certificates
+</pre></div>
+</div>
+<p>Each expansion prefers a lowercase value that is already set, falls back to the
+uppercase one, and otherwise defaults to empty — so a build with no proxy
+exports three empty variables and behaves exactly as it did before.</p>
+<p>The two mechanisms answer different questions and work together: the build
+arguments (or Podman’s forwarding) deliver the values, and the bridge closes the
+upper/lowercase gap inside the step. <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code> remains the knob for the
+other half — which hosts to <em>skip</em> the proxy for. In the project image’s
+dependency layer the bridge runs first and the existing
+<code class="docutils literal notranslate"><span class="pre">NO_PROXY=&quot;$PIP_NO_PROXY&quot;</span></code> export follows it, so a site that needs an
+exemption there sets <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code> exactly as before while <code class="docutils literal notranslate"><span class="pre">http_proxy</span></code> and
+<code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> are bridged normally.</p>
+</section>
+</section>
+<section id="prefetched-models-for-the-search-sidecar">
+<h2>Prefetched Models for the Search Sidecar<a class="headerlink" href="#prefetched-models-for-the-search-sidecar" title="Link to this heading">#</a></h2>
+<p>A deployment that includes the qmd search sidecar builds a second image, and
+that one downloads three model files from <code class="docutils literal notranslate"><span class="pre">huggingface.co</span></code> during its build.
+On a network with no route there, stage the files on the host once and name that
+directory of prefetched models in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">qmd</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">models_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/osprey/qmd-models</span><span class="w">   </span><span class="c1"># absolute host path</span>
+</pre></div>
+</div>
+<p>That one key does both halves of the job: the build skips the downloads, and the
+directory is bind-mounted read-only into the container at the location the image
+looks for models. The container-side path is fixed by the image and is not
+configurable.</p>
+<section id="staging-the-files">
+<h3>Staging the files<a class="headerlink" href="#staging-the-files" title="Link to this heading">#</a></h3>
+<p>The three files must sit in that directory under exactly these names:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>hf_ggml-org_embeddinggemma-300M-Q8_0.gguf
+hf_ggml-org_qwen3-reranker-0.6b-q8_0.gguf
+hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf
+</pre></div>
+</div>
+<p>These are cache names, not the names the files download under. The model loader
+recognizes a staged file only in this form; under any other name it reads as
+<strong>absent</strong>, and the sidecar tries to fetch it again — into a read-only mount, on
+a network that cannot reach the model host.</p>
+<p>Copy the files from a machine that can reach <code class="docutils literal notranslate"><span class="pre">huggingface.co</span></code> (or from the
+model cache of one that has already built the sidecar image), rename them, and
+check them before setting the key:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sha256sum<span class="w"> </span>/srv/osprey/qmd-models/*.gguf
+</pre></div>
+</div>
+<p>Compare the three digests against the pins in the qmd service’s Dockerfile
+(<code class="docutils literal notranslate"><span class="pre">services/qmd/Dockerfile</span></code> in the rendered deployment), which carries both the
+source URL and the expected SHA256 of each file.</p>
+</section>
+<section id="what-gets-checked">
+<h3>What gets checked<a class="headerlink" href="#what-gets-checked" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><strong>Before anything starts.</strong> If <code class="docutils literal notranslate"><span class="pre">services.qmd.models_dir</span></code> is set but the
+directory is missing, or a model is absent, misnamed, or zero bytes, the
+deploy refuses up front and prints the expected filenames along with the
+staging steps. Nothing has been started at that point.</p></li>
+<li><p><strong>At container start.</strong> The entrypoint verifies all three SHA256 digests
+against the pins the image was built with, every time, and fails with a clear
+message rather than letting the sidecar crash-loop unnoticed. A stamp file
+records what it already verified, so ordinary restarts stay fast.</p></li>
+</ul>
+<p>Leaving <code class="docutils literal notranslate"><span class="pre">models_dir</span></code> unset keeps the default: the models are baked into the
+image at build time, which needs a build host that can reach <code class="docutils literal notranslate"><span class="pre">huggingface.co</span></code>.
+Those downloads use <code class="docutils literal notranslate"><span class="pre">curl</span></code>, which reads the uppercase <code class="docutils literal notranslate"><span class="pre">HTTPS_PROXY</span></code>
+directly, so an online build behind a proxy needs nothing beyond the build
+arguments described above.</p>
+</section>
 </section>
 <section id="path-relocation">
 <h2>Path Relocation<a class="headerlink" href="#path-relocation" title="Link to this heading">#</a></h2>
@@ -746,7 +836,15 @@ the complement to the project image on this page.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-arguments">Build Arguments</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-arguments">Build Arguments</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#building-behind-a-proxy">Building Behind a Proxy</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prefetched-models-for-the-search-sidecar">Prefetched Models for the Search Sidecar</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#staging-the-files">Staging the files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-checked">What gets checked</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#path-relocation">Path Relocation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-non-root">Why Non-Root</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-state-and-volumes">Runtime State and Volumes</a><ul class="visible nav section-nav flex-column">
