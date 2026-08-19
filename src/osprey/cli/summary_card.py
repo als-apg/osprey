@@ -134,16 +134,48 @@ def print_summary_card(repo_root: Path | str, state: str) -> None:
     rendered -- an unreadable render, a compose file that moved -- must not turn
     that into a failure.
     """
+    # Before the card, because the run's last three blocks answer three
+    # questions in the order a person asks them: what did this write, where does
+    # it answer, what do I do now. The ledger is the receipt for the run that
+    # just finished, so it belongs with that run rather than after the card; the
+    # card and the line under it are the "what now" surface, and they close the
+    # run together.
+    output.flush_ledger()
     try:
         title, rows = _card_parts(repo_root, state)
     except Exception as exc:
         logger.debug("Summary card skipped: %s", exc)
-        # The ledger still flushes: what the run wrote is a fact about the
-        # operator's disk whether or not the card could be derived.
-        output.flush_ledger()
         return
     output.report("")
     output.section(title, rows)
-    # After the card, so the endpoints an operator acts on stay the first thing
-    # under the ✓ line, and the written-files block reads as the appendix it is.
-    output.flush_ledger()
+    print_call_to_action(repo_root, state)
+
+
+def print_call_to_action(repo_root: Path | str, state: str) -> None:
+    """Print the one thing to do next, under the card; advisory, never raises.
+
+    A card is an inventory. It says a deployment is running and lists six
+    addresses, and every one of those rows is equally prominent, so the reader
+    has to work out which of them is the front door. This line says it: open the
+    landing page, and here is what to sign in with.
+
+    Printed for a ``running`` deployment that HAS a landing page, and skipped
+    otherwise. A backend-only project has no front door to send anyone to, and
+    the card's ``next`` row is already the right answer for it.
+
+    :param repo_root: The deployment repo
+    :param state: One of ``created``, ``built``, ``running``, ``stopped``
+    """
+    from osprey.deployment.deploy_summary import as_built_closing_facts
+
+    if state != "running":
+        return
+    facts = as_built_closing_facts(repo_root)
+    if not facts.landing_url:
+        return
+    output.report("")
+    output.report(f"Everything is running. Open {facts.landing_url} to start.")
+    if facts.logins:
+        pairs = " · ".join(f"{user} / {password}" for user, password in facts.logins)
+        output.section("", [("sign in as", pairs)])
+        output.note("these logins come from profile.yml; change them in .env")

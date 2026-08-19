@@ -1,14 +1,19 @@
 // @ts-check
-/* OSPREY Web Terminal — Fuzzy Match Scorer
+/**
+ * Fuzzy match scorer for query-driven suggestion lists.
  *
- * Pure, DOM-free scorer for the command palette. The query is tokenized on
- * whitespace and EVERY token must independently subsequence-match the candidate
- * (case-insensitive, in-order, gaps allowed) — an all-tokens-AND contract, so
- * "wrt vrf" matches "control_system.write_verification" via two separate tokens.
- * Each token scores boundary hits (start / after . _ - / camelCase) and
- * consecutive runs; all per-token scores sum. Matched character ranges from
- * every token are merged into sorted, non-overlapping [start, end) spans for
- * the UI to highlight. Empty query matches everything (score 0, no spans).
+ * Pure, DOM-free scorer (pure modules belong in the design system because
+ * they carry no interface coupling) shared by the command palette and the
+ * channel-catalog matcher. The query is tokenized on whitespace and EVERY
+ * token must independently subsequence-match the candidate (case-insensitive,
+ * in-order, gaps allowed) — an all-tokens-AND contract, so "wrt vrf" matches
+ * "control_system.write_verification" via two separate tokens. Each token
+ * scores boundary hits (start / after . _ - / camelCase) and consecutive
+ * runs; all per-token scores sum. Matched character ranges from every token
+ * are merged into sorted, non-overlapping [start, end) spans for the UI to
+ * highlight. Empty query matches everything (score 0, no spans).
+ *
+ * @module fuzzy
  */
 
 /**

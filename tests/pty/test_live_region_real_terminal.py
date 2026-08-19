@@ -127,11 +127,11 @@ class Terminal:
 
     Deliberately small. It models the control sequences Rich's ``Live`` and
     ``Console`` actually emit — carriage return, line feed, erase-in-line,
-    erase-in-display, relative cursor motion, SGR, and cursor visibility — and
-    records anything else in :attr:`unsupported` rather than ignoring it. That
-    record is half of the garbling check: a stream this emulator cannot fully
-    parse is, by definition, a stream a terminal would have rendered as
-    something other than what the program meant.
+    erase-in-display, relative cursor motion, SGR, cursor visibility, and OSC 8
+    hyperlinks — and records anything else in :attr:`unsupported` rather than
+    ignoring it. That record is half of the garbling check: a stream this
+    emulator cannot fully parse is, by definition, a stream a terminal would
+    have rendered as something other than what the program meant.
 
     Lines grow without bound: this is scrollback, not a viewport. A region is
     drawn at the bottom of it and erased from the same place, which is exactly
@@ -140,6 +140,12 @@ class Terminal:
 
     #: One complete CSI sequence: ``ESC [`` parameters, final byte.
     _CSI = re.compile(r"\x1b\[([0-9;?]*)([A-Za-z])")
+
+    #: One complete OSC sequence: ``ESC ]`` code, payload, terminator. Both
+    #: terminators are accepted because both are standard; Rich writes ``ST``.
+    #: An *unterminated* OSC deliberately does not match — that is a torn write,
+    #: and it belongs in :attr:`unsupported` with the rest of the damage.
+    _OSC = re.compile(r"\x1b\]([0-9]*);[\s\S]*?(?:\x1b\\|\x07)")
 
     def __init__(self) -> None:
         self.lines: list[str] = [""]
@@ -181,12 +187,15 @@ class Terminal:
     def _escape(self, data: str, index: int) -> int:
         """Consume one escape sequence starting at *index*; return the next index."""
         match = self._CSI.match(data, index)
-        if match is None:
-            self.unsupported.append(repr(data[index : index + 12]))
-            return index + 1
-        params, final = match.group(1), match.group(2)
-        self._csi(params, final, match.group(0))
-        return match.end()
+        if match is not None:
+            self._csi(match.group(1), match.group(2), match.group(0))
+            return match.end()
+        match = self._OSC.match(data, index)
+        if match is not None:
+            self._osc(match.group(1), match.group(0))
+            return match.end()
+        self.unsupported.append(repr(data[index : index + 12]))
+        return index + 1
 
     def _csi(self, params: str, final: str, whole: str) -> None:
         """Apply one parsed CSI sequence."""
@@ -218,6 +227,20 @@ class Terminal:
             self._erase_display(count)
         else:
             self.unsupported.append(repr(whole))
+
+    def _osc(self, code: str, whole: str) -> None:
+        """Apply one parsed OSC sequence.
+
+        Only OSC 8 is modelled, because it is the only one the CLI emits. A
+        hyperlink is an attribute on the text between the opening sequence and
+        the empty closing one, so it paints no glyphs of its own and the label
+        lands in the scrollback as ordinary text — which is what an operator
+        reads on a terminal that supports it, and what makes that line identical
+        to the one a pipe gets.
+        """
+        if code == "8":
+            return
+        self.unsupported.append(repr(whole))
 
     # -- primitives ---------------------------------------------------------
 
@@ -269,7 +292,7 @@ class Terminal:
 
 def strip_ansi(text: str) -> str:
     """*text* with every escape sequence removed, and nothing else changed."""
-    return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b.", "", text)
+    return re.sub(r"\x1b\][0-9]*;[\s\S]*?(?:\x1b\\|\x07)|\x1b\[[0-9;?]*[A-Za-z]|\x1b.", "", text)
 
 
 def without_spinner_frames(text: str) -> str:

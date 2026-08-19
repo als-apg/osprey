@@ -48,6 +48,7 @@ def _build_ariel_mock_registry():
 
     # --- Search modules ---
     from osprey.services.ariel_search.search import keyword as kw_real
+    from osprey.services.ariel_search.search import qmd as qmd_real
     from osprey.services.ariel_search.search import semantic as sem_real
 
     kw_mod = types.ModuleType("keyword")
@@ -58,7 +59,11 @@ def _build_ariel_mock_registry():
     sem_mod.get_tool_descriptor = sem_real.get_tool_descriptor  # type: ignore[attr-defined]
     sem_mod.get_parameter_descriptors = getattr(sem_real, "get_parameter_descriptors", None)  # type: ignore[attr-defined]
 
-    _search_modules = {"keyword": kw_mod, "semantic": sem_mod}
+    hybrid_mod = types.ModuleType("hybrid")
+    hybrid_mod.get_tool_descriptor = qmd_real.get_tool_descriptor  # type: ignore[attr-defined]
+    hybrid_mod.get_parameter_descriptors = getattr(qmd_real, "get_parameter_descriptors", None)  # type: ignore[attr-defined]
+
+    _search_modules = {"keyword": kw_mod, "semantic": sem_mod, "hybrid": hybrid_mod}
     registry.list_ariel_search_modules.return_value = list(_search_modules)
     registry.get_ariel_search_module.side_effect = _search_modules.get
 

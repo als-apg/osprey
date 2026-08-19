@@ -62,8 +62,8 @@ def _activate(project: Path, monkeypatch, names: list[str]) -> None:
 
 
 def _stub_ariel(monkeypatch, *, existing: int) -> dict:
-    """Stub ARIEL's two database calls; return what the seeder was asked to write."""
-    seen: dict = {"seeded": None, "counted": 0}
+    """Stub ARIEL's database calls; return what the seeder was asked to write."""
+    seen: dict = {"seeded": None, "counted": 0, "mirrored": 0}
 
     async def _count(config_dict):
         seen["counted"] += 1
@@ -73,10 +73,15 @@ def _stub_ariel(monkeypatch, *, existing: int) -> dict:
         seen["seeded"] = entries
         return len(entries)
 
+    async def _resync(config_dict, rebuild=False, page_size=None, progress=None):
+        seen["mirrored"] += 1
+        return None
+
     import osprey.services.ariel_search.cli_operations as ops
 
     monkeypatch.setattr(ops, "logbook_entry_count", _count, raising=False)
     monkeypatch.setattr(ops, "seed_logbook_entries", _seed)
+    monkeypatch.setattr(ops, "run_qmd_resync", _resync)
     return seen
 
 
@@ -111,6 +116,10 @@ def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch)
     # Assert
     assert seeded == len(seen["seeded"])
     assert seeded > 0
+    # Seeding skips the enhancement passes, so nothing else would write the
+    # markdown mirror the qmd sidecar indexes -- hybrid search would answer an
+    # empty index while keyword search worked.
+    assert seen["mirrored"] == 1
 
 
 def test_seed_active_logbook_never_overwrites_an_existing_logbook(tmp_path, monkeypatch):
@@ -128,6 +137,8 @@ def test_seed_active_logbook_never_overwrites_an_existing_logbook(tmp_path, monk
     # Assert
     assert seeded == 0
     assert seen["seeded"] is None
+    # Nothing was written, so there is nothing to mirror either.
+    assert seen["mirrored"] == 0
 
 
 def test_seed_active_logbook_is_a_no_op_without_a_machine_model(tmp_path, monkeypatch):

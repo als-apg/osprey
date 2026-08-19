@@ -76,8 +76,6 @@ class DocShot:
     capture_mode: Literal["full_page", "element"] = "full_page"
     element_selector: str | None = None
     """CSS selector for ``capture_mode="element"`` (the element is cropped)."""
-    dismiss_welcome: bool = False
-    """Click ``#welcome-dismiss`` before capturing (web-terminal welcome modal)."""
     wait_selector: str | None = None
     """Selector to await (attached) after load, before capturing."""
 

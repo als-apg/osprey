@@ -46,6 +46,7 @@ import { contributeHeader, isSimpleMode, onHeaderAction } from '/design-system/j
 import { createPlansView } from './plans-view.js';
 import { createQueueView } from './queue-view.js';
 import { createResultsView } from './results-view.js';
+import { setChannelCatalog } from './schema-form.js';
 
 /** @typedef {'plans'|'queue'|'results'} ViewId */
 
@@ -311,3 +312,30 @@ if (initialRunId) {
 } else {
   publishContribution();
 }
+
+/**
+ * Fetch the deployment's channel catalog — once per panel load — and hand it
+ * to the schema-form module, so plan forms rendered from then on offer
+ * suggestions on channel-tagged fields. The endpoint is optional: a 404 (no
+ * catalog deployed), a network failure, a malformed payload, and an empty
+ * list all mean the same thing — no suggestions, forms exactly as they always
+ * were — so none of them is worth a console line.
+ */
+async function loadChannelCatalog() {
+  try {
+    const response = await fetch(api('/channels'));
+    if (!response.ok) return;
+    const channels = await response.json();
+    if (
+      Array.isArray(channels) &&
+      channels.length > 0 &&
+      channels.every((entry) => typeof entry === 'string')
+    ) {
+      setChannelCatalog(channels);
+    }
+  } catch {
+    // Optional endpoint: absence is a normal deployment state, not an error.
+  }
+}
+
+loadChannelCatalog();

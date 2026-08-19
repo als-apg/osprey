@@ -3,7 +3,7 @@
 Multi-user deployments run one Web Terminal container per user behind a
 shared nginx front door, each mounted at ``/u/<user>/``. ``compute_url_prefix()``
 computes that per-container constant from ``OSPREY_TERMINAL_USER``, and every
-served HTML document (``index.html``, ``session.html``, ``safety.html``) must
+served HTML document (``index.html``, ``session.html``) must
 carry it as ``window.__OSPREY_PREFIX__`` plus an import map retargeting
 root-absolute ``/design-system/`` and ``/static/`` ES-module specifiers under
 it -- *before* any module script runs. FastAPI's ``root_path`` is deliberately
@@ -33,21 +33,17 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import compute_url_prefix, create_app
 
-# (page id, request path) -- all three served HTML documents in scope.
+# (page id, request path) -- both served HTML documents in scope.
 _PAGES = [
     ("index", "/"),
     ("session", "/static/session.html"),
-    ("safety", "/static/safety.html"),
 ]
 
 # page id -> its module-entrypoint <script type="module" src="..."> path, or
-# None if the page has no such entrypoint. safety.html's only module script
-# is an inline `import` with no `src` attribute -- that specifier IS covered
-# by the import map, so there is nothing to check here for it.
+# None if the page has no such entrypoint.
 _MODULE_ENTRYPOINTS = {
     "index": "/static/js/app.js",
     "session": "/static/js/session.js",
-    "safety": None,
 }
 
 

@@ -9,6 +9,7 @@ This module defines the core data models for ARIEL search service:
 
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -136,6 +137,35 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
 
 
 DEFAULT_SEARCH_MODE = "keyword"
+
+PREFERRED_SEARCH_MODE = "hybrid"
+
+
+def resolve_implicit_search_mode(is_enabled: Callable[[str], bool]) -> str:
+    """Pick the mode a search runs in when the config names none.
+
+    This is the fallback for a deployment whose config predates
+    ``ariel.default_search_mode`` or deliberately leaves it unset.
+    ``hybrid`` is the preferred answer, but it only exists in deployments
+    that run the qmd sidecar, so it is preferred rather than assumed.
+    ``keyword`` needs nothing beyond the logbook database and is always the
+    safe fallback.
+
+    A deployment that sets ``ariel.default_search_mode`` never reaches this —
+    see :meth:`osprey.services.ariel_search.config.ARIELConfig
+    .resolve_default_search_mode`.
+
+    Args:
+        is_enabled: Predicate answering whether a search module name is
+            enabled in the current deployment's configuration.
+
+    Returns:
+        ``PREFERRED_SEARCH_MODE`` when that module is enabled, else
+        ``DEFAULT_SEARCH_MODE``.
+    """
+    if is_enabled(PREFERRED_SEARCH_MODE):
+        return PREFERRED_SEARCH_MODE
+    return DEFAULT_SEARCH_MODE
 
 
 def normalize_search_mode(mode: object) -> str:

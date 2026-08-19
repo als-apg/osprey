@@ -25,6 +25,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
+from osprey.deployment.channel_snapshot import compute_channel_snapshot
 from osprey.deployment.runtime_helper import ComposeProvider, get_runtime_command, runtime_env
 from osprey.deployment.subprocess_capture import run_captured
 
@@ -1396,6 +1397,58 @@ def _ensure_agent_data_structure(config):
     logger.debug(f"Ensured agent data structure exists at: {agent_data_path}")
 
 
+#: Basename of the one service directory whose build context carries the
+#: channel snapshot: the bluesky_web sidecar's /channels route serves it.
+_CHANNEL_SNAPSHOT_SERVICE = "bluesky_web"
+
+#: Filename the sidecar's /channels route expects beside its mounted config.yml.
+CHANNEL_SNAPSHOT_FILENAME = "channels.json"
+
+
+def _stage_channel_snapshot(config, source_dir, out_dir):
+    """Write the channel snapshot into the bluesky_web build context; report success.
+
+    Only the bluesky_web sidecar serves the snapshot, so every other service
+    render skips the database load entirely and reports False. The boolean
+    return is the value the render context's ``channel_snapshot`` key carries —
+    fail-closed exactly like dev_mode's wheel gating: the compose template may
+    only mount a file that was actually written. When the decision is not to
+    emit, a snapshot left in ``out_dir`` by an earlier build is removed, so an
+    incremental rebuild (which reuses the directory) cannot keep a stale one.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :param out_dir: The service's build context directory
+    :type out_dir: str
+    :return: True iff a snapshot was successfully written into ``out_dir``
+    :rtype: bool
+    """
+    if os.path.basename(source_dir) != _CHANNEL_SNAPSHOT_SERVICE:
+        return False
+
+    snapshot_path = os.path.join(out_dir, CHANNEL_SNAPSHOT_FILENAME)
+    decision = compute_channel_snapshot(config)
+    if not decision.emit:
+        try:
+            os.remove(snapshot_path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not remove the stale channel snapshot {snapshot_path}: {e}")
+        return False
+
+    try:
+        with open(snapshot_path, "w") as f:
+            json.dump(decision.channels, f)
+    except OSError as e:
+        logger.warning(f"Could not write the channel snapshot to {snapshot_path}: {e}")
+        return False
+    logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
+    return True
+
+
 def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     """Create complete build environment for service deployment.
 
@@ -1543,7 +1596,13 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     # (e.g. OSPREY_DEV) exactly when `osprey up --dev` runs AND the
     # local wheel actually landed in this context — never when staging failed
     # (fail-closed: the Dockerfile then keeps its fail-loud pinned install).
-    render_config = {**config, "dev_mode": dev_mode and wheel_staged}
+    # channel_snapshot is gated the same way: True only when the snapshot file
+    # actually landed in this context, so the mount and the file cannot disagree.
+    render_config = {
+        **config,
+        "dev_mode": dev_mode and wheel_staged,
+        "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
+    }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
     if source_dir != SERVICES_DIR:  # ignore the top level dir
@@ -1722,9 +1781,13 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
 
         wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
 
-    # Create/update the docker compose file from the template (dev_mode gated
-    # on staging success, exactly as in setup_build_dir).
-    render_config = {**config, "dev_mode": dev_mode and wheel_staged}
+    # Create/update the docker compose file from the template (dev_mode and
+    # channel_snapshot gated on staging success, exactly as in setup_build_dir).
+    render_config = {
+        **config,
+        "dev_mode": dev_mode and wheel_staged,
+        "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
+    }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
     # Same rendered-config step as the full path (see setup_build_dir): a

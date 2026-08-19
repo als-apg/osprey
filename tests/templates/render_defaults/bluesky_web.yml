@@ -79,6 +79,7 @@ services:
       # (build/services/), not this file's own subdir — hence the
       # bluesky-web/ prefix (mirrors the bridge's config.yml:ro convention).
       - ./build/services/bluesky_web/config.yml:/app/project/config.yml:ro
+
     networks:
       - osprey-network
     healthcheck:

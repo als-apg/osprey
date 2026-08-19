@@ -408,6 +408,7 @@ keys:
   ariel.ingestion: {covered-by: ariel}
   ariel.ingestion.adapter: {covered-by: ariel.ingestion}
   ariel.ingestion.source_url: {evidence: 'source_url'}
+  ariel.default_search_mode: {evidence: 'default_search_mode'}
   ariel.search_modules: {evidence: 'search_modules'}
   ariel.search_modules.keyword: {covered-by: ariel.search_modules}
   ariel.search_modules.keyword.enabled: {covered-by: ariel.search_modules.keyword}
@@ -527,6 +528,10 @@ keys:
   web.panels.ariel.enabled: {covered-by: web.panels.ariel}
   web.panels.channel-finder: {covered-by: web.panels}
   web.panels.channel-finder.enabled: {covered-by: web.panels.channel-finder}
+  web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)'}
+  web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)'}
+  web.channel_suggestions.max_channels:
+    evidence: 'section\.get\("max_channels", DEFAULT_MAX_CHANNELS\)'
   cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
   cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
 

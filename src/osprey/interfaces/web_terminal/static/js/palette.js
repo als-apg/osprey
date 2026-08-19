@@ -32,9 +32,9 @@
  * plain underlying key, from whichever copy was executed.
  */
 
-import { fuzzyMatch } from './fuzzy.js';
 import { buildRegistry } from './palette-registry.js';
 import { fetchJSON } from './api.js';
+import { fuzzyMatch } from '/design-system/js/fuzzy.js';
 import { el } from '/design-system/js/dom.js';
 
 /** @typedef {import('./palette-registry.js').Item} Item */
@@ -112,12 +112,6 @@ let activeKey = null;
 let currentQuery = '';
 let fetchSeq = 0;
 let closeSeq = 0;
-
-/** @returns {boolean} True when the first-visit welcome modal is present + visible. */
-function isWelcomeVisible() {
-  const w = document.getElementById('welcome-overlay');
-  return !!w && !w.classList.contains('hidden');
-}
 
 /**
  * Stable identity for an item across registry rebuilds (group + label). The
@@ -503,13 +497,10 @@ function restoreFocus() {
 }
 
 /**
- * Open the command palette. No-op (re-focuses input) if already open; a no-op
- * entirely if the welcome modal is present + visible (its any-Enter dismiss
- * handler would collide).
+ * Open the command palette. No-op (re-focuses input) if already open.
  * @param {OpenDeps} [deps]
  */
 export function openPalette(deps) {
-  if (isWelcomeVisible()) return;
   if (opened) {
     if (inputEl) inputEl.focus();
     return;

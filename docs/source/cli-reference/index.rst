@@ -606,8 +606,9 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
 ``models`` -- List embedding models and tables.
 
-``search QUERY [--mode keyword|semantic] [--limit N] [--json]``
-   Execute a search query (default mode: ``keyword``).
+``search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
+   Execute a search query. Without ``--mode``, the deployment's
+   ``ariel.default_search_mode`` decides.
 
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.

@@ -253,9 +253,6 @@ def capture_shot(browser: Browser, base_url: str, shot: DocShot) -> list[Path]:
                 for selector in view.wait_selectors:
                     expect(page.locator(selector)).to_be_attached(timeout=10_000)
 
-                if shot.dismiss_welcome:
-                    page.locator("#welcome-dismiss").click(timeout=15_000)
-
                 # Let the theme swap and any async init settle before shooting.
                 page.wait_for_timeout(600)
 
@@ -499,8 +496,8 @@ def _capture_agentic(
     """Drive the live web terminal to produce the agentic hero screenshot(s).
 
     Launches a detached ``osprey web`` bound to a free port, then for each theme:
-    opens the UI with ``?theme=``, dismisses the welcome modal, answers the PTY
-    trust prompt, types the operator prompt, waits (bounded) for a matching
+    opens the UI with ``?theme=``, answers the PTY trust prompt, types the
+    operator prompt, waits (bounded) for a matching
     artifact, reveals the artifacts panel, opens the plot, and screenshots the
     viewport. Every launched process and page is torn down in ``finally``; the
     web server is stopped with the repo-scoped ``osprey web stop --repo``.
@@ -543,8 +540,6 @@ def _capture_agentic(
                     wait_until="domcontentloaded",
                     timeout=30_000,
                 )
-                page.locator("#welcome-dismiss").click(timeout=30_000)
-
                 # The Claude-Code trust prompt lives in the PTY, not the DOM:
                 # focus the terminal and answer it, then type the operator prompt.
                 # The Enter that accepts the trust prompt kicks the CLI into its
