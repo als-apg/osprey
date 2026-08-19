@@ -388,7 +388,12 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-dropdown);
-  z-index: var(--z-dropdown);
+  /* One step above --z-dropdown, unlike the display card. Anchoring LEFT puts
+     this menu over the same column as the one-time `.rail-hint` callout, which
+     is also --z-dropdown and sits later in the DOM (.shell-body) — so at equal
+     z-index the hint wins and swallows the click on Log out. Header chrome
+     outranks a body-level callout. */
+  z-index: var(--z-sticky);
 }
 
 .header-identity-menu.open {
