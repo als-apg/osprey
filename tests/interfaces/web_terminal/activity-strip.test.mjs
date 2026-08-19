@@ -709,3 +709,60 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(NaN, now)).toBe('');
   });
 });
+
+describe('empty-strip focusability', () => {
+  // An empty strip is hidden with `opacity: 0` (activity-strip.css keeps it
+  // non-display so the aria-live region pre-exists its content), leaving it
+  // invisible and zero-sized but still in the DOM. It must therefore not be a
+  // tab stop — the keyboard counterpart of the `pointer-events: none` on
+  // `.status-activity-floating:empty`.
+
+  test('a strip with nothing to show is not a tab stop', () => {
+    makeStrip();
+    expect(mount.hasAttribute('tabindex')).toBe(false);
+  });
+
+  test('showing a frame makes the trigger focusable', async () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+    expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+
+  test('the auto-clear timeout drops the tab stop again', async () => {
+    const strip = makeStrip(1000);
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+    expect(mount.getAttribute('tabindex')).toBe('0');
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mount.textContent).toBe('');
+    expect(mount.hasAttribute('tabindex')).toBe(false);
+  });
+
+  test('an explicit clear() drops the tab stop', async () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+    strip.clear();
+    await flush();
+    expect(mount.hasAttribute('tabindex')).toBe(false);
+  });
+
+  test('the trigger stays focusable while the popover is open over an emptied strip', async () => {
+    const strip = makeStrip(1000, async () => []);
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+    await strip.openHistory();
+
+    // The live slot clears on its own timer while the popover is still up;
+    // yanking the tab stop out from under an open popover would strand focus.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mount.textContent).toBe('');
+    expect(mount.getAttribute('tabindex')).toBe('0');
+
+    strip.closeHistory();
+    await flush();
+    expect(mount.hasAttribute('tabindex')).toBe(false);
+  });
+});
