@@ -223,6 +223,24 @@ control_system:
     default_level: "callback"  # Options: none | callback | readback ("none" = no verification)
     default_tolerance_percent: 0.1  # "readback" only; per-channel override in channel_limits.json
 
+  # Channel-read response size
+  # Array channels (waveforms, camera frames) can be far larger than an agent's
+  # context can hold. channel_read returns an array inline only while it fits the
+  # budget below; anything larger is saved as an artifact and reported as a
+  # summary plus a handle. Strings and scalars are always inline.
+  # The default matches the repo's calibrated inline-plot budget
+  # (DEFAULT_MAX_POINTS = 2000 in the Bluesky bridge figure builder), so ordinary
+  # waveforms and orbit vectors stay inline and camera frames do not.
+  read_inline_max_elements: 2000  # Per-value element count. One channel_read call
+                                  # also inlines at most 4x this many elements in
+                                  # total, consumed in request order; channels past
+                                  # that aggregate budget take the artifact path.
+  # Per-channel rolling window for those read artifacts: only the newest N
+  # UNPINNED entries per channel are kept, older ones are pruned on save. Pinned
+  # entries never count against the window and are never pruned. 0 = keep
+  # everything (an unattended polling loop then grows the gallery without bound).
+  channel_read_artifact_retention: 20
+
   # Connector-specific configuration
   connector:
     mock:
@@ -230,6 +248,26 @@ control_system:
       noise_level: 0.01       # Relative noise on generated values (0-1)
     epics:
       timeout: 5.0
+      # PVAccess (PVA) read routing. Addresses matching any glob below are read
+      # through the p4p client (needed for NTNDArray camera frames); every other
+      # address stays on Channel Access. Absent or empty means pure CA, exactly
+      # as before. Addresses stay raw - no pva:// prefixes anywhere. PVA here is
+      # read-only: a write to a matching address is refused.
+      # pva_channels:
+      #   - "*:IMAGE*"
+      #   - "*:ARRAY*"
+      # PVA gateway - one flat block, unlike the CA read_only/write_access pair
+      # below, because PVA is read-only in this deployment. Read only when
+      # pva_channels is non-empty. Maps to EPICS_PVA_ADDR_LIST, or to
+      # EPICS_PVA_NAME_SERVERS when use_name_server is true (SSH tunnels).
+      # Whenever this block is present, EPICS_PVA_AUTO_ADDR_LIST is forced to
+      # "NO" - the same containment the CA side applies with
+      # EPICS_CA_AUTO_ADDR_LIST, so a deployment pinned to a gateway cannot also
+      # broadcast-discover servers on the local subnet.
+      # pva_gateway:
+      #   address: your-gateway.example.com  # Replace with your PVA gateway address
+      #   port: 5075
+      #   use_name_server: false  # Set true for SSH tunnels
       gateways:
         read_only:
           address: your-gateway.example.com  # Replace with your EPICS gateway address

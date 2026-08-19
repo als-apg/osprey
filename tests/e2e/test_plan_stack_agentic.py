@@ -2400,7 +2400,7 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     attempt's plan on the hardware too, and read back a run it never launched —
     a floor satisfied by someone else's run.
 
-    The three steps, and why each is needed:
+    The five steps, and why each is needed:
 
     1. ``POST /queue/abort`` — the only surface that stops a plan already
        moving hardware (``POST /queue/stop`` merely halts the queue AFTER the
@@ -2426,6 +2426,19 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
        test's arming step rather than merely dirty the queue. Removal goes
        through the bridge's own ``DELETE /queue/items/{uid}`` — never into
        Redis, which is a different path from the one an operator has.
+    5. ``DELETE /plans/session/{name}`` for every plan ``GET /plans`` reports
+       at ``session`` provenance — retire whatever a previous attempt
+       authored. Same class of leak as the draft above, and it bites HARDER,
+       because it inverts what a rerun means for the authoring test: attempt 1
+       writes and validates a plan, that plan outlives the attempt (the
+       session directory is bridge state, dropped only on a container
+       restart), and attempt 2's agent then finds the measurement it was
+       asked for ALREADY REGISTERED. Reusing it is the right call for the
+       agent and a guaranteed failure for the floor, which grades whether the
+       authoring happened in THIS trace — so attempt 1 succeeding at
+       authoring is exactly what dooms the reruns meant to rescue it. Unlike
+       the draft's leak this one is not self-limiting: every attempt leaves
+       one more shortcut behind.
     """
     if "deployed_scan_stack" not in request.fixturenames:
         return
@@ -2452,6 +2465,33 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
         "state the next test's agent did not create, and the floor grades the "
         "draft it replays from empty"
     )
+
+    # Session plans are bridge state like the draft, so they are retired here
+    # rather than in the queue drain below. Filtered on provenance rather than
+    # deleting every listed name: the route is scoped to the session directory
+    # and would answer `deleted: false` for a shipped/preset/facility plan
+    # anyway, but asking only for what this fixture is entitled to remove
+    # keeps the intent legible and the request count to the leak's real size
+    # (normally zero).
+    status, plans = _queue_drive.request(BRIDGE_URL, "/plans", "GET")
+    assert status == 200 and isinstance(plans, list), (
+        f"GET /plans answered {status}: {plans}. The session-tier plans a "
+        "previous attempt authored cannot be retired without reading the "
+        "catalog, and leaving them standing lets this test's agent satisfy an "
+        "authoring floor with someone else's plan"
+    )
+    for spec in plans:
+        if not isinstance(spec, dict) or spec.get("provenance") != "session":
+            continue
+        name = spec.get("name")
+        if not isinstance(name, str):
+            continue
+        status, body = _queue_drive.request(BRIDGE_URL, f"/plans/session/{name}", "DELETE")
+        assert status == 200, (
+            f"DELETE /plans/session/{name} answered {status}: {body}. The route "
+            "is idempotent, so anything but 200 means the plan is still "
+            "registered and still available as a shortcut"
+        )
 
     # Re-snapshot and re-delete rather than deleting one list once: the abort's
     # requeue lands asynchronously, so an item can appear between the snapshot

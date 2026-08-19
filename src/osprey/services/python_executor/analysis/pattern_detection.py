@@ -43,9 +43,12 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
         Dictionary with 'write' and 'read' pattern lists
 
     Security Note:
-        An LLM could try to circumvent the connector by directly importing control
-        system libraries (epics, PyTango, etc.). These patterns ensure we catch
-        such attempts in the approval workflow, regardless of which library is used.
+        An LLM could try to circumvent the connector by directly importing a
+        control system library. These patterns cover the libraries OSPREY
+        supports: pyepics (Channel Access), p4p (PVAccess), PyTango, and
+        LabVIEW bindings, plus the osprey.runtime API itself. A library outside
+        that list is not detected - add facility-specific spellings under
+        control_system.patterns in config.yml.
     """
     return {
         "write": [
@@ -63,6 +66,18 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             r"\.set_value\s*\(",  # pv.set_value(value)
             r"PV\([^)]*\)\.put",  # PV('PV').put(value)
             r"epics\.PV\([^)]*\)\.put",  # epics.PV('PV').put(value)
+            # ============================================================
+            # CIRCUMVENTION DETECTION: PVAccess (p4p library)
+            # ============================================================
+            # Anchored to p4p on purpose. A bare r"\.post\s*\(" would flag every
+            # requests.post() in ordinary analysis code, so put/post count as a
+            # control system write only when p4p is named somewhere in the code
+            # - which covers the thread, asyncio and cothread client modules and
+            # any alias or wrapper spelling built on top of them.
+            r"\bp4p\b[\s\S]*?\.put\s*\(",  # p4p.client.{thread,asyncio,cothread} put
+            r"\bp4p\b[\s\S]*?\.post\s*\(",  # p4p.server SharedPV.post(value)
+            r"\.rpc\s*\(",  # ctxt.rpc(request) - a PVA RPC call can write
+            r"\bSharedPV\b",  # serving a PV puts values on the wire
             # ============================================================
             # CIRCUMVENTION DETECTION: Tango (PyTango library)
             # ============================================================
@@ -96,6 +111,16 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             r"\.get_value\s*\(",  # pv.get_value()
             r"PV\([^)]*\)\.get",  # PV('PV').get()
             r"epics\.PV\([^)]*\)\.get",  # epics.PV('PV').get()
+            # ============================================================
+            # CIRCUMVENTION DETECTION: PVAccess (p4p library)
+            # ============================================================
+            # The generic r"\.get\s*\(" above already matches ctxt.get(); the
+            # p4p-anchored spellings name the library in detected_patterns so the
+            # audit trail records where the operation came from, and they add
+            # monitor(), which nothing else covers.
+            r"\bp4p\b[\s\S]*?\.get\s*\(",  # p4p.client.thread Context.get('PV')
+            r"\bp4p\b[\s\S]*?\.monitor\s*\(",  # p4p Context.monitor('PV', cb)
+            r"\bContext\s*\(",  # Context('pva') - p4p client context creation
             # ============================================================
             # CIRCUMVENTION DETECTION: Tango (PyTango library)
             # ============================================================

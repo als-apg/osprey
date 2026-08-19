@@ -354,6 +354,32 @@ control_system:
                                     # Only used for "readback" verification level
                                     # Can be overridden per-channel in channel_limits.json
 
+  # Channel-read response size
+  # Array channels (waveforms, camera frames) can be far larger than an agent's
+  # context can hold. channel_read returns an array inline only while it fits the
+  # budget below; anything larger is saved as an artifact and reported as a
+  # summary (shape, dtype, element count, numeric stats) plus a handle to the
+  # stored data. Strings and scalars are always inline, whatever their length.
+  #
+  # The default matches the repo's calibrated inline-plot budget
+  # (DEFAULT_MAX_POINTS = 2000 in the Bluesky bridge figure builder): ordinary
+  # waveforms and orbit vectors stay inline, camera frames take the artifact path.
+  read_inline_max_elements: 2000  # Per-value element count (arrays only).
+                                  # One channel_read call also inlines at most 4x
+                                  # this many elements in TOTAL across the channels
+                                  # it was asked for, consumed in request order;
+                                  # channels past that aggregate budget take the
+                                  # artifact path even when individually small, and
+                                  # say so (artifact_reason: aggregate_budget), so
+                                  # re-reading fewer channels inlines them.
+
+  # Per-channel rolling window for those read artifacts: only the newest N
+  # UNPINNED entries per channel are kept, older ones are pruned when a new one
+  # is saved. Pinned entries never count against the window and are never pruned,
+  # so pinning a frame keeps it for good. 0 = keep everything, which lets an
+  # unattended polling loop grow the gallery without bound.
+  channel_read_artifact_retention: 20
+
   # Pattern Detection (Layer 1 - Security)
   # Purpose: Detect ALL control system operations in generated code for approval workflows
   #
@@ -437,8 +463,34 @@ control_system:
           use_name_server: true
 
     # EPICS connector (production mode) — ALS production values.
+    #
+    # PVAccess (PVA) read routing: addresses matching any glob in `pva_channels`
+    # are read through the p4p client — the transport NTNDArray camera frames
+    # arrive on — and every other address stays on Channel Access. Absent or
+    # empty (the default) means pure CA, exactly as before. Addresses stay raw:
+    # no pva:// prefixes anywhere, so channel limits, the :SP writability
+    # contract and audit records keep matching the same strings. PVA is
+    # read-only here — a write to a matching address is refused before any
+    # network operation.
+    #
+    # `pva_gateway` is ONE flat block, not the read_only/write_access pair the
+    # CA `gateways` below uses, precisely because there is no PVA write path.
+    # It is read only when pva_channels is non-empty, and maps to
+    # EPICS_PVA_ADDR_LIST — or to EPICS_PVA_NAME_SERVERS when use_name_server is
+    # true (TCP instead of UDP search: what SSH tunnels need). Whenever the block
+    # is present, EPICS_PVA_AUTO_ADDR_LIST is forced to "NO", mirroring the
+    # EPICS_CA_AUTO_ADDR_LIST containment the CA path applies: a deployment
+    # deliberately pinned to a gateway must not also broadcast-discover servers
+    # on its local subnet.
     epics:
       timeout: 5.0
+      # pva_channels:
+      #   - "*:IMAGE*"
+      #   - "*:ARRAY*"
+      # pva_gateway:
+      #   address: your-pva-gateway.example.com  # Replace with your PVA gateway
+      #   port: 5075
+      #   use_name_server: false  # Set true for SSH tunnels
       gateways:
         read_only:
           address: cagw-alsdmz.als.lbl.gov

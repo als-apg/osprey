@@ -42,6 +42,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   init` materializes it from the preset (the control assistant ships its own
   text), so the context every seeded user starts from is visible and editable
   in the deployment repo instead of hidden in the installed package.
+- The EPICS connector now reads pvAccess (PVA) channels alongside Channel
+  Access, routed by a `pva_channels` glob so one deployment can mix both
+  protocols; PVA writes are refused with a typed reason rather than
+  attempted. Oversized reads — camera images and long waveforms, from either
+  protocol — now come back as gallery artifacts (an interactive chart for
+  1-D data, an image preview plus the raw array for 2-D and up) with an
+  inline summary instead of flooding the context or being stringified, which
+  also fixes oversized Channel Access waveform reads. p4p write patterns are
+  now checked by the same pattern-detection, limits, and safety-rule layers
+  as pyepics writes, and PVA RPC calls are refused outright.
+
 - Channel fields in the BLUESKY panel's plan forms offer typeahead
   suggestions drawn from the project's Channel Finder catalog, snapshotted at
   build time. On by default when a channel database is configured;
@@ -59,7 +70,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   container, with the same SHA256 check moved to container start. For build
   hosts with no route to the model host.
 
+- Authored plans can now be retired. `DELETE /plans/session/{name}` on the
+  Bluesky bridge removes a session-tier plan file, which until now stayed in
+  the catalog until the container restarted. The plan leaves `GET /plans`
+  immediately; anything already queued or running is unaffected.
+
 ### Fixed
+
+- Container builds no longer fail when one package download is cut short. apt
+  now fetches one request per connection: with pipelining left at its default,
+  a connection reset partway through a batch could fail the whole image even
+  though retries were configured.
 
 - Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
   first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.

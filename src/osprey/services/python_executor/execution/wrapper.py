@@ -259,6 +259,119 @@ if not _execution_dir.exists():
 
                 except ImportError:
                     print("ℹ️  pyepics not available - EPICS limits checking disabled")
+
+                # p4p / PVAccess clients: p4p ships parallel Context classes per
+                # concurrency flavor, so each one is imported and patched in its
+                # OWN try/except - patching only the thread client would leave an
+                # approved `from p4p.client.asyncio import Context` put unvalidated.
+                def _p4p_validate_put(_name, _values):
+                    '''Validate a p4p put payload BEFORE any network operation.
+
+                    Discrimination mirrors p4p's OWN rule - a str name is the
+                    scalar form, ANY other value is the batch form. Keying on
+                    list/tuple instead would let an exotic iterable of names
+                    (numpy array, generator) take the scalar path here while
+                    p4p executed a batch, so per-channel bounds could be
+                    skipped. A length mismatch fails closed via
+                    zip(..., strict=True) rather than silently validating only
+                    the shorter prefix, and a shape p4p would accept but we
+                    cannot pair up fails closed via ValueError.
+
+                    Returns the name to forward to the original put(); a
+                    one-shot iterable is materialized so validation does not
+                    consume the caller's names.
+                    '''
+                    if isinstance(_name, str):
+                        _limits_validator.validate(_name, _values)
+                        return _name
+
+                    if not isinstance(_values, (list, tuple)):
+                        raise ValueError(
+                            "p4p batch put requires a sequence of values "
+                            "matching the sequence of channel names"
+                        )
+
+                    if isinstance(_name, (list, tuple)):
+                        _names_seq = _name
+                    else:
+                        try:
+                            _names_seq = tuple(_name)
+                        except TypeError as _shape_error:
+                            raise ValueError(
+                                "p4p put requires a channel name string or a "
+                                "sequence of channel names"
+                            ) from _shape_error
+
+                    for _pair_name, _pair_value in zip(_names_seq, _values, strict=True):
+                        _limits_validator.validate(_pair_name, _pair_value)
+                    return _names_seq
+
+                def _p4p_install_guard(_context_cls):
+                    '''Limits-check put() and refuse rpc() on one p4p Context class.'''
+                    if hasattr(_context_cls, 'put'):
+                        _original_p4p_put = _context_cls.put
+
+                        def _p4p_checked_put(self, name, values, *args, **kwargs):
+                            '''Limits-checked wrapper for p4p Context.put()'''
+                            name = _p4p_validate_put(name, values)  # Raises if invalid
+                            return _original_p4p_put(self, name, values, *args, **kwargs)
+
+                        _context_cls.put = _p4p_checked_put
+
+                    if hasattr(_context_cls, 'rpc'):
+                        def _p4p_blocked_rpc(self, *args, **kwargs):
+                            '''Unconditional refusal for p4p Context.rpc().
+
+                            Limits semantics cannot apply to an arbitrary rpc
+                            payload, so refusal is the only honest parity.
+                            '''
+                            raise RuntimeError(
+                                "rpc is not mediated and cannot be approved — "
+                                "use the supervised write path"
+                            )
+
+                        _context_cls.rpc = _p4p_blocked_rpc
+
+                try:
+                    from p4p.client.thread import Context as _P4PThreadContext
+
+                    _p4p_install_guard(_P4PThreadContext)
+                    print("✅ Monkeypatched p4p.client.thread Context.put()/.rpc()")
+                except ImportError:
+                    print(
+                        "ℹ️  p4p.client.thread not available - "
+                        "PVA limits checking disabled"
+                    )
+                except Exception as _p4p_error:
+                    # One flavor failing must NOT skip the remaining flavors,
+                    # so this stops short of the outer swallow-all handler.
+                    print(f"⚠️  p4p.client.thread guard failed: {{_p4p_error}}")
+
+                try:
+                    from p4p.client.asyncio import Context as _P4PAsyncioContext
+
+                    _p4p_install_guard(_P4PAsyncioContext)
+                    print("✅ Monkeypatched p4p.client.asyncio Context.put()/.rpc()")
+                except ImportError:
+                    print(
+                        "ℹ️  p4p.client.asyncio not available - "
+                        "PVA limits checking disabled"
+                    )
+                except Exception as _p4p_error:
+                    print(f"⚠️  p4p.client.asyncio guard failed: {{_p4p_error}}")
+
+                try:
+                    from p4p.client.cothread import Context as _P4PCothreadContext
+
+                    _p4p_install_guard(_P4PCothreadContext)
+                    print("✅ Monkeypatched p4p.client.cothread Context.put()/.rpc()")
+                except ImportError:
+                    print(
+                        "ℹ️  p4p.client.cothread not available - "
+                        "PVA limits checking disabled"
+                    )
+                except Exception as _p4p_error:
+                    print(f"⚠️  p4p.client.cothread guard failed: {{_p4p_error}}")
             except Exception as e:
                 print(f"⚠️  Limits checking setup failed: {{e}}")
                 import traceback
@@ -309,6 +422,7 @@ if not _execution_dir.exists():
                   - str -> markdown or HTML (auto-detected)
                   - dict / list -> JSON
                   - bytes -> binary file
+                  - numpy ndarray -> .npy file
 
                 Args:
                     obj: The object to save.
@@ -404,6 +518,24 @@ if not _execution_dir.exists():
                     detected_type = "binary"
                     filename = f"{art_id}_{_slug}.bin"
                     mime_type = "application/octet-stream"
+
+                # numpy ndarray -- last of the type branches so every type
+                # already handled above keeps its exact sniffing order. Object
+                # dtypes are left out: np.save cannot write them without
+                # pickle, so they keep falling through to the repr() fallback.
+                if content is None:
+                    try:
+                        import numpy as _np
+                        if isinstance(obj, _np.ndarray) and not obj.dtype.hasobject:
+                            import io as _nio
+                            _nbuf = _nio.BytesIO()
+                            _np.save(_nbuf, obj, allow_pickle=False)
+                            content = _nbuf.getvalue()
+                            detected_type = "file"
+                            filename = f"{art_id}_{_slug}.npy"
+                            mime_type = "application/octet-stream"
+                    except ImportError:
+                        pass
 
                 # Fallback: repr as text
                 if content is None:

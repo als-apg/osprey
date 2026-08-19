@@ -479,6 +479,7 @@ module = [
     "numpy.*",
     "matplotlib.*",
     "pyepics.*",
+    "p4p.*",
     "podman.*",
     "pymongo.*",
     "doocs4py.*",
