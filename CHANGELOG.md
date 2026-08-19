@@ -126,6 +126,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   now fetches one request per connection: with pipelining left at its default,
   a connection reset partway through a batch could fail the whole image even
   though retries were configured.
+- `osprey up` no longer aborts on arm64 hosts, such as Apple Silicon, while
+  building the web-terminal login sidecar. That image was the one recipe still
+  missing the build pin the others already carry, so the EPICS packages it has
+  to compile from source there failed and took the deployment down with them.
 - The web terminal's agent-activity strip no longer appears to swallow keyboard
   focus while it is empty. On the pages where an empty strip is invisible it now
   reveals itself when focused, instead of being a tab stop with no visible
