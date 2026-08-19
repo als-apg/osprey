@@ -653,6 +653,53 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     }
 
 
+@app.delete("/plans/session/{name}")
+def delete_session_plan(name: str) -> dict:
+    """Retire an authored session-tier plan file. Reaches NO hardware.
+
+    The counterpart of `POST /plans/session`, and the only way to un-author a
+    plan short of restarting the bridge — session state is ephemeral by design
+    (`session_dir.py`), but "ephemeral" only ever meant "lost on restart",
+    which left a plan authored once listed in `GET /plans` for the life of the
+    container. Ungated for the same reason the write and validate routes are:
+    removing a file touches no device, and `BLUESKY_LAUNCH_TOKEN`
+    authenticates the two launch routes only.
+
+    Scope is exactly one directory. The name resolves inside
+    `resolve_session_plan_dir()` and nowhere else, so the read-only
+    `shipped`/`preset`/`facility` layers are unreachable from here — a name
+    belonging to one of those simply has no session file behind it and
+    answers `deleted: false`.
+
+    The plan leaves `GET /plans` immediately: `plan_loader` re-scans the
+    directory layers on every call rather than caching them, so every surface
+    that resolves a name through the registry (the draft's plan-name check,
+    the load gate, the enqueue gate) stops finding it with no restart. Work
+    already under way is untouched — a queued or running item resolved its
+    plan out of the queueserver worker's namespace when it was enqueued, and
+    that namespace is not this route's to edit.
+
+    Any passing validation record for the removed bytes is deliberately left
+    alone. Records are keyed by content hash, not by name, so an orphan can
+    only ever be matched again by re-authoring byte-identical content — which
+    is the same file the record was made for, and correctly still validated.
+
+    Returns:
+        `{"name", "deleted"}` — `deleted` is False when there was no file to
+        remove. Idempotent like `DELETE /draft`: a caller that wants the name
+        gone gets that outcome either way, and never has to tell "I removed
+        it" apart from "it was already absent".
+    """
+    name = _sanitize_plan_name(name)
+    plan_path = resolve_session_plan_dir() / f"{name}.py"
+    # missing_ok rather than an is_file() precondition: the check and the
+    # unlink cannot be made atomic, and losing that race to a concurrent
+    # delete still leaves the caller in the state it asked for.
+    existed = plan_path.is_file()
+    plan_path.unlink(missing_ok=True)
+    return {"name": name, "deleted": existed}
+
+
 # ---------------------------------------------------------------------------
 # Plan source rendering: backs the launch-approval hook's
 # human-legible plan excerpt — the human backstop for the plan validator's

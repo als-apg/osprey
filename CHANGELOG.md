@@ -57,6 +57,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   container, with the same SHA256 check moved to container start. For build
   hosts with no route to the model host.
 
+- Authored plans can now be retired. `DELETE /plans/session/{name}` on the
+  Bluesky bridge removes a session-tier plan file, which until now stayed in
+  the catalog until the container restarted. The plan leaves `GET /plans`
+  immediately; anything already queued or running is unaffected.
+
 ### Fixed
 
 - Container builds now hand apt the proxy settings they were given. A facility
