@@ -109,7 +109,7 @@ function renderEntryDetail(container, entry) {
                          data-lightbox-url="${escapedUrl}" data-lightbox-name="${escapedName}">
                       <div class="card-body" style="padding: 12px; text-align: center;">
                         <img src="${escapedUrl}" alt="${escapedName}"
-                             style="width: 126px; height: 100px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;">
+                             style="width: 126px; height: 100px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 8px;">
                         <div class="truncate text-sm">${escapedName}</div>
                         <div class="text-xs text-muted">${escapeHtml(att.type || 'image')}</div>
                       </div>
@@ -119,7 +119,7 @@ function renderEntryDetail(container, entry) {
                   <a href="${escapedUrl}" target="_blank" rel="noopener"
                      class="card" style="width: 150px; text-decoration: none; color: inherit; cursor: pointer;">
                     <div class="card-body" style="padding: 12px; text-align: center;">
-                      <div style="font-size: 32px; margin-bottom: 8px;">\u{1F4CE}</div>
+                      <div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>
                       <div class="truncate text-sm">${escapedName}</div>
                       <div class="text-xs text-muted">${escapeHtml(att.type || 'file')}</div>
                     </div>
@@ -217,7 +217,7 @@ function renderEntryDetail(container, entry) {
   // directly (once each) can never double-bind.
   container.querySelectorAll('[data-lightbox-url] img').forEach(img => {
     img.addEventListener('error', () => {
-      img.outerHTML = '<div style="font-size: 32px; margin-bottom: 8px;">\u{1F4CE}</div>';
+      img.outerHTML = '<div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>';
     }, { once: true });
   });
 }
@@ -254,11 +254,11 @@ export function showImageLightbox(url, filename) {
 
   overlay.innerHTML = `
     <img src="${escapeHtml(url)}" alt="${escapeHtml(filename)}"
-         style="max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; cursor: default;">
+         style="max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: var(--radius-xl); cursor: default;">
     <div style="margin-top: 16px; display: flex; align-items: center; gap: 16px;">
-      <span style="color: silver; font-size: 0.9rem;">${escapeHtml(filename)}</span>
+      <span style="color: silver; font-size: var(--text-xl);">${escapeHtml(filename)}</span>
       <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
-         style="color: var(--color-accent-secondary); font-size: 0.85rem; text-decoration: none;">Open in new tab &#x2197;</a>
+         style="color: var(--color-accent-secondary); font-size: var(--text-xl); text-decoration: none;">Open in new tab &#x2197;</a>
     </div>
   `;
 
@@ -272,7 +272,7 @@ export function showImageLightbox(url, filename) {
   if (lightboxImg) {
     lightboxImg.addEventListener('click', (e) => e.stopPropagation());
     lightboxImg.addEventListener('error', () => {
-      lightboxImg.outerHTML = '<div style="color:white;font-size:1.2rem;">Failed to load image</div>';
+      lightboxImg.outerHTML = '<div style="color:white;font-size:var(--text-3xl);">Failed to load image</div>';
     }, { once: true });
   }
   overlay.querySelector('a')?.addEventListener('click', (e) => e.stopPropagation());

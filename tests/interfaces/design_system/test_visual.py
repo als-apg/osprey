@@ -345,6 +345,18 @@ TARGETS: list[VisualTarget] = [
     ),
     VisualTarget("artifacts_gallery", _artifacts_server, path="/", modes=MODES),
     VisualTarget("ariel", _ariel_server, path="/", modes=MODES),
+    # Embedded mode drops the panel's own header entirely (the hub tile bar is
+    # the one header, see ``body.embedded .header`` in ariel's layout.css) and
+    # opens on Browse rather than Search, since embedded users search the
+    # logbook through the agent. Wait for that redirect to land so the baseline
+    # captures the browse view, not the pre-navigation search shell.
+    VisualTarget(
+        "ariel_embedded",
+        _ariel_server,
+        path="/?embedded=true",
+        wait_selector="#view-browse.active",
+        modes=MODES,
+    ),
     VisualTarget("channel_finder", _channel_finder_server, path="/", modes=MODES),
     # D14/D15 regression guard: embedded mode must hide the standalone logo +
     # theme switcher (component self-hides via body.embedded) while keeping

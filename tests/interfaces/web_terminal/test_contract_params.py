@@ -392,12 +392,12 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 
 
 # ---------------------------------------------------------------------------
-# (4) chrome contract: <osprey-theme-switcher> + embedded-hide + D15 reload-strip
+# (4) chrome contract: theme control + embedded-hide + D15 reload-strip
 # ---------------------------------------------------------------------------
-# Every panel's theme toggle is the shared `<osprey-theme-switcher>`
-# component, and `applyEmbedded()` is wired into each of the 6 panels
-# below -- this is the automated proof that the chrome contract holds on
-# every panel, not just the one or two it was developed against.
+# Every panel exposes a theme control, and `applyEmbedded()` is wired into
+# each of the 6 panels below -- this is the automated proof that the chrome
+# contract holds on every panel, not just the one or two it was developed
+# against.
 # web_terminal's own session.html joins as fleet page 7, via a
 # path-override on `_launch_web_terminal` (same hub server
 # test_load_smokes.py's own '/' case boots) rather than a distinct
@@ -407,36 +407,105 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 # narrowing keeps hidden in embedded mode; okf_panel has no branding
 # chrome of its own to hide, so its entry is `None` and the branding
 # assertion is skipped for it.
+# `theme_control_selector` + `toggle_action` are the per-panel pair the
+# three chrome tests below drive: the element the D15 embedded-hide rule
+# targets, and the callable that flips its appearance away from dark. Most
+# panels mount the bare `<osprey-theme-switcher>`, whose mode button IS the
+# control; ARIEL mounts `<osprey-display-menu>`, which collapses the same
+# preference behind a popover, so its action opens the card first. Both
+# reach theme-manager.js's `toggleTheme()` -- the tests assert the same
+# outcome either way, they just click through a different chrome.
+
+
+def _toggle_via_switcher(page):
+    """Flip `<osprey-theme-switcher>` off dark: one click on its mode button."""
+    page.locator("osprey-theme-switcher .theme-switcher-mode").first.click()
+
+
+def _toggle_via_display_menu(page):
+    """Flip `<osprey-display-menu>` off dark: open the popover, pick Light.
+
+    The Appearance row no-ops when the pick matches the current mode, so
+    picking 'light' from the ``?theme=dark`` start state both call sites use
+    is a real toggle, not a re-assertion of what was already applied.
+    """
+    page.locator("osprey-display-menu .display-menu-trigger").first.click()
+    card = page.locator("osprey-display-menu .display-menu-card").first
+    expect(card).to_be_visible()
+    card.locator('.display-seg-option[data-appearance="light"]').click()
+
+
 _CHROME_CONTRACT_PANELS = [
     # ariel hides its whole `.header` embedded (the tile bar is its only
     # header), so the branding assertion targets the element carrying the
     # rule -- `.logo` inside it still computes its own `display: flex`.
-    ("ariel", _launch_ariel, "", ".header"),
-    ("artifacts", _launch_artifacts, "", ".logo"),
-    ("channel_finder", _launch_channel_finder, "", ".app-logo"),
-    ("lattice_dashboard", _launch_lattice_dashboard, "", ".topbar-logo"),
-    ("okf_panel", _launch_okf_panel, "", None),
-    ("web_terminal_session", _launch_web_terminal, "/static/session.html", "header h1"),
+    ("ariel", _launch_ariel, "", ".header", "osprey-display-menu", _toggle_via_display_menu),
+    ("artifacts", _launch_artifacts, "", ".logo", "osprey-theme-switcher", _toggle_via_switcher),
+    (
+        "channel_finder",
+        _launch_channel_finder,
+        "",
+        ".app-logo",
+        "osprey-theme-switcher",
+        _toggle_via_switcher,
+    ),
+    (
+        "lattice_dashboard",
+        _launch_lattice_dashboard,
+        "",
+        ".topbar-logo",
+        "osprey-theme-switcher",
+        _toggle_via_switcher,
+    ),
+    ("okf_panel", _launch_okf_panel, "", None, "osprey-theme-switcher", _toggle_via_switcher),
+    (
+        "web_terminal_session",
+        _launch_web_terminal,
+        "/static/session.html",
+        "header h1",
+        "osprey-theme-switcher",
+        _toggle_via_switcher,
+    ),
 ]
+
+_CHROME_CONTRACT_ARGNAMES = (
+    "panel_name",
+    "launch",
+    "path",
+    "branding_selector",
+    "theme_control_selector",
+    "toggle_action",
+)
+_CHROME_CONTRACT_IDS = [entry[0] for entry in _CHROME_CONTRACT_PANELS]
 
 
 @pytest.mark.parametrize(
-    ("panel_name", "launch", "path", "branding_selector"),
+    _CHROME_CONTRACT_ARGNAMES,
     _CHROME_CONTRACT_PANELS,
-    ids=[name for name, _, _, _ in _CHROME_CONTRACT_PANELS],
+    ids=_CHROME_CONTRACT_IDS,
 )
 def test_embedded_hides_branding_and_switcher(
-    panel_name, launch, path, branding_selector, tmp_path, monkeypatch, chromium_browser
+    panel_name,
+    launch,
+    path,
+    branding_selector,
+    theme_control_selector,
+    toggle_action,
+    tmp_path,
+    monkeypatch,
+    chromium_browser,
 ):
-    """``?embedded=true`` hides the page's own branding AND the theme switcher.
+    """``?embedded=true`` hides the page's own branding AND its theme control.
 
-    The switcher's own D15 rule (``body.embedded osprey-theme-switcher {
-    display: none }``, injected once by osprey-theme-switcher.js itself) is
-    what hides it -- no per-panel CSS is needed for that half of the
-    contract. The branding selector, by contrast, is each page's own
-    pre-existing ``body.embedded <selector> { display: none }`` rule; this
-    proves the switcher rollout didn't disturb it.
+    The theme control's own D15 rule (``body.embedded <tag> { display: none
+    }``, injected once by the component itself -- osprey-theme-switcher.js
+    or osprey-display-menu.js) is what hides it -- no per-panel CSS is
+    needed for that half of the contract. The branding selector, by
+    contrast, is each page's own pre-existing ``body.embedded <selector> {
+    display: none }`` rule; this proves the theme-control rollout didn't
+    disturb it.
     """
+    del toggle_action  # unused here; shared parametrization with the toggle tests below
     # Arrange
     with launch(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
@@ -446,10 +515,11 @@ def test_embedded_hides_branding_and_switcher(
 
         # Assert -- applyEmbedded() ran.
         expect(page.locator("body.embedded")).to_have_count(1)
-        # Assert -- the switcher is hidden fleet-wide by its own injected rule.
+        # Assert -- the theme control is hidden by its component's own injected rule.
         assert (
             page.evaluate(
-                "getComputedStyle(document.querySelector('osprey-theme-switcher')).display"
+                "sel => getComputedStyle(document.querySelector(sel)).display",
+                theme_control_selector,
             )
             == "none"
         )
@@ -466,14 +536,22 @@ def test_embedded_hides_branding_and_switcher(
 
 
 @pytest.mark.parametrize(
-    ("panel_name", "launch", "path", "branding_selector"),
+    _CHROME_CONTRACT_ARGNAMES,
     _CHROME_CONTRACT_PANELS,
-    ids=[name for name, _, _, _ in _CHROME_CONTRACT_PANELS],
+    ids=_CHROME_CONTRACT_IDS,
 )
 def test_switcher_present_and_toggles_theme_standalone(
-    panel_name, launch, path, branding_selector, tmp_path, monkeypatch, chromium_browser
+    panel_name,
+    launch,
+    path,
+    branding_selector,
+    theme_control_selector,
+    toggle_action,
+    tmp_path,
+    monkeypatch,
+    chromium_browser,
 ):
-    """Standalone (no ``?embedded``), the switcher is visible and its click toggles the theme.
+    """Standalone (no ``?embedded``), the theme control is visible and toggles the theme.
 
     Starts from an explicit ``?theme=dark`` (rather than relying on the
     auto-resolved default) so the post-click assertion -- 'light' -- proves
@@ -487,12 +565,12 @@ def test_switcher_present_and_toggles_theme_standalone(
         # Act
         page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
 
-        # Assert -- switcher is visible standalone (the inverse of the embedded case).
-        expect(page.locator("osprey-theme-switcher")).to_be_visible()
+        # Assert -- the control is visible standalone (the inverse of the embedded case).
+        expect(page.locator(theme_control_selector)).to_be_visible()
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
-        # Act -- click the switcher's toggle button.
-        page.locator("osprey-theme-switcher .theme-switcher-mode").first.click()
+        # Act -- drive the panel's own theme chrome.
+        toggle_action(page)
 
         # Assert -- toggleTheme() cycled dark -> light.
         expect(page.locator("html[data-theme='light']")).to_have_count(1)
@@ -501,12 +579,20 @@ def test_switcher_present_and_toggles_theme_standalone(
 
 
 @pytest.mark.parametrize(
-    ("panel_name", "launch", "path", "branding_selector"),
+    _CHROME_CONTRACT_ARGNAMES,
     _CHROME_CONTRACT_PANELS,
-    ids=[name for name, _, _, _ in _CHROME_CONTRACT_PANELS],
+    ids=_CHROME_CONTRACT_IDS,
 )
 def test_theme_toggle_strips_stale_query_param_and_survives_reload(
-    panel_name, launch, path, branding_selector, tmp_path, monkeypatch, chromium_browser
+    panel_name,
+    launch,
+    path,
+    branding_selector,
+    theme_control_selector,
+    toggle_action,
+    tmp_path,
+    monkeypatch,
+    chromium_browser,
 ):
     """D15: a toggle strips ``?theme=`` from the URL, so a reload can't resurrect it.
 
@@ -515,16 +601,16 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
     strip actually removed something, rather than passing vacuously on a URL
     that never had the param to begin with.
     """
-    del branding_selector  # unused here; shared parametrization with the embedded test above
+    del branding_selector, theme_control_selector  # shared parametrization with the tests above
     # Arrange
     with launch(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
-        # Act -- toggle via the switcher (the only path a follower ever
-        # reaches setTheme() through).
-        page.locator("osprey-theme-switcher .theme-switcher-mode").first.click()
+        # Act -- toggle via the panel's theme chrome (the only path a
+        # follower ever reaches setTheme() through).
+        toggle_action(page)
 
         # Assert -- the leftover ?theme=dark is gone from the URL immediately.
         assert "theme=" not in page.url

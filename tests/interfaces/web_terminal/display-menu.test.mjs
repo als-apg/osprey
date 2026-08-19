@@ -284,4 +284,13 @@ describe('display-menu', () => {
       expect(familyLabel).toBe(themeManager.familyLabel);
     });
   });
+
+  describe('themeFamilies', () => {
+    test('is the same function <osprey-theme-switcher> uses', async () => {
+      // Both pickers must offer the same families in the same order; a second
+      // local dedupe of THEMES in either file is what this guards against.
+      const themeManager = await import('/design-system/js/theme-manager.js');
+      expect(themeFamilies).toBe(themeManager.themeFamilies);
+    });
+  });
 });
