@@ -739,7 +739,7 @@ Related pages
       companion panels, and theming.
 
    .. grid-item-card:: Deploy a Project
-      :link: deploy-project
+      :link: deploy-project/index
       :link-type: doc
 
       The lifecycle the multi-user stack rides on: build, up, status, down,

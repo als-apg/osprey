@@ -38,7 +38,8 @@ It uses a two-altitude model, split by *when* the agent needs the content:
    a generated OSPREY project (the ``control-assistant`` preset ships a
    ready-made bundle).
 
-The two tiers are documented separately:
+The two tiers are documented separately, along with the search service that
+makes the on-demand tier findable:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -57,8 +58,17 @@ The two tiers are documented separately:
       The on-demand tier — authoring, configuring, and serving the Open
       Knowledge Format bundle of concept documents.
 
+   .. grid-item-card:: The Search Sidecar (qmd)
+      :link: search-sidecar
+      :link-type: doc
+
+      The container behind ranked bundle search — and ARIEL's ``hybrid``
+      logbook search: configuration, corpus mounts, disk footprint, and
+      where it listens.
+
 .. toctree::
    :hidden:
 
    facility-rules
    okf-bundle
+   search-sidecar

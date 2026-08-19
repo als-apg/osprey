@@ -42,7 +42,7 @@ Build & Deploy a Project
       translation proxy, and benchmark their capability with ``scripts/benchmark/``.
 
    .. grid-item-card:: Deploy a Project
-      :link: deploy-project
+      :link: deploy-project/index
       :link-type: doc
 
       Create, configure, and deploy an OSPREY project from ``osprey build`` through
@@ -201,7 +201,7 @@ Bundled Services & Tutorials
    deploy-a-facility
    configure-providers
    run-open-models
-   deploy-project
+   deploy-project/index
    containerize-project
    web-terminal/index
    multi-user

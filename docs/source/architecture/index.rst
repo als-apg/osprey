@@ -145,7 +145,7 @@ search drops to a substring scan when the sidecar is absent, and ARIEL's
    :doc:`/how-to/add-connector`
       How to add a custom control system connector.
 
-   :doc:`/how-to/deploy-project`
+   :doc:`/how-to/deploy-project/index`
       How to create and deploy an OSPREY project.
 
 .. toctree::

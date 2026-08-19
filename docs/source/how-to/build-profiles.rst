@@ -1338,5 +1338,5 @@ relax the constraint in the profile.
    :doc:`add-mcp-server`
        How to build custom MCP servers for OSPREY
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
        Container deployment after building

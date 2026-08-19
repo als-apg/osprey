@@ -88,7 +88,7 @@ worker runs on.
 
    Inside the compose network the worker is reachable as
    ``dispatch-worker-1:9190`` — the default ``dispatch_target`` in
-   ``triggers.yml``. See :doc:`deploy-project` for the deploy mechanics.
+   ``triggers.yml``. See :doc:`deploy-project/index` for the deploy mechanics.
 
 .. dropdown:: Run without containers (dev)
    :icon: terminal
@@ -289,7 +289,7 @@ profile's ``.env`` and rebuild:
 
 .. seealso::
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
        Container deployment mechanics for all Osprey services.
 
    :doc:`../cli-reference/index`

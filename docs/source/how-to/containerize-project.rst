@@ -54,7 +54,7 @@ See :doc:`build-profiles` for the profile's convention directories.
 
    This page covers the **project image** — one container that runs the
    assistant and its web terminal. The lifecycle verbs manage the deployment's
-   *service* containers (databases, MCP servers) — see :doc:`deploy-project`
+   *service* containers (databases, MCP servers) — see :doc:`deploy-project/index`
    — but the two meet in one place: a deploy that includes the dispatch
    worker builds this same project image (tagged ``<project>:local``) for
    the worker to run.
@@ -313,7 +313,7 @@ The file is yours — common edits:
 
 .. seealso::
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
        Service containers (databases, MCP servers) via ``osprey up`` —
        the complement to the project image on this page.
 
