@@ -64,6 +64,7 @@ import {
 import { planLayout, summarizePlanArgs } from './plan-presentation.js';
 import { renderSchemaForm } from './schema-form.js';
 import { initSplitter } from '/design-system/js/splitter.js';
+import { highlightPythonInto } from '/design-system/js/python-highlight.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -375,7 +376,10 @@ export function createPlansView({ root, api, onOpenRun }) {
     detailDescEl.textContent = (plan && plan.description) || '';
     detailDescEl.hidden = !(plan && plan.description);
     sessionNoteEl.hidden = source.provenance !== 'session';
-    detailSourceEl.textContent = source.source;
+    // Painted as spans rather than assigned as text: highlightPythonInto
+    // builds every node with createElement/textContent, so plan source stays
+    // un-parsed markup-wise and the bundle keeps its no-innerHTML contract.
+    highlightPythonInto(detailSourceEl, source.source);
 
     renderParamForm(plan, source);
 

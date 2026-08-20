@@ -628,19 +628,25 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 }
 
 /* Source viewer */
+/* Block chrome only. Text colour belongs to `.code-python` (design-system
+   code.css), which python-highlight.js adds when it paints the source — a
+   `color` here would win the cascade over it (equal specificity, and this
+   sheet loads after the design system's) and flatten the highlighting back to
+   one grey. */
 .source {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
-  color: var(--text-secondary);
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 12px;
   margin: 0;
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  /* Code does not reflow: `pre-wrap` + `break-word` used to split identifiers
+     mid-token and shift indentation, which misreads as a different nesting
+     level. Hard lines scroll horizontally in the box instead. */
+  white-space: pre;
 }
 
 /* ---- Parameter form: 2-D grid ---- */
