@@ -42,6 +42,24 @@ jobs:
       - name: Verify osprey on PATH
         run: osprey --version
 
+      # npm treats a failed `optionalDependencies` fetch as non-fatal, so a
+      # transient registry blip leaves @anthropic-ai/claude-code installed
+      # without the platform-native binary it ships as an optional dep. The
+      # install still exits 0 and reports success; the docs' own
+      # `claude --version` is what surfaces it, as a red lane that says nothing
+      # about the docs it is supposed to be validating. Retries make the blip
+      # recoverable without masking a genuine delivery failure.
+      #
+      # Written to ~/.npmrc rather than through `npm config` so it also covers
+      # the apt-installed npm the docs bring in, not just the runner's own.
+      - name: Let npm retry a transient registry failure
+        run: |
+          {
+            echo 'fetch-retries=5'
+            echo 'fetch-retry-mintimeout=20000'
+            echo 'fetch-retry-maxtimeout=120000'
+          } >> ~/.npmrc
+
       - name: Extract and run installation.rst bash blocks
         run: |
           python scripts/extract_doc_bash.py docs/source/getting-started/installation.rst > /tmp/install.sh
