@@ -102,6 +102,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The bundled Claude Code CLI moved from 2.1.191 to 2.1.228, via
+  `claude-agent-sdk` 0.2.136.
+
 - The multi-user landing page drops the drawn ASCII wordmark; the page
   now shows the text OSPREY at every window width.
 
