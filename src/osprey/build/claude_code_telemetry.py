@@ -118,6 +118,47 @@ class ObservabilityCredentialError(TelemetryConfigError):
         self.unresolved_vars = unresolved_vars
 
 
+def telemetry_creds_are_store_issued(exc: ObservabilityCredentialError) -> bool:
+    """Whether every credential the telemetry check refused is one a deploy issues.
+
+    A store-issued credential (``container_lifecycle._STORE_ISSUED_VARS``) is
+    minted by the service it authenticates against and written to the
+    deployment's ``.env`` by ``osprey up``. Before the first start it is
+    genuinely absent, and no operator can supply it — so on a freshly
+    scaffolded deployment the rendered telemetry block names a variable that
+    cannot exist yet. Every launch path that resolves a provider spec resolves
+    telemetry with it, so refusing over that would make the deployment
+    unreachable until an unrelated verb has run.
+
+    Read off the registry rather than restated as a name list, so a credential
+    added there is covered here on the same commit. All-or-nothing on purpose:
+    one refused name an operator does have to set — an ordinary missing secret
+    — and the refusal stands for the whole set, because a launch told "nothing
+    to do here" about half the story is worse than the error. The missing/blank
+    case names no variable at all and is likewise a refusal.
+
+    Lives beside the exception it inspects rather than in any one caller: the
+    launch paths that have to make this decision (``osprey chat``, the headless
+    agent-run primitives, the Web Terminal lifespan) share no other module, and
+    a second copy of the rule is a second thing to keep in step with the
+    registry.
+
+    Imported inside the function: ``container_lifecycle`` pulls in a large
+    deployment surface that a launch has no other reason to load.
+
+    Args:
+        exc: The caught :class:`ObservabilityCredentialError`.
+
+    Returns:
+        True when the refusal is only about credentials this deployment issues.
+    """
+    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
+
+    return bool(exc.unresolved_vars) and all(
+        name in _STORE_ISSUED_VARS for name in exc.unresolved_vars
+    )
+
+
 #: Env-var names inside a ``${VAR}`` / ``${VAR:-default}`` reference. Applied to
 #: the credential *value* the check refused, never to a rendered message, so the
 #: names it yields are exactly the ones the config asked for.

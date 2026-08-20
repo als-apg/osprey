@@ -28,7 +28,6 @@ import os
 # stdlib for every thread in the worker (see tests/cli/_scoped_subprocess.py).
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 
@@ -37,12 +36,6 @@ from osprey.cli import output
 from .altitude import lift_gate
 from .phase_reporter import NullReporter, install_reporter
 from .repo_resolver import find_repo_root, repo_option
-
-if TYPE_CHECKING:
-    # Annotation only: the launch path imports this module inside the command,
-    # and a module-level import would pull the build package into every
-    # `osprey chat --help`.
-    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
 
 def _stand_down_output_policy() -> None:
@@ -228,41 +221,6 @@ def _report_drift(repo_root: Path, build_dir: Path) -> None:
         output.warn(report.version_skew.message)
 
 
-def _telemetry_creds_are_store_issued(exc: ObservabilityCredentialError) -> bool:
-    """Whether every credential the telemetry check refused is one a deploy issues.
-
-    A store-issued credential (``container_lifecycle._STORE_ISSUED_VARS``) is
-    minted by the service it authenticates against and written to the
-    deployment's ``.env`` by ``osprey up``. Before the first start it is
-    genuinely absent, and no operator can supply it — so on a freshly
-    scaffolded deployment the rendered telemetry block names a variable that
-    cannot exist yet. Chat is a read-oriented session, not a deploy: refusing
-    to start it over that would make ``osprey chat`` unreachable on every new
-    project until an unrelated verb has run.
-
-    Read off the registry rather than restated as a name list, so a credential
-    added there is covered here on the same commit. All-or-nothing on purpose:
-    one refused name an operator does have to set — an ordinary missing secret
-    — and the refusal stands for the whole set, because a session started with
-    "nothing to do here" on half the story is worse than the error. The
-    missing/blank case names no variable at all and is likewise a refusal.
-
-    Imported inside the function: ``container_lifecycle`` pulls in a large
-    deployment surface that a chat launch has no other reason to load.
-
-    Args:
-        exc: The caught :class:`ObservabilityCredentialError`.
-
-    Returns:
-        True when the refusal is only about credentials this deployment issues.
-    """
-    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-    return bool(exc.unresolved_vars) and all(
-        name in _STORE_ISSUED_VARS for name in exc.unresolved_vars
-    )
-
-
 @click.command()
 @repo_option
 @click.option("--resume", default=None, help="Resume a previous agent session by ID.")
@@ -316,7 +274,10 @@ def chat(
         inject_provider_env,
         load_provider_spec,
     )
-    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+    from osprey.build.claude_code_telemetry import (
+        ObservabilityCredentialError,
+        telemetry_creds_are_store_issued,
+    )
     from osprey.deployment.staleness import BUILD_DIRNAME
     from osprey.utils.claude_launcher import build_claude_launch_argv
 
@@ -378,7 +339,7 @@ def chat(
         # traces is not a reason to withhold the agent. Anything else — a
         # credential an operator has to set, or one that is simply blank —
         # keeps raising untouched.
-        if not _telemetry_creds_are_store_issued(exc):
+        if not telemetry_creds_are_store_issued(exc):
             raise
         output.warn(
             "Telemetry is off for this session",

@@ -793,6 +793,10 @@ def _create_lifespan(
             inject_provider_env,
             load_provider_spec,
         )
+        from osprey.build.claude_code_telemetry import (
+            ObservabilityCredentialError,
+            telemetry_creds_are_store_issued,
+        )
 
         # Managed (enterprise) policy settings outrank the process environment
         # and --setting-sources project alike, so a policy `env` block setting a
@@ -820,7 +824,29 @@ def _create_lifespan(
             # (the project dir IS the render), which repo_root_for_config
             # answers with the same call.
             _env_dir = repo_root_for_config(app.state.config_path)
-            _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
+            try:
+                _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
+            except ObservabilityCredentialError as exc:
+                # Keep this arm ahead of any broader one added later: it
+                # subclasses ValueError.
+                #
+                # Resolving the provider resolves the telemetry block with it,
+                # so a store-issued credential no deploy has minted yet arrives
+                # here as a failure to read the provider — and the server exits
+                # at startup over it. A terminal nobody can open is the worse
+                # outcome: serve without telemetry and say so. Anything else —
+                # a credential an operator has to set, or one that is simply
+                # blank — keeps raising and still refuses the start.
+                if not telemetry_creds_are_store_issued(exc):
+                    raise
+                logger.warning(
+                    "Telemetry is off for this server — `osprey up` issues %s when it starts "
+                    "the telemetry store and passes them into each terminal container, so "
+                    "this server is either running outside a deployment or against a store "
+                    "that was never started",
+                    ", ".join(exc.unresolved_vars),
+                )
+                _spec = load_provider_spec(_project_dir, env_dir=_env_dir, include_telemetry=False)
             if _spec:
                 # The SPEC is read from the render; the ENV is read from the
                 # repo. inject_provider_env's bulk `.env` passthrough is given
