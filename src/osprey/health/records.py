@@ -57,6 +57,7 @@ CONFIG_DEPENDENT = frozenset(
         "model_chat",
         "ariel",
         "channel_finder",
+        "graphdb",
         "web_panels",
     }
 )
