@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ from .build_profile_schema import (
     ProfileProvenance,
     ServiceDef,
     VAConfig,
+    env_names_errors,
     network_mode_errors,
 )
 from .profile_conventions import validate_convention_sources
@@ -382,15 +384,71 @@ class BuildProfile:
 
         return errors
 
+    def _validate_service_key_shapes(self) -> list[str]:
+        """Return the errors for service/config keys that are not strings.
+
+        A bare ``on:``/``no:`` used as a service name or a ``config:`` key is
+        read on the YAML 1.1 resolver as a boolean, which would reach the
+        dotted-key formatting in the per-service axis scans as a non-string.
+        Reported here, once for the whole profile, rather than inside each
+        scan, so one malformed key is one message however many axes walk it.
+
+        Returns:
+            Human-readable error messages; empty when every key is a string.
+        """
+        errors: list[str] = []
+        for name in self.services:
+            if not isinstance(name, str):
+                errors.append(
+                    f"services keys must be strings (got {name!r}); a bare "
+                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
+                )
+        if isinstance(self.config, dict):
+            for key in self.config:
+                if not isinstance(key, str):
+                    errors.append(
+                        f"config keys must be strings (got {key!r}); a bare "
+                        "yes/no/on/off in YAML parses as a boolean — quote the key"
+                    )
+        return errors
+
+    def _service_axis_declarations(self, axis: str) -> Iterator[tuple[str, Any, str]]:
+        """Yield ``(service, value, key)`` for every declaration of one axis.
+
+        Walks BOTH authoring surfaces — the ``services:`` block and the dotted
+        ``config:`` overrides — because either spelling reaches the same key in
+        the rendered ``config.yml``, so a rule reading only one of them would be
+        trivially bypassable. Non-string keys are skipped; they are reported by
+        :meth:`_validate_service_key_shapes`.
+
+        Args:
+            axis: The per-service key to collect (e.g. ``"network"``).
+
+        Yields:
+            The service name, the declared value, and the dotted path to quote
+            back at the author.
+        """
+        for name, svc in self.services.items():
+            if not isinstance(name, str):
+                continue
+            if isinstance(svc.config, dict) and axis in svc.config:
+                yield name, svc.config[axis], f"services.{name}.{axis}"
+
+        if isinstance(self.config, dict):
+            for key, value in self.config.items():
+                if not isinstance(key, str):
+                    continue
+                parts = key.split(".")
+                if len(parts) == 3 and parts[0] == "services" and parts[2] == axis:
+                    yield parts[1], value, key
+
     def _validate_network_axis(self) -> list[str]:
         """Return validation errors for every ``network:`` declaration.
 
         Runs on the profile as authored, BEFORE the build injects anything, so
         a ``network:`` on a dispatch-pair half is caught as something a person
         wrote rather than as the value the build is about to write there
-        itself. Both authoring surfaces are checked — the ``services:`` block
-        and the dotted ``config:`` overrides — because either spelling reaches
-        the same key in the rendered ``config.yml``.
+        itself.
 
         Returns:
             Human-readable error messages; empty when every declaration names a
@@ -399,11 +457,13 @@ class BuildProfile:
         errors: list[str] = []
         pair_reported: set[str] = set()
 
-        def check(name: str, value: Any, key: str) -> None:
-            """Record the problem with one service's declared mode, if any."""
+        if self.dispatch is not None:
+            errors.extend(network_mode_errors(self.dispatch.network, "dispatch.network"))
+
+        for name, value, key in self._service_axis_declarations("network"):
             if name in DISPATCH_PAIR_SERVICES:
                 if name in pair_reported:
-                    return
+                    continue
                 pair_reported.add(name)
                 errors.append(
                     f"{key} is not a per-service knob: the event dispatcher and its "
@@ -413,33 +473,40 @@ class BuildProfile:
             else:
                 errors.extend(network_mode_errors(value, key))
 
-        if self.dispatch is not None:
-            errors.extend(network_mode_errors(self.dispatch.network, "dispatch.network"))
+        return errors
 
-        for name, svc in self.services.items():
-            # A bare `on:`/`no:` service name is read on the YAML 1.1 resolver
-            # as a boolean, which would reach the dotted-key formatting below as
-            # a non-string. Report the resolver rather than crash on it.
-            if not isinstance(name, str):
-                errors.append(
-                    f"services keys must be strings (got {name!r}); a bare "
-                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
-                )
-                continue
-            if isinstance(svc.config, dict) and "network" in svc.config:
-                check(name, svc.config["network"], f"services.{name}.network")
+    def _validate_env_axis(self) -> list[str]:
+        """Return validation errors for every ``env:`` name-list declaration.
 
-        if isinstance(self.config, dict):
-            for key, value in self.config.items():
-                if not isinstance(key, str):
-                    errors.append(
-                        f"config keys must be strings (got {key!r}); a bare "
-                        "yes/no/on/off in YAML parses as a boolean — quote the key"
-                    )
+        Same two authoring surfaces and the same as-authored timing as the
+        network axis. The dispatch pair is excluded for a different reason than
+        it is there: the two halves need no shared value, but the dispatch
+        injection rewrites both service config blocks wholesale, so an ``env:``
+        authored on a half would be dropped before it could reach a container.
+        Refused rather than honored-looking, and pointed at the env chain both
+        halves already read.
+
+        Returns:
+            Human-readable error messages; empty when every declaration lists
+            valid environment variable names on a service the build leaves alone.
+        """
+        errors: list[str] = []
+        pair_reported: set[str] = set()
+
+        for name, value, key in self._service_axis_declarations("env"):
+            if name in DISPATCH_PAIR_SERVICES:
+                if name in pair_reported:
                     continue
-                parts = key.split(".")
-                if len(parts) == 3 and parts[0] == "services" and parts[2] == "network":
-                    check(parts[1], value, key)
+                pair_reported.add(name)
+                errors.append(
+                    f"{key} is not a per-service knob: the dispatch: block rewrites the "
+                    f"event dispatcher's and the workers' service config, so {key} would "
+                    f"be dropped before it reached a container (got {value!r}). Both "
+                    f"halves already read the project's env chain — put the variable in "
+                    f".env and declare it under env.required instead."
+                )
+            else:
+                errors.extend(env_names_errors(value, key))
 
         return errors
 
@@ -529,8 +596,11 @@ class BuildProfile:
                 elif not (tmpl_path / "docker-compose.yml.j2").exists():
                     errors.append(f"Service '{name}' template dir missing docker-compose.yml.j2")
 
-        # Validate the network axis across both authoring surfaces
+        # Validate the per-service axes across both authoring surfaces, after
+        # reporting any key the YAML resolver handed back as a non-string.
+        errors.extend(self._validate_service_key_shapes())
         errors.extend(self._validate_network_axis())
+        errors.extend(self._validate_env_axis())
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):
@@ -556,6 +626,19 @@ class BuildProfile:
         for var in self.env.required:
             if not _ENV_VAR_RE.match(var):
                 errors.append(f"Invalid env var name: {var}")
+
+        # `pinned` names the same kind of thing as `required` and is held to the
+        # same pattern. It is checked harder on shape because a deploy-side probe
+        # reads it back: a scalar written where a list belongs would iterate as
+        # characters, and a misspelled name would pin nothing while reading as
+        # though it had.
+        if not isinstance(self.env.pinned, list):
+            spelled = type(self.env.pinned).__name__
+            errors.append(f"env.pinned must be a list of env var names (got {spelled})")
+        else:
+            for var in self.env.pinned:
+                if not isinstance(var, str) or not _ENV_VAR_RE.match(var):
+                    errors.append(f"Invalid env.pinned var name: {var!r}")
 
         # Validate env file path
         if self.env.file:
