@@ -19,21 +19,8 @@ Safety Chain
 Every tool invocation passes through a configurable chain of **PreToolUse hooks** before reaching
 the MCP server. The chain for ``channel_write`` — the most safety-critical tool — has three stages:
 
-.. mermaid::
-
-   flowchart LR
-       CC["Osprey agent<br/>calls channel_write"] --> WC["writes_check<br/><i>kill switch</i>"]
-       WC -->|enabled| LIM["limits<br/><i>min / max / step</i>"]
-       LIM -->|valid| APR["approval<br/><i>human gate</i>"]
-       APR -->|approved| MCP["MCP Server<br/>executes write"]
-       WC -->|disabled| BLOCK["❌ Blocked"]
-       LIM -->|invalid| BLOCK
-       APR -->|rejected| BLOCK
-
-       style WC fill:#e74c3c,stroke:#333,color:#fff
-       style LIM fill:#e67e22,stroke:#333,color:#fff
-       style APR fill:#f39c12,stroke:#333,color:#fff
-       style BLOCK fill:#95a5a6,stroke:#333,color:#fff
+.. raw:: html
+   :file: ../_diagrams/safety-chain.html
 
 1. **osprey_writes_check** — Kill switch. Blocks all writes when ``control_system.writes_enabled``
    is ``false`` in ``config.yml``. Applies to both ``channel_write`` and ``execute``.
@@ -51,44 +38,8 @@ Data Flow
 A typical control system write follows this path. The three safety hooks fire between the Osprey agent
 and the MCP server:
 
-.. mermaid::
-
-   sequenceDiagram
-       participant Op as Operator
-       participant WT as Web Terminal
-       participant CC as Osprey agent
-       participant CF as Channel Finder Sub-Agent
-       participant H as Safety Hooks
-       participant CS as Control System MCP
-       participant Conn as EPICS/Mock Connector
-
-       Op->>WT: "Bump the horizontal corrector at sector 3 by 0.5 A"
-       WT->>CC: Forward message
-
-       Note over CC,CF: Channel address lookup via sub-agent
-       activate CF
-       CC->>CF: "horizontal corrector setpoint, sector 3"
-       CF->>CF: Query Channel Finder DB
-       CF-->>CC: SR03C:COR:H1:CURRENT
-       deactivate CF
-
-       Note over CC,CS: Read current value to compute target
-       CC->>CS: channel_read("SR03C:COR:H1:CURRENT")
-       CS->>Conn: read_channel()
-       Conn-->>CS: ChannelValue(1.2)
-       CS-->>CC: "Current value: 1.2 A"
-
-       Note over CC,H: channel_write triggers hook chain
-       CC->>H: PreToolUse: channel_write("SR03C:COR:H1:CURRENT", 1.7)
-       H->>H: 1. writes_check → enabled
-       H->>H: 2. limits → 1.7 within range
-       H->>Op: 3. approval → "Write 1.7 A to SR03C:COR:H1:CURRENT?"
-       Op->>H: Approve
-       H->>CS: Proceed
-       CS->>Conn: write_channel() [limits validated]
-       Conn-->>CS: ChannelWriteResult(success=True)
-       CS-->>CC: "Write confirmed, verified at 1.7 A"
-       CC->>Op: "Done. Corrector SR03C:COR:H1 set to 1.7 A (+0.5 A)."
+.. raw:: html
+   :file: ../_diagrams/write-sequence.html
 
 
 .. _retrieval-paths:

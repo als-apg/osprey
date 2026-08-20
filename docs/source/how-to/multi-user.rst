@@ -55,16 +55,8 @@ terminal on a shared machine, and stay with ``osprey web`` for everything else.
 How it works
 ============
 
-.. mermaid::
-
-   flowchart LR
-       B[Browser] -->|:9080| N[nginx landing page]
-       N -->|/u/alice/| A[alice's terminal container]
-       N -->|/u/bob/| Bo[bob's terminal container]
-       N -->|/u/ariel/| Ar[ARIEL logbook container]
-       A --- S[(shared services:<br/>databases · telemetry)]
-       Bo --- S
-       Ar --- S
+.. raw:: html
+   :file: ../_diagrams/multi-user.html
 
 Three ideas carry the whole design:
 

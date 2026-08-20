@@ -1,0 +1,37 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 192" role="img" aria-labelledby="build-profiles-title build-profiles-desc">
+  <title id="build-profiles-title">Preset to running containers</title>
+  <desc id="build-profiles-desc">A bundled preset is copied once into your profile.yml by osprey init; osprey build renders the derived build zone from it, and osprey up starts the containers.</desc>
+  <defs>
+    <marker id="build-profiles-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="200" y1="92" x2="280" y2="92" marker-end="url(#build-profiles-arr)"/>
+  <line class="e" x1="440" y1="92" x2="520" y2="92" marker-end="url(#build-profiles-arr)"/>
+  <line class="e" x1="680" y1="92" x2="760" y2="92" marker-end="url(#build-profiles-arr)"/>
+  <rect class="mask" x="206" y="72" width="68" height="12" rx="2"/>
+  <text class="ta" x="240" y="81" text-anchor="middle">osprey init</text>
+  <rect class="mask" x="444" y="72" width="72" height="12" rx="2"/>
+  <text class="ta" x="480" y="81" text-anchor="middle">osprey build</text>
+  <rect class="mask" x="690" y="72" width="60" height="12" rx="2"/>
+  <text class="ta" x="720" y="81" text-anchor="middle">osprey up</text>
+
+  <rect class="mask" x="40" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-ext" x="40" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="120" y="88" text-anchor="middle">preset</text>
+  <text class="ts" x="120" y="104" text-anchor="middle">bundled with OSPREY</text>
+  <rect class="mask" x="280" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-foc" x="280" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="360" y="88" text-anchor="middle">profile.yml</text>
+  <text class="ts" x="360" y="104" text-anchor="middle">yours · in git</text>
+  <rect class="mask" x="520" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-st" x="520" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="600" y="88" text-anchor="middle">build/</text>
+  <text class="ts" x="600" y="104" text-anchor="middle">derived · never edited</text>
+  <rect class="mask" x="760" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb" x="760" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="840" y="88" text-anchor="middle">containers</text>
+  <text class="ts" x="840" y="104" text-anchor="middle">the running stack</text>
+</svg>
+</div>

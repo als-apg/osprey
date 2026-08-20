@@ -198,7 +198,6 @@ docs = [
     "sphinx-copybutton",
     "sphinx-autobuild",
     "sphinx-design",
-    "sphinxcontrib-mermaid",
     "sphinxcontrib-jsmath>=1.0.1",
     "graphviz",
 ]

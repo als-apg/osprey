@@ -14,17 +14,8 @@ MCP tools, the service factory, and the search result structure.
 Integration Architecture
 ========================
 
-.. code-block:: text
-
-   User Query
-       ↓
-   Osprey agent (via osprey chat)
-       ↓  selects from ARIEL MCP tools
-   ARIEL MCP Server → ARIELSearchService
-       ↓
-   Structured search results (entries + metadata)
-       ↓
-   Osprey agent → User Response
+.. raw:: html
+   :file: ../../_diagrams/ariel-integration.html
 
 The flow begins when the Osprey agent determines that a user query involves
 historical logbook data. It selects from ARIEL's specialized MCP tools based

@@ -8,12 +8,8 @@ use. The plans and the queue are `Bluesky <https://blueskyproject.io/>`_'s;
 Osprey deploys those services, wires them to your control system, and puts the
 agent and a human approval step in front.
 
-.. mermaid::
-
-   flowchart LR
-       A["You + the agent<br/>compose a plan"] -->|add| B["Queue<br/>waits until started"]
-       B -->|start| C["Machine<br/>points land live"]
-       C --> D["Data<br/>kept for good"]
+.. raw:: html
+   :file: ../../_diagrams/bluesky-overview.html
 
 .. grid:: 1 1 3 3
    :gutter: 3

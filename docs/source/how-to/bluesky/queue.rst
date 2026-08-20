@@ -8,12 +8,8 @@ a plan to the queue and starting the queue are **two separate, deliberate
 steps**, and only starting is guarded. **Stopping is never locked** — no
 token, no switch, no state can take the stop and abort buttons away.
 
-.. mermaid::
-
-   flowchart LR
-       A["Shared draft<br/>compose & review"] -->|add| B["Queue<br/>durable, ordered"]
-       B -->|"start (armed)"| C["Machine<br/>one plan at a time"]
-       C -.->|"stop / abort — always available"| B
+.. raw:: html
+   :file: ../../_diagrams/bluesky-queue.html
 
 Everything below is the same queue seen from three sides — pick the one you
 work in.

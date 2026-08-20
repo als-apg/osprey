@@ -29,12 +29,8 @@ and safe to delete and rebuild at any time.
 Preset → Profile → Build
 ========================
 
-.. mermaid::
-
-   flowchart LR
-      P["Preset<br/>(bundled with OSPREY)"] -- osprey init --> F["profile.yml<br/>(yours)"]
-      F -- osprey build --> J["build/<br/>(derived)"]
-      J -- osprey up --> R["Running containers"]
+.. raw:: html
+   :file: ../_diagrams/build-profiles.html
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
   (``src/osprey/profiles/presets/``). Examples: ``hello-world``,

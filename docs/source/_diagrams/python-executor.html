@@ -1,0 +1,36 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 168" role="img" aria-labelledby="python-executor-title python-executor-desc">
+  <title id="python-executor-title">Python executor</title>
+  <desc id="python-executor-desc">Code from the Osprey agent enters the execute MCP tool, passes layered safety checks, runs as a subprocess on the host, and returns structured JSON with stdout, figures, and artifacts.</desc>
+  <defs>
+    <marker id="python-executor-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="180" y1="84" x2="228" y2="84" marker-end="url(#python-executor-arr)"/>
+  <line class="e" x1="364" y1="84" x2="412" y2="84" marker-end="url(#python-executor-arr)"/>
+  <line class="e" x1="548" y1="84" x2="596" y2="84" marker-end="url(#python-executor-arr)"/>
+  <line class="e" x1="732" y1="84" x2="780" y2="84" marker-end="url(#python-executor-arr)"/>
+
+  <rect class="mask" x="44" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="44" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="112" y="80" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="112" y="96" text-anchor="middle">writes code</text>
+  <rect class="mask" x="228" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb" x="228" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="296" y="80" text-anchor="middle">execute</text>
+  <text class="ts" x="296" y="96" text-anchor="middle">MCP tool</text>
+  <rect class="mask" x="412" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb-bnd" x="412" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="80" text-anchor="middle">safety checks</text>
+  <text class="ts" x="480" y="96" text-anchor="middle">layered</text>
+  <rect class="mask" x="596" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb" x="596" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="664" y="80" text-anchor="middle">host subprocess</text>
+  <text class="ts" x="664" y="96" text-anchor="middle">ExecutionWrapper</text>
+  <rect class="mask" x="780" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb-st" x="780" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="848" y="80" text-anchor="middle">result JSON</text>
+  <text class="ts" x="848" y="96" text-anchor="middle">stdout · artifacts</text>
+</svg>
+</div>

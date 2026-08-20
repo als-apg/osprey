@@ -4,17 +4,8 @@ Web Interface
 
 ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.
 
-.. code-block:: text
-
-   Browser (SPA)                        Server (FastAPI)
-   ┌──────────────────────┐             ┌──────────────────────────┐
-   │  index.html          │             │  create_app()            │
-   │  ├── js/app.js       │  REST API   │  ├── /api/capabilities   │
-   │  ├── js/search.js    │ ─────────── │  ├── /api/search         │
-   │  ├── js/entries.js   │             │  ├── /api/entries         │
-   │  ├── js/dashboard.js │             │  ├── /api/status          │
-   │  └── css/*.css       │             │  └── ARIELSearchService   │
-   └──────────────────────┘             └──────────────────────────┘
+.. raw:: html
+   :file: ../../_diagrams/ariel-web-interface.html
 
 
 Views
