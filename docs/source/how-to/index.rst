@@ -32,7 +32,7 @@ Build & Deploy a Project
       :link-type: doc
 
       Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
-      CBORG, AMSC i2, Ollama, and others — via ``config.yml``.
+      CBORG, AMSC i2, Ollama, and others — via the build profile (``profile.yml``).
 
    .. grid-item-card:: Run Open & Local Models
       :link: run-open-models

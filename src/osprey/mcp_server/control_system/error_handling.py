@@ -56,7 +56,8 @@ async def connector_error_handler(
             f"Failed to connect to the {connector_name.replace('_', ' ')}: {exc}",
             [
                 f"Check that the {connector_name.replace('_', ' ')} is running.",
-                f"Verify config.yml {connector_name} settings.",
+                f"If the {connector_name} settings are wrong, fix them in the build profile "
+                "(profile.yml on the host), then rebuild and redeploy.",
             ],
         )
     except TimeoutError as exc:

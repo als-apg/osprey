@@ -47,7 +47,8 @@ def resolve_shell_command(command: str) -> str:
             return command
         raise FileNotFoundError(
             f"{command!r} does not exist or is not executable. "
-            f"Check the path or set web_terminal.shell in config.yml."
+            f"Check the path or set web_terminal.shell under `config:` in "
+            f"profile.yml and run `osprey build`."
         )
 
     # Normal PATH lookup.
@@ -66,5 +67,6 @@ def resolve_shell_command(command: str) -> str:
     raise FileNotFoundError(
         f"{command!r} not found on PATH or in common install locations "
         f"({', '.join(str(d) for d in _USER_BIN_CANDIDATES)}). "
-        f"Install it or set web_terminal.shell to an absolute path in config.yml."
+        f"Install it, or set web_terminal.shell to an absolute path under "
+        f"`config:` in profile.yml and run `osprey build`."
     )

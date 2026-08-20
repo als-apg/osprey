@@ -98,7 +98,8 @@ async def _check_claude_cli() -> list[CheckResult]:
                 message="`claude` not found in PATH",
                 details=(
                     "Install with `npm install -g @anthropic-ai/claude-code` or "
-                    "pin via claude_code.cli_version in config.yml."
+                    "pin by setting claude_code.cli_version under `config:` in "
+                    "profile.yml and running `osprey build`."
                 ),
             )
         ]
