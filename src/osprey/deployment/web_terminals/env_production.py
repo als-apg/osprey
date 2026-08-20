@@ -232,6 +232,27 @@ def _telemetry_credentials(cfg: dict) -> dict:
     return node if isinstance(node, dict) else {}
 
 
+def _telemetry_enabled(cfg: dict) -> bool:
+    """Whether one project's config asks for telemetry at all.
+
+    The master switch, read exactly the way the builder reads it
+    (:func:`osprey.build.claude_code_telemetry.build_telemetry_env`, whose first
+    act is to return an empty env for a falsy or absent ``enabled``). Same rule
+    on both sides on purpose: a block this module treats as live while the
+    builder discards it would have an operator hunting for a credential nothing
+    was ever going to send.
+
+    Absent reads as OFF, not on. A config with no ``enabled`` key exports
+    nothing, so the credentials underneath it are decoration.
+    """
+    node: object = cfg
+    for key in _TELEMETRY_CONFIG_PATH[:-1]:
+        if not isinstance(node, dict):
+            return False
+        node = node.get(key)
+    return bool(node.get("enabled")) if isinstance(node, dict) else False
+
+
 def _referenced_persona_names(config: dict) -> list[str]:
     """Every persona name this roster runs: the default plus each user's own.
 
@@ -291,7 +312,7 @@ def _load_config_yml(path: Path) -> dict | None:
 
 
 def _telemetry_credential_references(
-    config: dict, project_root: Path, field: str, *, bare_only: bool
+    config: dict, project_root: Path, field: str, *, bare_only: bool, enabled_only: bool = False
 ) -> dict[str, str]:
     """``{var: origin}`` for one telemetry credential key across every config in play.
 
@@ -304,10 +325,15 @@ def _telemetry_credential_references(
     :param field: Key under ``claude_code.telemetry.openobserve`` to read.
     :param bare_only: When true, report only references with no ``:-default``
         of their own — the ones that cannot resolve to anything on their own.
+    :param enabled_only: When true, skip a config whose telemetry master switch
+        is off. Each config answers for itself, since a roster can mix a persona
+        that exports with one that does not.
     """
     references: dict[str, str] = {}
 
     def _record(cfg: dict, source: str) -> None:
+        if enabled_only and not _telemetry_enabled(cfg):
+            return
         reference = _env_reference(_telemetry_credentials(cfg).get(field))
         if reference is None:
             return
@@ -413,8 +439,18 @@ def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict
     ship agents authenticating with a literal ``${VAR}`` — the exact failure
     this gate exists to prevent — under a message telling the operator there
     was nothing to set.
+
+    A config whose telemetry master switch is OFF is not asked for anything
+    either, and that gate comes first. ``enabled: false`` means the builder
+    exports no OTLP env at all, so nothing ever presents the credential and no
+    literal ``${VAR}`` can reach a store — the failure this gate exists to
+    prevent cannot happen. Refusing there would block a deploy over a block the
+    deploy already declared inert, and send the operator to obtain a token that
+    would go unused.
     """
-    referenced = _telemetry_credential_references(config, project_root, "password", bare_only=True)
+    referenced = _telemetry_credential_references(
+        config, project_root, "password", bare_only=True, enabled_only=True
+    )
     self_issued = deploy_issued_credential_vars(config)
 
     return {var: origin for var, origin in referenced.items() if var not in self_issued}

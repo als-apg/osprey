@@ -140,7 +140,11 @@ def _three_problem_config(root: Path) -> dict:
         "deployed_services": [],
         "facility": {"prefix": "test"},
         "registry": {"url": "registry.example.org/test"},
-        "claude_code": {"telemetry": {"openobserve": {"password": "${OBS_PASSWORD}"}}},
+        # Master switch on: an inert block is asked for no credential at all, so
+        # leaving it out would make the telemetry problem below disappear.
+        "claude_code": {
+            "telemetry": {"enabled": True, "openobserve": {"password": "${OBS_PASSWORD}"}}
+        },
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -699,7 +703,11 @@ def _mint_dependent_config() -> dict:
     return {
         "deployed_services": ["osprey-mcp"],
         "facility": {"prefix": "test"},
-        "claude_code": {"telemetry": {"openobserve": {"password": "${OBS_PASSWORD}"}}},
+        # Master switch on: an inert block is asked for no credential at all, so
+        # leaving it out would make the telemetry problem below disappear.
+        "claude_code": {
+            "telemetry": {"enabled": True, "openobserve": {"password": "${OBS_PASSWORD}"}}
+        },
         "modules": {
             "web_terminals": {
                 "enabled": True,

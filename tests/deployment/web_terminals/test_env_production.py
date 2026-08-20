@@ -687,12 +687,14 @@ def test_env_reference_tells_the_two_reference_forms_from_a_literal(value, expec
 
 
 def _write_telemetry_persona(
-    tmp_path, name="operator-proj", *, provider="anthropic", **credentials
+    tmp_path, name="operator-proj", *, provider="anthropic", enabled=True, **credentials
 ):
     """Write a rendered persona project carrying a telemetry block.
 
     ``credentials`` are placed under ``claude_code.telemetry.openobserve``
     verbatim, so a test can spell each one the way a real config would.
+    ``enabled`` is the master switch, which decides whether the credentials
+    under it are ever presented to anything.
     """
     project_dir = tmp_path / name
     project_dir.mkdir()
@@ -703,7 +705,7 @@ def _write_telemetry_persona(
                 "claude_code": {
                     "provider": provider,
                     "telemetry": {
-                        "enabled": True,
+                        "enabled": enabled,
                         "backend": "openobserve",
                         "openobserve": {"org": "default", **credentials},
                     },
@@ -895,6 +897,88 @@ def test_an_external_store_refuses_the_deploy_naming_the_unset_token(tmp_path):
     assert "ZO_INGEST_SA_TOKEN" in problem
 
 
+def test_telemetry_switched_off_is_asked_for_no_credential_at_all(tmp_path):
+    """The master switch is read before the credential under it.
+
+    `enabled: false` makes the builder export no OTLP env, so the password is
+    never presented to anything and no literal `${VAR}` can reach a store. The
+    external-store refusal below is about a credential that WILL be used; this
+    one would block a deploy over a block it already declared inert.
+    """
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, enabled=False, password=_SHIPPED_INGEST_TOKEN),
+        deployed_services=(),
+    )
+
+    reported = env_production._telemetry_credential_requirements(config, tmp_path)
+
+    assert reported == {}
+
+
+def test_telemetry_switched_off_does_not_refuse_the_deploy(tmp_path):
+    """Same gate through the refusal an operator actually meets.
+
+    Deliberately on the external-store shape (`deployed_services=()`), the one
+    branch that DOES refuse while telemetry is on -- so a regression that drops
+    the switch check shows up here as a refusal rather than as silence.
+    """
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, enabled=False, password=_SHIPPED_INGEST_TOKEN),
+        deployed_services=(),
+    )
+
+    assert env_production.users_env_generation_problem(config, tmp_path) is None
+
+
+def test_telemetry_switched_off_still_refuses_an_ordinary_missing_secret(tmp_path):
+    """The switch silences the telemetry credential, not the whole gate.
+
+    A provider auth secret is not a telemetry credential and is not covered by
+    any of this module's carve-outs, so a deploy missing one is refused whether
+    its telemetry block is live or not.
+    """
+    _write_dotenv(tmp_path / ".env", {"UNRELATED": "x"})
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, enabled=False, password=_SHIPPED_INGEST_TOKEN),
+        deployed_services=(),
+    )
+
+    problem = env_production.users_env_generation_problem(config, tmp_path)
+
+    assert problem is not None
+    assert "ANTHROPIC_API_KEY" in problem
+    assert "ZO_INGEST_SA_TOKEN" not in problem
+
+
+def test_an_absent_telemetry_switch_reads_as_off(tmp_path):
+    """Absent is OFF, matching `build_telemetry_env`'s own `get("enabled")`.
+
+    A block with no master switch exports nothing, so treating it as live here
+    would ask for a credential the builder was never going to send.
+    """
+    project_dir = tmp_path / "no-switch"
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_name": "no-switch",
+                "claude_code": {
+                    "provider": "anthropic",
+                    "telemetry": {
+                        "backend": "openobserve",
+                        "openobserve": {"password": _SHIPPED_INGEST_TOKEN},
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _catalog_config("no-switch", deployed_services=())
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
+
+
 def test_the_deployed_services_gate_reads_the_registry_not_a_spelling(tmp_path):
     """`deploy_issued_credential_vars` answers from the registry entry's own
     service, so a var registered for a store this deploy does not run is not
@@ -990,13 +1074,21 @@ def test_env_production_bare_telemetry_password_absent_from_the_chain_refuses(tm
 
 def test_env_production_bare_telemetry_password_in_the_deploy_config_refuses_too(tmp_path):
     """The deploy config is read the same way a persona project is: on the
-    zero-migration path it IS the project the web image runs."""
+    zero-migration path it IS the project the web image runs.
+
+    Spelled with its master switch on, like every rendered block ships -- the
+    switch is what decides the credential is presented at all, and leaving it
+    out would test an inert block rather than this one's point.
+    """
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
     config = {
         "facility": {},
         "claude_code": {
             "provider": "anthropic",
-            "telemetry": {"openobserve": {"password": "${ZO_ROOT_USER_PASSWORD}"}},
+            "telemetry": {
+                "enabled": True,
+                "openobserve": {"password": "${ZO_ROOT_USER_PASSWORD}"},
+            },
         },
         "modules": {"web_terminals": {"image_source": "local"}},
     }
