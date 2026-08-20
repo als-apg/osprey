@@ -13,6 +13,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- A fresh `profile.yml` now shows its whole menu: every hook, rule, skill,
+  agent, output style, and web panel you could opt into appears as a commented
+  entry with a one-line description, right in the list it belongs to.
+- `osprey profile artifacts` prints that same artifact menu from the command
+  line, grouped by kind.
+
 - The OSPREY agent now knows which Bluesky plans a deployment ships with —
   what each one does and whether it moves the machine — so it can reuse an
   existing plan instead of writing a new one. New `bluesky-plans` skill,
@@ -132,6 +138,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   immediately; anything already queued or running is unaffected.
 
 ### Changed
+
+- The `osprey-build-interview` skill now creates your deployment repo up front
+  and refines it with you in place, keeps its decisions in an `INTERVIEW.md`
+  you can resume from, and reads every menu and default from the repo itself.
 
 - The bundled Claude Code CLI moved from 2.1.191 to 2.1.228, via
   `claude-agent-sdk` 0.2.136.
