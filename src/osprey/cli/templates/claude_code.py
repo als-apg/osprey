@@ -392,6 +392,15 @@ def build_claude_code_context(
     ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
     ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
 
+    # Build-time index of the Bluesky plan catalog, for the bundled plans skill.
+    #
+    # This lives here rather than in a caller's context because
+    # regenerate_claude_code rebuilds the context from config.yml alone and runs
+    # last: an index passed only through create_project's context would render
+    # empty in the shipped artifact. Both paths come through this function, so
+    # both carry the index.
+    ctx["bluesky_plan_index"] = _build_bluesky_plan_index(config, project_dir, ctx)
+
     # Approval-overlap guard: a facility permissions.remove_ask or
     # permissions.allow entry naming an approval-gated (ask) tool of an enabled
     # server auto-approves it at the permission layer — and the osprey_approval
@@ -520,6 +529,68 @@ def build_claude_code_context(
         ctx["facility_permissions"] = facility_perms
 
     return ctx
+
+
+def _build_bluesky_plan_index(config: dict, project_dir: Path, ctx: dict) -> dict | None:
+    """Index the project's Bluesky plans for the bundled plans skill.
+
+    Runs only when the ``bluesky`` MCP server is enabled: with the server off
+    the agent has no plan tools, the skill renders empty, and there is nothing
+    to describe. A returned dict therefore means the pass ran — a project whose
+    plan directories resolved nothing still gets a dict with no rows, which the
+    skill renders as an honest "no plans were visible at build time" line rather
+    than as an empty table. ``None`` means the pass never ran.
+
+    Never raises: an unreadable plan directory or a malformed plan file is a
+    build warning, not a build failure.
+
+    Args:
+        config: The parsed ``config.yml`` mapping.
+        project_dir: The built project's root, used to resolve a relative
+            ``plan_dir``. Not the CWD — the build does not run from the project
+            root — and not ``project_root_override``, which names a path on the
+            runtime filesystem (a container's project root) that is not here to
+            read.
+        ctx: The context built so far, read for ``enabled_servers``.
+
+    Returns:
+        ``{"rows": [...], "overflow": int, "unreadable_dirs": [...]}``, or
+        ``None`` when the pass did not run.
+    """
+    if "bluesky" not in ctx.get("enabled_servers", set()):
+        return None
+
+    from osprey.cli.templates.plan_index import build_plan_index
+
+    try:
+        index = build_plan_index(config, project_dir)
+    except Exception as exc:  # pragma: no cover - defensive; builder is fail-soft
+        # The builder documents itself as never raising for a bad input. If it
+        # ever does, the build still finishes: the skill simply reports no
+        # build-time listing and points the agent at ``list_plans``.
+        logger.warning("bluesky plan index skipped: %s", exc)
+        return None
+
+    for warning in index.warnings:
+        logger.warning("bluesky plan index: %s", warning)
+    for directory in index.unreadable_dirs:
+        logger.warning(
+            "bluesky plan index: configured plan directory could not be read: %s", directory
+        )
+
+    return {
+        "rows": [
+            {
+                "name": row.name,
+                "description": row.description,
+                "writes": row.writes,
+                "provenance": row.provenance,
+            }
+            for row in index.rows
+        ],
+        "overflow": index.overflow,
+        "unreadable_dirs": list(index.unreadable_dirs),
+    }
 
 
 def compute_regen_summary(ctx: dict) -> dict:
