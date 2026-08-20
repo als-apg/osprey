@@ -145,6 +145,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The arrow-key cursor in the channel suggestion popup is visible in the
   `light` theme, where it previously took the same colour as the popup behind
   it. Hover and the armed row are now told apart as well.
+- Channel suggestions no longer go missing from the plan form the Bluesky panel
+  opens with. That form reads the channel catalog as it is built and is not
+  revisited afterwards, so whenever the catalog arrived a moment too late the
+  form offered no suggestions for as long as it stayed open. It now waits for
+  the catalog before rendering, and renders without suggestions rather than
+  stalling if the catalog cannot be fetched.
 - Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
   first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.
   Seeding skips the enhancement passes, so `hybrid` search previously searched

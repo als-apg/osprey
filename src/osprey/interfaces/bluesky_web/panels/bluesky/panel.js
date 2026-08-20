@@ -146,9 +146,40 @@ const queueView = createQueueView({
   },
 });
 
+/**
+ * How long a plan form will wait for the channel catalog before rendering
+ * without suggestions.
+ *
+ * The catalog is read *synchronously* when a field is built and a form is
+ * never retrofitted afterwards (see schema-form.js), so a form built while the
+ * fetch is still in flight loses its comboboxes for good. Both fetches start
+ * together at boot and the form is two round trips deep against the catalog's
+ * one, so this deadline is normally never reached — it exists only so a
+ * `/channels` endpoint that hangs (as opposed to 404ing, which resolves fast)
+ * degrades to "no suggestions" instead of withholding the form entirely.
+ *
+ * @type {number}
+ */
+const CHANNEL_CATALOG_DEADLINE_MS = 2000;
+
+/**
+ * Resolve once the channel catalog has been installed, or once the deadline
+ * passes — whichever comes first. Never rejects: `loadChannelCatalog` already
+ * treats every failure as "no catalog", and a form must render regardless.
+ *
+ * @type {Promise<void>}
+ */
+const channelCatalogReady = Promise.race([
+  loadChannelCatalog(),
+  new Promise((resolve) => {
+    setTimeout(resolve, CHANNEL_CATALOG_DEADLINE_MS);
+  }),
+]);
+
 const plansView = createPlansView({
   root,
   api,
+  channelCatalogReady,
   onOpenRun(runId) {
     selectRun(runId);
     setActiveView('results');
@@ -315,11 +346,18 @@ if (initialRunId) {
 
 /**
  * Fetch the deployment's channel catalog — once per panel load — and hand it
- * to the schema-form module, so plan forms rendered from then on offer
- * suggestions on channel-tagged fields. The endpoint is optional: a 404 (no
- * catalog deployed), a network failure, a malformed payload, and an empty
- * list all mean the same thing — no suggestions, forms exactly as they always
- * were — so none of them is worth a console line.
+ * to the schema-form module, so plan forms offer suggestions on
+ * channel-tagged fields. The endpoint is optional: a 404 (no catalog
+ * deployed), a network failure, a malformed payload, and an empty list all
+ * mean the same thing — no suggestions, forms exactly as they always were —
+ * so none of them is worth a console line.
+ *
+ * Awaited (via `channelCatalogReady`) before a plan form is rendered rather
+ * than left to race it: the catalog is read synchronously at field-build time
+ * and a form is never retrofitted, so losing that race cost the form its
+ * comboboxes for the rest of the panel's life.
+ *
+ * @returns {Promise<void>} Resolves when the catalog is installed or skipped.
  */
 async function loadChannelCatalog() {
   try {
@@ -338,4 +376,3 @@ async function loadChannelCatalog() {
   }
 }
 
-loadChannelCatalog();

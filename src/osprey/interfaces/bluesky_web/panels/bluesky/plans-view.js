@@ -91,6 +91,11 @@ import {
  *   opened: the shell selects it and switches to the Results tab. This is the
  *   whole of the old cross-panel handoff — the queue and the run's rows are in
  *   this same panel now.
+ * @property {Promise<void>} [channelCatalogReady]  Settles once the channel
+ *   catalog has been installed, or once the panel's deadline for it passes.
+ *   Awaited before a plan form is rendered, because channel-tagged fields read
+ *   the catalog synchronously as they are built and are never retrofitted.
+ *   Optional: omitted, a form renders immediately with no suggestions.
  */
 
 /**
@@ -134,7 +139,15 @@ function highlightSource(el) {
  * @param {PlansViewDeps} deps
  * @returns {PlansView}
  */
-export function createPlansView({ root, api, onOpenRun }) {
+export function createPlansView({
+  root,
+  api,
+  onOpenRun,
+  // Resolves when the channel catalog is installed (or its deadline passed).
+  // Defaulted so a caller that does not care — tests, any embedder without a
+  // catalog — behaves exactly as before: render immediately, no suggestions.
+  channelCatalogReady = Promise.resolve(),
+}) {
   /**
    * The panel owns its own shell, so every id below is present by
    * construction — a missing one is a bundle bug, not a runtime condition to
@@ -621,6 +634,14 @@ export function createPlansView({ root, api, onOpenRun }) {
       const source = await response.json();
       selectedSource = source;
       const plan = plans.find((candidate) => candidate.name === name);
+      // Channel-tagged fields read the catalog synchronously as they are built
+      // and are never retrofitted once it lands (schema-form.js), so a form
+      // rendered mid-fetch loses its suggestion comboboxes permanently. Both
+      // fetches were started together at boot and this one is the later of the
+      // two, so by here the catalog has all but always arrived; the await is
+      // what makes "all but always" into "always". It is deadline-bounded and
+      // never rejects, so a missing or hanging /channels still renders a form.
+      await channelCatalogReady;
       renderDetail(plan, source);
       // Draft-binding check: only ever a consequence of this explicit
       // selection (or the affordance click below) — never of a frame alone
