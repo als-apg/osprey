@@ -10,8 +10,10 @@ categorized report. The built-in checks always run; the ``health:`` block in
 deployed containers, control-system channels, model providers) and tune the
 suite's timing.
 
-This guide covers the ``health:`` configuration surface. For the command's flags
-and exit codes, see ``osprey health --help``.
+This guide covers the ``health:`` configuration surface. For the shape of the
+``--json`` report and the exit codes that go with it, see
+:doc:`health-json-contract`; for the full flag list, see
+``osprey health --help``.
 
 Cost classes and ``--full``
 ---------------------------
