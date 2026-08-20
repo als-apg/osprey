@@ -321,6 +321,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/skills/operating-bluesky-plans/SKILL.md",
             description="Stage, launch, and watch a registered Bluesky plan through the shared draft",
         ),
+        BuildArtifact(
+            canonical_name="skills/bluesky-plans",
+            template_path="claude/skills/bluesky-plans/SKILL.md.j2",
+            output_path=".claude/skills/bluesky-plans/SKILL.md",
+            description="Index of the plans this deployment can run. The template renders an index built from the operator's own plan directory, so this artifact's framework hash tracks that directory: a claimed copy reports drift whenever a plan's docstring changes, not only when the framework template does.",
+        ),
         # ── Output Styles ────────────────────────────────────────────
         BuildArtifact(
             canonical_name="output-styles/control-operator",

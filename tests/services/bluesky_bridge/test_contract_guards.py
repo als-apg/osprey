@@ -245,10 +245,50 @@ def _docstring_of(path: Path, function_name: str) -> str:
     raise AssertionError(f"{function_name} is not defined in {path}")
 
 
+# `bluesky-plans` is the first authored surface that is a Jinja template rather
+# than a static file, so it needs a decision the other five did not: scan the
+# raw `.j2`, or scan a rendered form? This scans the RAW file. Three reasons,
+# each checked against the template rather than assumed:
+#
+#   1. A render is only ever ONE branch. The template opens with
+#      `{% if "bluesky" in enabled_servers %}` and its plan table has three
+#      arms (`index is none` / no rows / rows). Rendering without "bluesky" in
+#      `enabled_servers` returns the empty string, which would make every
+#      assertion below vacuous; rendering WITH it still discards the two arms
+#      the fabricated context did not take. The raw file is 5944 characters of
+#      prose once Jinja markup is stripped, against 5217-5418 for a render --
+#      the raw scan is the only one that reads every branch an operator could
+#      be shown.
+#   2. A render substitutes DATA, not authored prose. `{{ row.name }}` and
+#      `{{ row.description }}` come from the plan files a deployment happens to
+#      ship, so a render would police build output that varies per site. SC-12
+#      governs the vocabulary an author is taught to write. Plan-side spellings
+#      are already pinned by
+#      `test_no_shipped_plan_names_a_params_field_after_a_wire_word`.
+#   3. Jinja markup does not fool the scanner. `{`, `}` and `%` are in neither
+#      `_CODE_BEFORE` nor `_CODE_AFTER`, so a delimiter cannot manufacture an
+#      identifier hit; and a wire word written as a template variable
+#      (`{{ detectors }}`) would still be caught, correctly. The markup adds
+#      text, it never removes any, so it cannot mask a violation either.
+#
+# The cost of scanning raw is that Jinja control flow inflates the character
+# count, so the non-vacuity floor could in principle be cleared on markup
+# alone. `_TEMPLATED_SURFACES` closes that: templated surfaces must clear the
+# floor on prose left after the markup is stripped.
+_JINJA_MARKUP = re.compile(r"{%-?.*?-?%}|{{.*?}}", re.DOTALL)
+
+# Authored surfaces whose text is a Jinja template. Scanned raw (see above),
+# and held to the non-vacuity floor on their prose rather than their markup.
+_TEMPLATED_SURFACES: Final = frozenset({"bluesky-plans/SKILL.md.j2"})
+
+
 def _authored_surfaces() -> dict[str, str]:
     """Label -> text for every surface SC-12 governs."""
     tools = Path(bluesky_bridge.__file__).parents[2] / "mcp_server" / "bluesky" / "tools"
     return {
+        "bluesky-plans/SKILL.md.j2": (SKILLS_ROOT / "bluesky-plans" / "SKILL.md.j2").read_text(
+            encoding="utf-8"
+        ),
         "writing-bluesky-plans/SKILL.md": (
             SKILLS_ROOT / "writing-bluesky-plans" / "SKILL.md"
         ).read_text(encoding="utf-8"),
@@ -279,21 +319,28 @@ def _params_field_names(model_cls: type[BaseModel]) -> set[str]:
 
 
 def test_the_authored_surface_scan_reads_every_surface() -> None:
-    """Non-vacuity control for the SC-12 scans: five real, substantial surfaces.
+    """Non-vacuity control for the SC-12 scans: six real, substantial surfaces.
 
     A renamed skill directory or a moved doc page would otherwise turn the
-    absence assertions below into tautologies over an empty string.
+    absence assertions below into tautologies over an empty string. Templated
+    surfaces are measured on their prose, not their Jinja, so a template that
+    lost its body could not clear the floor on control flow alone.
     """
     surfaces = _authored_surfaces()
     assert set(surfaces) == {
+        "bluesky-plans/SKILL.md.j2",
         "writing-bluesky-plans/SKILL.md",
         "operating-bluesky-plans/SKILL.md",
         "docs/source/how-to/bluesky/write-plans.rst",
         "list_plans docstring",
         "write_plan docstring",
     }
+    assert _TEMPLATED_SURFACES <= set(surfaces), (
+        "a templated surface is labelled here but not scanned -- its prose floor is off"
+    )
     for label, text in surfaces.items():
-        assert len(text) > 400, f"{label} is only {len(text)} characters -- did it move?"
+        body = _JINJA_MARKUP.sub("", text) if label in _TEMPLATED_SURFACES else text
+        assert len(body) > 400, f"{label} is only {len(body)} characters of prose -- did it move?"
 
 
 def test_the_identifier_scan_separates_code_from_prose() -> None:

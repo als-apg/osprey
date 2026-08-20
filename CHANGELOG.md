@@ -13,6 +13,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The OSPREY agent now knows which Bluesky plans a deployment ships with —
+  what each one does and whether it moves the machine — so it can reuse an
+  existing plan instead of writing a new one. New `bluesky-plans` skill,
+  enabled in the `control-assistant` preset. The list is a build-time
+  snapshot; `list_plans` still gives the live one.
+
+- New read-only `get_plan_source` tool: the agent can read a plan's actual
+  source instead of working from its one-line description.
+
+- The Bluesky plan panel's Source tab now shows Python with standard syntax
+  highlighting instead of one flat grey, using the same highlight.js and
+  atom-one palette the Web Terminal and Artifacts gallery already use, so code
+  reads the same way across the fleet and follows the light/dark theme mode.
+  Long lines scroll rather than wrapping mid-identifier, and the view stays
+  read-only. Offline deployments pick the highlighter up on their next `osprey
+  vendor fetch`; until then the tab shows plain, uncoloured source.
+
 - New `ariel.default_search_mode` setting names the search module that answers
   when a caller asks for no mode — the web interface's opening tab, `osprey
   ariel search` without `--mode`, and the service API. The shipped templates

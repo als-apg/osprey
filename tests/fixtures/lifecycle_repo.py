@@ -188,6 +188,7 @@ skills:
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
+  - bluesky-plans  # Browse which plans this deployment can run
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -582,6 +583,7 @@ exclude:
     - demo-ui
     - writing-bluesky-plans    # Plan authoring needs the Bluesky server
     - operating-bluesky-plans  # and so does running one
+    - bluesky-plans            # and so does listing them
   agents:
     - channel-finder
     - data-visualizer

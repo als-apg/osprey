@@ -8,7 +8,8 @@
       "sha256": "837a6fa5b0c736b52bbde2b2b6190f305da3fc9ed41681db5321507057b5c846",
       "targets": [
         "artifacts/static/js/vendor/",
-        "web_terminal/static/vendor/"
+        "web_terminal/static/vendor/",
+        "bluesky_web/panels/bluesky/vendor/"
       ]
     },
     {
@@ -80,7 +81,8 @@
       "sha256": "4237ffca7ce6aadb438c457e0a675b125c534bbdda5b87f41f3a1495603bcc9b",
       "targets": [
         "artifacts/static/css/vendor/",
-        "web_terminal/static/vendor/"
+        "web_terminal/static/vendor/",
+        "bluesky_web/panels/bluesky/vendor/"
       ]
     },
     {
@@ -91,7 +93,8 @@
       "sha256": "593ee2475d42ac9ae701a177a353825bd661b6249fa1ad4bad232540825e9e83",
       "targets": [
         "artifacts/static/css/vendor/",
-        "web_terminal/static/vendor/"
+        "web_terminal/static/vendor/",
+        "bluesky_web/panels/bluesky/vendor/"
       ]
     },
     {

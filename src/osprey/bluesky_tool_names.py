@@ -28,6 +28,7 @@ LIST_DEVICES = "list_devices"
 LIST_RUNS = "list_runs"
 GET_RUN_DATA = "get_run_data"
 GET_RUN_FIGURE = "get_run_figure"
+GET_PLAN_SOURCE = "get_plan_source"
 
 # --- Draft tools ----------------------------------------------------------
 # Edit the shared plan draft only; touch no hardware (registry
@@ -72,6 +73,7 @@ READ_TOOLS: tuple[str, ...] = (
     LIST_RUNS,
     GET_RUN_DATA,
     GET_RUN_FIGURE,
+    GET_PLAN_SOURCE,
 )
 DRAFT_TOOLS: tuple[str, ...] = (
     GET_DRAFT,

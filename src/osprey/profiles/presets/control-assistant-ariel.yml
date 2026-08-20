@@ -57,6 +57,7 @@ exclude:
     - demo-ui
     - writing-bluesky-plans    # Plan authoring needs the Bluesky server
     - operating-bluesky-plans  # and so does running one
+    - bluesky-plans            # and so does listing them
   agents:
     - channel-finder
     - data-visualizer

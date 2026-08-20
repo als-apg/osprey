@@ -44,15 +44,21 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt project — pymongo still lands in its venv, now from the base
     # install rather than the profile — but the generated pyproject.toml no
     # longer names it, so the advisory firing is correct.
-    "control-assistant": "sha256:7410d74d603fefa04d8ad79e042782da32b01a9acb0ca8871786e93ad3d65f13",
+    # Moved when the control-assistant tier gained the `bluesky-plans` skill,
+    # which adds a `.claude/skills/bluesky-plans/` directory to a rebuilt
+    # project. Only three of the four moved: `control-assistant-ariel` excludes
+    # the skill by name, so its resolved skill set is unchanged and its digest
+    # holds still — which is what an exclusion that cancels an inherited
+    # addition is supposed to look like.
+    "control-assistant": "sha256:c6b4bd5a17ed2da4be991d151e905dac857b325d3b41fc3d92a1c7e510e6ba05",
     "control-assistant-ariel": (
         "sha256:9e71eaa1c45afcf201a12a1722fab5b80ffcb059ff45b0d602785c7e37a1cea5"
     ),
     "control-assistant-readonly": (
-        "sha256:8a304867bb0f9d2aab63d6ebd3490780d6e720780d01562a72c92ce62ddc46f5"
+        "sha256:609fe4996edb07810e2ae8b1123ce56f8920385baaa1b5ca28f1408abbd6faff"
     ),
     "control-assistant-readwrite": (
-        "sha256:2a9af46cc9affb350db60b7df30ebc58f51d3ce19634ae05292e67d40bad60e2"
+        "sha256:9056382686610476bf128f6ebf6f1bce6eba3f5c4a886a4c0c1e1f2435398e69"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
