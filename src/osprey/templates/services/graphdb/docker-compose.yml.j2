@@ -1,0 +1,201 @@
+{#- The network axis — network membership and published ports — comes from the
+    shared macro rather than being spelled here, so every service template
+    states the same topology the same way. -#}
+{%- import "services/_network_axis.j2" as net -%}
+{#- The `services.graphdb` block, read once. It may be absent, empty, or
+    partial: a deployment that never edited it renders exactly the numbers
+    `deployment/graphdb_service.py` resolves, which is what keeps the compose
+    fragment, the port-conflict sweep, the health probe and the seeder talking
+    about the same store. The defaults below are that module's DEFAULT_*
+    constants; changing one there means changing it here. -#}
+{%- set graphdb = services.graphdb | default({}, true) -%}
+{%- set port_host = graphdb.port_host | default(7687, true) -%}
+{%- set http_port_host = graphdb.http_port_host | default(7474, true) -%}
+{%- set bind_address = deployment.bind_address | default('127.0.0.1', true) -%}
+{#- Whether this service shares the host's network namespace. Every conditional
+    in this file keys off a CONFIG value resolved at render time, never off a
+    `${VAR}` compose default: a config-keyed conditional produces static YAML
+    that docker compose and podman-compose read identically, whereas
+    interpolation-driven conditionality is exactly where those two disagree. -#}
+{%- set host_mode = (graphdb.network | default('bridge', true)) == 'host' -%}
+{#- Port the healthcheck dials from inside the container. Under `host` there is
+    no port map, so the server listens on the published number itself; on the
+    project network it always listens on Neo4j's own 7474 regardless of which
+    host port that is published as. -#}
+{%- set probe_port = http_port_host if host_mode else 7474 -%}
+# The graphdb service holds the facility knowledge graph: Neo4j with the
+# neosemantics (n10s) plugin loaded, carrying a DISPOSABLE MIRROR of an
+# RDF/Turtle corpus. The TTL on disk is the source of truth and re-seeding
+# rebuilds the graph from it, so this store is a projection rather than a
+# record — a reset is a wipe plus a re-import, not a restore.
+#
+# Neither the n10s configuration nor the corpus is applied here. The seeder
+# bootstraps the graph config and imports the TTL over bolt after the container
+# reports healthy, which is deliberate ordering: the graph config has to exist
+# before the first triple lands, and a compose-level init hook would race the
+# plugin fetch described below.
+
+services:
+  graphdb:
+    # Public upstream image, overridable like every other service image
+    # (env → config → default): set OSPREY_GRAPHDB_IMAGE, or
+    # services.graphdb.image in config.yml, to point at a mirror or a pinned
+    # digest (e.g. for air-gapped registries).
+    #
+    # The 5.20 default is a pin, not a snapshot of "current". neosemantics —
+    # the plugin that imports RDF, without which this store has no way to load
+    # the corpus at all — publishes no build for Neo4j 5.23 or later as of May
+    # 2026. So the pin tracks the PLUGIN's release cadence, not the server's:
+    # check https://github.com/neo4j-labs/neosemantics/releases for a build
+    # matching the newer server before bumping this, because a server the
+    # plugin has no jar for comes up healthy and then fails every import.
+    image: ${OSPREY_GRAPHDB_IMAGE:-{{ graphdb.image | default('neo4j:5.20-community', true) }}}
+    # container_name is a HOST-GLOBAL docker identifier: a bare `graphdb`
+    # collides when two OSPREY projects deploy a graph store on one host,
+    # forcing them to serialize. Namespace it per-project so concurrent deploys
+    # don't fight over one name. The name in-network consumers resolve is
+    # unaffected: compose registers every service under its own service key
+    # (`graphdb`) on the project network, so that key — not this container_name
+    # — is the stable in-network address, and the rename never reaches them.
+    container_name: {{ osprey_labels.project_name }}-graphdb
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+    restart: unless-stopped
+{#- Two published ports, both load-bearing and both suppressed under `host`,
+    where the container shares the host's namespace and there is no port map
+    left to publish. The neo4j driver speaks bolt on 7687 and nothing else,
+    while the operator-facing Browser and the container healthcheck below speak
+    HTTP on 7474. (The health category is a bolt client like the driver: it
+    dials port_host, not this one.) Two ports is why a port conflict has to name
+    WHICH of the two an operator must move
+    (services.graphdb.port_host vs services.graphdb.http_port_host). -#}
+{{- net.ports(services.graphdb, entries=[
+      bind_address ~ ':' ~ port_host ~ ':7687',
+      bind_address ~ ':' ~ http_port_host ~ ':7474'
+    ]) }}
+    environment:
+      # Neo4j takes user and password as ONE composite value, which is why this
+      # is not the bare `${GRAPHDB_PASSWORD}` its postgres and mongodb
+      # counterparts are. The password half is sourced from the project .env:
+      # `osprey up` mints a strong GRAPHDB_PASSWORD when unset, and the seeder
+      # and the health probe read that SAME variable, so the container and its
+      # clients authenticate with one value. The `services.graphdb` block in
+      # config.yml carries no `password:` key — one set there would be read by
+      # nothing and would silently lose to the minted variable. The weak
+      # fallback applies only before the first deploy or on a bare
+      # `docker compose up`.
+      #
+      # NOTE: Neo4j reads NEO4J_AUTH only when initializing a FRESH data
+      # volume; a pre-existing volume keeps its original password until
+      # recreated. Rotating the minted password therefore means removing the
+      # data volume below — which costs a re-seed rather than a loss, since the
+      # TTL and not this store is the source of truth.
+      NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-ospreygraph}"
+      # The image's declarative plugin mechanism. APOC ships INSIDE the image
+      # and is only moved into place; n10s does not, and the entrypoint fetches
+      # its jar from GitHub. See the plugins volume below for what that means
+      # for a host with no egress.
+      NEO4J_PLUGINS: '["apoc","n10s"]'
+      # Both plugins must appear on BOTH procedure lists or their calls are
+      # refused at runtime — the allowlist decides what may be called at all,
+      # the unrestricted list what may run with full privileges, and n10s needs
+      # the latter to write the graph config and the imported triples. APOC is
+      # here because n10s calls into it, not because anything in OSPREY does.
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*,n10s.*"
+      NEO4J_dbms_security_procedures_allowlist: "apoc.*,n10s.*"
+      # Neo4j 5 spells a server setting as an env var by uppercasing the NEO4J_
+      # prefix, turning dots into underscores and DOUBLING every underscore the
+      # setting name already had (server.memory.heap.max_size →
+      # NEO4J_server_memory_heap_max__size). A name that misses the doubling is
+      # not rejected — it is ignored, and the server silently runs on its own
+      # default instead.
+      #
+      # Both heap ends are spelled explicitly because Neo4j sizes nothing
+      # automatically inside a container: left unset it reads the HOST's memory
+      # and picks numbers the container's own limit will not honour. The
+      # defaults are what the working prototype ran an 8k-triple corpus on;
+      # a substantially larger facility export wants them raised via
+      # services.graphdb.heap_initial_size / heap_max_size.
+      NEO4J_server_memory_heap_initial__size: "{{ graphdb.heap_initial_size | default('512m', true) }}"
+      NEO4J_server_memory_heap_max__size: "{{ graphdb.heap_max_size | default('1G', true) }}"
+      # Off-heap cache for graph data and indexes. Separate from the heap and
+      # NOT taken out of it: budget roughly heap max plus this plus about half a
+      # gigabyte of JVM overhead.
+      NEO4J_server_memory_pagecache_size: "{{ graphdb.pagecache_size | default('512m', true) }}"
+{%- if host_mode %}
+      # Under `host` the container shares the host's network namespace, so
+      # nothing stands between Neo4j's listen address and the outside world —
+      # and the ports: block above, which is where deployment.bind_address is
+      # normally honoured, is suppressed. Left alone Neo4j would listen on
+      # 0.0.0.0 and publish an authenticated-but-shared-credential store on
+      # every interface the host has. Binding the server itself to loopback
+      # keeps the host axis from quietly widening the store's exposure.
+      #
+      # The two listen addresses carry only a port (`:7687`), which is the
+      # spelling that means "the default listen address, on this port" — so
+      # they inherit the loopback bind above rather than restating it. They name
+      # the HOST ports here because in this mode there is no port mapping to
+      # translate a container-internal number.
+      NEO4J_server_default__listen__address: "127.0.0.1"
+      NEO4J_server_bolt_listen__address: ":{{ port_host }}"
+      NEO4J_server_http_listen__address: ":{{ http_port_host }}"
+{%- endif %}
+      TZ: {{ system.timezone }}
+    volumes:
+      # The graph itself, plus the server's auth store. Named rather than a
+      # bind: it is derived data the store owns end to end, and it must survive
+      # a container recreate — not because losing it loses information (the TTL
+      # is the source of truth) but because the credential Neo4j initialized it
+      # with lives here too, so discarding it silently invalidates the minted
+      # password every client is still using.
+      - graphdb_data:/data
+      # Offline-restart resilience, and nothing more ambitious than that. The
+      # entrypoint re-fetches the n10s jar from GitHub on EVERY container start
+      # — there is no jar-existence guard, so this volume does not amortize the
+      # download to once per volume. What it does buy is that a FAILED fetch is
+      # survivable: the jar persisted here from an earlier start is still in
+      # place, so a restart on a host that has lost egress comes up with n10s
+      # loaded instead of with a store that cannot import RDF. APOC is bundled
+      # in the image and never fetched, so it is unaffected either way.
+      - graphdb_plugins:/plugins
+{{- net.network(services.graphdb) }}
+    healthcheck:
+      # The HTTP discovery endpoint answers before any credential is presented,
+      # so this probe needs none — which is what keeps the healthcheck from
+      # becoming a second place the minted password has to be spelled. A pass
+      # means the server is up and serving, which is the condition the seeder
+      # waits on before it bootstraps the graph config and imports the corpus.
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:{{ probe_port }}/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Generous on purpose. A first start does three slow things before it
+      # answers: fetches the n10s jar over the network, initializes a fresh
+      # store, and waits out the JVM's own startup. Probing from second zero
+      # would spend the whole retry budget on a container that is working
+      # correctly, and report the store unhealthy while it is still coming up.
+      start_period: 120s
+
+volumes:
+  graphdb_data:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+  graphdb_plugins:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+{# A deliberate blank line precedes the file-level stanza, so this call carries
+   no left-trim marker (`{{-` would eat the blank line along with the newline it
+   is meant to keep). Under `host` nothing is declared and the file simply ends
+   after the volumes. -#}
+{{ net.network_declaration(services.graphdb) }}
