@@ -27,7 +27,7 @@ from osprey.services.auth_sidecar.passwords import (
     generation_tag,
     verify_password,
 )
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey.utils.dotenv import ENV_AUTH_BANNER, parse_dotenv_file
 
 pytestmark = pytest.mark.unit
 
@@ -213,6 +213,27 @@ def test_only_the_missing_user_is_appended(tmp_path: Path) -> None:
     stored = read_auth_env(tmp_path)
     assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"] == alice_hash
     assert stored[f"{PW_HASH_VAR_PREFIX}BOB"].startswith(f"{SCHEME}{FIELD_SEP}")
+
+
+def test_a_created_file_starts_with_the_readme_header_once(tmp_path: Path) -> None:
+    """Creation stamps the file-top header ahead of the per-block banners;
+    later appends (the signing secrets here) never add a second copy."""
+    ensure_auth_credentials(["alice"], tmp_path, echo=Echo())
+    ensure_auth_session_secrets(tmp_path)
+
+    text = (tmp_path / AUTH_ENV_FILENAME).read_text(encoding="utf-8")
+    assert text.startswith(ENV_AUTH_BANNER)
+    assert text.count(ENV_AUTH_BANNER) == 1
+
+
+def test_an_existing_file_is_not_stamped_with_the_readme_header(tmp_path: Path) -> None:
+    (tmp_path / AUTH_ENV_FILENAME).write_text("# hand-written\n", encoding="utf-8")
+
+    ensure_auth_credentials(["alice"], tmp_path, echo=Echo())
+
+    text = (tmp_path / AUTH_ENV_FILENAME).read_text(encoding="utf-8")
+    assert ENV_AUTH_BANNER not in text
+    assert text.startswith("# hand-written\n")
 
 
 def test_append_to_a_file_without_a_trailing_newline(tmp_path: Path) -> None:

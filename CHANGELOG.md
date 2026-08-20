@@ -186,6 +186,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   substitution, so a partial tier map is usable while still being visible.
   A provider with no models *and* no default model at all is still refused.
 
+- Generated `.env`, `.env.users` and `.env.auth` files now open with a short
+  header saying which process reads the file, what belongs in it, and how it
+  relates to the others. Existing files are left alone — the header is
+  written only when OSPREY creates the file.
+
 ### Fixed
 
 - Container builds no longer fail when one package download is cut short. apt

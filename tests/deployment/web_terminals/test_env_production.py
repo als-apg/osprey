@@ -657,7 +657,7 @@ def test_env_production_without_shared_matches_the_local_env_alone(tmp_path):
 
     result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
 
-    assert result.read_text(encoding="utf-8") == (
+    assert result.read_text(encoding="utf-8") == env_production.ENV_USERS_BANNER + (
         "CBORG_API_KEY=llm-secret\n"
         "OLOG_USERNAME=olog-user\n"
         "OLOG_PASSWORD=olog-pass\n"

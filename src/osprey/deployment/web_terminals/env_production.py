@@ -19,6 +19,7 @@ from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.utils.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
+    ENV_USERS_BANNER,
     chain_files,
     compose_unsafe_vars,
     format_env_line,
@@ -897,6 +898,25 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
     )
 
 
+def render_env_users(subset: dict[str, str]) -> str:
+    """The full text of a rendered ``.env.users``: readme header, then one line per var.
+
+    THE render seam shared by :func:`ensure_env_production` and ``osprey users
+    env``, so the two writers cannot drift — including the header, which is why
+    stdout mode prints it too: there, stdout IS the file, and comment lines are
+    valid dotenv for every compose implementation that reads it.
+
+    Lines go through ``format_env_line``, not a bare f-string: a value that
+    needs quoting to survive a re-read (leading/trailing whitespace, an embedded
+    space or ``#``) is rendered so every ``.env`` parser downstream — ours, and
+    whichever compose implementation reads this ``env_file:`` — hands the
+    container the value the chain actually holds instead of a truncated one.
+    """
+    return ENV_USERS_BANNER + "".join(
+        f"{format_env_line(key, value)}\n" for key, value in subset.items()
+    )
+
+
 def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     """Ensure ``<project_root>/.env.users`` exists, generating it when possible.
 
@@ -1030,12 +1050,10 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     if offenders:
         raise ComposeInterpolationError(offenders, users_env_path)
 
-    # format_env_line, not a bare f-string: a value that needs quoting to survive
-    # a re-read (leading/trailing whitespace, an embedded space or `#`) is
-    # rendered so every .env parser downstream — ours, and whichever compose
-    # implementation reads this env_file: — hands the container the value the
-    # chain actually holds instead of a truncated one.
-    lines = "".join(f"{format_env_line(key, value)}\n" for key, value in subset.items())
+    # The shared renderer (header + format_env_line-quoted lines), so this file
+    # and one rendered by `osprey users env` are byte-identical for the same
+    # subset.
+    lines = render_env_users(subset)
     # Create with mode 0600 from the FIRST byte on disk, not write-then-chmod:
     # write_text() would create the file at the process umask (typically
     # 0644) and write every secret before a later os.chmod tightened

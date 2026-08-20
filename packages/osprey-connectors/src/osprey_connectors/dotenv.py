@@ -173,6 +173,59 @@ ENV_MERGED_BANNER = (
     f"# Merged from {' + '.join(ENV_CHAIN_FILENAMES)} (later file wins); edit those instead.\n"
 )
 
+# ---------------------------------------------------------------------------
+# Readme headers, one per generated env file. THE registry: every env file
+# OSPREY creates is stamped with its header at creation (and only then — the
+# writers are append-only, so an existing file's opening lines are the
+# operator's). Defined together so whoever opens any of these files gets the
+# same story about how they relate, and so a new env file cannot ship without
+# saying who reads it.
+# ---------------------------------------------------------------------------
+
+#: Header stamped when :func:`append_profile_env` CREATES the repo ``.env``.
+#: Existing files are never rewritten (the write is deliberately append-only),
+#: so a hand-authored ``.env`` keeps its own opening lines.
+ENV_LOCAL_BANNER = (
+    "# OSPREY deployment secrets (.env) — host-local, gitignored, mode 0600.\n"
+    "# Read by compose on every lifecycle verb (--env-file, after .env.shared,\n"
+    "# so on a key both files set this file wins) and appended to by `osprey up`\n"
+    "# when it mints a secret. Belongs here: provider API keys, service\n"
+    "# passwords/tokens, plaintext OSPREY_AUTH_PW_<USER> convenience passwords\n"
+    "# (hashed into .env.auth, never shipped), and per-host overrides of the\n"
+    "# committed defaults. Related files: .env.shared holds the committed,\n"
+    "# non-secret defaults; build/.env.merged is the generated single-file\n"
+    "# collapse handed to podman-compose; .env.example documents the variables.\n"
+)
+
+#: Header stamped at the top of every rendered ``.env.users`` — the deploy
+#: generator and ``osprey users env`` share one render helper carrying it
+#: (``osprey.deployment.web_terminals.env_production.render_env_users``).
+ENV_USERS_BANNER = (
+    "# OSPREY web-terminal runtime env (.env.users) — gitignored, mode 0600.\n"
+    "# Handed whole to every per-user web-terminal container via the\n"
+    "# `env_file: .env.users` entries in docker-compose.web.yml, baked in when\n"
+    "# a container is created. Belongs here: the runtime subset the terminals\n"
+    "# need — LLM provider credentials and module runtime vars — never\n"
+    "# build/CI-only variables, and never auth secrets (.env.auth is the auth\n"
+    "# sidecar's file). Derived from .env.shared + .env (later file wins) by\n"
+    "# `osprey up` or `osprey users env`; a deploy never overwrites an existing\n"
+    "# file. .env.example documents the variables themselves.\n"
+)
+
+#: Header stamped when the auth-credential writer CREATES ``.env.auth``
+#: (``osprey.deployment.web_terminals.auth_credentials._append_entries``).
+ENV_AUTH_BANNER = (
+    "# OSPREY web-terminal auth secrets (.env.auth) — gitignored, mode 0600.\n"
+    "# Read ONLY by the auth sidecar, via its `env_file: .env.auth` entry in\n"
+    "# docker-compose.web.yml — baked in at container creation, so a change\n"
+    "# takes effect at the next sidecar recreate; no per-user terminal ever\n"
+    "# receives this file. Belongs here: the OSPREY_AUTH_* variables — per-user\n"
+    "# password hashes (OSPREY_AUTH_PW_HASH_<USER>), the cookie-signing\n"
+    "# secrets, and a hand-added OIDC client secret. A plaintext\n"
+    "# OSPREY_AUTH_PW_<USER> convenience password goes in .env instead and is\n"
+    "# hashed in from there; .env.example documents the variables.\n"
+)
+
 
 @dataclass(frozen=True)
 class EnvConflict:
@@ -218,7 +271,10 @@ def append_profile_env(
 
     New keys go at the end of the file, under ``section_banner`` -- emitted
     only when that banner is not already present, so repeated appends grow one
-    section instead of stacking headers. The file is created with mode
+    section instead of stacking headers. A file created here (or one found
+    empty) is stamped with :data:`ENV_LOCAL_BANNER` first — creation is the
+    only moment the readme header can be added, since an existing file's
+    opening lines are the operator's. The file is created with mode
     ``0600`` when absent, and rewrites tighten an existing file to the same.
     The parent directory is *not* created: a missing profile directory raises,
     which is the signal the caller's degraded path is looking for.
@@ -259,6 +315,11 @@ def _append_profile_env_locked(
 
     if new_lines:
         lines = existing_text.splitlines()
+        if not lines:
+            # Born carrying the readme header: this write is creating the file
+            # (or filling an empty one), and the append-only contract means no
+            # later write may touch the top of it.
+            lines = ENV_LOCAL_BANNER.splitlines()
         if section_banner and section_banner not in lines:
             if lines:
                 lines.append("")
