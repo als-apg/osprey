@@ -110,9 +110,6 @@ Compatibility is documented in release notes, not encoded in the version string.
   session menu with the signed-in user and **Log out**. The display menu keeps
   Settings and is about display again.
 
-- The multi-user landing page drops the drawn ASCII wordmark; the page
-  now shows the text OSPREY at every window width.
-
 - The control assistant writes for the control room. Its answers now follow a
   plain-language style: one idea per sentence, active voice naming the actor,
   abbreviations expanded on first use, and no filler. Facility terms like
