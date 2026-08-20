@@ -79,6 +79,7 @@ class LazyGroup(click.Group):
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
             "query": "osprey.cli.query_cmd",  # Headless agent query
             "users": "osprey.cli.users_cmd",  # Web-terminal roster
+            "feedback": "osprey.cli.feedback_cmd",  # Web-terminal feedback store
         }
 
         if cmd_name not in commands:
@@ -146,6 +147,7 @@ class LazyGroup(click.Group):
             "knowledge",
             "query",
             "users",
+            "feedback",
         ]
 
 
