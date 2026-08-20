@@ -6,6 +6,11 @@ communicates over the Anthropic Messages API, while **MCP tool servers** use
 `LiteLLM <https://docs.litellm.ai/>`_ to call any provider. This guide covers
 how to configure providers for both.
 
+.. _provider-routing-diagram:
+
+.. raw:: html
+   :file: ../_diagrams/provider-routing.html
+
 Available Providers
 -------------------
 

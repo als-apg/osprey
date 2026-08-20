@@ -140,6 +140,9 @@ shows the human who is about to say yes, and which channel the default plot
 uses for its x axis. Each of those used to guess from how a parameter was
 spelled. Now the plan says it once, and everything reads the same answer.
 
+.. raw:: html
+   :file: ../../_diagrams/plan-parameter-marking.html
+
 Two consequences you will notice:
 
 - **The names are yours.** Call the parameters whatever your facility calls

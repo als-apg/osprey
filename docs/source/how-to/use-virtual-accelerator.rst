@@ -224,6 +224,9 @@ The project's archiver connector (``archiver.type: mongodb_archiver``) reads
 history back out of the same collection, so what the agent plots is what the
 deployment recorded.
 
+.. raw:: html
+   :file: ../_diagrams/va-archive-loop.html
+
 What history is there
 ---------------------
 

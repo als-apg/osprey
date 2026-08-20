@@ -195,6 +195,9 @@ automatically per network context:
          password: ${ZO_ROOT_USER_PASSWORD}
          org: default
 
+.. raw:: html
+   :file: ../_diagrams/otel-endpoint-context.html
+
 .. important::
 
    For ``backend: openobserve`` the OTLP endpoint is **auto-derived** and you
