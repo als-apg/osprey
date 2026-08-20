@@ -214,7 +214,7 @@ keys happened to be read.
 Built-in service categories
 ---------------------------
 
-Beyond the always-on framework checks, two built-in categories are
+Beyond the always-on framework checks, three built-in categories are
 **presence-gated on their config blocks**: they contribute rows only when the
 corresponding service is configured, so a minimal build shows no empty tiles.
 
@@ -228,8 +228,28 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   channel-database file exists (a configured-but-missing database is an
   ``error``), shows the database's age, and — for the ``middle_layer``
   pipeline — the channel count from the materialized DuckDB.
+- ``graphdb`` — appears when a ``services.graphdb`` block is configured (see
+  :doc:`deploy-project`). Two rows: **connection**, which dials the store over
+  bolt and reports the round-trip latency, and **resources**, the number of
+  ``(:Resource)`` nodes in the graph — the nodes the TTL corpus imports.
+  Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
+  corpus was ever loaded, so counting ``(:Resource)`` specifically is what keeps
+  an empty graph from reading as a populated one; a count of zero warns and
+  names ``osprey knowledge seed-graph`` as the remedy.
 
-Both are ordinary categories: valid under ``--category``, tunable via a
+.. note::
+
+   The ``graphdb`` category dials **bolt** — ``services.graphdb.port_host``, or
+   an explicit ``services.graphdb.uri`` — never the ``http_port_host`` the Neo4j
+   Browser and the container healthcheck use. That is the address its remedies
+   name, so a probe that fails is pointing at the port the seeder also uses.
+
+   Every row it produces is ``ok`` or ``warning``, never ``error``. A store that
+   is stopped, unreachable, rejecting its credential, or simply unseeded is a
+   service that is not running rather than a broken build, and the category says
+   so in one line instead of failing the suite.
+
+All three are ordinary categories: valid under ``--category``, tunable via a
 metadata-only override, and rendered as dashboard tiles with no extra
 configuration.
 

@@ -220,8 +220,9 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides three operations for
-      managing an OKF bundle from the terminal.
+      The ``osprey knowledge`` command group provides four operations from the
+      terminal — three that manage an OKF bundle, and one that loads the
+      deployed graph store.
 
       .. code-block:: console
 
@@ -232,8 +233,9 @@ Working with a Bundle
 
          Commands:
            regen-index    Regenerate index.md files throughout an OKF bundle.
-           validate       Validate all OKF documents in a bundle.
            seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.
+           seed-graph     Load a NARAD/als-ontology TTL into the deployed graph...
+           validate       Validate all OKF documents in a bundle.
 
       **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
       this after adding or removing concept documents:
@@ -296,6 +298,28 @@ Working with a Bundle
 
          ``--force`` overwrites existing stubs.  Omit it to protect hand-edited
          documents.
+
+      **seed-graph** — loads the same kind of TTL file into the deployed graph
+      store.  The two seeding verbs are worth telling apart: **seed-graph seeds
+      the deployed graph store; seed-from-ttl builds an OKF document bundle.**
+      One corpus, two destinations.
+
+      .. code-block:: console
+
+         $ osprey knowledge seed-graph                 # uses services.graphdb.ttl_path
+         $ osprey knowledge seed-graph devices.ttl     # or name the file
+
+      It is safe to re-run.  A store that already holds this exact file reports
+      ``unchanged`` and is left alone; a store holding a different corpus, or
+      data OSPREY did not seed, is refused rather than overwritten, and
+      ``--force`` wipes it and imports from scratch.  The seed marker is written
+      only after the import succeeds, so a run that dies partway is caught as
+      ``unmanaged-partial`` on the next one instead of passing for a good seed.
+
+      The deploy already runs this for you on a first bring-up (see
+      :doc:`deploy-project`); you need the verb when that step warned, or when
+      the corpus changed.  For the full list of outcomes and flags, see
+      ``osprey knowledge seed-graph --help``.
 
 
 Searching the Bundle

@@ -77,6 +77,34 @@ is no search order. A plain name like ``postgresql`` resolves to top-level
 The flat form shown above is the common case; the namespaced forms exist for
 build profiles that ship multiple applications.
 
+The graph store (``graphdb``)
+-----------------------------
+
+Alongside ``postgresql`` and ``openobserve``, the ``control-assistant`` preset
+deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
+graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
+and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an
+operator opens (``http_port_host``), the Turtle corpus to load (``ttl_path``,
+resolved against the ``config.yml`` directory), and the JVM memory the container
+runs with.
+
+The block carries **no password**, deliberately — the same convention
+``postgresql`` follows. ``osprey up`` mints ``GRAPHDB_PASSWORD`` into the
+project ``.env`` when it is unset, and the container reads it from there; a
+password written into ``config.yml`` would be read by nobody.
+
+On a first bring-up the deploy starts the store ahead of the rest of the stack,
+bootstraps it, and imports ``ttl_path`` — a store that came up empty would answer
+every query with zero rows, which reads as wrong data rather than as no data.
+Later deploys find the corpus already there and leave it alone. If bootstrapping
+or seeding fails the deploy warns and carries on, naming ``osprey knowledge
+seed-graph`` (see :doc:`okf-bundle`), the verb that finishes the job by hand.
+
+To query a graph store this deployment does *not* run, give the block an
+explicit ``uri:`` and leave ``graphdb`` out of ``deployed_services``. Nothing is
+minted or seeded on that path — the graph is somebody else's, so set
+``GRAPHDB_PASSWORD`` in the project ``.env`` yourself.
+
 CLI Commands
 ============
 
