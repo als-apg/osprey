@@ -209,6 +209,20 @@ def _render_worker_template(
 _DISPATCHER_TEMPLATE = "services/event_dispatcher/docker-compose.yml.j2"
 
 
+def _image_defaults(project_name: str = "p") -> dict[str, str]:
+    """The image map ``_inject_project_metadata`` injects, for hand-built ctx.
+
+    Every OSPREY-built image line renders its innermost fallback from this
+    mapping, so a context assembled by hand rather than through the injection
+    still has to carry it. Derived from the production helper instead of spelled
+    out here, so these renders follow the registry and tag axes rather than
+    pinning names the generator no longer produces.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    return resolve_image_defaults({"project_name": project_name})
+
+
 def _dispatcher_context(**service_overrides: object) -> dict:
     """The render context the dispatcher template sees, plus per-test overrides.
 
@@ -223,6 +237,7 @@ def _dispatcher_context(**service_overrides: object) -> dict:
         "deployment": {},
         "system": {"timezone": "UTC"},
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
+        "osprey_images": _image_defaults(),
         "osprey_version": "",
     }
 
@@ -579,10 +594,6 @@ class TestEnvChainMembershipMarker:
 
 def _render_va_template(config: dict[str, Any]) -> str:
     """Render the packaged VA compose through the real generator injection."""
-    from importlib import resources
-
-    from jinja2 import Template
-
     from osprey.deployment.compose_generator import _inject_project_metadata
 
     ctx = _inject_project_metadata(
@@ -593,10 +604,8 @@ def _render_va_template(config: dict[str, Any]) -> str:
             **config,
         }
     )
-    tpl = resources.files("osprey").joinpath(
-        "templates/services/virtual_accelerator/docker-compose.yml.j2"
-    )
-    return Template(tpl.read_text(encoding="utf-8")).render(**ctx)
+    template = _packaged_compose_template("services/virtual_accelerator/docker-compose.yml.j2")
+    return template.render(**ctx)
 
 
 def test_va_state_mount_defaults_to_the_agent_data_root() -> None:
@@ -1140,12 +1149,7 @@ def _render_bluesky_template(
     # _render_worker_template above). Bare jinja2.Template uses the default
     # Undefined, the same mode compose_generator's Environment uses, so this
     # faithfully reproduces production render behavior.
-    from importlib import resources
-
-    from jinja2 import Template
-
-    tpl = resources.files("osprey").joinpath("templates/services/bluesky/docker-compose.yml.j2")
-    template = Template(tpl.read_text(encoding="utf-8"))
+    template = _packaged_compose_template("services/bluesky/docker-compose.yml.j2")
     deployed = ["bluesky"] + (["virtual_accelerator"] if va_deployed else [])
     kwargs = {
         "services": services or {"bluesky": {"port": 8090}, "virtual_accelerator": {"port": 5064}},
@@ -1153,6 +1157,7 @@ def _render_bluesky_template(
         "system": {"timezone": "UTC"},
         "deployed_services": deployed,
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
+        "osprey_images": _image_defaults(),
         "osprey_version": "",
     }
     # Task 3.2: control_system is omitted by default (matching every
@@ -1993,12 +1998,7 @@ def test_find_service_config_resolves_flat_names_only() -> None:
 # DSN consumer breaks with "could not translate host name".
 # ---------------------------------------------------------------------------
 def _render_postgres_template(project_name: str) -> str:
-    from importlib import resources
-
-    from jinja2 import Template
-
-    tpl = resources.files("osprey").joinpath("templates/services/postgresql/docker-compose.yml.j2")
-    template = Template(tpl.read_text(encoding="utf-8"))
+    template = _packaged_compose_template("services/postgresql/docker-compose.yml.j2")
     return template.render(
         services={"postgresql": {"port_host": 5432}},
         deployment={},
@@ -2056,12 +2056,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
     svc = yaml.safe_load(_render_postgres_template("proj-a"))["services"]["postgresql"]
     assert svc["image"] == "${OSPREY_POSTGRES_IMAGE:-pgvector/pgvector:pg16}"
 
-    from importlib import resources
-
-    from jinja2 import Template
-
-    tpl = resources.files("osprey").joinpath("templates/services/postgresql/docker-compose.yml.j2")
-    rendered = Template(tpl.read_text(encoding="utf-8")).render(
+    rendered = _packaged_compose_template("services/postgresql/docker-compose.yml.j2").render(
         services={"postgresql": {"port_host": 5432, "image": "registry.local/pg:custom"}},
         deployment={},
         system={"timezone": "UTC"},
@@ -2093,12 +2088,7 @@ def test_postgres_password_reads_minted_env_var() -> None:
 # implicitly, so the knob has to reach mongod's own argv.
 # ---------------------------------------------------------------------------
 def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: object) -> str:
-    from importlib import resources
-
-    from jinja2 import Template
-
-    tpl = resources.files("osprey").joinpath("templates/services/mongodb/docker-compose.yml.j2")
-    template = Template(tpl.read_text(encoding="utf-8"))
+    template = _packaged_compose_template("services/mongodb/docker-compose.yml.j2")
     return template.render(
         services={"mongodb": mongodb_config},
         deployment={},
@@ -2470,6 +2460,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
         },
+        "osprey_images": _image_defaults(project_name),
         "osprey_version": "",
         "osprey_env_present": False,
         "deployed_services": [],
@@ -3578,6 +3569,7 @@ def _render_nextcloud_bridge_template(
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
         },
+        osprey_images=_image_defaults(project_name),
         osprey_version="",
         osprey_env_present=env_present,
     )
@@ -4246,6 +4238,7 @@ def _render_gchat_bridge_template(
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
         },
+        osprey_images=_image_defaults(project_name),
         osprey_version="",
         osprey_env_present=env_present,
     )
