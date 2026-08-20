@@ -147,6 +147,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   gateway-only alias works immediately; a misspelt ID fails at the provider,
   which names it, rather than at build time.
 
+- Local model servers that need no API key — Ollama, vLLM, DS4 — no longer
+  require an auth secret to deploy or to launch a web terminal. A missing
+  secret for those providers is now a note rather than a refusal. Providers
+  OSPREY does not recognise keep the strict behaviour.
+
 ### Changed
 
 - The `osprey-build-interview` skill now creates your deployment repo up front

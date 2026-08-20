@@ -675,7 +675,9 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
 
         deploy_config = load_project_config(session.config)
 
-        required_vars, extra_vars = _claude_code_auth_secret_vars(deploy_config, project_root)
+        required_vars, extra_vars, _keyless_vars = _claude_code_auth_secret_vars(
+            deploy_config, project_root
+        )
         missing = {var: origin for var, origin in required_vars.items() if var not in dotenv}
         if missing:
             # Warn rather than refuse: whether an absent auth secret is fatal is

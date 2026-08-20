@@ -285,7 +285,13 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     that can't authenticate upstream is a hard failure — the terminal would
     launch straight into an auth error. Direct Anthropic (subscription/OAuth)
     has no such requirement, so a missing ``ANTHROPIC_API_KEY`` there is only
-    a warning, not an abort.
+    a warning, not an abort. Nor is a key required by every proxy provider:
+    when the models adapter registry knows the provider and its adapter
+    declares ``requires_api_key = False`` (ollama, vllm, ds4 — local servers
+    with no auth), a missing secret is likewise only a warning, worded with
+    the adapter's own ``api_key_note``. Providers the registry does not know
+    keep the strict behavior — an unknown custom proxy without a secret is
+    still an abort.
 
     The two directories are genuinely different files: the provider is declared
     in the render (``build/config.yml``), while the secret it needs lives in
@@ -352,6 +358,14 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
 
     preamble = f"auth secret ${spec.auth_secret_env} not found in environment or .env "
     if spec.needs_proxy:
+        # Imported only on this failure path: resolving an adapter class pulls
+        # in the LiteLLM stack, which the healthy launch never needs to load.
+        from osprey.models.provider_registry import get_provider_registry
+
+        adapter = get_provider_registry().get_provider(spec.provider)
+        if adapter is not None and adapter.requires_api_key is False:
+            note = f": {adapter.api_key_note}" if adapter.api_key_note else ""
+            return [], [f"{preamble}(provider {spec.provider} does not require one{note})"]
         return [f"{preamble}(provider {spec.provider} requires it)"], []
     return (
         [],

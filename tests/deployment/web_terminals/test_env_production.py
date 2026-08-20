@@ -409,6 +409,68 @@ def test_env_production_unknown_provider_is_skipped_not_raised(tmp_path):
     assert result.is_file()
 
 
+def test_env_production_keyless_provider_secret_absent_still_generates(tmp_path):
+    """A provider whose registry adapter declares requires_api_key = False
+    (ollama) must not refuse the deploy when its derived var is absent from
+    the chain -- the terminal authenticates to nothing, so there is no
+    secret to miss."""
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = {
+        "facility": {},
+        "api": {"providers": {"ollama": {"base_url": "http://localhost:11434"}}},
+        "claude_code": {"provider": "ollama"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert "OLLAMA_API_KEY" not in generated
+
+
+def test_env_production_keyless_provider_secret_copied_when_present(tmp_path):
+    """A keyless provider's var still ships when the chain sets it (a site may
+    front the local server with an authenticating proxy) -- extra, not
+    required."""
+    _write_dotenv(tmp_path / ".env", {"OLLAMA_API_KEY": "proxy-secret"})
+    config = {
+        "facility": {},
+        "api": {"providers": {"ollama": {"base_url": "http://localhost:11434"}}},
+        "claude_code": {"provider": "ollama"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert generated["OLLAMA_API_KEY"] == "proxy-secret"
+
+
+def test_env_production_keyless_persona_provider_secret_not_required(tmp_path):
+    """A persona project running a keyless provider must not block the deploy
+    when the derived var is absent from the chain, while a co-deployed
+    key-requiring persona's secret stays required."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    config = _persona_config(tmp_path, {"operator": "als-apg", "local": "ollama"})
+    # The keyless persona derives OLLAMA_API_KEY only when its own config
+    # declares the provider under api.providers -- same rule as the resolver.
+    (tmp_path / "local-proj" / "config.yml").write_text(
+        "project_name: local-proj\n"
+        "api:\n  providers:\n    ollama:\n      base_url: http://localhost:11434\n"
+        "claude_code:\n  provider: ollama\n",
+        encoding="utf-8",
+    )
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    assert "OLLAMA_API_KEY" not in generated
+
+
 def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, caplog):
     """The never-clobber rule keeps a stale pre-provider-change file in
     service; the deploy must at least say so, naming the missing var."""
@@ -431,6 +493,48 @@ def test_env_production_existing_file_with_credential_does_not_warn(tmp_path, ca
         env_production.ensure_env_production(config, tmp_path)
 
     assert "none of the LLM credential" not in caplog.text
+
+
+def test_env_production_keyless_only_existing_file_does_not_warn(tmp_path, caplog):
+    """An ollama-only deploy authenticates to nothing, so an operator-authored
+    .env.users that omits OLLAMA_API_KEY is missing no credential -- the
+    advisory must stay silent instead of predicting an authentication
+    failure that cannot happen."""
+    (tmp_path / ".env.users").write_text("TZ=UTC\n", encoding="utf-8")
+    config = {
+        "facility": {},
+        "api": {"providers": {"ollama": {"base_url": "http://localhost:11434"}}},
+        "claude_code": {"provider": "ollama"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "none of the LLM credential" not in caplog.text
+
+
+def test_env_production_key_requiring_persona_still_warns_without_naming_keyless(tmp_path, caplog):
+    """A co-deployed key-requiring persona keeps the advisory alive -- and its
+    warning names only the credential that can actually fail, never the
+    keyless persona's derived var."""
+    (tmp_path / ".env.users").write_text("TZ=UTC\n", encoding="utf-8")
+    config = _persona_config(tmp_path, {"operator": "als-apg", "local": "ollama"})
+    # Same rule as the resolver: the keyless persona derives OLLAMA_API_KEY
+    # only when its own config declares the provider under api.providers.
+    (tmp_path / "local-proj" / "config.yml").write_text(
+        "project_name: local-proj\n"
+        "api:\n  providers:\n    ollama:\n      base_url: http://localhost:11434\n"
+        "claude_code:\n  provider: ollama\n",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "none of the LLM credential" in caplog.text
+    assert "ALS_APG_API_KEY" in caplog.text
+    assert "OLLAMA_API_KEY" not in caplog.text
 
 
 def test_env_production_missing_secret_present_in_shell_env_names_the_fix(tmp_path, monkeypatch):
