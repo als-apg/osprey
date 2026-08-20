@@ -557,6 +557,28 @@ keys:
   web.panels.ariel.enabled: {covered-by: web.panels.ariel}
   web.panels.channel-finder: {covered-by: web.panels}
   web.panels.channel-finder.enabled: {covered-by: web.panels.channel-finder}
+  web.docs_url:
+    evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
+    note: >-
+      Rendered live in the four templates that carry a `web:` block;
+      hello_world has none, so this is deliberately not all-templates.
+      The `\s*` between the call's parts is load-bearing: these four reads sit
+      in one lifespan block, and the formatter wraps a call across lines purely
+      on line length, so a single-line pattern reds the guard when a rename
+      pushes an unrelated call past the margin.
+  web.feedback:
+    evidence: 'get_config_value\("web\.feedback\.'
+    note: >-
+      The block is never read as a mapping — each of the three leaves below
+      has its own dotted lookup in the web terminal's lifespan. The evidence
+      anchors on the prefix those readers share, so this entry dies with the
+      last of them rather than outliving them all.
+  web.feedback.github_repo:
+    evidence: 'get_config_value\(\s*"web\.feedback\.github_repo",\s*DEFAULT_FEEDBACK_GITHUB_REPO\s*\)'
+  web.feedback.email:
+    evidence: 'get_config_value\(\s*"web\.feedback\.email",\s*DEFAULT_FEEDBACK_EMAIL\s*\)'
+  web.feedback.max_store_bytes:
+    evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)'}
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)'}
   web.channel_suggestions.max_channels:
@@ -838,7 +860,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 279
+  expected_union_size: 284
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
