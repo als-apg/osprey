@@ -934,6 +934,29 @@ class TestSemanticProcessorEnhanceBranches:
         assert params == [["vacuum", "pump"], "Pump replaced.", "entry-001"]
 
     @pytest.mark.asyncio
+    async def test_enhance_exposes_result_to_downstream_qmd_export(
+        self, module, entry, monkeypatch, tmp_path
+    ):
+        """The qmd exporter receives enrichment produced earlier in the same pass."""
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            lambda message, model_config=None: (
+                '{"keywords": ["vacuum", "pump"], "summary": "Pump replaced."}'
+            ),
+        )
+        qmd_export = QmdExportModule()
+        qmd_export.configure({"mirror_path": str(tmp_path)})
+        conn = _FakeConnection()
+
+        await module.enhance(entry, conn)
+        await qmd_export.enhance(entry, conn)
+
+        (document_path,) = tmp_path.rglob("*.md")
+        document = document_path.read_text(encoding="utf-8")
+        assert "Summary: Pump replaced." in document
+        assert "Keywords: vacuum, pump." in document
+
+    @pytest.mark.asyncio
     async def test_enhance_skips_store_when_parsing_fails(self, module, entry, monkeypatch):
         """An unparseable completion leaves the database untouched."""
         monkeypatch.setattr(

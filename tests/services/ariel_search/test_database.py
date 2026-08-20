@@ -22,6 +22,9 @@ from osprey.services.ariel_search.database.migrations import (
 from osprey.services.ariel_search.enhancement.semantic_processor.migration import (
     SemanticProcessorMigration,
 )
+from osprey.services.ariel_search.enhancement.semantic_processor.search_migration import (
+    SemanticProcessorSearchMigration,
+)
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
     TextEmbeddingMigration,
 )
@@ -467,15 +470,19 @@ class TestMigrationRunnerLogic:
         assert "USING GIN(to_tsvector('english', raw_text))" in joined
 
     @pytest.mark.asyncio
-    async def test_semantic_migration_builds_enriched_fts_index(self, ddl_conn) -> None:
-        """Semantic processor summary and keywords share the keyword FTS surface."""
+    async def test_semantic_search_index_is_built_once(self, ddl_conn) -> None:
+        """The reconciliation migration solely owns the enriched FTS index."""
         await SemanticProcessorMigration().up(ddl_conn)
+        assert len(ddl_conn.sql) == 2
 
-        joined = " ".join(" ".join(ddl_conn.sql).split())
-        assert "DROP INDEX IF EXISTS idx_entries_keywords" in joined
-        assert "CREATE INDEX IF NOT EXISTS idx_entries_text_search" in joined
-        assert "COALESCE(summary, '')" in joined
-        assert "osprey_text_array_to_string(keywords)" in joined
+        await SemanticProcessorSearchMigration().up(ddl_conn)
+
+        statements = [" ".join(statement.split()) for statement in ddl_conn.sql]
+        assert (
+            sum("CREATE INDEX IF NOT EXISTS idx_entries_text_search" in s for s in statements) == 1
+        )
+        assert "COALESCE(summary, '')" in statements[-1]
+        assert "osprey_text_array_to_string(keywords)" in statements[-1]
 
     def test_get_enabled_migrations_passes_configured_models(self) -> None:
         """`osprey ariel migrate` must build the embedding migration with the
@@ -1102,22 +1109,14 @@ class TestAttachmentMigrationDDL:
 class TestSemanticProcessorMigrationDDL:
     """Tests for SemanticProcessorMigration."""
 
-    async def test_up_adds_columns_before_indexing_them(self, ddl_conn) -> None:
-        """Columns are added first, then the indexes that read them."""
+    async def test_up_adds_only_semantic_columns(self, ddl_conn) -> None:
+        """The reconciliation migration owns index creation for every deployment."""
         await SemanticProcessorMigration().up(ddl_conn)
 
-        statements = [" ".join(s.split()) for s in ddl_conn.sql]
-        assert statements[0] == "ALTER TABLE enhanced_entries ADD COLUMN IF NOT EXISTS summary TEXT"
-        assert statements[1] == (
-            "ALTER TABLE enhanced_entries ADD COLUMN IF NOT EXISTS keywords TEXT[] DEFAULT '{}'"
-        )
-        assert "CREATE OR REPLACE FUNCTION osprey_text_array_to_string(TEXT[])" in statements[2]
-        assert "IMMUTABLE" in statements[2]
-        assert statements[3] == "DROP INDEX IF EXISTS idx_entries_keywords"
-        assert statements[4] == "DROP INDEX IF EXISTS idx_entries_text_search"
-        assert "CREATE INDEX IF NOT EXISTS idx_entries_text_search" in statements[5]
-        assert "COALESCE(summary, '')" in statements[5]
-        assert "osprey_text_array_to_string(keywords)" in statements[5]
+        assert [" ".join(s.split()) for s in ddl_conn.sql] == [
+            "ALTER TABLE enhanced_entries ADD COLUMN IF NOT EXISTS summary TEXT",
+            "ALTER TABLE enhanced_entries ADD COLUMN IF NOT EXISTS keywords TEXT[] DEFAULT '{}'",
+        ]
 
     async def test_down_drops_indexes_before_columns(self, ddl_conn) -> None:
         """Dropping the indexed columns first would leave the drops to CASCADE."""

@@ -35,8 +35,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
-- ARIEL keyword search now keeps raw and semantic full-text indexes in sync so
-  semantic summaries and keywords participate in keyword and hybrid retrieval.
+- ARIEL keyword search now keeps raw and semantic full-text indexes in sync;
+  semantic summaries and keywords reach keyword and hybrid retrieval immediately,
+  and existing QMD mirrors backfill automatically after the renderer changes.
 
 ### Added
 
