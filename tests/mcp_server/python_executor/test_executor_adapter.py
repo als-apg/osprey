@@ -557,3 +557,63 @@ async def test_invalid_execution_method_returns_failure_result(tmp_path, monkeyp
     assert result.success is False
     assert result.execution_method_used == "subprocess"
     assert "unknown_method" in result.error_message
+
+
+# ---------------------------------------------------------------------------
+# Execution mode reaches the sandbox
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["readonly", "readwrite"])
+async def test_execution_mode_exported_to_sandbox_env(tmp_path, monkeypatch, mode):
+    """The declared mode is a runtime property of the subprocess, not just a
+    pre-execution gate: the wrapper, osprey.runtime and the connectors all read
+    ``OSPREY_EXECUTION_MODE`` to refuse writes in a readonly run."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path)
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+    mock_proc.returncode = 0
+
+    with patch(
+        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=mock_proc,
+    ) as mock_spawn:
+        await execute_code("print(42)", mode, "test")
+
+    assert mock_spawn.call_args.kwargs["env"]["OSPREY_EXECUTION_MODE"] == mode
+
+
+@pytest.mark.unit
+async def test_wrapper_built_with_execution_mode(tmp_path, monkeypatch):
+    """The wrapper is told the mode so it can emit the readonly guard."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path)
+
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+    mock_proc.returncode = 0
+
+    seen = {}
+    from osprey.services.python_executor.execution import wrapper as wrapper_module
+
+    real_init = wrapper_module.ExecutionWrapper.__init__
+
+    def spy_init(self, *args, **kwargs):
+        seen.update(kwargs)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(wrapper_module.ExecutionWrapper, "__init__", spy_init)
+
+    with patch(
+        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=mock_proc,
+    ):
+        await execute_code("print(42)", "readonly", "test")
+
+    assert seen.get("execution_mode") == "readonly"

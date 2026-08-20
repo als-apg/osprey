@@ -12,6 +12,15 @@ from osprey.utils.logger import get_logger
 logger = get_logger("execution_wrapper")
 
 
+#: Message raised by every refused write in a readonly run. Tests match on
+#: it, so keep it stable.
+READONLY_REFUSAL = (
+    "readonly execution mode: control-system writes are refused — "
+    "resubmit with execution_mode='readwrite' (human approval required) "
+    "if the write is intended"
+)
+
+
 class ExecutionWrapper:
     """
     Wrapper system for subprocess Python execution.
@@ -24,14 +33,20 @@ class ExecutionWrapper:
     - Error handling
     """
 
-    def __init__(self, limits_validator=None):
+    def __init__(self, limits_validator=None, execution_mode: str = "readonly"):
         """
         Initialize the wrapper.
 
         Args:
             limits_validator: Optional LimitsValidator instance for channel checking
+            execution_mode: The mode the script was submitted under. A
+                ``"readonly"`` run gets the readonly guard (every direct
+                control-system write entry point refuses at runtime); the
+                default is readonly so a wrapper built without a mode fails
+                closed.
         """
         self.limits_validator = limits_validator
+        self.execution_mode = execution_mode
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -49,6 +64,7 @@ class ExecutionWrapper:
         imports = self._get_imports()
         environment_setup = self._get_environment_setup(execution_folder)
         limits_checking = self._get_limits_checking_monkeypatch()
+        readonly_guard = self._get_readonly_guard()
         metadata_init = self._get_metadata_init()
         save_artifact_injection = self._get_save_artifact_injection()
         output_capture_start = self._get_output_capture_start()
@@ -61,6 +77,7 @@ class ExecutionWrapper:
                 imports,
                 environment_setup,
                 limits_checking,
+                readonly_guard,
                 metadata_init,
                 save_artifact_injection,
                 output_capture_start,
@@ -378,6 +395,65 @@ if not _execution_dir.exists():
                 traceback.print_exc()
         """
         ).strip()
+
+    def _get_readonly_guard(self) -> str:
+        """Generate the readonly-run guard; empty for a readwrite run.
+
+        The pre-execution regex sees only the standard spellings of a write.
+        ``from epics import caput as _w`` evades it, so a readonly run is
+        enforced here, at runtime: every direct-library write entry point is
+        replaced with a function that refuses. The guard is emitted *before*
+        user code and *after* the limits monkeypatch, so an alias bound in the
+        user code late-binds to the refusing function, and the refusal — not a
+        limits check — is the first thing a write hits. It is deliberately
+        independent of the limits validator: a deployment with limits checking
+        off is exactly the one with nothing else standing behind the regex.
+
+        The connector side of the same contract lives in
+        ``osprey_connectors.control_system.base`` (refuses ``write_channel``
+        when ``OSPREY_EXECUTION_MODE`` says readonly) and in the EPICS
+        connector's gateway selection (stays on the read_only gateway).
+        """
+        if self.execution_mode != "readonly":
+            return ""
+
+        guard = """
+            # Readonly run: refuse every direct control-system write entry point.
+            # Installed before user code, so an alias bound later resolves here.
+            def _osprey_readonly_refuse(*_args, **_kwargs):
+                raise RuntimeError("@@REFUSAL@@")
+
+            try:
+                import epics as _osprey_epics
+
+                _osprey_epics.caput = _osprey_readonly_refuse
+                if hasattr(_osprey_epics, "PV"):
+                    _osprey_epics.PV.put = _osprey_readonly_refuse
+                if hasattr(getattr(_osprey_epics, "ca", None), "put"):
+                    _osprey_epics.ca.put = _osprey_readonly_refuse
+            except ImportError:
+                pass
+            except Exception as _osprey_guard_error:
+                print(f"⚠️  readonly guard (epics) failed: {_osprey_guard_error}")
+
+            # p4p ships one Context class per concurrency flavor; each is
+            # patched in its own try so an unavailable flavor costs nothing.
+            import importlib as _osprey_importlib
+
+            for _osprey_flavor in ("thread", "asyncio", "cothread"):
+                try:
+                    _osprey_ctx = _osprey_importlib.import_module(
+                        f"p4p.client.{_osprey_flavor}"
+                    ).Context
+                    _osprey_ctx.put = _osprey_readonly_refuse
+                    _osprey_ctx.rpc = _osprey_readonly_refuse
+                except ImportError:
+                    pass
+                except Exception as _osprey_guard_error:
+                    print(f"⚠️  readonly guard (p4p {_osprey_flavor}) failed: {_osprey_guard_error}")
+            del _osprey_importlib, _osprey_flavor
+        """
+        return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
 
     def _get_metadata_init(self) -> str:
         """Initialize execution metadata tracking."""

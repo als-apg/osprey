@@ -13,6 +13,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Security
 
+- Readonly Python executions are now enforced at runtime, not just by
+  pattern scanning: the sandbox refuses every direct control-system write
+  entry point (however the call is spelled), the connectors refuse
+  `write_channel`, and the EPICS connector stays on the read-only gateway.
 - Readwrite Python executions now always require human approval under the
   `selective` policy, independent of whether the write-pattern scanner
   recognises the code's spelling.
