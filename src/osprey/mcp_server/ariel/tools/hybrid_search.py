@@ -219,7 +219,10 @@ def _hints() -> list[str]:
         logger.debug("could not resolve services.qmd while building hybrid_search hints")
 
     if base_url is None:
-        first = "No services.qmd block is configured in config.yml — add one to deploy the sidecar."
+        first = (
+            "No services.qmd block is configured — add one in the build profile "
+            "(profile.yml on the host), then rebuild and redeploy to get the sidecar."
+        )
     else:
         first = f"Check the sidecar is answering: curl {base_url}/health"
 

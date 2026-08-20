@@ -300,7 +300,7 @@ channel_finder:
 
 ### Channel Finder Pipeline
 
-Edit `config.yml` to switch between pipelines:
+Set the pipeline under `config:` in `profile.yml` and run `osprey build` to switch between pipelines:
 
 ```yaml
 channel_finder:
@@ -363,7 +363,7 @@ This template uses **pluggable connectors**, so moving from development to produ
 The template uses the **Osprey Connector Abstraction**, which provides:
 - **Development Mode**: Mock connectors work with any channel names (no hardware required)
 - **Production Mode**: Real connectors (EPICS, DOOCS) with the same API; LabVIEW, Tango and other stacks are supported via custom connectors
-- **Zero Code Changes**: Switch modes by editing `config.yml`
+- **Zero Code Changes**: Switch modes by editing `profile.yml` and running `osprey build`
 
 ### Migration to Production
 
@@ -580,7 +580,7 @@ Deploy the channel finder as a standalone MCP server for use with Claude Desktop
 
 ### Enable MCP Deployment
 
-1. Edit `config.yml`:
+1. Add under `config:` in `profile.yml`:
 
 ```yaml
 services:

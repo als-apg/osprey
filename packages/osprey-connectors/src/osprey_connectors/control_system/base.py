@@ -110,7 +110,8 @@ def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteRes
         success=False,
         error_message=(
             f"Write to '{channel_address}' blocked: writes are disabled. "
-            "Set control_system.writes_enabled: true in config.yml"
+            "Set control_system.writes_enabled: true in the build profile "
+            "(profile.yml on the host), then rebuild and redeploy."
         ),
         blocked=True,
         refusal_reason="WRITES_DISABLED",
@@ -191,7 +192,9 @@ def _warn_once_if_fail_on_mismatch_set(verification: Any) -> None:
     logger.warning(
         "config.yml sets control_system.write_verification.fail_on_mismatch: true, "
         "but that key has no reader and never had one — a failed verification does "
-        "not block or roll back a write on this path. Remove it. The path that does "
+        "not block or roll back a write on this path. Remove it from the build "
+        "profile (profile.yml on the host) and rebuild — config.yml is regenerated "
+        "on every build, so editing it directly does not stick. The path that does "
         "enforce verification is write_channel_checked(), which raises when a write "
         "is refused, fails, or comes back unverified; scan plans write through it."
     )

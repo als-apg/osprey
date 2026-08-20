@@ -41,7 +41,9 @@ from osprey.agent_runner.primitives import _ingest_tool_result
 def _resolve_default_sdk_model(project_dir: Path) -> str:
     """Resolve the bare wire id of the project's default Claude Code model.
 
-    Reads ``config.yml`` and returns ``spec.tier_to_model[spec.default_model_tier]``
+    Reads ``config.yml`` and returns the spec's effective default model
+    (``default_model_id`` when a free-form ID was configured, otherwise
+    ``tier_to_model[default_model_tier]``)
     — the same wire id the production CLI uses. Raises ``ValueError`` when no
     provider is configured so callers fail loudly instead of silently sending
     a bogus default to the upstream API.
@@ -66,7 +68,7 @@ def _resolve_default_sdk_model(project_dir: Path) -> str:
             f"No claude_code.provider configured in {config_path}; "
             "pass model= explicitly to run_sdk_query"
         )
-    return spec.tier_to_model[spec.default_model_tier]
+    return spec.default_model_id or spec.tier_to_model[spec.default_model_tier]
 
 
 # ---------------------------------------------------------------------------

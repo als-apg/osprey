@@ -1031,7 +1031,10 @@ class TestUsersEnv:
 
     def test_stdout_carries_the_file_and_nothing_else(self, cli_runner, tmp_path, monkeypatch):
         """`osprey users env > .env.users` has to produce a usable file, so
-        nothing but assignments may reach stdout — no banner, no summary."""
+        only file content may reach stdout — the readme header (comment lines
+        are valid dotenv) and assignments, never a CLI banner or summary."""
+        from osprey.utils.dotenv import ENV_USERS_BANNER
+
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
@@ -1039,7 +1042,10 @@ class TestUsersEnv:
         result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
+        assert result.stdout.startswith(ENV_USERS_BANNER)
         for line in result.stdout.splitlines():
+            if not line or line.startswith("#"):
+                continue
             assert "=" in line, f"non-assignment line on stdout: {line!r}"
 
     def test_long_values_are_not_wrapped(self, cli_runner, tmp_path, monkeypatch):

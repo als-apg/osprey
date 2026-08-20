@@ -1,8 +1,11 @@
 """Tests for the CI flake report's pure analysis functions.
 
-The GitHub-facing layer is deliberately untested: it is a thin `gh api`
-wrapper, and mocking it would only assert that the mock was called. The
-logic worth protecting is the parsing, the flip rule, and the ranking --
+The happy path of the GitHub-facing layer is deliberately untested: it is a
+thin `gh api` wrapper, and mocking it would only assert that the mock was
+called. Its failure-mode contract IS tested -- "could not ask" must come back
+as None, never be cached, and surface in the report as UNKNOWN -- because
+getting that wrong silently turns an API outage into "all clean". The rest of
+the logic worth protecting is the parsing, the flip rule, and the ranking --
 all of which run on recorded log text.
 
 Log excerpts below are verbatim from als-apg/osprey CI, ANSI codes and all.
@@ -11,6 +14,9 @@ Log excerpts below are verbatim from als-apg/osprey CI, ANSI codes and all.
 from __future__ import annotations
 
 import importlib.util
+import json
+import subprocess
+import types
 from pathlib import Path
 
 import pytest
@@ -305,3 +311,137 @@ class TestStripAnsi:
 @pytest.mark.parametrize("empty", ["", "\n", "   \n\n"])
 def test_empty_log_yields_no_failures(empty):
     assert flake_report.parse_test_failures(empty) == []
+
+
+class TestGhApiFailureModes:
+    """Resource-gone and could-not-ask must never look alike."""
+
+    @staticmethod
+    def _patch(monkeypatch, run):
+        # A whole-module stand-in: patching flake_report.subprocess.run would
+        # rewrite the shared stdlib module for every test in the process.
+        monkeypatch.setattr(
+            flake_report,
+            "subprocess",
+            types.SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired),
+        )
+
+    @staticmethod
+    def _completed(returncode=0, stdout=b"", stderr=b""):
+        return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    def test_timeout_is_none_not_empty(self, monkeypatch):
+        def run(cmd, capture_output, timeout):
+            raise subprocess.TimeoutExpired(cmd, timeout)
+
+        self._patch(monkeypatch, run)
+        assert flake_report.gh_api("repos/x/actions/jobs/1/logs") is None
+
+    def test_http_404_keeps_gone_semantics(self, monkeypatch):
+        """Expired logs and deleted runs are data, not outages."""
+        self._patch(
+            monkeypatch,
+            lambda *a, **k: self._completed(1, stderr=b"gh: Not Found (HTTP 404)"),
+        )
+        assert flake_report.gh_api("repos/x/actions/jobs/1/logs") == ""
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            b"gh: API rate limit exceeded (HTTP 403)",
+            b"gh: Bad credentials (HTTP 401)",
+            b"error connecting to api.github.com",
+        ],
+    )
+    def test_rate_limit_auth_and_transport_are_none(self, monkeypatch, stderr):
+        """An unrecognisable failure must read as UNKNOWN, never as healthy."""
+        self._patch(monkeypatch, lambda *a, **k: self._completed(1, stderr=stderr))
+        assert flake_report.gh_api("repos/x/actions/jobs/1/logs") is None
+
+    def test_success_returns_stdout(self, monkeypatch):
+        self._patch(monkeypatch, lambda *a, **k: self._completed(0, stdout=b'{"jobs":[]}'))
+        assert flake_report.gh_api("repos/x/actions/runs/1/attempts/1/jobs") == '{"jobs":[]}'
+
+
+class TestCachedJsonNeverCachesNone:
+    def test_none_is_not_written_and_is_reproduced(self, tmp_path):
+        """Caching None would memoise a transient outage as "nothing failed"."""
+        calls = []
+
+        def produce():
+            calls.append(1)
+            return None
+
+        assert flake_report.cached_json(tmp_path, "log_1", produce) is None
+        assert flake_report.cached_json(tmp_path, "log_1", produce) is None
+        assert len(calls) == 2
+        assert not (tmp_path / "log_1.json").exists()
+
+    def test_empty_result_is_still_cached(self, tmp_path):
+        """A genuine 404 stays memoised exactly as before."""
+        calls = []
+
+        def produce():
+            calls.append(1)
+            return []
+
+        assert flake_report.cached_json(tmp_path, "log_2", produce) == []
+        assert flake_report.cached_json(tmp_path, "log_2", produce) == []
+        assert len(calls) == 1
+
+
+class TestUnknownTallyInReport:
+    """Unqueryable runs and logs must be printed, not folded into healthy."""
+
+    @staticmethod
+    def _fake_gh_api(monkeypatch):
+        runs_page = json.dumps(
+            {
+                "workflow_runs": [
+                    {
+                        "id": n,
+                        "run_attempt": 2,
+                        "status": "completed",
+                        "head_branch": f"feat/{n}",
+                        "created_at": "2026-08-18T00:00:00Z",
+                    }
+                    for n in (1, 2)
+                ]
+            }
+        )
+        jobs = {
+            "runs/1/attempts/1/jobs": [{"id": 10, "name": "E2E", "conclusion": "failure"}],
+            "runs/1/attempts/2/jobs": [{"id": 11, "name": "E2E", "conclusion": "success"}],
+        }
+
+        def fake(path, paginate=False):
+            if "/workflows/" in path:
+                return runs_page
+            for fragment, payload in jobs.items():
+                if fragment in path:
+                    return json.dumps({"jobs": payload})
+            # Run 2's attempts and job 10's log: GitHub could not be asked.
+            return None
+
+        monkeypatch.setattr(flake_report, "gh_api", fake)
+
+    def test_table_output_prints_the_unknown_tally(self, monkeypatch, capsys):
+        self._fake_gh_api(monkeypatch)
+        assert flake_report.main(["--no-cache"]) == 0
+        out = capsys.readouterr().out
+        assert "UNKNOWN -- could not be queried, not proven clean (1 runs, 1 job logs)" in out
+        # The flake with the unfetchable log must not masquerade as infra.
+        assert "INFRA FLAKES" not in out
+
+    def test_json_output_counts_unknowns(self, monkeypatch, capsys):
+        self._fake_gh_api(monkeypatch)
+        assert flake_report.main(["--no-cache", "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["unknown_runs"] == 1
+        assert payload["unknown_job_logs"] == 1
+        assert payload["infra_flakes"] == []
+
+    def test_unlistable_window_is_an_error_not_a_clean_report(self, monkeypatch, capsys):
+        monkeypatch.setattr(flake_report, "gh_api", lambda path, paginate=False: None)
+        assert flake_report.main(["--no-cache"]) == 1
+        assert "UNKNOWN" in capsys.readouterr().err

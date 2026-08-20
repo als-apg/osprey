@@ -5,10 +5,11 @@ Configure Health Checks
 configuration validity, file-system layout, Python environment, container
 infrastructure, telemetry store, API providers, the agent CLI, and any
 configured framework services (ARIEL, channel finder) — and prints a
-categorized report. The built-in checks always run; the ``health:`` block in
-``config.yml`` lets a facility *add* its own checks (HTTP endpoints, MCP servers,
-deployed containers, control-system channels, model providers) and tune the
-suite's timing.
+categorized report. The built-in checks always run; a ``health:`` block in the
+build profile (``profile.yml``) lets a facility *add* its own checks (HTTP
+endpoints, MCP servers, deployed containers, control-system channels, model
+providers) and tune the suite's timing — ``osprey build`` renders it into
+``config.yml``.
 
 This guide covers the ``health:`` configuration surface. For the shape of the
 ``--json`` report and the exit codes that go with it, see

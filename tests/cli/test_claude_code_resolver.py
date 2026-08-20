@@ -477,13 +477,16 @@ class TestDefaultModelTier:
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "haiku"})
         assert spec.default_model_tier == "haiku"
 
-    def test_unservable_value_raises(self):
-        """Was: silently fell back to the provider default tier.
+    def test_unmapped_model_id_passes_through(self):
+        """A model ID outside the tier map reaches ANTHROPIC_MODEL verbatim.
 
-        Full three-branch coverage lives in test_default_model_three_branch.py.
+        Full four-branch coverage lives in test_default_model_three_branch.py.
         """
-        with pytest.raises(ValueError, match="claude_code.default_model"):
-            ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
+        assert spec.env_block["ANTHROPIC_MODEL"] == "gpt-4"
+        assert spec.default_model_id == "gpt-4"
+        # The tier stays a valid tier_to_model key for consumers that index it.
+        assert spec.default_model_tier == "haiku"
 
     def test_field_present_on_spec(self):
         spec = ClaudeCodeModelSpec(provider="test")

@@ -91,8 +91,11 @@ function initNewSessionButton() {
 /* ---- Logout Button ---- */
 
 /**
- * Only present in the DOM when the server rendered a non-empty `landing_url`
- * (multi-user deployments). Plain `osprey web` never emits the button, so
+ * Log out renders in TWO places — `#logout-btn` in the header identity chip's
+ * menu (the copy palette-boot.js's "Log out" command also resolves) and
+ * `#display-menu-logout-btn` in the display menu's action row — and both are
+ * only present in the DOM when the server rendered a non-empty `landing_url`
+ * (multi-user deployments). Plain `osprey web` never emits either button, so
  * this is a no-op there.
  *
  * Real logout, in order: (1) POST the server logout route — prefix-aware via
@@ -106,8 +109,8 @@ function initNewSessionButton() {
  * and navigates — the client's own record of "my session" is what matters
  * for this browser, and getting stuck on the page helps no one.
  *
- * The click handler locks the button (`disabled` + `aria-busy`) once a safe
- * logout is under way: `disabled` stops a second POST, and `aria-busy`
+ * The click handler locks the clicked button (`disabled` + `aria-busy`) once
+ * a safe logout is under way: `disabled` stops a second POST, and `aria-busy`
  * announces the in-flight state to assistive tech. Neither is reset — every
  * path out of the handler navigates away, unloading the page. The unsafe
  * `landing_url` guard returns before the lock, leaving the button usable.
@@ -117,28 +120,40 @@ function initNewSessionButton() {
  * that event has already passed, e.g. in a test environment.
  */
 export function initLogoutButton() {
-  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('logout-btn'));
-  if (!btn) return;
+  for (const id of ['logout-btn', 'display-menu-logout-btn']) {
+    const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById(id));
+    if (!btn) continue;
 
-  const landingUrl = btn.dataset.landingUrl;
-  if (!landingUrl) return;
+    const landingUrl = btn.dataset.landingUrl;
+    if (!landingUrl) continue;
 
-  btn.addEventListener('click', async () => {
-    if (!isSafeLandingUrl(landingUrl)) {
-      console.error('Refusing to navigate to unsafe landing_url:', landingUrl);
-      return;
-    }
-    btn.disabled = true;
-    btn.setAttribute('aria-busy', 'true');
-    try {
-      await fetch(withPrefix('/api/terminal/logout'), { method: 'POST' });
-    } catch (err) {
-      console.error('Logout request failed:', err);
-    }
-    await endAuthSession();
-    clearStoredSessionId();
-    window.location.assign(landingUrl);
-  });
+    btn.addEventListener('click', () => handleLogoutClick(btn, landingUrl));
+  }
+}
+
+/**
+ * The shared click flow behind both logout buttons; `btn` is the copy that
+ * was clicked, so the in-flight lock lands on the control the operator is
+ * looking at.
+ *
+ * @param {HTMLButtonElement} btn
+ * @param {string} landingUrl
+ */
+async function handleLogoutClick(btn, landingUrl) {
+  if (!isSafeLandingUrl(landingUrl)) {
+    console.error('Refusing to navigate to unsafe landing_url:', landingUrl);
+    return;
+  }
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    await fetch(withPrefix('/api/terminal/logout'), { method: 'POST' });
+  } catch (err) {
+    console.error('Logout request failed:', err);
+  }
+  await endAuthSession();
+  clearStoredSessionId();
+  window.location.assign(landingUrl);
 }
 
 /**

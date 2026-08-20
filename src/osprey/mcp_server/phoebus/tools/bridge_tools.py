@@ -89,7 +89,8 @@ _TIMEOUT = 15  # seconds — snapshot/perceive marshal onto the Phoebus FX threa
 
 _UNREACHABLE_HINTS = [
     "Start a Phoebus product with the agent bridge enabled (default port 7979).",
-    "Check the PHOEBUS_BRIDGE_URL env var or phoebus.host/phoebus.port in config.yml.",
+    "Check the PHOEBUS_BRIDGE_URL env var and the phoebus.host/phoebus.port values in config.yml.",
+    "To change them, set phoebus.host/phoebus.port in the build profile (profile.yml on the host), then rebuild and redeploy.",
     "Confirm the bridge is reachable, e.g. curl http://127.0.0.1:7979/displays.",
 ]
 
@@ -268,7 +269,7 @@ def _resolve_panel_resource(name: str) -> str:
             f"Unknown panel name '{name}'.",
             [
                 f"Known panels: {known}.",
-                f"Add 'phoebus.panels.{name}: /path/to/file.bob' to config.yml to register a custom panel.",
+                f"Register a custom panel by adding 'phoebus.panels.{name}: /path/to/file.bob' in the build profile (profile.yml on the host), then rebuild and redeploy.",
                 "Paths may be absolute or relative to the config.yml directory.",
             ],
         )

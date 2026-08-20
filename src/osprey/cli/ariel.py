@@ -57,7 +57,7 @@ def _load_ariel_config() -> dict:
         output.fail(
             "ARIEL is not configured in config.yml",
             None,
-            "add an `ariel:` section to config.yml, then run `osprey build`",
+            "add an `ariel:` section to profile.yml, then run `osprey build`",
         )
         raise SystemExit(1)
     return config_dict

@@ -26,6 +26,9 @@
 #                       agent behavior between image builds.
 #   PIP_NO_PROXY        hosts exempted from any proxy during pip install
 #   OSPREY_OFFLINE      "1" vendors web assets into the image (air-gapped hosts)
+#   OSPREY_SITE_CA      name of a site CA file staged in the build context, for
+#                       networks where a proxy re-signs TLS with its own CA.
+#                       Unset (the default), the CA layer is a no-op.
 
 FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
@@ -33,6 +36,33 @@ ARG OSPREY_DEV=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
 ARG OSPREY_OFFLINE="0"
+ARG OSPREY_SITE_CA=""
+
+# Optional site CA, for building (and running) behind a TLS-intercepting proxy
+# that re-signs traffic with a site CA. OSPREY_SITE_CA names a CA file (PEM)
+# staged in the build context — COPY cannot reach outside it, so a build host
+# stages a copy of its bundle beside the Dockerfile and passes the file name.
+# The `.dockerignore` sibling keeps the glob COPY matching when nothing is
+# staged (same idiom as the wheel layer below), and with the ARG unset the RUN
+# is a no-op. This layer sits BEFORE every network fetch deliberately: apt,
+# npm and pip below all verify TLS against the system store this extends.
+#
+# The ENVs point each tool family at the merged Debian bundle the install
+# lands in — Node reads no system store without NODE_EXTRA_CA_CERTS, pip
+# trusts only its bundled certifi without PIP_CERT, and SSL_CERT_FILE /
+# REQUESTS_CA_BUNDLE cover Python's ssl module and requests. They persist into
+# the running container, so runtime fetches trust the site CA too; with no CA
+# staged they restate each tool's default bundle and change nothing.
+COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+RUN if [ -n "$OSPREY_SITE_CA" ]; then \
+        cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
+        && update-ca-certificates; \
+    fi \
+ && rm -rf /tmp/ca-ctx
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
+    PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
 # broken by middleboxes on some networks; deb.debian.org supports HTTPS), and

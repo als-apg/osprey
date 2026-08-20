@@ -84,12 +84,14 @@ Pinning the Claude Code CLI version
 Anthropic ships breaking changes to the Claude Code CLI from time to time.
 The install command above already pins your global ``claude`` binary; to pin
 what a specific project launches — independently of what is installed
-globally — set a version in the project's ``config.yml``:
+globally — set a version under ``config:`` in ``profile.yml`` and run
+``osprey build``:
 
 .. code-block:: yaml
 
-   claude_code:
-     cli_version: "2.1.146"   # exact version, no semver ranges
+   config:
+     claude_code:
+       cli_version: "2.1.146"   # exact version, no semver ranges
 
 When set, ``osprey chat`` and the web terminal launch the pinned
 version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the

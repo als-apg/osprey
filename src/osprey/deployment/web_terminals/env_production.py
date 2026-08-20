@@ -19,6 +19,7 @@ from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.utils.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
+    ENV_USERS_BANNER,
     chain_files,
     compose_unsafe_vars,
     format_env_line,
@@ -486,7 +487,7 @@ def _copy_named_env_var(var_name: str | None, source: dict[str, str], dest: dict
 
 def _claude_code_auth_secret_vars(
     config: dict, project_root: Path
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, str], dict[str, str], set[str]]:
     """Auth-secret env-var names every ``claude_code.provider`` in play needs.
 
     This is the web-terminal counterpart of the launch-time secret injection
@@ -509,7 +510,17 @@ def _claude_code_auth_secret_vars(
     - **extra** — vars worth *copying* when present but not worth failing
       over: the deploy config's own provider when a persona catalog is in
       play (per-user containers run persona projects, not the deploy
-      project).
+      project), and any provider whose models-registry adapter declares
+      ``requires_api_key = False`` (ollama, vllm, ds4 — local servers with
+      no auth). A keyless provider's var still ships when the chain sets it
+      (a site may front the server with an authenticating proxy), but its
+      absence must not refuse a deploy that never needed the secret.
+
+    The third element is the subset of **extra**'s var names that belong to
+    keyless providers — the classification is decided here, once, so the
+    advisory warning (:func:`_warn_if_env_production_lacks_credentials`) can
+    leave those vars out of "credentials this deploy expects" without
+    re-deriving which providers are keyless.
 
     Referenced personas whose ``project_path`` isn't rendered or readable yet
     contribute nothing — a broken catalog entry is lint's / strict
@@ -522,6 +533,16 @@ def _claude_code_auth_secret_vars(
     actionable error for that at launch).
     """
     from osprey.build.claude_code_resolver import provider_auth_secret_env
+
+    def _provider_is_keyless(provider: str) -> bool:
+        # The models adapter registry is the authority on whether a provider
+        # authenticates at all; an unknown or unloadable provider answers
+        # False, keeping the strict (required) behavior for custom names the
+        # registry has never heard of.
+        from osprey.models.provider_registry import get_provider_registry
+
+        adapter = get_provider_registry().get_provider(provider)
+        return adapter is not None and adapter.requires_api_key is False
 
     def _provider_var(cfg: dict) -> tuple[str, str | None] | None:
         provider = (cfg.get("claude_code") or {}).get("provider")
@@ -539,6 +560,7 @@ def _claude_code_auth_secret_vars(
 
     required: dict[str, str] = {}
     extra: dict[str, str] = {}
+    keyless: set[str] = set()
 
     for persona_name, entry in entries:
         config_yml = _persona_config_yml(project_root, entry)
@@ -566,19 +588,27 @@ def _claude_code_auth_secret_vars(
             continue
         provider, var = resolved
         if var and var not in required:
-            required[var] = f"claude_code.provider {provider!r} (persona {persona_name!r})"
+            origin = f"claude_code.provider {provider!r} (persona {persona_name!r})"
+            if _provider_is_keyless(provider):
+                extra.setdefault(var, origin)
+                keyless.add(var)
+            else:
+                required[var] = origin
 
     own = _provider_var(config)
     if own is not None:
         provider, var = own
         if var and var not in required:
             origin = f"claude_code.provider {provider!r} (deploy config)"
-            if catalog and referenced:
-                extra[var] = origin
+            if _provider_is_keyless(provider):
+                extra.setdefault(var, origin)
+                keyless.add(var)
+            elif catalog and referenced:
+                extra.setdefault(var, origin)
             else:
                 required[var] = origin
 
-    return required, extra
+    return required, extra, keyless
 
 
 def _build_env_production_subset(
@@ -791,7 +821,7 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
     env_path = root / ENV_LOCAL_FILENAME
 
     dotenv = merge_chain(root)
-    required_cc_vars, _extra_cc_vars = _claude_code_auth_secret_vars(config, root)
+    required_cc_vars, _extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(config, root)
     # Reported, never copied: these are variables a telemetry block depends on
     # that this file is not allowed to carry, so they join the gate below and
     # nothing else. Keeping them out of the {**required, **extra} pair handed to
@@ -865,6 +895,25 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
         f"missing variable(s) to {env_path}, or author .env.users "
         "yourself (an existing file is never regenerated) if this deploy "
         f"authenticates another way.{telemetry_note}{shell_hint}"
+    )
+
+
+def render_env_users(subset: dict[str, str]) -> str:
+    """The full text of a rendered ``.env.users``: readme header, then one line per var.
+
+    THE render seam shared by :func:`ensure_env_production` and ``osprey users
+    env``, so the two writers cannot drift — including the header, which is why
+    stdout mode prints it too: there, stdout IS the file, and comment lines are
+    valid dotenv for every compose implementation that reads it.
+
+    Lines go through ``format_env_line``, not a bare f-string: a value that
+    needs quoting to survive a re-read (leading/trailing whitespace, an embedded
+    space or ``#``) is rendered so every ``.env`` parser downstream — ours, and
+    whichever compose implementation reads this ``env_file:`` — hands the
+    container the value the chain actually holds instead of a truncated one.
+    """
+    return ENV_USERS_BANNER + "".join(
+        f"{format_env_line(key, value)}\n" for key, value in subset.items()
     )
 
 
@@ -974,7 +1023,7 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     sources_desc = " + ".join(str(path) for path in sources)
 
     dotenv = merge_chain(root)
-    required_cc_vars, extra_cc_vars = _claude_code_auth_secret_vars(config, root)
+    required_cc_vars, extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(config, root)
 
     # Unlike every optional module var above (silently skipped when absent —
     # see _copy_named_env_var), a missing claude_code auth secret means some
@@ -1001,12 +1050,10 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     if offenders:
         raise ComposeInterpolationError(offenders, users_env_path)
 
-    # format_env_line, not a bare f-string: a value that needs quoting to survive
-    # a re-read (leading/trailing whitespace, an embedded space or `#`) is
-    # rendered so every .env parser downstream — ours, and whichever compose
-    # implementation reads this env_file: — hands the container the value the
-    # chain actually holds instead of a truncated one.
-    lines = "".join(f"{format_env_line(key, value)}\n" for key, value in subset.items())
+    # The shared renderer (header + format_env_line-quoted lines), so this file
+    # and one rendered by `osprey users env` are byte-identical for the same
+    # subset.
+    lines = render_env_users(subset)
     # Create with mode 0600 from the FIRST byte on disk, not write-then-chmod:
     # write_text() would create the file at the process umask (typically
     # 0644) and write every secret before a later os.chmod tightened
@@ -1049,7 +1096,9 @@ def _warn_if_env_production_lacks_credentials(
     - The LLM arm is all-or-nothing on purpose: a file carrying ANY of the
       provider secrets in play is a file someone is maintaining, and naming the
       rest of them would fire on every deploy that authenticates a subset of
-      its personas another way.
+      its personas another way. Keyless providers' vars are not in play at
+      all: an ollama-only deploy has no credential to miss, so it never
+      triggers this arm.
     - The telemetry arm asks about one variable at a time, because the
       observability account name has no such alternative: a file that omits it
       leaves the terminals naming the reference's own fallback address, which
@@ -1058,8 +1107,17 @@ def _warn_if_env_production_lacks_credentials(
     """
     _warn_if_telemetry_account_absent(config, project_root, users_env_path)
 
-    required_cc_vars, extra_cc_vars = _claude_code_auth_secret_vars(config, project_root)
-    expected: dict[str, str] = dict(extra_cc_vars)
+    required_cc_vars, extra_cc_vars, keyless_cc_vars = _claude_code_auth_secret_vars(
+        config, project_root
+    )
+    # Keyless providers' vars (ollama, vllm, ds4) are left out: a terminal
+    # that authenticates to nothing has no credential to miss, so their
+    # absence from an operator-authored file is not a breadcrumb worth
+    # leaving. Same classification _claude_code_auth_secret_vars already
+    # decided — not re-derived here.
+    expected: dict[str, str] = {
+        var: origin for var, origin in extra_cc_vars.items() if var not in keyless_cc_vars
+    }
     expected.update(required_cc_vars)
     llm_var = (config.get("llm") or {}).get("api_key_env_var")
     if isinstance(llm_var, str) and llm_var:

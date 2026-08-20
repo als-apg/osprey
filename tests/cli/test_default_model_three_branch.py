@@ -1,10 +1,11 @@
-"""``claude_code.default_model`` resolves in three branches — or refuses.
+"""``claude_code.default_model`` resolves in four branches — never refusing.
 
 The key used to accept only tier aliases and silently substitute the provider's
 default tier for anything else, so a config naming Opus could run Haiku with no
-log line. Resolution now has exactly three outcomes: a canonical tier, a model
-ID the effective provider map serves, or a ValueError that names the key, the
-tiers, and the provider's model IDs.
+log line. Resolution now has exactly four outcomes: a canonical tier, a model
+ID the effective provider map serves, unset (the provider's default tier), or
+any other model ID — which passes through verbatim as ``ANTHROPIC_MODEL``, so a
+newly released ID or gateway-only alias is usable before the tier map names it.
 """
 
 from pathlib import Path
@@ -87,36 +88,47 @@ class TestBranchTwoExplicitModelId:
         assert spec.tier_to_model[spec.default_model_tier] == "claude-opus-4-7"
 
 
-class TestBranchThreeHardError:
-    """Anything else refuses, actionably."""
+class TestBranchFourFreeFormPassThrough:
+    """Any other model ID passes through verbatim — the provider is trusted."""
 
-    def test_unknown_value_raises(self):
-        with pytest.raises(ValueError) as exc:
-            ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
-        message = str(exc.value)
-        assert "claude_code.default_model" in message, "error must name the key"
-        assert "gpt-4" in message, "error must quote the rejected value"
-        for tier in ("haiku", "sonnet", "opus"):
-            assert tier in message, f"error must list the valid tier {tier}"
-        for model_id in CLAUDE_CODE_PROVIDERS["cborg"]["models"].values():
-            assert model_id in message, f"error must list the provider's model ID {model_id}"
+    def test_unknown_value_passes_through(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
+        assert spec.env_block["ANTHROPIC_MODEL"] == "gpt-4"
+        assert spec.default_model_id == "gpt-4"
+        # The tier map is untouched: only the default is free-form.
+        assert spec.tier_to_model == CLAUDE_CODE_PROVIDERS["cborg"]["models"]
 
-    def test_model_id_of_a_different_provider_raises(self):
-        """The old silent fallback made this the common real-world mis-resolution."""
-        with pytest.raises(ValueError, match="claude_code.default_model"):
-            ClaudeCodeModelResolver.resolve(
-                {"provider": "anthropic", "default_model": "claude-opus-4-7"}
-            )
+    def test_default_model_tier_stays_a_valid_key(self):
+        """Consumers index tier_to_model[default_model_tier] — it must not KeyError."""
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
+        assert spec.default_model_tier == "haiku"  # cborg's own default tier
+        assert spec.default_model_tier in spec.tier_to_model
 
-    def test_error_names_the_configured_provider(self):
-        with pytest.raises(ValueError) as exc:
-            ClaudeCodeModelResolver.resolve(
-                {"provider": "lbl-aws", "default_model": "claude-opus-4-7"},
-                api_providers=CUSTOM_PROVIDERS,
-            )
-        message = str(exc.value)
-        assert "lbl-aws" in message
-        assert "custom-opus-id" in message
+    def test_model_id_of_a_different_provider_passes_through(self):
+        """Formerly the common real-world mis-resolution; now trusted verbatim,
+        so a just-released Anthropic ID is usable before the map names it."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "anthropic", "default_model": "claude-opus-4-7"}
+        )
+        assert spec.env_block["ANTHROPIC_MODEL"] == "claude-opus-4-7"
+
+    def test_custom_provider_free_form_id(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws", "default_model": "brand-new-id"},
+            api_providers=CUSTOM_PROVIDERS,
+        )
+        assert spec.env_block["ANTHROPIC_MODEL"] == "brand-new-id"
+        assert spec.default_model_id == "brand-new-id"
+
+    def test_mapped_ids_do_not_set_default_model_id(self):
+        """Branches 1-3 leave default_model_id None — the ID travels via the tier."""
+        for cc_config in (
+            {"provider": "cborg"},
+            {"provider": "cborg", "default_model": "sonnet"},
+            {"provider": "cborg", "default_model": "claude-opus-4-7"},
+        ):
+            spec = ClaudeCodeModelResolver.resolve(cc_config)
+            assert spec.default_model_id is None, cc_config
 
 
 def _effective_model_and_provider(stem: str) -> tuple[str | None, str | None]:
