@@ -20,8 +20,10 @@
  *   - the session footer: the Settings / Log out row is the card's last child,
  *     Settings keeps the `[data-drawer-trigger]`-not-`[data-drawer]` contract
  *     settings.js's warning gate binds to and closes the card on click (the
- *     open itself is settings.js's, out of scope here), and Log out
- *     deliberately does not close it (the logout itself is app.js's)
+ *     open itself is settings.js's, out of scope here), and Log out — the
+ *     display-menu copy, `#display-menu-logout-btn`; the header identity
+ *     chip holds `#logout-btn` (identity-menu.test.mjs) — deliberately does
+ *     not close it (the logout itself is app.js's)
  *
  * Module-identity note (same as theme-switcher.test.mjs): this file imports
  * theme-manager.js and display-menu.js exactly once, at the top, and resets
@@ -55,6 +57,8 @@ const FIXTURE = `
       <div class="display-menu-actions">
         <button class="display-menu-settings" id="display-menu-settings" type="button"
                 data-drawer-trigger="settings-drawer">Settings</button>
+        <button class="display-menu-logout" id="display-menu-logout-btn" type="button"
+                data-landing-url="https://facility.example/portal">Log out</button>
       </div>
     </div>
   </div>
@@ -152,9 +156,20 @@ describe('display-menu', () => {
       qs('#display-menu-settings').click();
       expect(qs('#display-menu-card').classList.contains('open')).toBe(false);
     });
+
+    test('a Log out click leaves the card OPEN', () => {
+      // Deliberate: the logout handler (app.js) navigates away on every path,
+      // and closing the card first would hide the button's own aria-busy state
+      // while the POST is still in flight.
+      mountAndInit();
+      qs('#display-menu-btn').click();
+
+      qs('#display-menu-logout-btn').click();
+      expect(qs('#display-menu-card').classList.contains('open')).toBe(true);
+    });
   });
 
-  describe('Settings row', () => {
+  describe('Session footer', () => {
     test('keeps the data-drawer-trigger contract settings.js binds its gate to', () => {
       mountAndInit();
       // The row must remain the [data-drawer-trigger="settings-drawer"] the
@@ -171,10 +186,11 @@ describe('display-menu', () => {
       const card = qs('#display-menu-card');
       const actions = qs('.display-menu-actions');
       expect(card.lastElementChild).toBe(actions);
-      // Settings is the whole row now — identity and Log out moved to the
-      // header identity menu (identity-menu.test.mjs).
+      // Settings leads, Log out follows: the destructive control is not the
+      // one under the cursor when the card opens. (The header identity menu
+      // holds the second Log out, `#logout-btn` — identity-menu.test.mjs.)
       expect(actions.firstElementChild).toBe(qs('#display-menu-settings'));
-      expect(actions.children.length).toBe(1);
+      expect(actions.lastElementChild).toBe(qs('#display-menu-logout-btn'));
     });
 
     test('init still no-ops when the row is absent', () => {

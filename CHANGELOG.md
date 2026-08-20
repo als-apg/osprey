@@ -166,8 +166,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - Logging out now starts where operators look for it: the chip in the web
   terminal's top-left corner naming the terminal. Clicking it opens a small
-  session menu with the signed-in user and **Log out**. The display menu keeps
-  Settings and is about display again.
+  session menu with the signed-in user and **Log out**. Log out is also in the
+  display menu next to Settings, so it is reachable from either place; the
+  identity line itself lives only in the chip.
 
 - The control assistant writes for the control room. Its answers now follow a
   plain-language style: one idea per sentence, active voice naming the actor,

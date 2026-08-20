@@ -199,11 +199,14 @@
                 <!-- One pill per theme family, rendered by display-menu.js -->
               </div>
             </div>
-            <!-- Settings row. Identity and Log out used to sit here too; they
-                 moved to the header identity chip, because that is where
-                 operators actually reach for them — the name in the corner
-                 reads as "who am I", and clicking it to leave is the gesture
-                 people arrive with. This card is about display again.
+            <!-- Action row: Settings, then Log out. The identity line moved to
+                 the header identity chip, and Log out lives in BOTH places —
+                 the chip is where operators reach for it (the name in the
+                 corner reads as "who am I"), while this row keeps the way out
+                 discoverable from the card they already have open. The chip's
+                 copy owns `#logout-btn` (app.js's initLogoutButton() and
+                 palette-boot.js both resolve that id), so this one carries its
+                 own id; initLogoutButton() binds both.
 
                  Settings keeps `data-drawer-trigger` (settings.js's warning gate
                  is the sole open path; app.js mirrors `.active` onto it), and is
@@ -214,6 +217,14 @@
                       data-drawer-trigger="settings-drawer" title="Open system settings">
                 <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>Settings
               </button>
+              {% if terminal_user and landing_url %}
+              <button class="display-menu-logout" id="display-menu-logout-btn" type="button"
+                      data-landing-url="{{ landing_url }}"
+                      title="Log out {{ terminal_user }} and return to the landing page"
+                      aria-label="Log out {{ terminal_user }} and return to the landing page">
+                <span class="display-menu-logout-icon" aria-hidden="true">&#128682;</span>Log out
+              </button>
+              {% endif %}
             </div>
           </div>
         </div>
