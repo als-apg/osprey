@@ -739,6 +739,66 @@ html[data-ui-mode="simple"] .session-selector {
   background: var(--bg-elevated);
 }
 
+/* ---- Utility cluster (Documentation + Feedback, far end of the rail) ---- */
+
+/* The rail's non-panel controls. `margin-top: auto` eats the column's free
+   space, which pins the pair to the very bottom and leaves the entries + "+"
+   as one block at the top — .panel-rail has no flex:1, so without this the
+   cluster would ride directly under the "+" and read as two more nameless
+   tabs. The rule above the pair is what says "different kind of thing"; it is
+   inset to the 62px cell width so it lines up with the cells rather than the
+   74px column. */
+.panel-utility {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  width: 62px;
+  margin-top: auto;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-default);
+}
+
+/* Same 62x52 cell as .panel-add-btn above — the cluster is a different GROUP,
+   not a different size. `text-decoration: none` is for the anchor half. */
+.panel-utility-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 52px;
+  padding: 0;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+/* The UA's `[hidden] { display: none }` is a bare attribute selector and loses
+   to the class rule above, so a docs anchor hidden by rail-utility.js (no
+   web.docs_url configured) would keep painting without this. */
+.panel-utility-btn[hidden] {
+  display: none;
+}
+
+.panel-utility-btn:hover,
+.panel-utility-btn:focus-visible {
+  color: var(--color-accent-light);
+  background: var(--bg-elevated);
+}
+
+.panel-utility-icon {
+  font-size: var(--text-xl);
+  line-height: var(--leading-none);
+}
+
+.panel-utility-icon[data-icon="docs"]::before { content: "\24d8"; }     /* ⓘ documentation */
+.panel-utility-icon[data-icon="feedback"]::before { content: "\2709"; } /* ✉ feedback */
+
 /* The popover opens to the RIGHT of the rail (the "+" sits in a narrow left
    column), top-aligned to the button. */
 .panel-add-menu {
@@ -1023,6 +1083,30 @@ html[data-rail-position="top"] .panel-add-btn {
 html[data-rail-position="top"] .panel-add-menu {
   top: calc(100% + 8px);
   left: 0;
+}
+
+/* The utility cluster turns the same corner: the far end of the column is the
+   far RIGHT of the strip, and the separating rule turns from a top border into
+   a left one. `margin-left: auto` does the pinning — .panel-rail still has no
+   flex:1, it just overflows horizontally now. */
+html[data-rail-position="top"] .panel-utility {
+  flex-direction: row;
+  width: auto;
+  height: 100%;
+  margin-top: 0;
+  margin-left: auto;
+  padding-top: 0;
+  padding-left: var(--space-2);
+  border-top: none;
+  border-left: 1px solid var(--border-default);
+}
+
+/* The strip is 40px tall and deliberately does not clip, so an un-overridden
+   52px cell would hang over the workspace below it. Mirrors .panel-add-btn. */
+html[data-rail-position="top"] .panel-utility-btn {
+  width: 40px;
+  height: 100%;
+  border-radius: 0;
 }
 
 /* ---- One-time rail hint ---- */
