@@ -510,3 +510,26 @@ async def test_execute_file_empty_path():
 
     data = _exc_ctx["envelope"]
     assert "no file path" in data["error_message"].lower()
+
+
+@pytest.mark.unit
+async def test_execute_file_readonly_refuses_epics_import(tmp_path, monkeypatch):
+    """Same readonly import gate as ``execute``: the file's imports are walked."""
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "alias.py"
+    script.write_text("from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)\n")
+    mock_exec = _mock_execute_code(success=True, stdout="")
+
+    with (
+        patch(
+            "osprey.mcp_server.python_executor.executor._resolve_project_root",
+            return_value=tmp_path,
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+    ):
+        fn = _get_python_execute_file()
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(file_path=str(script), description="alias", execution_mode="readonly")
+
+    assert any("epics" in s for s in _exc_ctx["envelope"]["suggestions"])
+    mock_exec.assert_not_called()

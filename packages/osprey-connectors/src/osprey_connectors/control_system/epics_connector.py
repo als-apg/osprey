@@ -257,9 +257,19 @@ class EPICSConnector(ControlSystemConnector):
             writes_enabled = False  # Can't tell -> assume the safe (read-only) path
 
         write_gateway = gateways.get("write_access") or {}
-        if writes_enabled and write_gateway:
+        # A readonly sandbox run stays on the read_only gateway even on a
+        # write-enabled deployment: the per-run claim is enforced at the
+        # network layer, so a raw caput issued after read_channel() in the
+        # same process is rejected by the gateway rather than trusted.
+        from osprey_connectors.control_system.base import is_readonly_run
+
+        readonly_run = is_readonly_run()
+        if writes_enabled and write_gateway and not readonly_run:
             gateway_config = write_gateway
             logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
+        elif readonly_run and write_gateway:
+            gateway_config = gateways.get("read_only", {})
+            logger.debug("EPICS connector: readonly run, staying on read_only gateway")
         else:
             gateway_config = gateways.get("read_only", {})
             if writes_enabled and not write_gateway:

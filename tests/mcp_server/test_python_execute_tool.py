@@ -1328,3 +1328,48 @@ def test_enumeration_probe_works_against_a_real_interpreter():
 
     assert names, "live interpreter reported no importable top-level packages"
     assert all(name.isidentifier() and not name.startswith("_") for name in names)
+
+
+# ============================================================================
+# readonly mode refuses control-system client imports before execution
+# ============================================================================
+
+
+ALIASED_CAPUT = "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)\n"
+
+
+@pytest.mark.unit
+async def test_python_execute_readonly_refuses_epics_import(tmp_path, monkeypatch):
+    """An aliased caput evades every write regex; the import itself is refused."""
+    monkeypatch.chdir(tmp_path)
+    mock_exec = _mock_execute_code(success=True, stdout="")
+
+    with patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec):
+        fn = _get_python_execute()
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(code=ALIASED_CAPUT, description="alias", execution_mode="readonly")
+
+    data = _exc_ctx["envelope"]
+    assert any("epics" in s for s in data["suggestions"]), data
+    mock_exec.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_python_execute_readwrite_allows_epics_import(tmp_path, monkeypatch):
+    """The denylist is a readonly gate only; readwrite runs are approved by a human."""
+    monkeypatch.chdir(tmp_path)
+    mock_exec = _mock_execute_code(success=True, stdout="")
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    with (
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
+        ),
+    ):
+        fn = _get_python_execute()
+        result = await fn(code=ALIASED_CAPUT, description="alias", execution_mode="readwrite")
+
+    assert extract_response_dict(result)["status"] == "success"
+    mock_exec.assert_called_once()
