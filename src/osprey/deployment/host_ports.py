@@ -32,6 +32,13 @@ from pathlib import Path
 
 import yaml
 
+from osprey.deployment.graphdb_service import DEFAULT_HTTP_PORT as GRAPHDB_DEFAULT_HTTP_PORT
+from osprey.deployment.graphdb_service import DEFAULT_PORT as GRAPHDB_DEFAULT_PORT
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_HTTP_PORT_CONFIG_KEY,
+    GRAPHDB_PORT_CONFIG_KEY,
+    GRAPHDB_SERVICE_NAME,
+)
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
 from osprey.utils.logger import get_logger
@@ -58,6 +65,25 @@ _SERVICE_REMEDY_KEYS = {
     "bluesky-web": "services.bluesky_web.port",
     "virtual-accelerator": "services.virtual_accelerator.port",
     "qmd": QMD_PORT_CONFIG_KEY,
+    # Fallback for a graphdb binding whose container port did not match the
+    # per-port table below (an unrecognised published port). The bolt key is the
+    # honest guess — the generic `services.graphdb.port` fallback names a key
+    # that does not exist in the schema at all.
+    GRAPHDB_SERVICE_NAME: GRAPHDB_PORT_CONFIG_KEY,
+}
+
+# Remedy keys resolved per ``(service, container_port)``, consulted BEFORE the
+# per-service map. The graph store is the first single compose service to
+# publish two host ports, so its service name alone cannot say which of the two
+# config keys moves the contested one: telling an operator whose Neo4j Browser
+# port collided to edit ``port_host`` would send them to change the bolt port
+# and leave the collision exactly where it was. Keyed on the CONTAINER port,
+# which is fixed by the image (7687 bolt, 7474 HTTP) no matter which host ports
+# the project publishes them on, so a project that moved either one still
+# resolves the key that moves it.
+_SERVICE_PORT_REMEDY_KEYS = {
+    (GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_PORT): GRAPHDB_PORT_CONFIG_KEY,
+    (GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_HTTP_PORT): GRAPHDB_HTTP_PORT_CONFIG_KEY,
 }
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
@@ -154,8 +180,13 @@ class _PsRecord:
     host_ports: set = field(default_factory=set)
 
 
-def _remedy_for_service(service):
+def _remedy_for_service(service, container_port=None):
     """Return the config key that moves ``service``'s host port.
+
+    A service that publishes more than one host port has more than one remedy
+    key, so ``(service, container_port)`` is consulted first: the container port
+    is what distinguishes the two, and it is stable across projects because the
+    image fixes it. Everything else resolves by service name alone.
 
     Workers are indexed (``dispatch-worker-1``, ``-2``, …) but share one config
     key, so their index is dropped before the lookup — the generic fallback
@@ -163,9 +194,16 @@ def _remedy_for_service(service):
 
     :param service: Compose service name
     :type service: str
+    :param container_port: Port inside the container this binding maps to, when
+        known; ``None`` skips the per-port table and resolves by name alone
+    :type container_port: int or None
     :return: Dotted config key (well-known mapping, else a generic fallback)
     :rtype: str
     """
+    if container_port is not None:
+        per_port = _SERVICE_PORT_REMEDY_KEYS.get((service, container_port))
+        if per_port is not None:
+            return per_port
     if service.startswith(f"{_WORKER_SERVICE_PREFIX}-"):
         return _SERVICE_REMEDY_KEYS[_WORKER_SERVICE_PREFIX]
     return _SERVICE_REMEDY_KEYS.get(service, f"services.{service}.port")
@@ -315,6 +353,12 @@ def derive_host_network_bindings(config):
     - worker ``i`` (1-based) binds
       ``worker_port_base + (i - 1) * worker_port_stride``, one port per
       ``worker_count``;
+    - the graph store binds BOTH ``services.graphdb.port_host`` (bolt) and
+      ``services.graphdb.http_port_host`` (Browser and health probe) on
+      loopback, which is where its host-mode template points Neo4j's listen
+      addresses. Each derived binding is labeled with the port INSIDE the
+      container (7687 / 7474), the number the image fixes, so it matches what
+      the same service's published binding would parse to;
     - every OTHER host-mode service block binds ``services.<name>.port`` — the
       same per-service convention :func:`_remedy_for_service` already names as
       the generic remedy — on its optional ``bind`` override. A facility
@@ -368,11 +412,33 @@ def derive_host_network_bindings(config):
                 )
             )
 
+    graphdb = _service_block(config, GRAPHDB_SERVICE_NAME)
+    if _on_host_network(graphdb):
+        # Two ports from one service, and neither lives under the `port` key the
+        # generic branch reads. Each binding carries the CONTAINER port the
+        # image fixes, not the host port it was moved to, so a derived binding
+        # and a parsed one describe the same thing and resolve the same remedy
+        # key and the same URL scheme downstream.
+        for config_key, container_port in (
+            ("port_host", GRAPHDB_DEFAULT_PORT),
+            ("http_port_host", GRAPHDB_DEFAULT_HTTP_PORT),
+        ):
+            bindings.append(
+                HostPortBinding(
+                    service=GRAPHDB_SERVICE_NAME,
+                    host_ip=_HOST_NETWORK_BIND,
+                    host_port=_int_or_default(graphdb.get(config_key), container_port),
+                    container_port=container_port,
+                    compose_file=_DERIVED_SOURCE,
+                    host_network=True,
+                )
+            )
+
     services = config.get("services") if isinstance(config, dict) else None
     if isinstance(services, dict):
         for name, block in services.items():
-            if name in ("event_dispatcher", "dispatch_worker"):
-                continue  # specialized above (bind override / worker fan-out)
+            if name in ("event_dispatcher", "dispatch_worker", GRAPHDB_SERVICE_NAME):
+                continue  # specialized above (bind override / fan-out / two ports)
             if name in _HOST_MODE_PORTLESS_SERVICES:
                 continue  # outbound-only: nothing bound, nothing to preflight
             block = block if isinstance(block, dict) else {}
@@ -631,7 +697,7 @@ def find_port_conflicts(bindings, project_name, config=None):
                     service=binding.service,
                     kind="duplicate",
                     holder=f"service '{claimed[key].service}'",
-                    remedy=_remedy_for_service(binding.service),
+                    remedy=_remedy_for_service(binding.service, binding.container_port),
                     host_network=binding.host_network,
                 )
             )
@@ -673,7 +739,7 @@ def find_port_conflicts(bindings, project_name, config=None):
                 service=binding.service,
                 kind="external",
                 holder=description,
-                remedy=_remedy_for_service(binding.service),
+                remedy=_remedy_for_service(binding.service, binding.container_port),
                 host_network=binding.host_network,
             )
         )
