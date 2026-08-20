@@ -202,6 +202,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The contribute and release skills' CI watch loops no longer treat an empty
+  `gh` answer as success: no rows from `gh pr checks` or no matching run from
+  `gh run watch` now reads as unknown, to be re-queried with an explicit
+  PR/run selector before anything counts as green.
 - Container builds no longer fail when one package download is cut short. apt
   now fetches one request per connection: with pipelining left at its default,
   a connection reset partway through a batch could fail the whole image even

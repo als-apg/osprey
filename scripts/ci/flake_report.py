@@ -215,11 +215,16 @@ def rank_failures(records) -> list[dict]:
 # --------------------------------------------------------------------------
 
 
-def gh_api(path: str, paginate: bool = False) -> str:
-    """Call ``gh api`` and return stdout, or "" when the resource is gone.
+def gh_api(path: str, paginate: bool = False) -> str | None:
+    """Call ``gh api`` and return stdout, "" if gone, or None if unanswerable.
 
-    Expired logs and deleted runs are normal in a 90-day window, so a failed
-    call is data rather than an error.
+    Expired logs and deleted runs are normal in a 90-day window, so a 404 is
+    data rather than an error and comes back as "". Everything else -- timeout,
+    rate limiting, auth failure, network loss -- means the question could not
+    be asked at all, and comes back as ``None`` so callers never mistake an
+    outage for a clean answer. ``gh api`` names the HTTP status in stderr, so
+    a non-zero exit is only treated as "gone" when stderr says HTTP 404;
+    anything unrecognisable fails toward UNKNOWN, never toward healthy.
     """
     cmd = ["gh", "api"]
     if paginate:
@@ -228,9 +233,10 @@ def gh_api(path: str, paginate: bool = False) -> str:
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=180)
     except subprocess.TimeoutExpired:
-        return ""
+        return None
     if result.returncode != 0:
-        return ""
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        return "" if "HTTP 404" in stderr else None
     return result.stdout.decode("utf-8", errors="replace")
 
 
@@ -246,7 +252,9 @@ def cached_json(cache: Path | None, key: str, produce):
     """Memoise an immutable API result on disk.
 
     Completed job logs and attempt job lists never change, so caching them
-    turns a repeat scan from minutes into seconds.
+    turns a repeat scan from minutes into seconds. ``None`` -- the producer
+    could not ask -- is never written, or a transient API failure would be
+    memoised as a permanent "nothing failed here".
     """
     if cache is None:
         return produce()
@@ -257,6 +265,8 @@ def cached_json(cache: Path | None, key: str, produce):
         except (OSError, json.JSONDecodeError):
             pass
     value = produce()
+    if value is None:
+        return None
     try:
         entry.write_text(json.dumps(value))
     except OSError:
@@ -264,12 +274,18 @@ def cached_json(cache: Path | None, key: str, produce):
     return value
 
 
-def list_rerun_runs(repo: str, workflow: str, since: str) -> list[dict]:
-    """Return completed runs in the window that someone re-ran."""
+def list_rerun_runs(repo: str, workflow: str, since: str) -> list[dict] | None:
+    """Return completed runs in the window that someone re-ran.
+
+    ``None`` means the listing itself could not be fetched -- there is no
+    window to analyse, which is not the same as an empty one.
+    """
     raw = gh_api(
         f"repos/{repo}/actions/workflows/{workflow}/runs?per_page=100&created=%3E%3D{since}",
         paginate=True,
     )
+    if raw is None:
+        return None
     runs = []
     for payload in iter_json_documents(raw):
         for run in payload.get("workflow_runs", []):
@@ -286,23 +302,35 @@ def list_rerun_runs(repo: str, workflow: str, since: str) -> list[dict]:
 
 
 def fetch_attempt_jobs(repo: str, run_id: int, attempt: int, cache: Path | None):
+    """Return the attempt's jobs as tuples, or ``None`` if unqueryable."""
+
     def produce():
         raw = gh_api(f"repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+        if raw is None:
+            return None
         if not raw:
             return []
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            return []
+            # A truncated or garbled body is a failed answer, not an empty one.
+            return None
         return [[j["id"], j["name"], j.get("conclusion")] for j in payload.get("jobs", [])]
 
     rows = cached_json(cache, f"jobs_{run_id}_{attempt}", produce)
+    if rows is None:
+        return None
     return [tuple(row) for row in rows]
 
 
-def fetch_job_failures(repo: str, job_id: int, cache: Path | None) -> list[str]:
+def fetch_job_failures(repo: str, job_id: int, cache: Path | None) -> list[str] | None:
+    """Return the job's failing node IDs, or ``None`` if the log is unfetchable."""
+
     def produce():
-        return parse_test_failures(gh_api(f"repos/{repo}/actions/jobs/{job_id}/logs"))
+        raw = gh_api(f"repos/{repo}/actions/jobs/{job_id}/logs")
+        if raw is None:
+            return None
+        return parse_test_failures(raw)
 
     return cached_json(cache, f"log_{job_id}", produce)
 
@@ -349,6 +377,9 @@ def main(argv=None) -> int:
 
     note(f"Scanning {args.repo} {args.workflow} since {since} ...")
     runs = list_rerun_runs(args.repo, args.workflow, since)
+    if runs is None:
+        print("Could not list workflow runs -- the window is UNKNOWN, not clean.", file=sys.stderr)
+        return 1
     note(f"  {len(runs)} completed runs were re-run at least once")
     if not runs:
         print("No re-run runs in window -- nothing to analyse.")
@@ -369,17 +400,28 @@ def main(argv=None) -> int:
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         results = list(pool.map(load_attempt, tasks))
 
+    # A run with any unqueryable attempt cannot be classified -- it is
+    # reported as UNKNOWN rather than analysed as if those failures never
+    # happened.
+    unknown_run_ids = {run_id for run_id, _attempt, jobs in results if jobs is None}
     attempts_by_run: dict[int, dict[int, list]] = defaultdict(dict)
     for run_id, attempt, jobs in results:
-        attempts_by_run[run_id][attempt] = jobs
-    for run in runs:
+        if jobs is not None:
+            attempts_by_run[run_id][attempt] = jobs
+    known_runs = [run for run in runs if run["run_id"] not in unknown_run_ids]
+    for run in known_runs:
         run["attempts"] = attempts_by_run.get(run["run_id"], {})
 
-    flakes, persistent = split_flakes_and_persistent(runs)
-    note(f"  {len(flakes)} proven flakes, {len(persistent)} persistent failures")
+    flakes, persistent = split_flakes_and_persistent(known_runs)
+    note(
+        f"  {len(flakes)} proven flakes, {len(persistent)} persistent failures"
+        + (f", {len(unknown_run_ids)} runs UNKNOWN" if unknown_run_ids else "")
+    )
 
     if not flakes:
         print("No proven flakes in window.")
+        if unknown_run_ids:
+            print(f"UNKNOWN -- {len(unknown_run_ids)} runs could not be queried, not proven clean.")
         return 0
 
     note(f"  fetching logs for {len(flakes)} flaky jobs ...")
@@ -388,10 +430,15 @@ def main(argv=None) -> int:
             pool.map(lambda f: fetch_job_failures(args.repo, f["job_id"], cache), flakes)
         )
 
+    unknown_logs: list[dict] = []
     infra: list[dict] = []
     enriched: list[dict] = []
     for record, node_ids in zip(flakes, node_id_lists, strict=True):
-        if node_ids:
+        if node_ids is None:
+            # An unfetchable log is not "no test-level failure" -- the job is
+            # still a proven flake, it just cannot be attributed to a test.
+            unknown_logs.append(record)
+        elif node_ids:
             enriched.append({**record, "tests": group_fixture_failures(node_ids)})
         else:
             infra.append(record)
@@ -406,6 +453,8 @@ def main(argv=None) -> int:
                     "repo": args.repo,
                     "since": since,
                     "runs_rerun": len(runs),
+                    "unknown_runs": len(unknown_run_ids),
+                    "unknown_job_logs": len(unknown_logs),
                     "flaky_job_instances": len(flakes),
                     "persistent_job_instances": len(persistent),
                     "flakes": ranked,
@@ -442,6 +491,13 @@ def main(argv=None) -> int:
         )
         for name in persistent_jobs:
             print(f"        {name}")
+
+    if unknown_run_ids or unknown_logs:
+        print()
+        print(
+            f"UNKNOWN -- could not be queried, not proven clean "
+            f"({len(unknown_run_ids)} runs, {len(unknown_logs)} job logs)"
+        )
 
     return 0
 

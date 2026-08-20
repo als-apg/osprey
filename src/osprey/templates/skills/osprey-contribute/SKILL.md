@@ -240,6 +240,10 @@ gh pr checks --watch
 When checks complete:
 
 - **All green** → Phase 7.
+- **No rows** — `gh pr checks` printing nothing means the checks could not be
+  seen (not yet registered, or the call failed), not that they passed. That is
+  UNKNOWN: re-poll, or re-query with an explicit selector (`gh pr checks
+  <pr-number>`); do not advance to the green branch on it.
 - **Failures** — fetch the failed run's logs, summarize the root cause, suggest
   a minimal fix. The contributor edits, re-stage, re-commit (or `git commit
   --amend` if the broken commit is the tip and not yet pulled by anyone else).
