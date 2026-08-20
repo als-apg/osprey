@@ -1,0 +1,47 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 400" role="img" aria-labelledby="network-attachment-title network-attachment-desc">
+  <title id="network-attachment-title">Bridge and host network attachment compared</title>
+  <desc id="network-attachment-desc">Under bridge, services join the compose project network, publish ports, bind every interface, and address each other by compose service name. Under host they share the host's network namespace, publish nothing, bind loopback only, and address each other as localhost. Services that talk to each other must sit on the same side; osprey build refuses a deployment that crosses the boundary.</desc>
+
+  <text class="te" x="16" y="30">BRIDGE · THE DEFAULT</text>
+  <text class="te" x="500" y="30">NETWORK: HOST</text>
+
+  <line class="divider e-dash" x1="482" y1="40" x2="482" y2="350"/>
+
+  <!-- bridge panel -->
+  <rect class="zone" x="16" y="48" width="444" height="232" rx="6"/>
+  <text class="ts" x="32" y="70">osprey-network — the compose project network</text>
+  <rect class="nb" x="48" y="84" width="380" height="48" rx="6"/>
+  <text class="tn" x="238" y="106" text-anchor="middle">event_dispatcher</text>
+  <text class="ts" x="238" y="122" text-anchor="middle">publishes 8020</text>
+  <rect class="nb" x="48" y="148" width="380" height="48" rx="6"/>
+  <text class="tn" x="238" y="170" text-anchor="middle">dispatch_worker</text>
+  <text class="ts" x="238" y="186" text-anchor="middle">publishes 9190</text>
+  <rect class="nb" x="48" y="212" width="380" height="48" rx="6"/>
+  <text class="tn" x="238" y="234" text-anchor="middle">chat bridge</text>
+  <text class="ts" x="238" y="250" text-anchor="middle">no published port</text>
+
+  <text class="ts" x="16" y="302">ports: published — reachable at deployment.bind_address</text>
+  <text class="ta ta-warn" x="16" y="318">binds every interface — the network itself is the boundary</text>
+  <text class="ts" x="16" y="334">services address each other by compose service name</text>
+
+  <!-- host panel -->
+  <rect class="zone" x="500" y="48" width="444" height="232" rx="6"/>
+  <text class="ts" x="516" y="70">the host's own network namespace — network_mode: host</text>
+  <rect class="nb" x="532" y="84" width="380" height="48" rx="6"/>
+  <text class="tn" x="722" y="106" text-anchor="middle">event_dispatcher</text>
+  <text class="ts" x="722" y="122" text-anchor="middle">listens on 127.0.0.1:8020</text>
+  <rect class="nb" x="532" y="148" width="380" height="48" rx="6"/>
+  <text class="tn" x="722" y="170" text-anchor="middle">dispatch_worker</text>
+  <text class="ts" x="722" y="186" text-anchor="middle">listens on 127.0.0.1:9190</text>
+  <rect class="nb" x="532" y="212" width="380" height="48" rx="6"/>
+  <text class="tn" x="722" y="234" text-anchor="middle">chat bridge</text>
+  <text class="ts" x="722" y="250" text-anchor="middle">reaches localhost:8020</text>
+
+  <text class="ts" x="500" y="302">no ports: block — the listening socket is already a host socket</text>
+  <text class="ta ta-warn" x="500" y="318">binds 127.0.0.1 only — off-host access is a deliberate act</text>
+  <text class="ts" x="500" y="334">services address each other as localhost:&lt;port&gt;</text>
+
+  <text class="ta ta-warn" x="480" y="374" text-anchor="middle">osprey build refuses a deployment whose services talk across this boundary — those addresses are written at build time</text>
+</svg>
+</div>

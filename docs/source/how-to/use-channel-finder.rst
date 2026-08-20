@@ -43,6 +43,12 @@ hierarchical, then in-context.
 | **Middle Layer**          | Large systems organized by function (MML)    |
 +---------------------------+----------------------------------------------+
 
+The three are not size tiers of one design. Each takes a differently shaped
+database and resolves a query by a different mechanism:
+
+.. raw:: html
+   :file: ../_diagrams/channel-finder-pipelines.html
+
 
 In-Context Pipeline
 ===================

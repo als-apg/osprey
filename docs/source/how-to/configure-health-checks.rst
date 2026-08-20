@@ -13,6 +13,12 @@ suite's timing.
 This guide covers the ``health:`` configuration surface. For the command's flags
 and exit codes, see ``osprey health --help``.
 
+Rows reach one report from six independent places, and three surfaces read the
+result at different tiers:
+
+.. raw:: html
+   :file: ../_diagrams/health-suite-composition.html
+
 Cost classes and ``--full``
 ---------------------------
 

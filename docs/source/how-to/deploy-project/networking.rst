@@ -46,6 +46,9 @@ reach each other at all. Writing ``network:`` on ``services.event_dispatcher``
 or ``services.dispatch_worker`` individually is rejected by ``osprey build``,
 which tells you to set ``dispatch.network`` instead.
 
+.. raw:: html
+   :file: ../../_diagrams/network-attachment.html
+
 Under ``network: host`` the render changes in four ways:
 
 * No ``ports:`` block. There is nothing to publish — the container's listening

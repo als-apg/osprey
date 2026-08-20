@@ -124,6 +124,9 @@ that comes back. Two are supported:
   (EPEL 9 ships 1.5.0), so a site running distribution packages needs nothing
   built from source.
 
+.. raw:: html
+   :file: ../../_diagrams/compose-provider-fork.html
+
 The answer comes from the banner, never from the command you typed.
 ``podman compose`` is a dispatcher that hands the work to whichever provider
 the host has configured, so on a host that delegates to Docker Compose v2 a
