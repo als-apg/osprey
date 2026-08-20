@@ -16,7 +16,9 @@ alongside your project.
    - **Phase 2:** the opt-in local OpenObserve add-on for an all-in-one,
      air-gapped store
    - The full-content-capture posture and how to suppress content categories
-   - Single-admin and data-volume caveats
+   - The store's two identities — the browser login and the telemetry ingest
+     account — and what each one can read
+   - Rotation, data-volume, and restart caveats
 
    **Prerequisites (Phase 2 only):** Docker (or Podman) installed locally.
 
@@ -124,28 +126,44 @@ default. If your project removed it, restore it:
    deployed_services:
      - openobserve
 
-2. (Optional) set the admin credentials
----------------------------------------
+2. Know the store's two identities
+----------------------------------
 
-The OpenObserve root account doubles as the OTLP ingest credential. You do not
-have to set it yourself: the first ``osprey up`` writes **both halves of the
-login** into the profile's ``.env`` — a minted ``ZO_ROOT_USER_PASSWORD`` and the
-account name ``ZO_ROOT_USER_EMAIL`` — and the project's ``.env`` is derived from
-there. So the answer to "what do I log in with" is always ``.env``:
+The store carries two separate identities, and they do different jobs:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 40 44
+
+   * - Identity
+     - ``.env`` variables
+     - What it is for
+   * - **Root**
+     - ``ZO_ROOT_USER_EMAIL``, ``ZO_ROOT_USER_PASSWORD``
+     - Initializes the store on its first start, and logs *you* into the
+       browser UI. It never leaves the deploy host: nothing on the wire
+       authenticates as root.
+   * - **Ingest**
+     - ``ZO_INGEST_USER_EMAIL``, ``ZO_INGEST_SA_TOKEN``
+     - The account the agent authenticates as when it ships telemetry. This is
+       the credential that travels — into the rendered ``config.yml``, and into
+       web-terminal environments.
+
+You do not have to set either one. ``osprey up`` writes whatever is missing
+into the project's ``.env``, so the answer to "what do I log in with" is always
+that file:
 
 .. code-block:: bash
 
-   grep ZO_ROOT_USER ~/my-project/.env
+   grep ZO_ ~/my-project/.env
 
-The minted password is short on purpose: you read it off a terminal and type it
-into a browser login form, so it is 12 characters drawn from an alphabet with
-the easily-misread characters (``l I 1 O 0``) removed. Every character still
-comes from a cryptographic random source, so it is short to type without being
-easy to guess.
-
-Set the two variables yourself (in the profile's ``.env``) if you want specific
-values — the same pair configures the container **and** authenticates the
-agent's OTLP push, one source of truth:
+**Root** is written before the store starts, because the store reads it to
+initialize itself. The minted password is short on purpose: you read it off a
+terminal and type it into a browser login form, so it is 12 characters drawn
+from an alphabet with the easily-misread characters (``l I 1 O 0``) removed.
+Every character still comes from a cryptographic random source, so it is short
+to type without being easy to guess. Set the pair yourself, in the project's
+``.env``, if you want specific values:
 
 .. code-block:: bash
 
@@ -153,15 +171,34 @@ agent's OTLP push, one source of truth:
    ZO_ROOT_USER_EMAIL=you@example.com
    ZO_ROOT_USER_PASSWORD=choose-a-strong-password
 
+**Ingest** cannot work that way, and this is the asymmetry worth remembering:
+its secret is issued by the *store*, not chosen by OSPREY, so it cannot exist
+before the store is running. The deploy creates the account and reads its token
+back — see step 3. Only the account *name* is written up front, and you may set
+it to an address of your choosing; the token half is never yours to write.
+
+.. warning::
+
+   **The ingest identity can read everything the store holds.** It is a real
+   OpenObserve service account and it is genuinely restricted — it cannot
+   create users and it cannot delete them, so a leaked ingest token cannot mint
+   itself a way back in or lock you out. But it is write-**plus**-read: it can
+   search every log and metric already in the store, which means the agent's
+   full conversation transcripts, and it can list the store's user roster.
+   OpenObserve has no ingest-only role in any edition, so this is as narrow as
+   the shipped identity gets. Guard the ingest token as closely as the
+   telemetry itself. What it does buy you is that the root password stays on
+   the deploy host and never reaches a config file, a container environment, or
+   the network.
+
 .. important::
 
    **Publishing this store beyond** ``localhost`` **exposes agent transcripts.**
-   It holds full agent conversation transcripts, and the same credentials serve
-   both its browser login and the agent's OTLP push. Reach it over an SSH
-   tunnel, or put it behind TLS, rather than binding it to every interface. The
-   minted password is a per-deploy random value, so it stays usable wherever the
-   store is published — what exposure changes is who can reach the login, not
-   how strong the password is.
+   It holds full agent conversation transcripts, and both identities can read
+   them. Reach it over an SSH tunnel, or put it behind TLS, rather than binding
+   it to every interface. The minted password is a per-deploy random value, so
+   it stays usable wherever the store is published — what exposure changes is
+   who can reach the login, not how strong the password is.
 
 3. Deploy it
 ------------
@@ -170,16 +207,53 @@ agent's OTLP push, one source of truth:
 
    osprey up        # brings up openobserve alongside your other services
 
-The UI is then available at ``http://localhost:5080`` (log in with the
-credentials above). Verify the service is recognized with ``osprey health``.
+``osprey up`` starts the store first, then provisions the ingest identity
+against it and saves the token the store issues into the project's ``.env``.
+There is nothing to set by hand. The run reports what it did under the
+``openobserve`` group:
+
+.. code-block:: text
+
+   telemetry store started
+   ingest identity verified        # the token already on file works
+   ingest identity provisioned     # the deploy had to create, harvest, or reissue one
+
+Only a run that *writes* says more, naming which of the three happened:
+
+.. code-block:: text
+
+   created the telemetry ingest account and saved its token → .env
+   read the telemetry ingest token back from the store → .env
+   the telemetry ingest token was refused, so a new one was issued → .env
+
+A verified token is silent — no extra lines means nothing needed changing.
+
+.. note::
+
+   On a deployment that has never been started, ``ZO_INGEST_SA_TOKEN`` is
+   simply absent from ``.env`` until this step runs. The deploy's preflight
+   checks **defer** that one variable rather than refusing to start, because it
+   is the one credential an operator cannot supply. For the same reason,
+   ``osprey build`` against a never-started deployment warns that
+   ``ZO_INGEST_SA_TOKEN`` is unresolved and leaves the telemetry auth header
+   out; that warning is expected, and the value is resolved again when the
+   agent starts.
+
+If the store is unreachable, or the store refuses the root credential, the
+deploy warns with a named remedy and carries on — telemetry is the only thing
+affected, and every other service in the deployment comes up as usual. The
+remedy is almost always to run ``osprey up`` again once the store is running.
+
+The UI is then available at ``http://localhost:5080`` (log in with the **root**
+credentials). Verify the service is recognized with ``osprey health``.
 
 4. Point the agent at it
 ------------------------
 
-Wire the ``telemetry:`` block to ``backend: openobserve`` and supply the
-OpenObserve auth in the ``openobserve:`` sub-block. **Do not set** ``endpoint``
-for this backend — omit it and the agent derives the OTLP ingest URL
-automatically per network context:
+Wire the ``telemetry:`` block to ``backend: openobserve`` and name the **ingest**
+identity in the ``openobserve:`` sub-block — never the root account. **Do not
+set** ``endpoint`` for this backend — omit it and the agent derives the OTLP
+ingest URL automatically per network context:
 
 .. code-block:: yaml
 
@@ -191,9 +265,16 @@ automatically per network context:
        # automatically (see the note below).
        protocol: http/protobuf
        openobserve:
-         user: ${ZO_ROOT_USER_EMAIL}
-         password: ${ZO_ROOT_USER_PASSWORD}
+         user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+         password: ${ZO_INGEST_SA_TOKEN}
          org: default
+
+This is what the bundled presets already ship, so a project scaffolded from one
+needs no edit here. The token reference deliberately carries **no** ``:-``
+fallback: a default value would be a credential the store never issued, and
+telemetry would fail with a plausible-looking secret on file instead of an
+obviously missing one. The account name does carry a fallback, because it is a
+name rather than a secret.
 
 .. important::
 
@@ -249,13 +330,63 @@ to suppress that category from emitted telemetry:
 If you route telemetry to a shared or off-host backend (Phase 1), review these
 gates and disable the categories you do not want to leave the machine.
 
+Upgrading an existing deployment
+================================
+
+Deployments made before the ingest account existed pointed their telemetry at
+the root credentials. Rebuilding the project moves ``config.yml`` onto the
+ingest account, and the next ``osprey up`` creates the account and saves its
+token — both automatic.
+
+One file is deliberately left alone: ``.env.users``, the environment your web
+terminals run with. It is never regenerated once it exists, which is exactly
+what keeps a file you have edited by hand intact. So if your deployment serves
+web terminals that emit telemetry, the deploy prints an advisory naming
+``ZO_INGEST_USER_EMAIL`` as missing from that file, and the fix is a write of
+your own: **append** the variable.
+
+.. code-block:: bash
+
+   # use the same value the project's .env has
+   grep '^ZO_INGEST_USER_EMAIL=' ~/my-project/.env >> ~/my-project/.env.users
+
+A later assignment wins in an environment file, so appending disturbs nothing
+already in it. ``osprey users env --output .env.users`` re-renders the file
+instead — that **replaces it whole**, so reach for it only if nothing in the
+file was added by hand. Do not delete the file to regenerate it; that discards
+anything you added.
+
+Until the variable is present, those terminals authenticate as whatever the
+reference falls back to inside the container, and the store rejects their
+records.
+
 Caveats
 =======
 
-- **Single admin.** The OpenObserve add-on provisions one root account from
-  ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. It is intended for a
-  single operator or a small trusted team on the deploy host, not for
-  multi-tenant access control.
+- **One administrator.** The OpenObserve add-on provisions a single root
+  account from ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. It is
+  intended for a single operator or a small trusted team on the deploy host,
+  not for multi-tenant access control.
+- **Rotating the ingest token is delete-and-recreate.** OpenObserve cannot
+  reissue a service account's token in place, so rotation means removing the
+  account and creating it again. You only do the first half: delete the ingest
+  account in the store's UI, and the next ``osprey up`` finds the token on file
+  no longer works, issues a new one, and writes it back to ``.env``. A dead
+  token in ``.env`` heals itself on the next start rather than needing repair.
+  Every start checks the token it has before touching anything, so a working
+  one is never rotated out from under something else that uses it.
+- **Recreating the data volume destroys the ingest identity.** The account
+  lives inside the ``openobserve_data`` volume; its token lives in ``.env``.
+  Remove that volume and you are left with a credential on file for an account
+  the store no longer has, and telemetry is refused. The next ``osprey up``
+  detects exactly this and provisions a fresh identity, so no manual repair is
+  needed. The same volume also holds the root password the store was first
+  initialized with — a volume kept from an earlier deploy beside a freshly
+  minted ``ZO_ROOT_USER_PASSWORD`` is reported with its own remedy.
+- **``osprey restart`` provisions, but cannot deliver.** A restart re-runs the
+  provisioning, so the store and ``.env`` agree afterwards, but a restarted
+  container keeps the definition it already had — a token written during a
+  restart reaches the containers at the next ``osprey up``.
 - **Data volume growth is bounded by retention, not a size cap.** Ingested
   telemetry persists in a named container volume, which has no portable hard
   size limit — so the store is bounded by *age*: ``services.openobserve.retention_days``

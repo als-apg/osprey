@@ -834,6 +834,7 @@ window.addEventListener("load", load);</script>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
@@ -1144,6 +1145,86 @@ channel named. The same refusal applies to a claim (below).</p>
 it to decide what counts as a hardware write. A hand-written copy would be
 treated as yours and never regenerate, quietly freezing that decision.</p>
 </section>
+<section id="the-shared-web-terminal-baseline">
+<span id="profile-context-baseline"></span><h3>The shared web-terminal baseline<a class="headerlink" href="#the-shared-web-terminal-baseline" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> is the one convention directory that accepts a loose
+file: <code class="docutils literal notranslate"><span class="pre">base.md</span></code>, the text every operator’s terminal starts from. It sits
+beside the per-operator directories and rides the same channel, landing at
+<code class="docutils literal notranslate"><span class="pre">docker/web-terminal-context/base.md</span></code>.</p>
+<p>Three layers stack, in this order:</p>
+<ul class="simple">
+<li><p><strong>the framework’s fallback.</strong> Every build installs a generic <code class="docutils literal notranslate"><span class="pre">base.md</span></code> into
+the rendered project, so a deployment always has one.</p></li>
+<li><p><strong>the profile’s own copy.</strong> A <code class="docutils literal notranslate"><span class="pre">web-terminal-context/base.md</span></code> in the profile
+is copied over that fallback. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> materializes one — from the app
+template’s text where it ships its own, otherwise the framework’s — so the
+baseline is in your repository from the first minute, where you can read and
+edit it.</p></li>
+<li><p><strong>each operator’s ``extra.md``.</strong> At seed time the baseline and that user’s
+<code class="docutils literal notranslate"><span class="pre">web-terminal-context/&lt;user&gt;/extra.md</span></code> are concatenated, and the result
+becomes their <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>.</p></li>
+</ul>
+<p>Unlike the per-operator directories, the baseline is <strong>not</strong> roster-derived. It
+is copied on every build, including a persona render that has no roster at all,
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it whenever the profile stands up web terminals
+(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.enabled</span></code>) — even when the roster is still empty, so a
+profile that names no operators yet still starts from text it can see. A
+profile with no web-terminal module gets no <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>.</p>
+<p>A persona drops it with the ordinary convention vocabulary, qualified like any
+other profile-shipped file:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">exclude</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web-terminal-context</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">web-terminal-context/base.md</span><span class="w">   </span><span class="c1"># the framework fallback renders instead</span>
+</pre></div>
+</div>
+<p>The baseline is the only part of this tree a persona has to exclude. A persona
+delta switches the web-terminal module off, so its render resolves an empty
+roster and copies no operator directories in the first place — naming one here
+matches nothing and is silently ignored.</p>
+<p>To keep the baseline in the deployment but leave it out of one persona’s
+terminals, set <code class="docutils literal notranslate"><span class="pre">seed_base:</span> <span class="pre">false</span></code> on that persona’s catalog entry
+(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.personas.&lt;name&gt;</span></code>): its users are seeded from their
+own <code class="docutils literal notranslate"><span class="pre">extra.md</span></code> alone.</p>
+<div class="important admonition">
+<p class="admonition-title"><code class="docutils literal notranslate"><span class="pre">base.md</span></code> is the only loose file</p>
+<p>Any other file directly in <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> is refused at build
+time, and the message names both routes: move it into the directory of the
+operator it belongs to, or rename it to <code class="docutils literal notranslate"><span class="pre">base.md</span></code> if it is the text
+everyone starts from. Directory names here are matched against the resolved
+roster, so a directory invented to hold a stray file is skipped as an
+operator who has left — and nothing in it would ever be read.</p>
+</div>
+</section>
+</section>
+<section id="a-profile-is-self-contained">
+<span id="profile-self-contained"></span><h2>A profile is self-contained<a class="headerlink" href="#a-profile-is-self-contained" title="Link to this heading">#</a></h2>
+<p>Everything a profile contributes lives inside the profile directory. That is
+what keeps a build reproducible: clone the deployment repository anywhere, and
+the same project renders.</p>
+<p>The build holds the convention directories to it. An entry that is a symlink
+resolving outside the profile is refused, with the remedy — copy the target in
+instead. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span></code> refuses the same shape before it moves
+anything, because a claim that carried such a link into the profile would
+report success and then break every later build.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The check catches the mistake, not an adversary: copies dereference
+symlinks, and the scan does not descend into a symlinked directory. Read it
+as the rule the build holds you to, not as a boundary it enforces.</p>
+</div>
+<section id="the-data-tree-is-the-exception">
+<h3>The <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree is the exception<a class="headerlink" href="#the-data-tree-is-the-exception" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">data:</span></code> is a path the profile <em>names</em>, not material the build finds by
+convention, and it is checked differently. The path resolves against the
+profile directory, and only its existence and shape are checked — that it is
+there, and that it is a directory. Containment is never checked, so a tree may
+sit above the profile directory (<code class="docutils literal notranslate"><span class="pre">data:</span> <span class="pre">../shared-data</span></code>): a tree more than
+one profile builds from can live beside them rather than inside either.</p>
+<p>Staleness is unaffected. The resolved tree is folded into the profile hash
+wherever it sits, so editing it still reports the built project as out of date.
+The exception is about where the tree may live, not about the build losing
+sight of it.</p>
+</section>
 </section>
 <section id="taking-ownership-of-a-framework-artifact">
 <span id="profile-claim"></span><h2>Taking ownership of a framework artifact<a class="headerlink" href="#taking-ownership-of-a-framework-artifact" title="Link to this heading">#</a></h2>
@@ -1176,8 +1257,8 @@ good, delete it from the profile.</p>
 <li><p>the artifact is <strong>generated</strong>, not authored — <code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code>,
 <code class="docutils literal notranslate"><span class="pre">settings.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>. The message names the config
 key that <em>does</em> control it;</p></li>
-<li><p>the file is a symlink pointing outside the project (a profile must be
-self-contained to be reproducible);</p></li>
+<li><p>the artifact is a symlink, or holds one pointing outside itself — a profile
+must be <a class="reference internal" href="#profile-self-contained"><span class="std std-ref">self-contained</span></a>;</p></li>
 <li><p>the profile slot is already occupied. A claim never overwrites profile
 material.</p></li>
 </ul>
@@ -1341,6 +1422,61 @@ block’s <code class="docutils literal notranslate"><span class="pre">plan_dir<
 facility’s own plans; see <a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Scan Plans</span></a>.</p>
 </section>
 </section>
+<section id="one-repository-several-hosts">
+<span id="profile-host-variants"></span><h2>One repository, several hosts<a class="headerlink" href="#one-repository-several-hosts" title="Link to this heading">#</a></h2>
+<p>A test stand and a control-room machine can run the same deployment and still
+need different settings — another hostname, other ports, a different theme.
+Keeping two copies of the repository in step is the thing to avoid. Keep one
+profile instead, plus a small overlay per host:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
+  profile.yml            # what every host shares
+  profiles/
+    teststand.yml        # what the test stand changes
+    control-room.yml     # what the control room changes
+  .env.variant           # which of the two THIS host builds
+</pre></div>
+</div>
+<p>An overlay holds only the differences, in the same spelling <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
+uses:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profiles/teststand.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">deploy.fqdn</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">teststand.example.org</span>
+<span class="w">  </span><span class="nt">web.theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dark</span>
+</pre></div>
+</div>
+<p>Each host names the one it wants in <code class="docutils literal notranslate"><span class="pre">.env.variant</span></code> at the repository root:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">echo</span><span class="w"> </span><span class="nv">OSPREY_PROFILE_VARIANT</span><span class="o">=</span>teststand<span class="w"> </span>&gt;<span class="w"> </span>.env.variant
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> merges that overlay over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> before it renders
+anything, and says which variant it used in its output. Personas are rendered
+for the same host, so a stack cannot come up half-configured for another one.</p>
+<p>The overlays are committed: which hosts a deployment has is part of what the
+deployment is. The choice between them is not — <code class="docutils literal notranslate"><span class="pre">.env.variant</span></code> is covered by
+the generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> along with the rest of the <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family, so
+each host keeps its own answer, and a build warns if the file ever does get
+committed. There is no command-line flag for this today; the file is how a
+host chooses. If one is added later, a variant named on the command line will
+win over the file.</p>
+<p>Three cases worth knowing about:</p>
+<ul class="simple">
+<li><p><strong>No setting, or an empty one.</strong> The build renders <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as
+tracked and the overlays sit unused. This is also what a host that has never
+heard of variants does, so adding <code class="docutils literal notranslate"><span class="pre">profiles/</span></code> to a repository changes
+nothing until a host selects something.</p></li>
+<li><p><strong>A name the repository has no file for.</strong> The build stops and lists the
+names that would work. The previous <code class="docutils literal notranslate"><span class="pre">build/</span></code> is left as it was, as with
+every other refusal.</p></li>
+<li><p><strong>Switching variants.</strong> Rebuild. <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the render of one host’s
+profile, and editing the setting does not re-render anything by itself —
+but switching <code class="docutils literal notranslate"><span class="pre">.env.variant</span></code> (or editing the selected overlay) marks the
+existing <code class="docutils literal notranslate"><span class="pre">build/</span></code> out of date, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names the stale render
+instead of starting it silently.</p></li>
+</ul>
+<p>An overlay adds and replaces; it does not subtract. Lists are merged rather
+than swapped, so use <a class="reference internal" href="#profile-exclude"><span class="std std-ref">exclude:</span></a> to take something away
+on one host — that works in an overlay like anywhere else.</p>
+</section>
 <section id="secrets">
 <span id="profile-secrets"></span><h2>Secrets<a class="headerlink" href="#secrets" title="Link to this heading">#</a></h2>
 <p>API keys and service credentials live in one file: the <code class="docutils literal notranslate"><span class="pre">.env</span></code> at the root of
@@ -1445,7 +1581,9 @@ directory.</p>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Facility data tree, relative to the profile directory (<code class="docutils literal notranslate"><span class="pre">data</span></code> in a
-materialized profile). Replaces the bundled tree wholesale.</p></td>
+materialized profile). Replaces the bundled tree wholesale. May resolve
+above the profile directory; only existence and shape are checked
+(see <a class="reference internal" href="#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
 <td><p>string</p></td>
@@ -1525,7 +1663,11 @@ recorder the deploy stands up, seeds and records into
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
-<td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>.</p></td>
+<td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pinned</span></code>. <code class="docutils literal notranslate"><span class="pre">env.pinned</span></code> lists variables <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> decides and a
+host may not override; a deploy refuses rather than start on a
+contradicting value (see <a class="reference internal" href="deploy-project.html#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>). Same name pattern
+as <code class="docutils literal notranslate"><span class="pre">required</span></code>, and a machine-minted name cannot be pinned.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
@@ -2155,7 +2297,12 @@ different project name so it gets a profile of its own.</p>
 <p><strong>“Profile convention directories are invalid”</strong> — a convention directory has
 the wrong shape: a <code class="docutils literal notranslate"><span class="pre">.md</span></code> directory holding something else, a skill that is a
 file rather than a directory, or a symlink pointing outside the profile. Every
-problem is listed at once.</p>
+problem is listed at once. The symlink case is the self-containment rule; copy
+the target in (see <a class="reference internal" href="#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p>
+<p><strong>“web-terminal-context/&lt;name&gt; is a file”</strong> — that directory holds one
+directory per operator, plus the shared <code class="docutils literal notranslate"><span class="pre">base.md</span></code>. Move the file into the
+directory of the operator it belongs to, or rename it to <code class="docutils literal notranslate"><span class="pre">base.md</span></code> if it is
+the text everyone starts from (see <a class="reference internal" href="#profile-context-baseline"><span class="std std-ref">The shared web-terminal baseline</span></a>).</p>
 <p><strong>“project/ mirror writes N build-owned path(s)”</strong> — the mirror targets a path
 another channel owns. The message names the channel, and the exact move where
 one exists.</p>
@@ -2246,6 +2393,11 @@ relax the constraint in the profile.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#convention-directories">Convention directories</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#paths-the-profile-may-not-write">Paths the profile may not write</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-shared-web-terminal-baseline">The shared web-terminal baseline</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-profile-is-self-contained">A profile is self-contained</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-data-tree-is-the-exception">The <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree is the exception</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-ownership-of-a-framework-artifact">Taking ownership of a framework artifact</a></li>
@@ -2258,6 +2410,7 @@ relax the constraint in the profile.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-something-a-profile-brings">Removing something a profile brings</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-repository-several-hosts">One repository, several hosts</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#secrets">Secrets</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#seeding-once">Seeding, once</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-else-writes-to-env">Who else writes to <code class="docutils literal notranslate"><span class="pre">.env</span></code></a></li>

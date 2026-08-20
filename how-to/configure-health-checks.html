@@ -60,7 +60,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Add a Connector" href="add-connector.html" />
+    <link rel="next" title="The osprey health --json Contract" href="health-json-contract.html" />
     <link rel="prev" title="Monitor Your OSPREY Agent" href="monitor-agent.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -399,6 +399,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
@@ -494,8 +495,10 @@ categorized report. The built-in checks always run; the <code class="docutils li
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> lets a facility <em>add</em> its own checks (HTTP endpoints, MCP servers,
 deployed containers, control-system channels, model providers) and tune the
 suite’s timing.</p>
-<p>This guide covers the <code class="docutils literal notranslate"><span class="pre">health:</span></code> configuration surface. For the command’s flags
-and exit codes, see <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--help</span></code>.</p>
+<p>This guide covers the <code class="docutils literal notranslate"><span class="pre">health:</span></code> configuration surface. For the shape of the
+<code class="docutils literal notranslate"><span class="pre">--json</span></code> report and the exit codes that go with it, see
+<a class="reference internal" href="health-json-contract.html"><span class="doc">The osprey health --json Contract</span></a>; for the full flag list, see
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--help</span></code>.</p>
 <section id="cost-classes-and-full">
 <h2>Cost classes and <code class="docutils literal notranslate"><span class="pre">--full</span></code><a class="headerlink" href="#cost-classes-and-full" title="Link to this heading">#</a></h2>
 <p>Every category is either <strong>poll</strong> or <strong>on_demand</strong>:</p>
@@ -1042,11 +1045,11 @@ shared health cache across sessions.</p>
       </div>
     </a>
     <a class="right-next"
-       href="add-connector.html"
+       href="health-json-contract.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Add a Connector</p>
+        <p class="prev-next-title">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -118,6 +118,13 @@ Run & Operate the Agent
       Extend ``osprey health`` with facility probe checks and plugins, and tune
       the suite's cost classes and timeouts via the ``health:`` config block.
 
+   .. grid-item-card:: The ``osprey health --json`` Contract
+      :link: health-json-contract
+      :link-type: doc
+
+      The report envelope, the per-check row shape, the exit codes, and the
+      ``jq`` patterns for consuming all of it from a CI job.
+
 Extend & Integrate
 ------------------
 
@@ -211,6 +218,7 @@ Bundled Services & Tutorials
    chat-bridges/index
    monitor-agent
    configure-health-checks
+   health-json-contract
    add-connector
    add-mcp-server
    use-python-executor

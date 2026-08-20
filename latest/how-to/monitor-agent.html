@@ -399,6 +399,7 @@
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
@@ -499,7 +500,9 @@ alongside your project.</p>
 <li><p class="sd-card-text"><strong>Phase 2:</strong> the opt-in local OpenObserve add-on for an all-in-one,
 air-gapped store</p></li>
 <li><p class="sd-card-text">The full-content-capture posture and how to suppress content categories</p></li>
-<li><p class="sd-card-text">Single-admin and data-volume caveats</p></li>
+<li><p class="sd-card-text">The store’s two identities — the browser login and the telemetry ingest
+account — and what each one can read</p></li>
+<li><p class="sd-card-text">Rotation, data-volume, and restart caveats</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites (Phase 2 only):</strong> Docker (or Podman) installed locally.</p>
 </div>
@@ -610,38 +613,82 @@ default. If your project removed it, restore it:</p>
 </pre></div>
 </div>
 </section>
-<section id="optional-set-the-admin-credentials">
-<h3>2. (Optional) set the admin credentials<a class="headerlink" href="#optional-set-the-admin-credentials" title="Link to this heading">#</a></h3>
-<p>The OpenObserve root account doubles as the OTLP ingest credential. You do not
-have to set it yourself: the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes <strong>both halves of the
-login</strong> into the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> — a minted <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> and the
-account name <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code> — and the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is derived from
-there. So the answer to “what do I log in with” is always <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>ZO_ROOT_USER<span class="w"> </span>~/my-project/.env
+<section id="know-the-store-s-two-identities">
+<h3>2. Know the store’s two identities<a class="headerlink" href="#know-the-store-s-two-identities" title="Link to this heading">#</a></h3>
+<p>The store carries two separate identities, and they do different jobs:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 40.0%" />
+<col style="width: 44.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Identity</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">.env</span></code> variables</p></th>
+<th class="head"><p>What it is for</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Root</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code>, <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code></p></td>
+<td><p>Initializes the store on its first start, and logs <em>you</em> into the
+browser UI. It never leaves the deploy host: nothing on the wire
+authenticates as root.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Ingest</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code>, <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_SA_TOKEN</span></code></p></td>
+<td><p>The account the agent authenticates as when it ships telemetry. This is
+the credential that travels — into the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, and into
+web-terminal environments.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>You do not have to set either one. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes whatever is missing
+into the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, so the answer to “what do I log in with” is always
+that file:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>ZO_<span class="w"> </span>~/my-project/.env
 </pre></div>
 </div>
-<p>The minted password is short on purpose: you read it off a terminal and type it
-into a browser login form, so it is 12 characters drawn from an alphabet with
-the easily-misread characters (<code class="docutils literal notranslate"><span class="pre">l</span> <span class="pre">I</span> <span class="pre">1</span> <span class="pre">O</span> <span class="pre">0</span></code>) removed. Every character still
-comes from a cryptographic random source, so it is short to type without being
-easy to guess.</p>
-<p>Set the two variables yourself (in the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>) if you want specific
-values — the same pair configures the container <strong>and</strong> authenticates the
-agent’s OTLP push, one source of truth:</p>
+<p><strong>Root</strong> is written before the store starts, because the store reads it to
+initialize itself. The minted password is short on purpose: you read it off a
+terminal and type it into a browser login form, so it is 12 characters drawn
+from an alphabet with the easily-misread characters (<code class="docutils literal notranslate"><span class="pre">l</span> <span class="pre">I</span> <span class="pre">1</span> <span class="pre">O</span> <span class="pre">0</span></code>) removed.
+Every character still comes from a cryptographic random source, so it is short
+to type without being easy to guess. Set the pair yourself, in the project’s
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>, if you want specific values:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
 <span class="nv">ZO_ROOT_USER_EMAIL</span><span class="o">=</span>you@example.com
 <span class="nv">ZO_ROOT_USER_PASSWORD</span><span class="o">=</span>choose-a-strong-password
 </pre></div>
 </div>
+<p><strong>Ingest</strong> cannot work that way, and this is the asymmetry worth remembering:
+its secret is issued by the <em>store</em>, not chosen by OSPREY, so it cannot exist
+before the store is running. The deploy creates the account and reads its token
+back — see step 3. Only the account <em>name</em> is written up front, and you may set
+it to an address of your choosing; the token half is never yours to write.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>The ingest identity can read everything the store holds.</strong> It is a real
+OpenObserve service account and it is genuinely restricted — it cannot
+create users and it cannot delete them, so a leaked ingest token cannot mint
+itself a way back in or lock you out. But it is write-<strong>plus</strong>-read: it can
+search every log and metric already in the store, which means the agent’s
+full conversation transcripts, and it can list the store’s user roster.
+OpenObserve has no ingest-only role in any edition, so this is as narrow as
+the shipped identity gets. Guard the ingest token as closely as the
+telemetry itself. What it does buy you is that the root password stays on
+the deploy host and never reaches a config file, a container environment, or
+the network.</p>
+</div>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p><strong>Publishing this store beyond</strong> <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <strong>exposes agent transcripts.</strong>
-It holds full agent conversation transcripts, and the same credentials serve
-both its browser login and the agent’s OTLP push. Reach it over an SSH
-tunnel, or put it behind TLS, rather than binding it to every interface. The
-minted password is a per-deploy random value, so it stays usable wherever the
-store is published — what exposure changes is who can reach the login, not
-how strong the password is.</p>
+It holds full agent conversation transcripts, and both identities can read
+them. Reach it over an SSH tunnel, or put it behind TLS, rather than binding
+it to every interface. The minted password is a per-deploy random value, so
+it stays usable wherever the store is published — what exposure changes is
+who can reach the login, not how strong the password is.</p>
 </div>
 </section>
 <section id="deploy-it">
@@ -649,15 +696,46 @@ how strong the password is.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># brings up openobserve alongside your other services</span>
 </pre></div>
 </div>
-<p>The UI is then available at <code class="docutils literal notranslate"><span class="pre">http://localhost:5080</span></code> (log in with the
-credentials above). Verify the service is recognized with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts the store first, then provisions the ingest identity
+against it and saves the token the store issues into the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.
+There is nothing to set by hand. The run reports what it did under the
+<code class="docutils literal notranslate"><span class="pre">openobserve</span></code> group:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>telemetry store started
+ingest identity verified        # the token already on file works
+ingest identity provisioned     # the deploy had to create, harvest, or reissue one
+</pre></div>
+</div>
+<p>Only a run that <em>writes</em> says more, naming which of the three happened:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>created the telemetry ingest account and saved its token → .env
+read the telemetry ingest token back from the store → .env
+the telemetry ingest token was refused, so a new one was issued → .env
+</pre></div>
+</div>
+<p>A verified token is silent — no extra lines means nothing needed changing.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On a deployment that has never been started, <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_SA_TOKEN</span></code> is
+simply absent from <code class="docutils literal notranslate"><span class="pre">.env</span></code> until this step runs. The deploy’s preflight
+checks <strong>defer</strong> that one variable rather than refusing to start, because it
+is the one credential an operator cannot supply. For the same reason,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> against a never-started deployment warns that
+<code class="docutils literal notranslate"><span class="pre">ZO_INGEST_SA_TOKEN</span></code> is unresolved and leaves the telemetry auth header
+out; that warning is expected, and the value is resolved again when the
+agent starts.</p>
+</div>
+<p>If the store is unreachable, or the store refuses the root credential, the
+deploy warns with a named remedy and carries on — telemetry is the only thing
+affected, and every other service in the deployment comes up as usual. The
+remedy is almost always to run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again once the store is running.</p>
+<p>The UI is then available at <code class="docutils literal notranslate"><span class="pre">http://localhost:5080</span></code> (log in with the <strong>root</strong>
+credentials). Verify the service is recognized with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>.</p>
 </section>
 <section id="point-the-agent-at-it">
 <h3>4. Point the agent at it<a class="headerlink" href="#point-the-agent-at-it" title="Link to this heading">#</a></h3>
-<p>Wire the <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block to <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> and supply the
-OpenObserve auth in the <code class="docutils literal notranslate"><span class="pre">openobserve:</span></code> sub-block. <strong>Do not set</strong> <code class="docutils literal notranslate"><span class="pre">endpoint</span></code>
-for this backend — omit it and the agent derives the OTLP ingest URL
-automatically per network context:</p>
+<p>Wire the <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block to <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> and name the <strong>ingest</strong>
+identity in the <code class="docutils literal notranslate"><span class="pre">openobserve:</span></code> sub-block — never the root account. <strong>Do not
+set</strong> <code class="docutils literal notranslate"><span class="pre">endpoint</span></code> for this backend — omit it and the agent derives the OTLP
+ingest URL automatically per network context:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -666,11 +744,17 @@ automatically per network context:</p>
 <span class="w">    </span><span class="c1"># automatically (see the note below).</span>
 <span class="w">    </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http/protobuf</span>
 <span class="w">    </span><span class="nt">openobserve</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_ROOT_USER_EMAIL}</span>
-<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_ROOT_USER_PASSWORD}</span>
+<span class="w">      </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_INGEST_USER_EMAIL:-ingest@example.com}</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_INGEST_SA_TOKEN}</span>
 <span class="w">      </span><span class="nt">org</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 </pre></div>
 </div>
+<p>This is what the bundled presets already ship, so a project scaffolded from one
+needs no edit here. The token reference deliberately carries <strong>no</strong> <code class="docutils literal notranslate"><span class="pre">:-</span></code>
+fallback: a default value would be a credential the store never issued, and
+telemetry would fail with a plausible-looking secret on file instead of an
+obviously missing one. The account name does carry a fallback, because it is a
+name rather than a secret.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>For <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> the OTLP endpoint is <strong>auto-derived</strong> and you
@@ -722,13 +806,58 @@ to suppress that category from emitted telemetry:</p>
 <p>If you route telemetry to a shared or off-host backend (Phase 1), review these
 gates and disable the categories you do not want to leave the machine.</p>
 </section>
+<section id="upgrading-an-existing-deployment">
+<h2>Upgrading an existing deployment<a class="headerlink" href="#upgrading-an-existing-deployment" title="Link to this heading">#</a></h2>
+<p>Deployments made before the ingest account existed pointed their telemetry at
+the root credentials. Rebuilding the project moves <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> onto the
+ingest account, and the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> creates the account and saves its
+token — both automatic.</p>
+<p>One file is deliberately left alone: <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the environment your web
+terminals run with. It is never regenerated once it exists, which is exactly
+what keeps a file you have edited by hand intact. So if your deployment serves
+web terminals that emit telemetry, the deploy prints an advisory naming
+<code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code> as missing from that file, and the fix is a write of
+your own: <strong>append</strong> the variable.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># use the same value the project&#39;s .env has</span>
+grep<span class="w"> </span><span class="s1">&#39;^ZO_INGEST_USER_EMAIL=&#39;</span><span class="w"> </span>~/my-project/.env<span class="w"> </span>&gt;&gt;<span class="w"> </span>~/my-project/.env.users
+</pre></div>
+</div>
+<p>A later assignment wins in an environment file, so appending disturbs nothing
+already in it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env</span> <span class="pre">--output</span> <span class="pre">.env.users</span></code> re-renders the file
+instead — that <strong>replaces it whole</strong>, so reach for it only if nothing in the
+file was added by hand. Do not delete the file to regenerate it; that discards
+anything you added.</p>
+<p>Until the variable is present, those terminals authenticate as whatever the
+reference falls back to inside the container, and the store rejects their
+records.</p>
+</section>
 <section id="caveats">
 <h2>Caveats<a class="headerlink" href="#caveats" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><strong>Single admin.</strong> The OpenObserve add-on provisions one root account from
-<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code> / <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>. It is intended for a
-single operator or a small trusted team on the deploy host, not for
-multi-tenant access control.</p></li>
+<li><p><strong>One administrator.</strong> The OpenObserve add-on provisions a single root
+account from <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code> / <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>. It is
+intended for a single operator or a small trusted team on the deploy host,
+not for multi-tenant access control.</p></li>
+<li><p><strong>Rotating the ingest token is delete-and-recreate.</strong> OpenObserve cannot
+reissue a service account’s token in place, so rotation means removing the
+account and creating it again. You only do the first half: delete the ingest
+account in the store’s UI, and the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> finds the token on file
+no longer works, issues a new one, and writes it back to <code class="docutils literal notranslate"><span class="pre">.env</span></code>. A dead
+token in <code class="docutils literal notranslate"><span class="pre">.env</span></code> heals itself on the next start rather than needing repair.
+Every start checks the token it has before touching anything, so a working
+one is never rotated out from under something else that uses it.</p></li>
+<li><p><strong>Recreating the data volume destroys the ingest identity.</strong> The account
+lives inside the <code class="docutils literal notranslate"><span class="pre">openobserve_data</span></code> volume; its token lives in <code class="docutils literal notranslate"><span class="pre">.env</span></code>.
+Remove that volume and you are left with a credential on file for an account
+the store no longer has, and telemetry is refused. The next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+detects exactly this and provisions a fresh identity, so no manual repair is
+needed. The same volume also holds the root password the store was first
+initialized with — a volume kept from an earlier deploy beside a freshly
+minted <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> is reported with its own remedy.</p></li>
+<li><p><strong>``osprey restart`` provisions, but cannot deliver.</strong> A restart re-runs the
+provisioning, so the store and <code class="docutils literal notranslate"><span class="pre">.env</span></code> agree afterwards, but a restarted
+container keeps the definition it already had — a token written during a
+restart reaches the containers at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
 <li><p><strong>Data volume growth is bounded by retention, not a size cap.</strong> Ingested
 telemetry persists in a named container volume, which has no portable hard
 size limit — so the store is bounded by <em>age</em>: <code class="docutils literal notranslate"><span class="pre">services.openobserve.retention_days</span></code>
@@ -798,12 +927,13 @@ security in front of it.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-emit-to-any-otlp-endpoint">Phase 1 — Emit to any OTLP endpoint</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-the-local-openobserve-add-on">Phase 2 — The local OpenObserve add-on</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-service-is-enabled">1. Check the service is enabled</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-set-the-admin-credentials">2. (Optional) set the admin credentials</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#know-the-store-s-two-identities">2. Know the store’s two identities</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deploy-it">3. Deploy it</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-agent-at-it">4. Point the agent at it</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#content-capture">Content capture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrading-an-existing-deployment">Upgrading an existing deployment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#caveats">Caveats</a></li>
 </ul>
   </nav></div>

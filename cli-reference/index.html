@@ -399,6 +399,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/add-connector.html">Add a Connector</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-python-executor.html">Python Execution Service</a></li>
@@ -518,7 +519,7 @@ osprey<span class="w"> </span>ariel<span class="w">              </span><span cl
 osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
 osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
 osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
-osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># CI files and build artifact overrides</span>
+osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># CI files, boot unit, build artifact overrides</span>
 osprey<span class="w"> </span>audit<span class="w">              </span><span class="c1"># Audit project or profile safety</span>
 osprey<span class="w"> </span>skills<span class="w">             </span><span class="c1"># Manage bundled Osprey skills</span>
 osprey<span class="w"> </span>vendor<span class="w">             </span><span class="c1"># Manage locally bundled vendor assets</span>
@@ -895,6 +896,11 @@ verbs end to end.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--json</span></code> – Emit the report as a single JSON document on stdout.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--category</span> <span class="pre">NAME</span></code> – Run only the named category (repeatable).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--full</span></code> – Also run on-demand categories (live model chat, pinned CLI download).</p>
+<p>Exit codes: <code class="docutils literal notranslate"><span class="pre">0</span></code> healthy, <code class="docutils literal notranslate"><span class="pre">1</span></code> warnings only, <code class="docutils literal notranslate"><span class="pre">2</span></code> one or more errors,
+<code class="docutils literal notranslate"><span class="pre">3</span></code> the command itself failed, <code class="docutils literal notranslate"><span class="pre">130</span></code> interrupted. See
+<a class="reference internal" href="../how-to/health-json-contract.html"><span class="doc">The osprey health --json Contract</span></a> for the <code class="docutils literal notranslate"><span class="pre">--json</span></code> document’s shape and the
+<code class="docutils literal notranslate"><span class="pre">jq</span></code> patterns for consuming it, and <a class="reference internal" href="../how-to/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a> for
+the <code class="docutils literal notranslate"><span class="pre">health:</span></code> config block.</p>
 </section>
 <section id="osprey-chat">
 <h2>osprey chat<a class="headerlink" href="#osprey-chat" title="Link to this heading">#</a></h2>
@@ -1084,7 +1090,8 @@ osprey<span class="w"> </span>audit<span class="w"> </span>project/<span class="
 </section>
 <section id="osprey-scaffold">
 <h2>osprey scaffold<a class="headerlink" href="#osprey-scaffold" title="Link to this heading">#</a></h2>
-<p>Emit the repository’s CI files and manage build artifact ownership.
+<p>Emit the repository’s CI files and boot unit, and manage build artifact
+ownership.
 Framework-managed build artifacts (agents, rules, etc.) can be claimed
 per-facility for in-place editing. A claim moves the artifact out of the build
 zone and into the profile beside it; the next build copies it back and registers
@@ -1101,6 +1108,18 @@ untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
 file the scaffolder did not write is reported and left alone unless
 <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given. <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> is never touched: it is yours, and the
 pipeline includes it.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">systemd</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit a systemd user unit that starts this deployment at boot: <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code>
+at the repository root, plus the commands to install it. The unit runs
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> from this repository and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> on stop, with both
+the repository and the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program written in as full paths — systemd
+starts a unit with no working directory and a short <code class="docutils literal notranslate"><span class="pre">PATH</span></code>. Run it on the
+machine that will run the deployment, and again after the repository moves or
+OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
+<code class="docutils literal notranslate"><span class="pre">ci</span></code>: a matching file is left untouched, and a file the scaffolder did not
+write needs <code class="docutils literal notranslate"><span class="pre">--force</span></code>. Refuses when no <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program can be found to
+name. Starting at boot also needs <code class="docutils literal notranslate"><span class="pre">loginctl</span> <span class="pre">enable-linger</span> <span class="pre">$USER</span></code> once —
+see <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code></dt><dd><p>List all build artifacts and their ownership status (framework vs.
 user-owned).</p>
@@ -1140,6 +1159,7 @@ default and aborts on errors; <code class="docutils literal notranslate"><span c
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>ci<span class="w">                             </span><span class="c1"># Re-emit the CI files</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd<span class="w">                        </span><span class="c1"># Write the boot unit</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">      </span><span class="c1"># Freeze a service template</span>

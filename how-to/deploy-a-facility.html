@@ -399,6 +399,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
@@ -501,6 +502,7 @@ facility writes itself.</p>
 <li><p class="sd-card-text">Adding a container the facility owns, with its own image-build job</p></li>
 <li><p class="sd-card-text">Emitting the CI pipeline and the health check with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code></p></li>
 <li><p class="sd-card-text">Rendering the build and bringing the stack up</p></li>
+<li><p class="sd-card-text">Making the deployment come back by itself after a reboot</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> A working OSPREY installation, <code class="docutils literal notranslate"><span class="pre">git</span></code>, and Docker or
 Podman running locally.</p>
@@ -794,8 +796,11 @@ compose template per service directory, rendered by the build.</p>
 <p>The image reference follows the framework convention — environment variable,
 then config key, then a local tag. A laptop deploy builds the image from the
 sources beside the template; the deploy host selects the pipeline’s pushed image
-by setting <code class="docutils literal notranslate"><span class="pre">OSPREY_FACILITY_MCP_IMAGE</span></code>. <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a> covers the
-template variables in full.</p>
+by setting <code class="docutils literal notranslate"><span class="pre">OSPREY_FACILITY_MCP_IMAGE</span></code>. The last layer is this template’s own
+literal, so the stack-wide registry and tag axes do not reach it: to have a
+facility-owned image follow them, write the default with the same shape they
+produce. <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a> covers the template variables, the image chain,
+and those axes in full.</p>
 </section>
 <section id="step-5-fill-in-the-deployment-coordinates">
 <h2>Step 5 — Fill in the deployment coordinates<a class="headerlink" href="#step-5-fill-in-the-deployment-coordinates" title="Link to this heading">#</a></h2>
@@ -1007,6 +1012,83 @@ something looks wrong. It also says whether <code class="docutils literal notran
 <p>When the answer is not obvious from those, run them inside an OSPREY agent
 session in the repository: the agent reads the same output you do, and it has
 the deployment’s configuration and rendered files at hand.</p>
+</section>
+<section id="starting-it-again-after-a-reboot">
+<h2>Starting it again after a reboot<a class="headerlink" href="#starting-it-again-after-a-reboot" title="Link to this heading">#</a></h2>
+<p>Nothing so far survives the host restarting: the containers come back only when
+somebody runs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> again. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">systemd</span></code> writes a
+systemd user unit that does it for you.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd
+</pre></div>
+</div>
+<p>It writes <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> at the repository root and prints the commands that
+install it on this machine:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>/path/to/repo/osprey.service<span class="w"> </span>~/.config/systemd/user/
+systemctl<span class="w"> </span>--user<span class="w"> </span>daemon-reload
+systemctl<span class="w"> </span>--user<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>osprey.service
+</pre></div>
+</div>
+<p>Run the scaffold verb <strong>on the machine that will run the deployment</strong>. Both the
+repository directory and the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program are written into the unit as
+full paths, because systemd starts a unit with no working directory and a short
+<code class="docutils literal notranslate"><span class="pre">PATH</span></code> — a unit generated on your laptop would name paths the host does not
+have. Run it again after the repository moves or OSPREY is reinstalled
+somewhere else. Re-running is otherwise safe: a unit whose content already
+matches is left untouched, stamp included, so an OSPREY upgrade alone produces
+no diff, and a file the scaffolder did not write is reported and left alone
+unless you pass <code class="docutils literal notranslate"><span class="pre">--force</span></code>.</p>
+<p>If no <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program can be found to name, the command refuses rather than
+writing a unit that points at nothing. Check that <code class="docutils literal notranslate"><span class="pre">command</span> <span class="pre">-v</span> <span class="pre">osprey</span></code> answers
+in the same shell — if OSPREY lives in a virtual environment, activate it and
+re-run.</p>
+<p>One more step, and it is the one people miss:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>loginctl<span class="w"> </span>enable-linger<span class="w"> </span><span class="nv">$USER</span>
+</pre></div>
+</div>
+<p>A user unit runs inside that account’s own <code class="docutils literal notranslate"><span class="pre">systemd</span> <span class="pre">--user</span></code> instance, which
+logind starts at login and tears down when the account’s last session ends.
+Without linger there is no user instance at boot, so the unit never runs, and it
+stops again the moment you log out. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> already enables linger by
+itself for a rootless-podman deployment running web terminals — rootless podman
+puts the containers themselves under that same user instance, so they need it
+too — but every other deployment needs the command run once by hand. On Docker
+hosts the containers run under the Docker daemon and are unaffected by linger;
+the unit that starts them is still a user unit, so it still needs it.</p>
+<p>Check it the way you would check any unit:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>systemctl<span class="w"> </span>--user<span class="w"> </span>status<span class="w"> </span>osprey.service
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>osprey.service<span class="w"> </span>-b
+</pre></div>
+</div>
+<section id="why-the-unit-runs-osprey-and-not-compose">
+<h3>Why the unit runs <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and not compose<a class="headerlink" href="#why-the-unit-runs-osprey-and-not-compose" title="Link to this heading">#</a></h3>
+<p>The unit’s <code class="docutils literal notranslate"><span class="pre">ExecStart</span></code> is <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> and its <code class="docutils literal notranslate"><span class="pre">ExecStop</span></code> is <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">down</span></code> — not a compose command against the rendered files in <code class="docutils literal notranslate"><span class="pre">build/</span></code>. That is
+deliberate. A compose invocation started by systemd would have to reproduce, by
+hand and correctly, everything <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> assembles around compose:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">COMPOSE_PROJECT_NAME</span></code>, pinned to the project name in the configuration
+rather than left to compose’s own fallback of the current directory’s name.
+It decides which containers, networks and volumes the command addresses; get
+it wrong at boot and the host quietly grows a second copy of the stack beside
+the one your volumes belong to.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ENV_DIGEST</span></code>, a hash of the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain that the rendered files
+carry as a container label. It is what makes an edit to <code class="docutils literal notranslate"><span class="pre">.env</span></code> reach a
+running container. A compose run that left it unset would look like a changed
+document on every boot and recreate the whole stack for no reason.</p></li>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain itself — <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> then <code class="docutils literal notranslate"><span class="pre">.env</span></code> — collapsed in the
+right order, and the repository pinned as compose’s project directory so it
+resolves those files at all.</p></li>
+<li><p>The container runtime, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> detects (or reads from the
+configuration) and then probes for the compose provider behind it; the
+supported providers do not take the same command line.</p></li>
+<li><p>Everything that is not compose: the host-port check that refuses before it
+touches a container, the drift check that refuses when <code class="docutils literal notranslate"><span class="pre">build/</span></code> no longer
+matches <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, minting any missing service credentials into
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>, the second compose invocation a multi-user deployment needs for its
+web tier, and <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> afterwards.</p></li>
+</ul>
+<p>Wrapping the verb keeps all of that in one place: the unit is two commands, and
+a boot does exactly what you do by hand.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -1025,6 +1107,7 @@ containerized terminal per operator.</p>
 </dd>
 </dl>
 </div>
+</section>
 </section>
 </section>
 
@@ -1088,6 +1171,10 @@ containerized terminal per operator.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-pipeline-does">What the pipeline does</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-something-later">Changing something later</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#operating-it">Operating it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#starting-it-again-after-a-reboot">Starting it again after a reboot</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-the-unit-runs-osprey-and-not-compose">Why the unit runs <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and not compose</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
