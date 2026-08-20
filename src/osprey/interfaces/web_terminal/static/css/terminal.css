@@ -280,66 +280,7 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
    than a fourth preference. Both actions are present in BOTH ui modes — the
    settings drawer's own warning gate, not the ui mode, is what guards expert
    configuration. */
-.display-menu-identity {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  min-width: 0;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border-default);
-}
-
-/* The initial disc. Carries the accent so the line reads as "you" at a glance
-   without needing an avatar image the framework has no way to source. */
-.display-menu-identity-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  align-self: center;
-  width: 20px;
-  height: 20px;
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  line-height: var(--leading-none);
-  color: var(--color-on-accent);
-  background: var(--color-accent);
-  border-radius: var(--radius-full);
-}
-
-/* The name wins the row when both it and the deployment are too long for it:
-   `alice` is what identifies the session, the deployment only qualifies it. */
-.display-menu-identity-name {
-  flex-shrink: 0;
-  max-width: 60%;
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.display-menu-identity-sub {
-  min-width: 0;
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.display-menu-identity-sub::before {
-  content: '·';
-  margin-right: var(--space-1);
-}
-
-/* The hairline opens the footer, so it belongs to whichever element starts it:
-   the identity line on a multi-user terminal, the action row on a single-user
-   one (which renders no identity and no logout). */
+/* The hairline opens the card's footer row. */
 .display-menu-actions {
   display: flex;
   gap: var(--space-2);
@@ -347,16 +288,7 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
   border-top: 1px solid var(--border-default);
 }
 
-.display-menu-identity + .display-menu-actions {
-  padding-top: 0;
-  border-top: none;
-}
-
-/* `flex: 1` rather than a 2-column grid: with logout absent — a single-user
-   deployment, or one with no landing_url to return to — Settings fills the row
-   by itself instead of sitting in half of it. */
-.display-menu-settings,
-.display-menu-logout {
+.display-menu-settings {
   display: flex;
   flex: 1;
   align-items: center;
@@ -383,23 +315,7 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
   background: var(--bg-elevated);
 }
 
-/* Logout hovers to the error colour, not the accent: it is the one control in
-   this card that ends the session rather than adjusting it. */
-.display-menu-logout:hover {
-  color: var(--color-error);
-  border-color: var(--color-error);
-  background: var(--bg-elevated);
-}
-
-/* app.js locks the button (`disabled` + `aria-busy`) for the whole in-flight
-   logout and never resets it — every path out of that handler navigates away. */
-.display-menu-logout[aria-busy="true"] {
-  cursor: progress;
-  opacity: 0.6;
-}
-
-.display-menu-settings-icon,
-.display-menu-logout-icon {
+.display-menu-settings-icon {
   font-size: var(--text-md);
   line-height: var(--leading-none);
 }
@@ -407,6 +323,179 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
 @media (prefers-reduced-motion: reduce) {
   .display-menu-card.open { animation: none; }
   .display-menu-seg::before { transition: none; }
+}
+
+/* ---- Header identity menu ----
+ *
+ * The deployment chip in the header is the trigger for a small session popover
+ * (who you are, Log out). Operators read the name in the corner as "who am I"
+ * and reach for it to leave, so leaving lives behind it rather than inside the
+ * display card. Anchored LEFT, unlike the display card: it hangs under a
+ * header-left chip, not a header-right action. */
+.header-identity {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+/* Keeps `.header-deployment`'s type and its leading separator dot, so a
+   deployment that gained a menu did not visibly gain a widget. The affordance
+   is the caret plus hover/focus, not a box drawn around the name. */
+.header-identity-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.header-identity-trigger:hover,
+.header-identity-trigger[aria-expanded="true"] {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+.header-identity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-identity-caret {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-none);
+  color: var(--text-muted);
+}
+
+.header-identity-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  min-width: 220px;
+  padding: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  /* One step above --z-dropdown, unlike the display card. Anchoring LEFT puts
+     this menu over the same column as the one-time `.rail-hint` callout, which
+     is also --z-dropdown and sits later in the DOM (.shell-body) — so at equal
+     z-index the hint wins and swallows the click on Log out. Header chrome
+     outranks a body-level callout. */
+  z-index: var(--z-sticky);
+}
+
+.header-identity-menu.open {
+  display: flex;
+  animation: display-menu-in var(--wt-transition-fast);
+}
+
+.header-identity-who {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The initial disc. Carries the accent so the line reads as "you" at a glance
+   without needing an avatar image the framework has no way to source. */
+.header-identity-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-none);
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+}
+
+/* The name wins the row when both it and the deployment are too long for it:
+   `alice` is what identifies the session, the deployment only qualifies it. */
+.header-identity-who-name {
+  flex-shrink: 0;
+  max-width: 60%;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-identity-who-sub {
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-identity-who-sub::before {
+  content: '·';
+  margin-right: var(--space-1);
+}
+
+.header-identity-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 7px 10px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+/* Hovers to the error colour, not the accent: it is the one control in this
+   menu that ends the session rather than describing it. */
+.header-identity-logout:hover {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  background: var(--bg-elevated);
+}
+
+.header-identity-logout-icon {
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
+}
+
+/* app.js locks the button (`disabled` + `aria-busy`) for the whole in-flight
+   logout and never resets it — every path out of that handler navigates away. */
+.header-identity-logout[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-identity-menu.open { animation: none; }
 }
 
 /* ---- Simple-mode shell density (frame 2b) ----

@@ -52,15 +52,9 @@ const FIXTURE = `
         <button class="display-seg-option mode-segment" data-mode="simple" type="button">Simple</button>
       </div>
       <div class="display-menu-families" id="family-picker" role="group"></div>
-      <div class="display-menu-identity">
-        <span class="display-menu-identity-avatar" aria-hidden="true">A</span>
-        <span class="display-menu-identity-name">alice</span>
-      </div>
       <div class="display-menu-actions">
         <button class="display-menu-settings" id="display-menu-settings" type="button"
                 data-drawer-trigger="settings-drawer">Settings</button>
-        <button class="display-menu-logout" id="logout-btn" type="button"
-                data-landing-url="https://facility.example/portal">Log out</button>
       </div>
     </div>
   </div>
@@ -158,20 +152,9 @@ describe('display-menu', () => {
       qs('#display-menu-settings').click();
       expect(qs('#display-menu-card').classList.contains('open')).toBe(false);
     });
-
-    test('a Log out click leaves the card OPEN', () => {
-      // Deliberate: the logout handler (app.js) navigates away on every path,
-      // and closing the card first would hide the button's own aria-busy state
-      // while the POST is still in flight.
-      mountAndInit();
-      qs('#display-menu-btn').click();
-
-      qs('#logout-btn').click();
-      expect(qs('#display-menu-card').classList.contains('open')).toBe(true);
-    });
   });
 
-  describe('Session footer', () => {
+  describe('Settings row', () => {
     test('keeps the data-drawer-trigger contract settings.js binds its gate to', () => {
       mountAndInit();
       // The row must remain the [data-drawer-trigger="settings-drawer"] the
@@ -188,10 +171,10 @@ describe('display-menu', () => {
       const card = qs('#display-menu-card');
       const actions = qs('.display-menu-actions');
       expect(card.lastElementChild).toBe(actions);
-      // Settings leads, Log out follows: the destructive control is not the
-      // one under the cursor when the card opens.
+      // Settings is the whole row now — identity and Log out moved to the
+      // header identity menu (identity-menu.test.mjs).
       expect(actions.firstElementChild).toBe(qs('#display-menu-settings'));
-      expect(actions.lastElementChild).toBe(qs('#logout-btn'));
+      expect(actions.children.length).toBe(1);
     });
 
     test('init still no-ops when the row is absent', () => {

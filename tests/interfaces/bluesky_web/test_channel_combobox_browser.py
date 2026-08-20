@@ -463,3 +463,150 @@ def test_no_catalog_variant_renders_baseline_dom_with_no_console_errors(
 
         assert pageerrors == []
         assert console_errors == []
+
+
+# ---------------------------------------------------------------------------
+# 7. The popup is actually on screen, not clipped away by an ancestor
+# ---------------------------------------------------------------------------
+
+# Whether the popup's options are really painted where the user would click.
+#
+# Every DOM-level assertion the suite already makes -- aria-expanded="true",
+# to_be_visible(), a full complement of .channel-combobox-item children -- is
+# equally true of a popup an ancestor's `overflow: clip`/`hidden` has cropped
+# to a two-pixel sliver: clipping changes neither an element's bounding box nor
+# its computed visibility, which is all Playwright's visibility check reads.
+#
+# So ask the browser instead of reasoning about it. document.elementFromPoint
+# is the same hit test a real click goes through, and it already accounts for
+# clipping, stacking order, and the top layer. Walking the ancestor chain to
+# intersect rectangles in JS would be actively wrong here: the fix puts the
+# popup in the top layer via `popover`, which leaves it exactly where it is in
+# the DOM -- its clipping ancestors are still its parents, they simply no
+# longer clip it -- so a hand-rolled intersection would report a false clip.
+_HIT_TEST_OPTIONS = """
+(listId) => {
+  const list = document.getElementById(listId);
+  const items = [...list.querySelectorAll('.channel-combobox-item')];
+  return items.slice(0, 3).map((item) => {
+    const box = item.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return {
+      address: (item.textContent || '').trim(),
+      // null == the point is outside the viewport entirely.
+      hit: hit ? `${hit.tagName.toLowerCase()}.${hit.className}` : null,
+      reachable: !!hit && (hit === item || item.contains(hit) || list.contains(hit)),
+    };
+  });
+}
+"""
+
+
+def _assert_options_are_on_screen(page: Page, listbox: Locator, where: str) -> None:
+    """Fail unless the popup's first options answer their own hit test.
+
+    Asserts on the first three rather than only the first: a popup cropped to a
+    sliver can still surface a few pixels of row one, and a suggestion list you
+    cannot pick the second entry from is not a working suggestion list.
+    """
+    list_id = listbox.get_attribute("id")
+    assert list_id, "listbox carries no id"
+    probes = page.evaluate(_HIT_TEST_OPTIONS, list_id)
+    assert len(probes) >= 2, f"{where}: need at least two suggestions to probe"
+
+    blocked = [p for p in probes if not p["reachable"]]
+    assert not blocked, (
+        f"{where}: the popup is not on screen — "
+        f"{len(blocked)} of {len(probes)} options fail their own hit test. "
+        f"An ancestor's overflow has clipped the popup away: {blocked}"
+    )
+
+
+def test_popup_is_on_screen_inside_the_channel_list(
+    chromium_browser: Browser, bluesky_live_server
+) -> None:
+    """``.channel-list`` sets ``overflow: hidden`` for its rounded corners."""
+    with bluesky_live_server() as base_url, _panel_page(chromium_browser, base_url) as page:
+        _plan_form_target(page)
+        add = page.locator(CHANNEL_ADD)
+        add.fill("BPM")
+
+        listbox = _listbox_for(page, add)
+        expect(listbox).to_be_visible()
+        expect(listbox.locator(".channel-combobox-item").nth(1)).to_be_visible()
+
+        _assert_options_are_on_screen(page, listbox, "channel-list add-input")
+
+
+def test_popup_is_on_screen_inside_a_table_cell(
+    chromium_browser: Browser, bluesky_live_server
+) -> None:
+    """``.obj-table`` sets ``overflow: clip`` for its rounded corners."""
+    with bluesky_live_server() as base_url, _panel_page(chromium_browser, base_url) as page:
+        _plan_form_target(page)
+        page.evaluate(_TABLE_BOOTSTRAP)
+
+        page.locator("#table-probe .table-add").click()
+        cell = page.locator('#table-probe td input[aria-label="Channel"]')
+        expect(cell).to_be_visible()
+        cell.fill("BPM")
+
+        listbox = _listbox_for(page, cell)
+        expect(listbox).to_be_visible()
+        expect(listbox.locator(".channel-combobox-item").nth(1)).to_be_visible()
+
+        _assert_options_are_on_screen(page, listbox, "obj-table channel cell")
+
+
+# ---------------------------------------------------------------------------
+# 8. The armed row is visibly distinguishable from its neighbours
+# ---------------------------------------------------------------------------
+
+# Keyboard selection is only usable if the user can SEE which row Enter will
+# take. aria-selected="true" and a non-empty style.background both hold for a
+# row painted the exact colour of the popup underneath it, which is what the
+# `light` theme did: it defines --bg-secondary and --bg-elevated to the same
+# #ecedef, so the old surface-token highlight was literally invisible there.
+# Resolve the painted colours instead and require them to actually differ.
+_ROW_COLOURS = """
+(listId) => {
+  const list = document.getElementById(listId);
+  const rows = [...list.querySelectorAll('.channel-combobox-item')];
+  const armed = rows.find((r) => r.getAttribute('aria-selected') === 'true');
+  const plain = rows.find((r) => r.getAttribute('aria-selected') !== 'true');
+  const paint = (node) => getComputedStyle(node).backgroundColor;
+  return { armed: armed ? paint(armed) : null, plain: plain ? paint(plain) : null,
+           surface: paint(list) };
+}
+"""
+
+
+def test_armed_row_is_visually_distinct_from_the_popup_surface(
+    chromium_browser, bluesky_live_server
+) -> None:
+    """An armed row the user cannot see is not a usable keyboard cursor."""
+    with bluesky_live_server() as base_url, _panel_page(chromium_browser, base_url) as page:
+        target = _plan_form_target(page)
+        target.fill("BPM")
+
+        listbox = _listbox_for(page, target)
+        expect(listbox).to_be_visible()
+        expect(listbox.locator(".channel-combobox-item").nth(1)).to_be_visible()
+
+        target.press("ArrowDown")
+        expect(listbox.locator(".channel-combobox-item").nth(0)).to_have_attribute(
+            "aria-selected", "true"
+        )
+
+        colours = page.evaluate(_ROW_COLOURS, listbox.get_attribute("id"))
+        assert colours["armed"], "no row reports itself armed"
+        assert colours["armed"] != colours["surface"], (
+            "the armed row is painted the same colour as the popup it sits on "
+            f"({colours['armed']}) — the keyboard cursor is invisible"
+        )
+        assert colours["armed"] != colours["plain"], (
+            "the armed row is painted the same colour as an unarmed row "
+            f"({colours['armed']}) — the keyboard cursor is indistinguishable"
+        )

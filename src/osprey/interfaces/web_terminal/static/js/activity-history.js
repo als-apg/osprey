@@ -196,8 +196,10 @@ export function createActivityHistory({
   /** @param {KeyboardEvent} e */
   function onDocumentKeydown(e) {
     if (e.key === 'Escape') {
-      closeHistory();
+      // Focus the trigger before closing, so Escape returns the keyboard to
+      // where it came from rather than stranding it on <body>.
       mount.focus();
+      closeHistory();
     }
   }
 
@@ -254,7 +256,14 @@ export function createActivityHistory({
   mount.classList.add('activity-strip-trigger');
   mount.setAttribute('aria-expanded', 'false');
   mount.title = 'Recent agent activity';
+
+  // The mount is the affordance for a history that lives on the SERVER, so it
+  // is operable whenever the page is — including when the live line is empty,
+  // which is every reload. Gating this on emptiness makes the history
+  // unreachable by keyboard in exactly that state. The floating variant's
+  // empty-state invisibility is handled where it exists, in activity-strip.css.
   if (!mount.hasAttribute('tabindex')) mount.tabIndex = 0;
+
   mount.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleHistory();

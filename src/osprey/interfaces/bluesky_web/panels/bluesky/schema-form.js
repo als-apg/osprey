@@ -104,7 +104,10 @@ export const OMIT = Symbol('omit');
  * ``setChannelCatalog``; forms rendered while this is ``null`` build exactly
  * the DOM they always did, and are not retrofitted when the catalog arrives —
  * only fields (including dynamically added list rows / table cells) built
- * after it is set get a combobox.
+ * after it is set get a combobox. Because that is unforgiving of ordering, the
+ * bluesky panel waits for the catalog fetch to settle before it renders a plan
+ * form (``channelCatalogReady`` in panel.js/plans-view.js); this module still
+ * makes no promises about a form built early.
  *
  * @type {string[]|null}
  */

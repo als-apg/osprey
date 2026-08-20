@@ -29,6 +29,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   Long lines scroll rather than wrapping mid-identifier, and the view stays
   read-only. Offline deployments pick the highlighter up on their next `osprey
   vendor fetch`; until then the tab shows plain, uncoloured source.
+- The multi-user landing page's text is now yours. Files listed in
+  `modules.web_terminals.landing.notices` render as collapsible sections at the
+  bottom of the page — safety guidance, local procedures, contacts, whatever
+  operators should read first. Each file is markdown; its first heading becomes
+  the section label. `osprey init` writes a starter
+  `data/landing/working-safely.md` you can rewrite. Omit the key for the
+  built-in safety notice, or set it to `[]` for none. `landing.footer` sets the
+  line underneath.
 
 - New `ariel.default_search_mode` setting names the search module that answers
   when a caller asks for no mode — the web interface's opening tab, `osprey
@@ -92,13 +100,54 @@ Compatibility is documented in release notes, not encoded in the version string.
   the catalog until the container restarted. The plan leaves `GET /plans`
   immediately; anything already queued or running is unaffected.
 
+### Changed
+
+- The multi-user landing page drops the drawn ASCII wordmark; the page
+  now shows the text OSPREY at every window width.
+
+- Logging out now starts where operators look for it: the chip in the web
+  terminal's top-left corner naming the terminal. Clicking it opens a small
+  session menu with the signed-in user and **Log out**. The display menu keeps
+  Settings and is about display again.
+
+- The control assistant writes for the control room. Its answers now follow a
+  plain-language style: one idea per sentence, active voice naming the actor,
+  abbreviations expanded on first use, and no filler. Facility terms like
+  "abort" and "interlock" are kept exactly as the facility says them. The
+  rules are in `.claude/output-styles/control-operator.md`, so a facility can
+  claim that file and set its own house style.
+
 ### Fixed
 
 - Container builds no longer fail when one package download is cut short. apt
   now fetches one request per connection: with pipelining left at its default,
   a connection reset partway through a batch could fail the whole image even
   though retries were configured.
-
+- `osprey up` no longer aborts on arm64 hosts, such as Apple Silicon, while
+  building the web-terminal login sidecar. That image was the one recipe still
+  missing the build pin the others already carry, so the EPICS packages it has
+  to compile from source there failed and took the deployment down with them.
+- The web terminal's agent-activity strip no longer appears to swallow keyboard
+  focus while it is empty. On the pages where an empty strip is invisible it now
+  reveals itself when focused, instead of being a tab stop with no visible
+  outline. It stays reachable either way: the strip opens the recent-activity
+  history, which lives on the server and is there after a reload even when the
+  strip itself is empty.
+- Channel suggestions in the Bluesky plan form are visible again. The popup
+  opened correctly but was drawn inside containers that clip their overflow for
+  rounded corners, so in a channel list it was cut to nothing and in a table
+  cell to a two-pixel sliver — most channel fields appeared to offer no
+  suggestions at all. It now floats above the form, and flips above the field
+  when there is no room below.
+- The arrow-key cursor in the channel suggestion popup is visible in the
+  `light` theme, where it previously took the same colour as the popup behind
+  it. Hover and the armed row are now told apart as well.
+- Channel suggestions no longer go missing from the plan form the Bluesky panel
+  opens with. That form reads the channel catalog as it is built and is not
+  revisited afterwards, so whenever the catalog arrived a moment too late the
+  form offered no suggestions for as long as it stayed open. It now waits for
+  the catalog before rendering, and renders without suggestions rather than
+  stalling if the catalog cannot be fetched.
 - Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
   first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.
   Seeding skips the enhancement passes, so `hybrid` search previously searched

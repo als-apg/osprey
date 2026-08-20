@@ -190,6 +190,17 @@ config:
     # How the landing page is laid out. Omit this whole block and you get one
     # section holding every entry below, headed "Terminals".
     landing:
+      # Each file below becomes one collapsible section at the bottom of the
+      # landing page, in this order. The file's `# H1` is the section label, so
+      # adding a section means adding a markdown file and listing it here.
+      # `data/landing/working-safely.md` ships with this preset and is yours to
+      # rewrite; add your own for local procedures, contacts or shift handover.
+      # Drop this key entirely and you get OSPREY's built-in safety notice
+      # instead; set it to [] for no notices at all.
+      notices:
+        - data/landing/working-safely.md
+      # The line under everything. Set to "" for no footer.
+      footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
         # `users` renders the roster. It also SPLITS it: any entry whose
         # persona declares a `landing_group` (see `ariel` below) moves into a

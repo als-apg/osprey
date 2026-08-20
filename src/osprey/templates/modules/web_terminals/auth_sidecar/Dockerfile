@@ -66,8 +66,14 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
+# fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
+# where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
+# pip's isolated build environments. Drop once a fixed release is out.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
+    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && { pip install --no-cache-dir "osprey-framework==$OSPREY_VERSION" \

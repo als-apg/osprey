@@ -79,10 +79,31 @@
 /* Empty-state hide must be non-display: the element is an aria-live region,
    and a display:none region would enter the accessibility tree at the same
    moment as its content, so screen readers could drop the announcement. An
-   opacity hide keeps the (empty) live region pre-existing its content. */
+   opacity hide keeps the (empty) live region pre-existing its content.
+
+   The cost is that an empty strip is invisible and zero-sized yet still in the
+   DOM. `pointer-events: none` keeps the mouse out of it, but the strip is also
+   the TRIGGER for the recent-activity history, which lives on the server and
+   outlives the live line — after any reload the history is full and the strip
+   is empty. So it stays keyboard-operable, and instead reveals itself with a
+   label whenever focus or the open popover puts it in play. Dropping its
+   tabindex here would make the history unreachable by keyboard in the most
+   common state there is. */
 .status-activity-floating:empty {
   opacity: 0;
   pointer-events: none;
+}
+
+.status-activity-floating:empty:focus-visible,
+.status-activity-floating:empty[aria-expanded='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.status-activity-floating:empty:focus-visible::after,
+.status-activity-floating:empty[aria-expanded='true']::after {
+  content: 'Recent activity';
+  color: var(--text-secondary);
 }
 
 /* ---- History popover ----

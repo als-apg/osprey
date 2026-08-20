@@ -132,6 +132,7 @@ from tests.e2e.sdk_helpers import (
     SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     HookEvent,
     _default_opus_model,
+    dump_agent_transcript,
     is_claude_code_available,
     promote_ask_to_allow,
     render_dir,
@@ -510,13 +511,22 @@ def find_satisfying_chain(
 
 def assert_scan_executed(
     result: SDKWorkflowResult, predicate: PlanClassPredicate, *, plan_class: str
-) -> None:
+) -> str | None:
     """Assert the deterministic floor: the agent staged, launched, and read
     back a run of ``plan_class``. Runs unconditionally — never skip-gated.
+
+    Returns the launched run id, the way :func:`assert_authored_scan_executed`
+    does, so a live test can fetch that run from the bridge and grade its data
+    independently of what the agent said about it. ``None`` when the add's body
+    carried no usable id — the same graceful degradation
+    :func:`find_satisfying_chain` applies to its own binding, and the reason
+    the data floors are guarded on it rather than assuming an id.
     """
     traces = result.tool_traces
-    if find_satisfying_chain(traces, predicate) is not None:
-        return
+    chain = find_satisfying_chain(traces, predicate)
+    if chain is not None:
+        add_index, _, _ = chain
+        return _launched_run_id(traces[add_index])
 
     states = accumulated_draft_states(traces)
     draft_calls = [
@@ -550,14 +560,14 @@ def assert_scan_executed(
     )
 
 
-def assert_orbit_response_scan_executed(result: SDKWorkflowResult) -> None:
+def assert_orbit_response_scan_executed(result: SDKWorkflowResult) -> str | None:
     """The orbit-response-class floor — see :func:`assert_scan_executed`."""
-    assert_scan_executed(result, is_orbit_response_state, plan_class="orbit-response-class")
+    return assert_scan_executed(result, is_orbit_response_state, plan_class="orbit-response-class")
 
 
-def assert_grid_scan_executed(result: SDKWorkflowResult) -> None:
+def assert_grid_scan_executed(result: SDKWorkflowResult) -> str | None:
     """The grid-scan-class floor — see :func:`assert_scan_executed`."""
-    assert_scan_executed(result, is_grid_scan_state, plan_class="grid-scan-class")
+    return assert_scan_executed(result, is_grid_scan_state, plan_class="grid-scan-class")
 
 
 def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
@@ -579,9 +589,9 @@ def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
     return bool(state)
 
 
-def assert_a_scan_executed(result: SDKWorkflowResult) -> None:
+def assert_a_scan_executed(result: SDKWorkflowResult) -> str | None:
     """The class-agnostic floor — see :func:`is_any_staged_plan_state`."""
-    assert_scan_executed(result, is_any_staged_plan_state, plan_class="any-class")
+    return assert_scan_executed(result, is_any_staged_plan_state, plan_class="any-class")
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +769,116 @@ def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None
         f"  queue_add calls, with the plan each staged: {adds or '(none)'}\n"
         f"  MCP server status: {result.mcp_server_status}\n"
         f"  all tools called, in order: {[t.name for t in traces]}"
+    )
+
+
+def _numeric_series(data: dict[str, Any], column: str) -> list[tuple[int, float]]:
+    """``(row index, value)`` for every numeric cell of ``column``.
+
+    Rows are positional lists aligned with ``columns`` — the bridge route's
+    wire shape (``{"columns": [...], "rows": [[...], ...]}``), not dicts. A
+    non-numeric or missing cell is a dropout and is simply absent from the
+    result, which is what lets callers measure coverage as well as span.
+    """
+    columns = data.get("columns") or []
+    if column not in columns:
+        return []
+    idx = columns.index(column)
+    pairs: list[tuple[int, float]] = []
+    for i, row in enumerate(data.get("rows") or []):
+        value = row[idx] if idx < len(row) else None
+        if isinstance(value, (int, float)):
+            pairs.append((i, float(value)))
+    return pairs
+
+
+def assert_run_is_live(
+    data: dict[str, Any],
+    correctors: Iterable[str],
+    bpms: Iterable[str],
+    *,
+    noise_floor: float = 0.0,
+) -> None:
+    """Assert the run's own data is a LIVE measurement — the machine was
+    driven and something position-like answered.
+
+    ``data`` is the bridge's ``GET /runs/{id}/data`` body. Deliberately
+    class-agnostic: "the stack produced a real signal" is the same claim for
+    an orbit response as for a grid, and one shared floor cannot drift between
+    them the way two near-copies would.
+
+    Deliberately NOT a physics floor. It does not check that the response
+    matrix is diagonal-dominant, sign-correct, reciprocal, or linear — every
+    one of those would pin the test to the VA's current optics model and turn
+    a lattice change into a red lane. What it rules out is the failure mode
+    the judge cannot see and :func:`assert_scan_executed` does not look for: a
+    run that completed its sequence over a dead, unwired, or dropped-out
+    stack, leaving the agent nothing real to report and no way for anyone
+    downstream to tell.
+
+    Four claims, all deterministic:
+
+    1. **Wiring** — at least one wired corrector column and one wired BPM
+       column are present. A run whose columns name neither measured this
+       machine.
+    2. **Points** — at least three numeric rows. One or two points is not a
+       measurement whatever else is true of them.
+    3. **Drive** — the widest wired corrector column actually moved. A
+       corrector that never left its setting drove nothing.
+    4. **Response** — at least one wired BPM carried readings on at least half
+       the rows AND moved by more than ``noise_floor``. Half-coverage is the
+       dropout guard; the span is the signal guard.
+
+    ``noise_floor`` defaults to ``0.0`` — a strict "it moved at all" — because
+    the VA is deterministic and models no measurement noise, so a live channel
+    moves exactly and a dead one is exactly flat. A future VA that adds noise
+    wants a real floor passed here rather than a looser comparison baked in.
+    """
+    columns = data.get("columns") or []
+    rows = data.get("rows") or []
+    corrector_columns = [c for c in columns if c in set(correctors)]
+    bpm_columns = [c for c in columns if c in set(bpms)]
+    assert corrector_columns, (
+        f"no wired corrector column in the run's data (columns: {columns}) — "
+        "nothing the deployed worker registered was driven"
+    )
+    assert bpm_columns, (
+        f"no wired BPM column in the run's data (columns: {columns}) — "
+        "nothing position-like was read back"
+    )
+    assert len(rows) >= 3, (
+        f"the run recorded {len(rows)} row(s) — a measurement needs points, "
+        "and a completed sequence over an empty table is exactly what a dead "
+        "stack produces"
+    )
+
+    def _span(column: str) -> float:
+        values = [v for _, v in _numeric_series(data, column)]
+        return (max(values) - min(values)) if values else 0.0
+
+    driven = max(corrector_columns, key=_span)
+    drive_span = _span(driven)
+    assert drive_span > 0, (
+        f"no wired corrector moved: the widest, {driven!r}, spans "
+        f"{drive_span} across {len(rows)} row(s) (correctors in this run: "
+        f"{corrector_columns}) — the plan ran but the machine was never "
+        "actually stepped"
+    )
+
+    verdicts = []
+    for bpm in bpm_columns:
+        readings = [v for _, v in _numeric_series(data, bpm)]
+        coverage = len(readings) / len(rows)
+        response = (max(readings) - min(readings)) if readings else 0.0
+        verdicts.append((bpm, f"{len(readings)}/{len(rows)} rows", response))
+        if coverage >= 0.5 and response > noise_floor:
+            return
+
+    raise AssertionError(
+        f"no wired BPM answered the {drive_span} sweep of {driven!r}. Per BPM "
+        f"(readings kept, response range): {verdicts} — a flat BPM saw no "
+        "signal and a sparse one dropped its readbacks, so whatever the agent "
+        "reported about this run, the machine did not supply it"
     )
 
 
@@ -1901,6 +2021,103 @@ def test_hysteresis_data_floor_rejects_an_unresponsive_machine() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The liveness floor's own dry tests. `assert_run_is_live` is the only floor
+# the ORM and grid tests have over their run's DATA, so it gets the same
+# grade-the-grader treatment the hysteresis floor does: one healthy shape it
+# must accept, and one control per claim it must reject. A liveness floor that
+# accepts a dead stack is worse than none, because it reads as coverage.
+# ---------------------------------------------------------------------------
+
+#: A healthy two-corrector orbit-response readback: both correctors stepped,
+#: both BPMs answering on every row. Written positionally, the bridge's own
+#: wire shape.
+_LIVE_ORM_DATA: dict[str, Any] = {
+    "columns": ["corrector_01", "corrector_02", "bpm_01", "bpm_02"],
+    "rows": [
+        [s, -s, 9.0 * s, 6.2 * s] for s in [-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0]
+    ],
+}
+
+_LIVE_CORRECTORS = ["corrector_01", "corrector_02"]
+_LIVE_BPMS = ["bpm_01", "bpm_02"]
+
+
+@pytest.mark.harness_benchmark
+def test_liveness_floor_accepts_a_healthy_run() -> None:
+    assert_run_is_live(_LIVE_ORM_DATA, _LIVE_CORRECTORS, _LIVE_BPMS)
+
+
+@pytest.mark.harness_benchmark
+def test_liveness_floor_rejects_an_undriven_machine() -> None:
+    """Every corrector parked at one setting. The sequence can still complete
+    — stage, queue, start, read — so only a data floor catches it."""
+    data = {
+        "columns": ["corrector_01", "bpm_01"],
+        "rows": [[0.0, 0.0] for _ in range(9)],
+    }
+    with pytest.raises(AssertionError, match="no wired corrector moved"):
+        assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_liveness_floor_rejects_flat_readbacks() -> None:
+    """The correctors swept and every BPM stayed put — a driven machine that
+    nothing was listening to. This is the shape that leaves an agent with
+    nothing real to report."""
+    data = {
+        "columns": ["corrector_01", "bpm_01", "bpm_02"],
+        "rows": [[s, 0.0, 0.0] for s in [-1.0, -0.5, 0.0, 0.5, 1.0]],
+    }
+    with pytest.raises(AssertionError, match="no wired BPM answered"):
+        assert_run_is_live(data, ["corrector_01"], ["bpm_01", "bpm_02"])
+
+
+@pytest.mark.harness_benchmark
+def test_liveness_floor_rejects_dropped_readbacks() -> None:
+    """A BPM that responded on only two of nine rows dropped its readbacks;
+    the span alone would call that live, which is why coverage is checked."""
+    rows: list[list[Any]] = [[s, None] for s in [-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5]]
+    rows += [[0.75, 6.75], [1.0, 9.0]]
+    data = {"columns": ["corrector_01", "bpm_01"], "rows": rows}
+    with pytest.raises(AssertionError, match="no wired BPM answered"):
+        assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_liveness_floor_rejects_an_empty_table() -> None:
+    """A completed sequence over an empty table — what a dead stack produces
+    and what the structural floor happily accepts."""
+    data = {"columns": ["corrector_01", "bpm_01"], "rows": []}
+    with pytest.raises(AssertionError, match="a measurement needs points"):
+        assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_liveness_floor_rejects_unwired_columns() -> None:
+    """Columns that name no registered device mean the run measured some
+    other machine — or a renamed one nobody noticed."""
+    data = {
+        "columns": ["something_else", "another_thing"],
+        "rows": [[s, 2.0 * s] for s in [-1.0, 0.0, 1.0]],
+    }
+    with pytest.raises(AssertionError, match="no wired corrector column"):
+        assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_liveness_floor_honours_an_explicit_noise_floor() -> None:
+    """A response below the caller's noise floor is not a signal. Pins the
+    knob a future noisy VA needs, so it cannot rot unnoticed."""
+    data = {
+        "columns": ["corrector_01", "bpm_01"],
+        "rows": [[s, 0.001 * s] for s in [-1.0, -0.5, 0.0, 0.5, 1.0]],
+    }
+    assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
+    with pytest.raises(AssertionError, match="no wired BPM answered"):
+        assert_run_is_live(data, ["corrector_01"], ["bpm_01"], noise_floor=0.1)
+
+
+# ---------------------------------------------------------------------------
 # Offline discrimination checks for the judge criterion. These grade the
 # GRADER: the same rubric constants the live tests use, against hand-written
 # conclusions, over a synthetic healthy-run trace. No Docker and no agent
@@ -2603,7 +2820,25 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
         disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
 
-    assert_orbit_response_scan_executed(result)
+    # Before any assertion — see dump_agent_transcript. The judge's criterion 2
+    # turns on numbers it is never shown, so when it reports that a response
+    # "cannot be verified from the execution trace" this file is the only place
+    # the real tool output survives to settle it.
+    dump_agent_transcript("orbit_response", result)
+
+    run_id = assert_orbit_response_scan_executed(result)
+
+    # The liveness floor reads the run from the bridge directly — what the
+    # machine recorded, independent of how (or how much of) the run the agent
+    # read back. Without it nothing in this test grades a single measured
+    # value: the floor above checks the call sequence, and the judge is handed
+    # tool results truncated to 300 characters. Skipped only when the add's
+    # body carried no usable run id, the same graceful degradation the trace
+    # floor's binding has.
+    if run_id is not None:
+        status, data = _queue_drive.request(BRIDGE_URL, f"/runs/{run_id}/data?max_rows=1000", "GET")
+        assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
+        assert_run_is_live(data, deployed_scan_stack.correctors, deployed_scan_stack.bpms)
 
     judge = LLMJudge(provider=JUDGE_PROVIDER)
     eval = await judge.evaluate(
@@ -2661,7 +2896,16 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
         disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
 
-    assert_grid_scan_executed(result)
+    dump_agent_transcript("grid_scan", result)
+
+    run_id = assert_grid_scan_executed(result)
+
+    # Same liveness floor as the orbit-response test above, for the same
+    # reason — see the comment there.
+    if run_id is not None:
+        status, data = _queue_drive.request(BRIDGE_URL, f"/runs/{run_id}/data?max_rows=1000", "GET")
+        assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
+        assert_run_is_live(data, deployed_scan_stack.correctors, deployed_scan_stack.bpms)
 
     judge = LLMJudge(provider=JUDGE_PROVIDER)
     eval = await judge.evaluate(
@@ -2764,6 +3008,8 @@ async def test_agent_authors_and_runs_a_hysteresis_loop(
             model=_default_opus_model(repo),
             disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
+
+    dump_agent_transcript("hysteresis_loop", result)
 
     run_id, _ = assert_authored_scan_executed(result)
 
@@ -3036,6 +3282,8 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
             model=_default_opus_model(repo),
             disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
+
+    dump_agent_transcript("one_action_approval", result)
 
     # The plan itself first: a transcript assertion over a run that never
     # staged anything would be counting prompts that were never going to fire.

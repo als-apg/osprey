@@ -44,21 +44,23 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt project — pymongo still lands in its venv, now from the base
     # install rather than the profile — but the generated pyproject.toml no
     # longer names it, so the advisory firing is correct.
-    # Moved when the control-assistant tier gained the `bluesky-plans` skill,
-    # which adds a `.claude/skills/bluesky-plans/` directory to a rebuilt
-    # project. Only three of the four moved: `control-assistant-ariel` excludes
-    # the skill by name, so its resolved skill set is unchanged and its digest
-    # holds still — which is what an exclusion that cancels an inherited
-    # addition is supposed to look like.
-    "control-assistant": "sha256:c6b4bd5a17ed2da4be991d151e905dac857b325d3b41fc3d92a1c7e510e6ba05",
+    # Moved twice in one release window. The control-assistant tier gained the
+    # `bluesky-plans` skill, so a rebuilt project grows a
+    # `.claude/skills/bluesky-plans/` directory; and it gained
+    # `landing.notices` and `landing.footer`, so its landing page grows a
+    # collapsible "working safely" section and a footer line. Both are
+    # deploy-visible, so the staleness advisory firing on already-deployed
+    # projects is correct. `control-assistant-ariel` excludes the skill by
+    # name, so only the notices moved its digest.
+    "control-assistant": "sha256:5ef6bbfb2b06cdba889a5c0484eedb9d885a89c5148c00f6f89bca31034beceb",
     "control-assistant-ariel": (
-        "sha256:9e71eaa1c45afcf201a12a1722fab5b80ffcb059ff45b0d602785c7e37a1cea5"
+        "sha256:db36e1df06e55b0fd47d9e93ccb84101f2b9868152ba922d2827c8fa133a9db5"
     ),
     "control-assistant-readonly": (
-        "sha256:609fe4996edb07810e2ae8b1123ce56f8920385baaa1b5ca28f1408abbd6faff"
+        "sha256:23caeed80df2874008f26cbc6f06712f230fa11f9e8666e77590dac7729c2640"
     ),
     "control-assistant-readwrite": (
-        "sha256:9056382686610476bf128f6ebf6f1bce6eba3f5c4a886a4c0c1e1f2435398e69"
+        "sha256:51b7fcc7e5889888ca2cfadbb2c3dbfc1dff625ab780f9ae9cfd3f453c766bf4"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
