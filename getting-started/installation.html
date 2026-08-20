@@ -505,9 +505,11 @@ CLI release can’t change your setup the day it comes out.</p>
 <p>Anthropic ships breaking changes to the Claude Code CLI from time to time.
 The install command above already pins your global <code class="docutils literal notranslate"><span class="pre">claude</span></code> binary; to pin
 what a specific project launches — independently of what is installed
-globally — set a version in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.146&quot;</span><span class="w">   </span><span class="c1"># exact version, no semver ranges</span>
+globally — set a version under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.146&quot;</span><span class="w">   </span><span class="c1"># exact version, no semver ranges</span>
 </pre></div>
 </div>
 <p>When set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> and the web terminal launch the pinned

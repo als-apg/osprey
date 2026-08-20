@@ -897,10 +897,24 @@ switch the interfaces over to local bundles.
 
    ``-q, --quiet`` — Suppress per-file output.
 
-   ``-k, --insecure`` — Skip TLS cert verification. Every asset is still
-   checked against its manifest SHA256, so this is safe behind corporate
-   proxies (e.g. Squid) that intercept TLS. Also enabled via
-   ``OSPREY_VENDOR_INSECURE=1``.
+   Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
+   fails cert verification until it is pointed at the site's CA bundle.
+   That is the first remedy to reach for — verification stays on:
+
+   .. code-block:: bash
+
+      OSPREY_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+        osprey vendor fetch
+
+   ``SSL_CERT_FILE`` works too (Python's default SSL context honors it);
+   ``OSPREY_CA_BUNDLE`` wins when both are set. The path above is the
+   RHEL-family system bundle — on Debian-family hosts it is
+   ``/etc/ssl/certs/ca-certificates.crt``.
+
+   ``-k, --insecure`` — The fallback when no CA bundle is at hand: skip TLS
+   cert verification. Every asset is still checked against its manifest
+   SHA256, so this is safe behind corporate proxies that intercept TLS.
+   Also enabled via ``OSPREY_VENDOR_INSECURE=1``.
 
 ``osprey vendor verify``
    Verify all vendor assets exist on disk with correct SHA256 checksums.
@@ -908,7 +922,8 @@ switch the interfaces over to local bundles.
 .. code-block:: bash
 
    osprey vendor fetch                    # Download all assets
-   osprey vendor fetch --insecure         # Behind a TLS-intercepting proxy
+   OSPREY_CA_BUNDLE=/path/to/ca.pem osprey vendor fetch   # TLS-intercepting proxy, verified
+   osprey vendor fetch --insecure         # Fallback: no CA bundle at hand
    osprey vendor verify                   # Check checksums
 
 Environment Variables

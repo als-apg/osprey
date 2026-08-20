@@ -491,10 +491,11 @@
 configuration validity, file-system layout, Python environment, container
 infrastructure, telemetry store, API providers, the agent CLI, and any
 configured framework services (ARIEL, channel finder) — and prints a
-categorized report. The built-in checks always run; the <code class="docutils literal notranslate"><span class="pre">health:</span></code> block in
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> lets a facility <em>add</em> its own checks (HTTP endpoints, MCP servers,
-deployed containers, control-system channels, model providers) and tune the
-suite’s timing.</p>
+categorized report. The built-in checks always run; a <code class="docutils literal notranslate"><span class="pre">health:</span></code> block in the
+build profile (<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>) lets a facility <em>add</em> its own checks (HTTP
+endpoints, MCP servers, deployed containers, control-system channels, model
+providers) and tune the suite’s timing — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders it into
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
 <p>This guide covers the <code class="docutils literal notranslate"><span class="pre">health:</span></code> configuration surface. For the shape of the
 <code class="docutils literal notranslate"><span class="pre">--json</span></code> report and the exit codes that go with it, see
 <a class="reference internal" href="health-json-contract.html"><span class="doc">The osprey health --json Contract</span></a>; for the full flag list, see

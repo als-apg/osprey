@@ -496,8 +496,9 @@ every project.</p>
 <li><p class="sd-card-text">What the generated <code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> / <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> are and who owns them</p></li>
 <li><p class="sd-card-text">How to keep a customized Dockerfile across rebuilds</p></li>
 <li><p class="sd-card-text">Building and running the image (ports, secrets, volumes)</p></li>
-<li><p class="sd-card-text">The three build-arg extension points for site-specific installs</p></li>
-<li><p class="sd-card-text">Building behind a proxy, and staging model files for the search sidecar</p></li>
+<li><p class="sd-card-text">The build-arg extension points for site-specific installs</p></li>
+<li><p class="sd-card-text">Building behind a proxy — including one that re-signs TLS with a site CA
+— and staging model files for the search sidecar</p></li>
 <li><p class="sd-card-text">Path relocation with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code></p></li>
 <li><p class="sd-card-text">Air-gapped images, the non-root requirement, and Kubernetes notes</p></li>
 </ul>
@@ -588,10 +589,16 @@ internal GitLab serving the OSPREY package).</p></td>
 matches the framework version that generated the Dockerfile; override
 to test a newer CLI without regenerating the project.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Name of a site CA file staged in the build context, for networks
+where a proxy re-signs TLS with its own CA — see
+<a class="reference internal" href="#tls-intercepting-proxies">TLS-Intercepting Proxies</a> below. Unset, the CA step does nothing.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
-<p>(A fifth ARG, <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code>, is used internally by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
+<p>(A sixth ARG, <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code>, is used internally by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
 <span class="pre">--dev</span></code> to install a locally built wheel; you normally never set it by hand.)</p>
 <p>Example — install OSPREY from an internal mirror behind a proxy, with
 vendored assets for an air-gapped host:</p>
@@ -640,6 +647,84 @@ dependency layer the bridge runs first and the existing
 <code class="docutils literal notranslate"><span class="pre">NO_PROXY=&quot;$PIP_NO_PROXY&quot;</span></code> export follows it, so a site that needs an
 exemption there sets <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code> exactly as before while <code class="docutils literal notranslate"><span class="pre">http_proxy</span></code> and
 <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> are bridged normally.</p>
+</section>
+<section id="tls-intercepting-proxies">
+<h3>TLS-Intercepting Proxies<a class="headerlink" href="#tls-intercepting-proxies" title="Link to this heading">#</a></h3>
+<p>Some proxies do more than relay: they terminate every HTTPS connection and
+re-sign it with the site’s own CA (Squid is a common example). Delivering the
+proxy values as above is then not enough — every fetch inside the build (apt,
+npm, pip, the optional <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code>) fails cert verification,
+because nothing in the image trusts that CA yet.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code> build argument closes the gap. A Dockerfile <code class="docutils literal notranslate"><span class="pre">COPY</span></code>
+cannot reach outside the build context, so first stage a copy of the CA bundle
+beside the Dockerfile, then name it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>build/.image/my-project
+cp<span class="w"> </span>/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem<span class="w"> </span>site-ca.pem
+docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_SITE_CA</span><span class="o">=</span>site-ca.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-f<span class="w"> </span>build/Dockerfile<span class="w"> </span>.
+</pre></div>
+</div>
+<p>That first path is where a RHEL-family build host keeps its system bundle
+(individual CA files also live under <code class="docutils literal notranslate"><span class="pre">/etc/pki/ca-trust/source/anchors/</span></code>).
+The path is a host fact, not an image fact: the image is Debian, and inside it
+the staged CA is installed with <code class="docutils literal notranslate"><span class="pre">update-ca-certificates</span></code> — before the first
+fetch — into the merged Debian bundle at <code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.</p>
+<p>Installing the CA into the system store only covers the tools that read it.
+Each tool family finds its trust through a different variable, so the image
+also points all four at that merged bundle, for build steps and the running
+container alike:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 66.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>Who reads it</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NODE_EXTRA_CA_CERTS</span></code></p></td>
+<td><p>Node (and so npm) — Node ships its own CA list and consults no
+system store without it.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PIP_CERT</span></code></p></td>
+<td><p>pip — which otherwise trusts only its bundled <code class="docutils literal notranslate"><span class="pre">certifi</span></code> store.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code></p></td>
+<td><p>Python’s <code class="docutils literal notranslate"><span class="pre">ssl</span></code> module (any default SSL context).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REQUESTS_CA_BUNDLE</span></code></p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">requests</span></code> library.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>With no CA staged, the whole mechanism is a no-op: the variables restate each
+tool’s default and the build behaves exactly as before.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The same interception can fail <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> <strong>on the host</strong>, before any
+container is involved — and the symptom is confusing, because plain
+connectivity checks all pass. While preparing the project environment,
+pip’s build-isolation subprocess dies with <code class="docutils literal notranslate"><span class="pre">SSL:</span> <span class="pre">CERTIFICATE_VERIFY_FAILED</span></code>
+fetching a build backend such as <code class="docutils literal notranslate"><span class="pre">hatchling</span></code>, even though <code class="docutils literal notranslate"><span class="pre">curl</span></code> and the
+system Python verify the same endpoints fine. The difference is the trust
+store: those tools read the system bundle, which knows the proxy’s CA, while
+the venv’s pip trusts only its bundled <code class="docutils literal notranslate"><span class="pre">certifi</span></code> store, which cannot build
+the proxied chain. Point the certifi-backed clients at the system bundle
+before building:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">SSL_CERT_FILE</span><span class="o">=</span>/etc/ssl/certs/ca-bundle.crt<span class="w"> </span><span class="se">\</span>
+<span class="w">       </span><span class="nv">REQUESTS_CA_BUNDLE</span><span class="o">=</span>/etc/ssl/certs/ca-bundle.crt<span class="w"> </span><span class="se">\</span>
+<span class="w">       </span><span class="nv">PIP_CERT</span><span class="o">=</span>/etc/ssl/certs/ca-bundle.crt
+</pre></div>
+</div>
+<p>(<code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-bundle.crt</span></code> is the RHEL-family spelling of the system
+bundle; Debian-family hosts use <code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.)
+These are the same three variables the image sets for its own inside —
+exported here, they cover the host-side build, which reads them from the
+shell rather than from the deployment’s env files.</p>
+</div>
 </section>
 </section>
 <section id="prefetched-models-for-the-search-sidecar">
@@ -839,6 +924,7 @@ the complement to the project image on this page.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-arguments">Build Arguments</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#building-behind-a-proxy">Building Behind a Proxy</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tls-intercepting-proxies">TLS-Intercepting Proxies</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prefetched-models-for-the-search-sidecar">Prefetched Models for the Search Sidecar</a><ul class="visible nav section-nav flex-column">
