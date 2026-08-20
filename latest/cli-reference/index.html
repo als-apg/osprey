@@ -658,6 +658,7 @@ osprey<span class="w"> </span>config<span class="w"> </span>--defaults<span clas
 source a deployment is built from — see <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>TARGET
 osprey<span class="w"> </span>profile<span class="w"> </span>presets
+osprey<span class="w"> </span>profile<span class="w"> </span>artifacts
 </pre></div>
 </div>
 <dl class="simple">
@@ -670,6 +671,10 @@ with the accumulated errors when not. Inside a deployment repository, plain
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code></dt><dd><p>List bundled preset names, one per line. Every name printed is usable as
 <code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">artifacts</span></code></dt><dd><p>List every artifact the six profile lists can name — hooks, rules, skills,
+agents, output styles, and web panels — with a one-line description of
+each. The same menu appears as commented entries in an emitted profile.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
@@ -1187,9 +1192,10 @@ project-local <code class="docutils literal notranslate"><span class="pre">.clau
 install.</p>
 <p>Currently supported skills:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — guided facility-repository generation (see
-<a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>). Typically installed globally
-so it is available in any Osprey agent session.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — set up or migrate an OSPREY deployment
+through a guided conversation anchored on the live deployment repo (see
+<a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>). Typically installed
+globally so it is available in any Osprey agent session.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> — walks a contributor through the GitHub Flow
 journey from a working-tree change to a merged PR on <code class="docutils literal notranslate"><span class="pre">main</span></code> (branching,
 atomic commits, push, PR, rebase, merge).</p></li>

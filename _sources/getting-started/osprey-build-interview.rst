@@ -3,12 +3,12 @@ Guided Project Setup
 ====================
 
 If you're setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the ``/osprey-build-interview`` skill walks you through a guided
-conversation that generates a ready-to-build project profile tailored to your
-system.
+subsystem, the ``/osprey-build-interview`` skill turns a guided conversation
+into a working deployment repository tailored to your system — created up
+front from a curated preset, then refined with you piece by piece.
 
-It's a short conversation — roughly five minutes, and about three rounds of
-questions.
+A minimal setup takes a few minutes; how much further you go is up to you,
+and you can stop, build, and resume at any point.
 
 .. dropdown:: **Prerequisites**
    :color: info
@@ -67,88 +67,76 @@ In the Osprey agent session, type:
 
    /osprey-build-interview
 
-There is no fixed script. The Osprey agent asks questions in whatever order the
-conversation takes, phrases them for the person in front of it, and follows up
-where an answer needs more detail. By the end of the conversation it will have
-established five things:
+The interview creates your **deployment repository first** — one ``osprey
+init`` from a working preset, in the first minutes of the conversation — and
+then refines it with you in place. There is no questionnaire to survive before
+something exists: the repo builds at every step, and you can ask to see it
+running at any point.
 
-* **What your system is** — the kind of system, a short name for the project, a
-  one-line description in plain English, and the facility it belongs to.
-* **How it connects** — simulated data to start with, which is the recommended
-  choice if you're unsure, or a live connection to your control system.
-* **Which signals matter** — the process variables the assistant will work with,
-  along with their units and typical ranges. If you don't have a list yet, a
-  rough description is enough to start from.
-* **Whether the assistant may change things, or only look** — read-only is the
-  default and the recommended starting point. If you do want it to change
-  values, you'll also be asked which signals and what range is safe for each.
-* **Which AI service you have access to** — usually whichever one your lab
-  provides. "I'm not sure" is a fine answer here too.
+Four things are always settled before the interview calls itself done:
+
+* **Which AI service answers** — usually whichever one your lab provides, and
+  a working key for it. "I'm not sure" is a fine answer; the interview helps
+  you find out.
+* **How it connects** — the built-in simulated accelerator to start with,
+  which is the recommended choice if you're unsure, or a live connection to
+  your control system.
+* **Whether the assistant may change things, or only look** — read-only is
+  the safe start. If you do want it to change values, you'll also settle
+  which channels and what range is safe for each.
+* **What the project is** — a short name, the facility it belongs to, and
+  its timezone.
+
+Everything else keeps the preset's curated defaults unless you bring it up.
+The profile the interview edits lists every optional feature — including the
+ones not switched on — as commented entries with explanations, so "what else
+could this do?" is always answerable by reading the file, with or without the
+interview.
+
+Decisions land in an ``INTERVIEW.md`` at the repository root: what was chosen,
+why, and what was deliberately deferred. Reopen the repository later and
+invoke the skill again to resume exactly where you left off.
 
 Tips during the interview
 -------------------------
 
 - If you're not sure about a question, say "I'm not sure" — it'll pick a safe default
-- If you have a spreadsheet of PV names handy, that's helpful but not required
-- You can always re-run the interview later to adjust things
+- If you have a spreadsheet of channel names handy, that's helpful but not required
+- Ask to see the assistant running whenever you're curious — the repo always builds
 
-Build your project
-==================
+Migrating an existing project
+=============================
 
-When the interview is done, the Osprey agent creates a **facility repository** —
-a git repository named after your facility, with your profile nested inside it:
+If you already have an OSPREY project — even one from the LangGraph era —
+point the interview at it. It scans the old project, salvages what carries
+over (channel databases, data files, custom code, configuration values), and
+walks you through each judgment call as a confirmation rather than a
+question. The porting decisions are recorded in ``INTERVIEW.md`` alongside
+everything else.
 
-.. code-block:: text
+Build and run
+=============
 
-   my-facility/
-     profile/       the source you own: profile.yml, data/, your secrets
-     build/         where `osprey build` renders projects (kept out of git)
-     ci-extra.yml   your own CI jobs; nothing ever regenerates this
-     .gitignore
-
-``profile/profile.yml`` records everything the interview decided. Beside it are
-a ``README.md`` explaining what was chosen and why, and — if you gave signal
-details — a channel database and the safe operating ranges that go with it.
-
-Before handing it over, the agent builds the profile itself and requires that
-build to succeed. If something doesn't render, it fixes the profile and tries
-again rather than passing you a broken one, so what you receive is known to
-build.
-
-Then:
+The interview leaves you inside a deployment repository whose
+``profile.yml`` records everything that was decided:
 
 .. code-block:: bash
 
    # skip-ci
-   cd my-facility
-   osprey build
+   cd my-project
+   osprey build     # render build/ from the profile
+   osprey web       # web dashboard on your own machine
 
-One command. OSPREY reads your profile, validates your selections, copies your
-channel database into the right place, and renders a ready-to-use project into
-``build/my-project/``. You never have to say where the output goes: a profile
-nested in a facility repository always renders into that repository's
-``build/``, from whichever directory you run the command.
-
-To start using it:
-
-.. code-block:: bash
-
-   # skip-ci
-   cd build/my-project && claude
-
-Or for the web dashboard:
-
-.. code-block:: bash
-
-   # skip-ci
-   osprey web
+Or talk to the agent directly with ``osprey chat``. Adjust anything later by
+editing ``profile.yml`` (every key carries its own explanation) and running
+``osprey build`` again.
 
 Phase 2: deploy your project
 ============================
 
 The interview settles *what* to build. Running what was built — putting it on a
 real machine and keeping it there — is the other half, and it lives in the same
-place. The facility repository is a durable, git-tracked artifact you'll
+place. The deployment repository is a durable, git-tracked artifact you'll
 redeploy from many times, and both halves of deployment live inside it.
 
 First, the deployment coordinates go in the profile itself, under a ``deploy:``

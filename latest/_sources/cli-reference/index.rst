@@ -214,6 +214,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 
    osprey profile validate TARGET
    osprey profile presets
+   osprey profile artifacts
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -226,6 +227,11 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 ``osprey profile presets``
    List bundled preset names, one per line. Every name printed is usable as
    ``--preset NAME`` for ``osprey init``.
+
+``osprey profile artifacts``
+   List every artifact the six profile lists can name — hooks, rules, skills,
+   agents, output styles, and web panels — with a one-line description of
+   each. The same menu appears as commented entries in an emitted profile.
 
 .. code-block:: bash
 
@@ -852,9 +858,10 @@ can be installed either globally or into a specific project's
 
    Currently supported skills:
 
-   * ``osprey-build-interview`` — guided facility-repository generation (see
-     :doc:`/getting-started/osprey-build-interview`). Typically installed globally
-     so it is available in any Osprey agent session.
+   * ``osprey-build-interview`` — set up or migrate an OSPREY deployment
+     through a guided conversation anchored on the live deployment repo (see
+     :doc:`/getting-started/osprey-build-interview`). Typically installed
+     globally so it is available in any Osprey agent session.
    * ``osprey-contribute`` — walks a contributor through the GitHub Flow
      journey from a working-tree change to a merged PR on ``main`` (branching,
      atomic commits, push, PR, rebase, merge).
