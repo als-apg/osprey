@@ -41,7 +41,7 @@ names another one explicitly.
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
-   osprey scaffold           # CI files and build artifact overrides
+   osprey scaffold           # CI files, boot unit, build artifact overrides
    osprey audit              # Audit project or profile safety
    osprey skills             # Manage bundled Osprey skills
    osprey vendor             # Manage locally bundled vendor assets
@@ -493,6 +493,12 @@ Run comprehensive system health check.
 
 ``--full`` -- Also run on-demand categories (live model chat, pinned CLI download).
 
+Exit codes: ``0`` healthy, ``1`` warnings only, ``2`` one or more errors,
+``3`` the command itself failed, ``130`` interrupted. See
+:doc:`/how-to/health-json-contract` for the ``--json`` document's shape and the
+``jq`` patterns for consuming it, and :doc:`/how-to/configure-health-checks` for
+the ``health:`` config block.
+
 osprey chat
 ===========
 
@@ -734,7 +740,8 @@ directories, and lifecycle scripts.
 osprey scaffold
 ===============
 
-Emit the repository's CI files and manage build artifact ownership.
+Emit the repository's CI files and boot unit, and manage build artifact
+ownership.
 Framework-managed build artifacts (agents, rules, etc.) can be claimed
 per-facility for in-place editing. A claim moves the artifact out of the build
 zone and into the profile beside it; the next build copies it back and registers
@@ -754,6 +761,19 @@ All subcommands accept a common flag:
    file the scaffolder did not write is reported and left alone unless
    ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
    pipeline includes it.
+
+``osprey scaffold systemd [--force]``
+   Emit a systemd user unit that starts this deployment at boot: ``osprey.service``
+   at the repository root, plus the commands to install it. The unit runs
+   ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
+   the repository and the ``osprey`` program written in as full paths — systemd
+   starts a unit with no working directory and a short ``PATH``. Run it on the
+   machine that will run the deployment, and again after the repository moves or
+   OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
+   ``ci``: a matching file is left untouched, and a file the scaffolder did not
+   write needs ``--force``. Refuses when no ``osprey`` program can be found to
+   name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
+   see :doc:`../how-to/deploy-a-facility`.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
@@ -802,6 +822,7 @@ All subcommands accept a common flag:
 .. code-block:: bash
 
    osprey scaffold ci                             # Re-emit the CI files
+   osprey scaffold systemd                        # Write the boot unit
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template
