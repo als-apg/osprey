@@ -2131,10 +2131,15 @@ jobs:
     # same-repo restriction is the house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Builds the bridge image and pulls ghcr.io/bluesky/tiled:0.2.12; ~6.5min
-    # with images cached, ~9-11min cold. bluesky-deploy-e2e has no explicit
-    # timeout-minutes; this job gets one for the extra image-pull headroom.
-    timeout-minutes: 20
+    # Deploys the control-assistant preset, so the bring-up builds that preset's
+    # images (qmd ~3.4GB, bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
+    # and the ghcr.io/bluesky/tiled:0.2.12 pull it actually tests. ~6.5min with
+    # images cached, ~9-11min on a warm runner, but a fully cold one has been
+    # observed still building at 15min with every build progressing normally —
+    # so the caps below are sized for that worst case, not the median.
+    # bluesky-deploy-e2e has no explicit timeout-minutes; this job gets one for
+    # the extra image-build headroom.
+    timeout-minutes: 30
 
     steps:
     - name: Checkout repository
@@ -2167,7 +2172,7 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
-      timeout-minutes: 15
+      timeout-minutes: 25
       run: |
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2902,7 +2907,7 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
-      timeout-minutes: 15
+      timeout-minutes: 25
       run: |
         uv run pytest tests/e2e/test_deploy_writeback_e2e.py -v --tb=short
 
