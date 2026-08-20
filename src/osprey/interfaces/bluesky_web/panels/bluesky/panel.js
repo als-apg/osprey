@@ -375,4 +375,3 @@ async function loadChannelCatalog() {
     // Optional endpoint: absence is a normal deployment state, not an error.
   }
 }
-
