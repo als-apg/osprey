@@ -8,17 +8,34 @@ Covers:
 - ``knowledge seed-from-ttl <ttl> <bundle>`` writes stubs on first run,
   is idempotent on re-run, skips diffs without --force, overwrites with
   --force, and exits cleanly when rdflib is absent.
+- ``knowledge seed-graph [ttl]`` reaches each of the five seeding states
+  against a stubbed graph store, resolves a configured relative ``ttl_path``
+  against the config file's directory rather than the process CWD, and turns
+  a missing driver, an unreachable store and a rejected credential into clean
+  CLI errors.
 """
 
 from __future__ import annotations
 
+import hashlib
 import textwrap
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from osprey.cli.knowledge_cmd import knowledge
+
+# Result types only: importing the seeder module pulls in no neo4j driver, which
+# is the lazy-import contract tests/services/facility_knowledge/test_import_isolation.py
+# pins.
+from osprey.services.facility_knowledge.seeder.graph_seeder import (
+    BootstrapResult,
+    BootstrapStatus,
+    ImportResult,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -409,3 +426,411 @@ def test_seed_from_ttl_force_overwrites(mini_ttl: Path, seed_bundle: Path) -> No
     # File must have been restored to the generated content.
     assert edited.read_text(encoding="utf-8") == original
     assert "overwritten" in result.output
+
+
+# ---------------------------------------------------------------------------
+# seed-graph
+# ---------------------------------------------------------------------------
+
+# The graph store is never dialed here: every ``graph_seeder`` primitive is
+# replaced by a recorder, so these tests pin the VERB's policy (which state it
+# reports, what it refuses, in which order it calls the primitives) and leave
+# the Cypher to tests/services/facility_knowledge/test_graph_seeder.py.
+
+_TTL_TEXT = "@prefix narad: <https://narad.example.org/> .\n"
+
+#: sha256 of :data:`_TTL_TEXT`, which is the digest the verb must put on the
+#: marker node. Recomputed here rather than imported so a change to the verb's
+#: hashing rule fails instead of following along.
+_TTL_SHA256 = hashlib.sha256(_TTL_TEXT.encode("utf-8")).hexdigest()
+
+
+@dataclass
+class _GraphStub:
+    """Recorder standing in for a bootstrapped graph store.
+
+    The attributes before ``calls`` are the store's state, set by a test before
+    it invokes the verb; everything from ``calls`` down is what the verb did.
+    """
+
+    marker: str | None = None
+    resources: int = 0
+    bootstrap_result: BootstrapResult = field(
+        default_factory=lambda: BootstrapResult(status=BootstrapStatus.INITIALIZED)
+    )
+    import_result: ImportResult = field(
+        default_factory=lambda: ImportResult(
+            termination_status="OK", triples_loaded=8114, triples_parsed=8114
+        )
+    )
+    open_error: Exception | None = None
+
+    calls: list[str] = field(default_factory=list)
+    connection: tuple[str, str, str] | None = None
+    imported_text: str | None = None
+    written_marker: str | None = None
+
+
+@pytest.fixture()
+def graph(monkeypatch: pytest.MonkeyPatch) -> _GraphStub:
+    """Replace every ``graph_seeder`` primitive with a recorder."""
+    from osprey.services.facility_knowledge.seeder import graph_seeder
+
+    stub = _GraphStub()
+    session = object()
+
+    @contextmanager
+    def _open_session(uri: str, username: str, password: str, **_: object):
+        stub.connection = (uri, username, password)
+        if stub.open_error is not None:
+            raise stub.open_error
+        stub.calls.append("open_session")
+        yield session
+
+    def _bootstrap(_session: object) -> BootstrapResult:
+        stub.calls.append("bootstrap")
+        return stub.bootstrap_result
+
+    def _resource_count(_session: object) -> int:
+        stub.calls.append("resource_count")
+        return stub.resources
+
+    def _read_marker(_session: object) -> str | None:
+        stub.calls.append("read_marker")
+        return stub.marker
+
+    def _write_marker(_session: object, sha256: str) -> None:
+        stub.calls.append("write_marker")
+        stub.written_marker = sha256
+
+    def _import_ttl(_session: object, text: str) -> ImportResult:
+        stub.calls.append("import_ttl")
+        stub.imported_text = text
+        return stub.import_result
+
+    def _wipe(_session: object) -> None:
+        stub.calls.append("wipe")
+
+    monkeypatch.setattr(graph_seeder, "open_session", _open_session)
+    monkeypatch.setattr(graph_seeder, "bootstrap", _bootstrap)
+    monkeypatch.setattr(graph_seeder, "resource_count", _resource_count)
+    monkeypatch.setattr(graph_seeder, "read_marker", _read_marker)
+    monkeypatch.setattr(graph_seeder, "write_marker", _write_marker)
+    monkeypatch.setattr(graph_seeder, "import_ttl", _import_ttl)
+    monkeypatch.setattr(graph_seeder, "wipe", _wipe)
+    return stub
+
+
+@pytest.fixture()
+def graph_ttl(tmp_path: Path) -> Path:
+    """A TTL file whose text hashes to :data:`_TTL_SHA256`."""
+    path = tmp_path / "corpus.ttl"
+    path.write_text(_TTL_TEXT, encoding="utf-8")
+    return path
+
+
+def _patch_config(monkeypatch: pytest.MonkeyPatch, block: object) -> None:
+    """Make ``services.graphdb`` read as *block* wherever the verb looks it up."""
+
+    def _get_config_value(path: str, default: object = None, config_path: object = None) -> object:
+        if path == "services.graphdb":
+            return block
+        if path == "services.graphdb.ttl_path":
+            return block.get("ttl_path", default) if isinstance(block, dict) else default
+        return default
+
+    monkeypatch.setattr("osprey.utils.config.get_config_value", _get_config_value)
+
+
+def _flat(result) -> str:
+    """Rich wraps at the console width, so compare on whitespace-collapsed text."""
+    return " ".join(result.output.split())
+
+
+def test_seed_graph_help_contrasts_with_seed_from_ttl() -> None:
+    """The verb's own help says which of the two seeders it is."""
+    runner = CliRunner()
+
+    listing = runner.invoke(knowledge, ["--help"])
+    assert listing.exit_code == 0, listing.output
+    assert "seed-graph" in listing.output
+
+    detail = runner.invoke(knowledge, ["seed-graph", "--help"])
+    assert detail.exit_code == 0, detail.output
+    flat = _flat(detail)
+    assert "seeds the deployed graph store" in flat
+    assert "seed-from-ttl builds an OKF document bundle" in flat
+
+
+def test_seed_graph_seeds_an_empty_store(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty store: bootstrap, import, then write the marker. In that order."""
+    _patch_config(monkeypatch, {"port_host": 7699})
+    monkeypatch.setenv("GRAPHDB_PASSWORD", "s3cret")
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert "seeded" in _flat(result).lower()
+    assert graph.connection == ("bolt://localhost:7699", "neo4j", "s3cret")
+    assert graph.imported_text == _TTL_TEXT
+    assert graph.written_marker == _TTL_SHA256
+
+    ordered = [call for call in graph.calls if call in {"bootstrap", "import_ttl", "write_marker"}]
+    assert ordered == ["bootstrap", "import_ttl", "write_marker"]
+
+
+def test_seed_graph_reports_unchanged_on_a_matching_marker(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A marker holding this TTL's digest means there is nothing to do."""
+    _patch_config(monkeypatch, {})
+    graph.marker = _TTL_SHA256
+    graph.resources = 8114
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert "unchanged" in _flat(result).lower()
+    assert "import_ttl" not in graph.calls
+    assert "write_marker" not in graph.calls
+    assert "bootstrap" not in graph.calls
+
+
+def test_seed_graph_refuses_a_differing_marker_without_force(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A store holding some other corpus is left alone and named as such."""
+    _patch_config(monkeypatch, {})
+    graph.marker = "0" * 64
+    graph.resources = 12
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "--force" in flat
+    assert "differ" in flat.lower()
+    assert "import_ttl" not in graph.calls
+    assert "write_marker" not in graph.calls
+    assert "wipe" not in graph.calls
+    assert "Traceback" not in result.output
+
+
+def test_seed_graph_refuses_an_unmanaged_partial_store_without_force(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resource nodes with no marker: a crashed import or an adopted store."""
+    _patch_config(monkeypatch, {})
+    graph.marker = None
+    graph.resources = 4200
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "--force" in flat
+    assert "4200" in flat
+    assert "import_ttl" not in graph.calls
+    assert "write_marker" not in graph.calls
+
+
+def test_seed_graph_refuses_a_config_drifted_store_without_force(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bootstrap drift lands in the differs state and surfaces its own message."""
+    _patch_config(monkeypatch, {})
+    graph.bootstrap_result = BootstrapResult(
+        status=BootstrapStatus.DIFFERS, differing_keys=("handleMultival",)
+    )
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "graph config differs" in flat
+    assert "handleMultival" in flat
+    assert "--force" in flat
+    assert "import_ttl" not in graph.calls
+    assert "write_marker" not in graph.calls
+
+
+def test_seed_graph_force_wipes_then_bootstraps_then_imports(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--force replaces whatever is there, in the one order that works."""
+    _patch_config(monkeypatch, {})
+    graph.marker = "0" * 64
+    graph.resources = 12
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", "--force", str(graph_ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert "overwritten" in _flat(result).lower()
+    assert graph.calls == [
+        "open_session",
+        "wipe",
+        "bootstrap",
+        "import_ttl",
+        "write_marker",
+    ]
+    assert graph.written_marker == _TTL_SHA256
+
+
+def test_seed_graph_leaves_no_marker_when_the_import_fails(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A half-applied import must stay detectable, so no marker is written."""
+    _patch_config(monkeypatch, {})
+    graph.import_result = ImportResult(
+        termination_status="KO",
+        triples_loaded=3000,
+        triples_parsed=8114,
+        extra_info="bad syntax on line 41",
+    )
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    assert "write_marker" not in graph.calls
+    flat = _flat(result)
+    assert "bad syntax on line 41" in flat
+    assert "Traceback" not in result.output
+
+
+def test_seed_graph_resolves_a_relative_ttl_path_against_the_config_directory(
+    graph: _GraphStub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The configured path is anchored at config.yml, never at the process CWD.
+
+    Both directories hold a file at the same relative path, so a CWD-anchored
+    resolution reads the decoy and this test fails on the imported payload
+    rather than on a wrapped line of output.
+    """
+    project = tmp_path / "project"
+    (project / "services" / "graphdb").mkdir(parents=True)
+    (project / "config.yml").write_text("services:\n  graphdb: {}\n", encoding="utf-8")
+    (project / "services" / "graphdb" / "als.ttl").write_text(_TTL_TEXT, encoding="utf-8")
+
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "services" / "graphdb").mkdir(parents=True)
+    (elsewhere / "services" / "graphdb" / "als.ttl").write_text(
+        "# the decoy next to the process CWD\n", encoding="utf-8"
+    )
+
+    _patch_config(monkeypatch, {"ttl_path": "./services/graphdb/als.ttl"})
+    monkeypatch.setenv("OSPREY_CONFIG", str(project / "config.yml"))
+    monkeypatch.chdir(elsewhere)
+
+    result = CliRunner().invoke(knowledge, ["seed-graph"])
+
+    assert result.exit_code == 0, result.output
+    assert graph.imported_text == _TTL_TEXT
+    assert graph.written_marker == _TTL_SHA256
+
+
+def test_seed_graph_typed_argument_stays_shell_relative(
+    graph: _GraphStub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A TTL path typed on the command line resolves against the shell's CWD.
+
+    Only the configured ``ttl_path`` gets the config-directory anchor; a typed
+    argument behaves like any filename handed to a CLI. The decoy sits at the
+    same relative path under the config directory, so a config-anchored
+    resolution of the argument fails on the imported payload.
+    """
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    (configured / "config.yml").write_text("services:\n  graphdb: {}\n", encoding="utf-8")
+    (configured / "als.ttl").write_text("# the decoy next to config.yml\n", encoding="utf-8")
+
+    shell_cwd = tmp_path / "shell"
+    shell_cwd.mkdir()
+    (shell_cwd / "als.ttl").write_text(_TTL_TEXT, encoding="utf-8")
+
+    _patch_config(monkeypatch, {})
+    monkeypatch.setenv("OSPREY_CONFIG", str(configured / "config.yml"))
+    monkeypatch.chdir(shell_cwd)
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", "als.ttl"])
+
+    assert result.exit_code == 0, result.output
+    assert graph.imported_text == _TTL_TEXT
+    assert graph.written_marker == _TTL_SHA256
+
+
+def test_seed_graph_unreadable_ttl_is_a_clean_error(
+    graph: _GraphStub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A TTL that cannot be decoded surfaces as a message, not a traceback."""
+    _patch_config(monkeypatch, {})
+    bad = tmp_path / "not_utf8.ttl"
+    bad.write_bytes(b"\xff\xfe\x00 not a turtle file")
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(bad)])
+
+    assert result.exit_code != 0
+    assert "Cannot read" in _flat(result)
+    assert "Traceback" not in result.output
+    assert "import_ttl" not in graph.calls
+
+
+def test_seed_graph_without_a_ttl_anywhere_is_a_usage_error(
+    graph: _GraphStub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No argument and no configured path names the config key."""
+    _patch_config(monkeypatch, {})
+
+    result = CliRunner().invoke(knowledge, ["seed-graph"])
+
+    assert result.exit_code != 0
+    assert "services.graphdb.ttl_path" in _flat(result)
+    assert graph.calls == []
+
+
+def test_seed_graph_missing_driver_is_a_clean_error(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An absent neo4j driver names the dependency and prints no traceback."""
+    _patch_config(monkeypatch, {})
+    graph.open_error = ImportError(
+        "neo4j is required to reach the graph store; repair the install with: "
+        "pip install 'osprey-framework'"
+    )
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    assert "neo4j" in _flat(result)
+    assert "Traceback" not in result.output
+
+
+def test_seed_graph_auth_failure_names_the_password_variable(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rejected credential points at GRAPHDB_PASSWORD, not at the driver."""
+    exceptions = pytest.importorskip("neo4j.exceptions")
+    _patch_config(monkeypatch, {})
+    graph.open_error = exceptions.AuthError("The client is unauthorized due to authentication.")
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    assert "GRAPHDB_PASSWORD" in _flat(result)
+    assert "Traceback" not in result.output
+
+
+def test_seed_graph_unreachable_store_is_a_clean_error(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable store names the address that was dialed."""
+    exceptions = pytest.importorskip("neo4j.exceptions")
+    _patch_config(monkeypatch, {"port_host": 7699})
+    graph.open_error = exceptions.ServiceUnavailable("Unable to retrieve routing information")
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    assert "bolt://localhost:7699" in _flat(result)
+    assert "Traceback" not in result.output

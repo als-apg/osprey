@@ -1,16 +1,22 @@
 """Knowledge CLI commands for OSPREY Facility Knowledge (OKF).
 
-Provides operations on OKF bundle directories: index regeneration,
-validation, and seed-from-ontology (the latter added by later tasks).
+Two kinds of verb live here, and the pair that seeds is the pair worth telling
+apart.  ``regen-index``, ``validate`` and ``seed-from-ttl`` operate on an OKF
+bundle: a directory of markdown documents on disk.  ``seed-graph`` operates on
+the deployed Neo4j graph store, loading the same NARAD TTL into it through
+neosemantics.  One TTL, two destinations.
 
 Note: this module is intentionally importable WITHOUT the ``knowledge``
-extra (rdflib) installed.  Any rdflib usage must be guarded by a lazy
-import inside the command body.
+extra (rdflib) installed, and without the ``neo4j`` driver.  Any rdflib or
+neo4j usage must be guarded by a lazy import inside the command body.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import click
 
@@ -234,3 +240,280 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
             f"{skipped_differs} file(s) already exist with different content",
             "They were left as they are. Re-run with --force to overwrite them.",
         )
+
+
+# ---------------------------------------------------------------------------
+# seed-graph
+# ---------------------------------------------------------------------------
+
+
+def _resolve_ttl(ttl: Path | None) -> Path:
+    """Return *ttl*, or fall back to ``services.graphdb.ttl_path`` from config.
+
+    A path typed on the command line is used as typed, which makes it relative
+    to the shell's directory like every other filename an operator types.  A
+    path read from config is resolved by
+    :func:`~osprey.services.facility_knowledge.bundle_path.resolve_bundle_path`
+    instead: ``~`` expanded, absolute left alone, relative taken against the
+    directory holding ``config.yml``.  That helper is named for the key it was
+    written for, but the rule it spells is the config-relative rule for the
+    whole project, and the shipped config template promises exactly it for
+    ``ttl_path``.  Sharing the one implementation is what keeps this verb and
+    the deploy-time staging step opening the same file, from whatever directory
+    either was started in.
+
+    Args:
+        ttl: The path given as the command's argument, or ``None``.
+
+    Returns:
+        The TTL file to import.
+
+    Raises:
+        click.UsageError: When *ttl* is None and the config key is unset.
+        click.ClickException: When the configured path names no file.
+    """
+    if ttl is not None:
+        return ttl
+
+    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+    from osprey.utils.config import get_config_value
+
+    raw = get_config_value("services.graphdb.ttl_path", None)
+    if raw is None:
+        raise click.UsageError(
+            "No TTL path given and services.graphdb.ttl_path is not set in config."
+        )
+
+    path = resolve_bundle_path(raw)
+    if not path.is_file():
+        raise click.ClickException(
+            f"services.graphdb.ttl_path names a file that is not there: {path}\n"
+            f"It was read as '{raw}' and resolved against the config file's directory."
+        )
+    return path
+
+
+def _graphdb_block() -> Mapping[str, Any] | None:
+    """Return the ``services.graphdb`` config block, or ``None``.
+
+    ``None`` covers a project with no block at all and a block YAML parsed as
+    something other than a mapping.  Both resolve to the shipped connection
+    defaults rather than a refusal: an operator pointing this verb at a store
+    on the default port has a working command, and a store that is not there
+    fails later with the address it tried.
+    """
+    from osprey.utils.config import get_config_value
+
+    block = get_config_value("services.graphdb", None)
+    return block if isinstance(block, Mapping) else None
+
+
+def _connection_failure(exc: Exception, uri: str) -> click.ClickException:
+    """Turn a driver exception into a CLI error with a remedy on it.
+
+    One failure is worth naming on its own, because its remedy is a variable
+    rather than the store: a rejected credential.  Everything else keeps the
+    driver's own message next to the address that was dialed, which says more
+    than a guess at which of the store, the network or the corpus was at
+    fault.
+
+    Args:
+        exc: What came out of the session.
+        uri: The address that was dialed.
+
+    Returns:
+        The exception to raise, so the CLI prints one line instead of a
+        traceback.
+    """
+    from osprey.deployment.graphdb_service import GRAPHDB_PASSWORD_ENV
+
+    if _is_auth_failure(exc):
+        return click.ClickException(
+            f"The graph store at {uri} rejected the credentials.\n"
+            f"Set {GRAPHDB_PASSWORD_ENV} to the store's password. 'osprey up' mints one "
+            "and writes it to the project's .env file."
+        )
+    return click.ClickException(
+        f"Cannot use the graph store at {uri}: {exc}\n"
+        "Check that it is running ('osprey up'), and that services.graphdb points at the "
+        "store you meant."
+    )
+
+
+def _is_auth_failure(exc: BaseException) -> bool:
+    """Whether *exc* is the driver's "credentials rejected" error.
+
+    The import is lazy and its failure is an answer rather than an error: this
+    is only ever asked about an exception that came out of the driver, so a
+    driver that cannot be imported means the exception came from somewhere
+    else and is not an auth failure.
+    """
+    try:
+        from neo4j.exceptions import AuthError
+    except ImportError:  # pragma: no cover - the driver is a core dependency
+        return False
+    return isinstance(exc, AuthError)
+
+
+def _refuse_or_continue(graph_seeder: ModuleType, session: Any, *, ttl: Path, digest: str) -> bool:
+    """Read the store's state and decide whether seeding may go ahead.
+
+    The three states a run without ``--force`` can end in before anything is
+    written: unchanged (this file is already in there), differs (some other
+    file is), and unmanaged-partial (data with no marker on it). The fourth,
+    seeded, is the one this function lets through.
+
+    Args:
+        graph_seeder: The seeder module, passed in so the caller's single lazy
+            import serves this helper too.
+        session: An open driver session.
+        ttl: The file about to be imported, for the messages.
+        digest: That file's checksum, to compare the marker against.
+
+    Returns:
+        True when the caller should stop with nothing done (unchanged).
+
+    Raises:
+        SystemExit: On either refusal, after printing what was found.
+    """
+    marker = graph_seeder.read_marker(session)
+    if marker == digest:
+        report(f"Unchanged. The graph store already holds {ttl}.")
+        return True
+
+    if marker is not None:
+        fail(
+            "The graph store holds a different corpus.",
+            f"Its seed marker reads {marker[:12]}, and {ttl} checksums to {digest[:12]}.",
+            "Re-run with --force to wipe the store and import this file.",
+        )
+        raise SystemExit(1)
+
+    resources = graph_seeder.resource_count(session)
+    if resources:
+        fail(
+            "The graph store holds data that OSPREY did not seed.",
+            f"It has {resources} Resource nodes and no seed marker, which is what a "
+            "crashed import or a store seeded outside OSPREY looks like.",
+            "Re-run with --force to wipe the store and import this file.",
+        )
+        raise SystemExit(1)
+
+    return False
+
+
+@knowledge.command("seed-graph")
+@click.argument(
+    "ttl",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=False,
+    default=None,
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Wipe the store first, then bootstrap and import from scratch.",
+)
+def seed_graph(ttl: Path | None, force: bool) -> None:
+    """Load a NARAD/als-ontology TTL into the deployed graph store.
+
+    This verb seeds the deployed graph store; seed-from-ttl builds an OKF
+    document bundle. Both read the same TTL file and write to different
+    places.
+
+    TTL is the Turtle file to import. When omitted, services.graphdb.ttl_path
+    from the OSPREY config is used, resolved against the config file's own
+    directory (the same rule facility_knowledge.bundle_path follows).
+
+    The store is dialed at services.graphdb.uri, or at the bolt port the
+    deployment publishes, with the password in GRAPHDB_PASSWORD.
+
+    What a run reports, and when:
+
+    \b
+      seeded             The store held no data, so it was bootstrapped and
+                         imported.
+      unchanged          The store already holds this exact file. Nothing to do.
+      differs            The store holds a different corpus. Nothing was
+                         touched; --force replaces it.
+      unmanaged-partial  The store holds data with no seed marker, which is
+                         what a crashed import or a store seeded outside OSPREY
+                         looks like. Nothing was touched; --force replaces it.
+      overwritten        --force wiped the store and imported the file.
+
+    The seed marker carrying the file's checksum is written only after the
+    import reports success, so an import that dies partway is reported as
+    unmanaged-partial on the next run rather than mistaken for a good seed.
+
+    Every refusal exits non-zero and never touches the store's data.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_connection
+    from osprey.services.facility_knowledge.seeder import graph_seeder
+
+    ttl = _resolve_ttl(ttl)
+    try:
+        text = ttl.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise click.ClickException(f"Cannot read {ttl}: {exc}") from exc
+
+    # The seed marker's identity: the checksum of the TTL text as imported.
+    # Computed by the seeder rather than here, so this verb and the deploy-time
+    # staging step read one another's markers rather than re-seeding on sight.
+    digest = graph_seeder.ttl_sha256(text)
+
+    try:
+        connection = resolve_graphdb_connection(_graphdb_block())
+    except ValueError as exc:
+        raise click.ClickException(f"Cannot work out which graph store to dial: {exc}") from exc
+
+    try:
+        with graph_seeder.open_session(
+            connection.uri, connection.username, connection.password
+        ) as session:
+            if force:
+                graph_seeder.wipe(session)
+                note("Wiped the store. Its graph config and seed marker went with the data.")
+            elif _refuse_or_continue(graph_seeder, session, ttl=ttl, digest=digest):
+                return
+
+            bootstrapped = graph_seeder.bootstrap(session)
+            if not bootstrapped.ok:
+                fail(
+                    "The graph store is set up differently from what OSPREY expects.",
+                    bootstrapped.message,
+                    "Re-run with --force to wipe the store and set it up from scratch.",
+                )
+                raise SystemExit(1)
+            note(bootstrapped.message)
+
+            imported = graph_seeder.import_ttl(session, text)
+            if not imported.ok:
+                fail(
+                    f"The import of {ttl} did not finish.",
+                    f"neo4j reported {imported.termination_status} after "
+                    f"{imported.triples_loaded} of {imported.triples_parsed} triples: "
+                    f"{imported.extra_info}",
+                    "Fix the file, then re-run with --force to clear the partial import.",
+                )
+                raise SystemExit(1)
+
+            # Only now: a marker written before this point would label a
+            # half-imported graph as a good seed, and every later run would
+            # report it as unchanged.
+            graph_seeder.write_marker(session, digest)
+
+            state = "Overwritten" if force else "Seeded"
+            report(f"{state}. The graph store at {connection.uri} now holds {ttl}.")
+            note(f"{imported.triples_loaded} triples loaded.")
+    except click.ClickException:
+        raise
+    except ImportError as exc:
+        # The driver is a core dependency, so this means a broken install; the
+        # seeder's own message says how to repair it.
+        raise click.ClickException(str(exc)) from exc
+    except Exception as exc:
+        # Everything the driver can raise becomes one line with a remedy on it.
+        # An operator who cannot reach their store is not helped by a stack of
+        # frames from inside the driver.
+        raise _connection_failure(exc, connection.uri) from exc
