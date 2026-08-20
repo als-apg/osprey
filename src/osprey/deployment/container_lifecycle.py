@@ -13,12 +13,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import yaml
 
@@ -36,6 +36,7 @@ from osprey.deployment.compose_generator import (
     compose_provider_env,
     prepare_compose_files,
     repo_identity,
+    resolve_image_defaults,
     resolve_project_name,
     resolve_repo_root,
 )
@@ -183,10 +184,26 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 # and — because it is the same value the ``:-`` fallback resolves to — records
 # the login rather than changing it.
 _SERVICE_DEFAULT_VARS: dict[str, tuple[tuple[str, str], ...]] = {
-    # Must stay equal to the ``${ZO_ROOT_USER_EMAIL:-…}`` fallback in
-    # ``osprey/templates/services/openobserve/docker-compose.yml.j2``; the mint
-    # tests parse the template and pin the two together.
-    "openobserve": (("ZO_ROOT_USER_EMAIL", "root@example.com"),),
+    "openobserve": (
+        # Must stay equal to the ``${ZO_ROOT_USER_EMAIL:-…}`` fallback in
+        # ``osprey/templates/services/openobserve/docker-compose.yml.j2``; the
+        # mint tests parse the template and pin the two together.
+        ("ZO_ROOT_USER_EMAIL", "root@example.com"),
+        # The telemetry INGEST account: the identity the agent authenticates as
+        # when it ships telemetry, so root's credentials never travel into a
+        # rendered ``config.yml`` or a web-terminal environment. An account
+        # name, not a secret — written down for exactly the discoverability
+        # reason the root email is, and never overwritten when an operator
+        # names their own.
+        #
+        # Unlike the root email this one has NO ``:-`` fallback in the
+        # openobserve compose template, and must not grow one. The store reads
+        # ``ZO_ROOT_USER_*`` to initialize itself and knows nothing about this
+        # account until the post-start provisioner creates it through the API;
+        # the fallback that matters belongs to the *agent's* telemetry config,
+        # which is where a reader of ``config.yml`` looks for it.
+        ("ZO_INGEST_USER_EMAIL", "ingest@example.com"),
+    ),
 }
 
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
@@ -265,6 +282,74 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
         volume="archiver_mongodb_data",
         container="-archiver-mongodb",
         cred_env="MONGO_INITDB_ROOT_PASSWORD",
+    ),
+}
+
+
+class StoreIssuedCredential(NamedTuple):
+    """Where one credential this deploy does NOT choose comes from.
+
+    Two names, both of which a provisioner needs and neither of which any other
+    registry in this module records:
+
+    * ``service`` — the ``deployed_services`` key whose store issues the
+      credential, and the name shown to the operator;
+    * ``identity_var`` — the ``.env`` variable naming the *account* the secret
+      belongs to. A store-issued secret is meaningless without the identity it
+      was issued for: both halves are presented together on every request, and
+      a provisioner asking the store for "the token" has to say whose.
+    """
+
+    service: str
+    identity_var: str
+
+
+#: Secrets the STORE issues and this deploy only records — the inverse of every
+#: other credential registry in this module, and the reason it is a registry of
+#: its own rather than an entry in one of them.
+#:
+#: ``_SERVICE_TOKEN_VARS`` + ``_VAR_GENERATORS`` say "osprey chooses this value
+#: before the stack starts". ``_VOLUME_INITIALIZED_VARS`` says "osprey chose it,
+#: and a surviving volume may not have adopted it". Neither sentence is true
+#: here: OpenObserve mints a service account's token itself (a 16-character
+#: alphanumeric string, read back with ``GET /api/{org}/service_accounts/{email}``
+#: once the container is live), so the value simply does not exist at the moment
+#: every other credential in this file is written.
+#:
+#: What each of the three obvious registrations would actually do, since a
+#: reader's instinct is that one of them must fit:
+#:
+#: * ``_VAR_GENERATORS`` would FABRICATE a token the store never issued. The
+#:   ``.env`` would look perfectly healthy and every telemetry request would
+#:   401 — the failure this registry exists to make impossible.
+#: * ``_VAR_VALIDATORS`` grades osprey's own recipes. ``_validate_openobserve_password``
+#:   (8–128 characters, four character classes) rejects a legitimate
+#:   16-character alphanumeric server token outright, so registering it would
+#:   refuse every working deploy; and a value the store chose is not osprey's
+#:   to grade in the first place.
+#: * ``_VOLUME_INITIALIZED_VARS`` misfires twice, either half of it fatally.
+#:   Its harvest reads the credential out of the store container's *environment*
+#:   (``cred_env``), and a service-account token was never in any container's
+#:   environment — it lives inside the volume's own database — so
+#:   ``_harvest_original_credential`` would answer ``None`` forever and
+#:   ``--reuse-stores`` would report an adoptable store as unrecoverable. Worse,
+#:   ``_volume_initialized_vars_that_would_be_minted`` predicts a mint for every
+#:   registered var carrying no non-empty value, and ``deploy_restart`` hands
+#:   that prediction to ``_preflight_stale_store_volumes`` as ``minted`` — so a
+#:   restart with a surviving ``openobserve`` volume and a not-yet-harvested
+#:   token would abort as stale, over a credential that is absent exactly as
+#:   designed.
+#:
+#: What the registration IS for: this name reaches ``.env`` from a deploy-time
+#: writer, just later in the run than the others, and that is precisely what
+#: ``_deploy_written_env_vars`` has to know. Being in the census makes a
+#: ``env.pinned`` declaration on it refuse (``_preflight_pinned_writers`` — the
+#: deploy writes it, so no chain can own it), and stops the required-env probe
+#: from telling an operator to supply a value only the store can produce.
+_STORE_ISSUED_VARS: dict[str, StoreIssuedCredential] = {
+    "ZO_INGEST_SA_TOKEN": StoreIssuedCredential(
+        service="openobserve",
+        identity_var="ZO_INGEST_USER_EMAIL",
     ),
 }
 
@@ -1769,8 +1854,15 @@ def _worker_image_target(config: dict, env: dict) -> str:
     Resolution mirrors the worker compose service's
     ``${OSPREY_WORKER_IMAGE:-<services.dispatch_worker.image | default>}``:
     an ``OSPREY_WORKER_IMAGE`` env override wins, then a profile-pinned
-    ``services.dispatch_worker.image``, else the ``<project>:local`` project
-    image that :func:`_build_project_image` builds.
+    ``services.dispatch_worker.image``, else the project image that
+    :func:`_build_project_image` builds — carrying whatever the registry and
+    tag axes resolved to.
+
+    That last layer is READ from
+    :func:`~osprey.deployment.compose_generator.resolve_image_defaults` rather
+    than restated here. It is the same function the template's innermost
+    ``default(...)`` renders from, so a prediction made here and the reference
+    compose ends up carrying cannot drift onto different axes.
     """
     override = env.get("OSPREY_WORKER_IMAGE")
     if override:
@@ -1779,17 +1871,26 @@ def _worker_image_target(config: dict, env: dict) -> str:
     explicit = worker_cfg.get("image") if isinstance(worker_cfg, dict) else None
     if explicit:
         return str(explicit)
-    return f"{resolve_project_name(config)}:local"
+    return resolve_image_defaults(config)["worker"]
 
 
 def _project_image_build_target(config: dict, env: dict) -> str | None:
     """The image tag :func:`_build_project_image` will build, or ``None``.
 
     The gate in front of that build, split out so a caller can ask whether the
-    build will happen at all without running it. Two ways it does not: this
+    build will happen at all without running it. Three ways it does not: this
+    host says its images are prebuilt (:func:`_resolve_prebuilt_images`), this
     deployment does not deploy the dispatch worker, or the worker's effective
     image (:func:`_worker_image_target`) is a prebuilt one rather than this
-    project's own ``<project>:local`` tag.
+    project's own image.
+
+    The prebuilt switch is asked first and outranks the rest, because it is a
+    statement about the HOST rather than about the deployment: a machine with no
+    build tooling, or one running images side-loaded from a tarball or pulled
+    from a registry, cannot build this tag whatever the config says about it.
+    Building it anyway is worse than slow — under an ``images.registry`` the tag
+    is registry-qualified, so a local build overwrites the very image that was
+    pulled, with a locally-assembled one nothing published.
 
     That question is the difference between a definite refusal and a
     hypothetical one for anything the build itself would raise. The
@@ -1800,12 +1901,14 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     :param config: Raw deploy config.
     :param env: Environment the build would run with, read for
         ``OSPREY_WORKER_IMAGE``.
-    :return: The ``<project>:local`` tag, or ``None`` when nothing is built.
+    :return: The project image's tag, or ``None`` when nothing is built.
     """
+    if _resolve_prebuilt_images(config):
+        return None
     services = {str(s) for s in (config.get("deployed_services") or [])}
     if "dispatch_worker" not in services:
         return None
-    project_image = f"{resolve_project_name(config)}:local"
+    project_image = resolve_image_defaults(config)["worker"]
     if _worker_image_target(config, env) != project_image:
         return None
     return project_image
@@ -1848,7 +1951,7 @@ def _unreleased_pin_problem(config: dict, env: dict, dev_mode: bool) -> tuple[st
 def _project_image_build_cmd(
     config: dict, runtime: str, project_root: str, dev_mode: bool = False
 ) -> list[str]:
-    """Construct the ``<runtime> build`` argv that produces ``<project>:local``.
+    """Construct the ``<runtime> build`` argv that produces the project image.
 
     Carries the same ``com.osprey.project`` label
     :func:`osprey.deployment.web_terminals.persona_images._persona_image_build_cmd`
@@ -1873,7 +1976,9 @@ def _project_image_build_cmd(
         runtime,
         "build",
         "-t",
-        f"{project_name}:local",
+        # The tag compose will reference, axes included: building one name and
+        # rendering another would leave the worker pointing at nothing.
+        resolve_image_defaults(config)["worker"],
         "-f",
         dockerfile,
         "--label",
@@ -1893,7 +1998,7 @@ def _project_image_build_cmd(
 def _build_project_image(
     config: dict, dev_mode: bool, env: dict, build_context: Path | str | None = None
 ) -> None:
-    """Build the ``<project>:local`` image the dispatch worker references.
+    """Build the project image the dispatch worker references.
 
     The dispatch worker's compose service intentionally has no ``build:`` block
     (a second builder for the same tag would race the event-dispatcher — see
@@ -1901,11 +2006,19 @@ def _build_project_image(
     produces the image it runs. This builds it once, from the project root
     (context) and the rendered project ``Dockerfile``, before ``compose up``.
 
-    No-op unless the worker is deployed and its effective image is the local
-    ``<project>:local`` tag: an ``OSPREY_WORKER_IMAGE`` override or a
+    No-op unless the worker is deployed and its effective image is this
+    project's own axis-derived tag: an ``OSPREY_WORKER_IMAGE`` override or a
     profile-pinned ``services.dispatch_worker.image`` means a prebuilt image is
     wanted, so there is nothing to build. The event-dispatcher's own
-    ``<project>-dispatch:local`` build (its compose ``build:`` block) is untouched.
+    ``<project>-dispatch`` build (its compose ``build:`` block) is untouched.
+
+    A host that declares its images prebuilt (``prebuilt_images`` /
+    ``OSPREY_PREBUILT_IMAGES``) skips this build outright, for the same reason
+    the compose build below it is skipped: the tags are expected to be on the
+    host already. That switch is the whole answer for a host with no build
+    tooling — and, under an ``images.registry``, for a host that pulled this
+    exact tag and must not have it overwritten by a local rebuild carrying the
+    same name.
 
     Under ``dev_mode`` a wheel is built from the local osprey checkout and staged
     into the build context (mirroring the dispatch image's ``--dev`` convention);
@@ -1931,16 +2044,28 @@ def _build_project_image(
     """
     project_image = _project_image_build_target(config, env)
     if project_image is None:
-        # Only ONE of the two no-op cases is worth a line. A deployment without
+        # Only SOME of the no-op cases are worth a line. A deployment without
         # the dispatch worker was never going to build this image and has
         # nothing to explain; a deployment that has the worker but points it at
-        # another image took a decision the operator should see reflected back.
+        # another image took a decision the operator should see reflected back;
+        # and a prebuilt host gets the same line the compose build reports for
+        # the same switch — but only where the switch actually took a build
+        # away, which is the worker running this project's own tag. Saying it
+        # for a deployment that has no worker would report a skip of something
+        # that was never going to happen.
         services = {str(s) for s in (config.get("deployed_services") or [])}
+        if _resolve_prebuilt_images(config):
+            if "dispatch_worker" in services and (
+                _worker_image_target(config, env) == resolve_image_defaults(config)["worker"]
+            ):
+                _report_group("images")
+                _report_step("skipped image build (prebuilt images)")
+            return
         if "dispatch_worker" in services:
             _report_fact(
                 f"Dispatch worker uses image {_worker_image_target(config, env)!r} "
                 f"(OSPREY_WORKER_IMAGE / pinned services.dispatch_worker.image). "
-                f"Skipping the {resolve_project_name(config)}:local build."
+                f"Skipping the {resolve_image_defaults(config)['worker']} build."
             )
         return
 
@@ -2241,16 +2366,264 @@ def _write_chain_state(repo_root: Path, shared_value_digests: Mapping[str, str])
         logger.debug("Could not record env chain state at %s: %s", path, exc)
 
 
+def _read_profile_yaml(path: Path) -> dict:
+    """One profile file, parsed, or an empty mapping.
+
+    The tolerant half of :func:`_profile_document`, split out because the same
+    "nothing to read" rule has to cover both layers it reads — the tracked
+    ``profile.yml`` and this host's variant overlay.
+
+    :param path: The file to read.
+    :return: The parsed mapping, or ``{}`` when the file is absent, unreadable,
+        unparseable, or not a mapping at its top level.
+    """
+    if not path.is_file():
+        return {}
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def _selected_variant_profile(repo_root: Path) -> Path | None:
+    """The overlay profile this HOST builds with, or ``None``.
+
+    ``.env.variant`` names one of the repo's tracked ``profiles/<name>.yml``
+    layers, and the build merges it over ``profile.yml`` before resolving
+    anything (see :mod:`osprey.cli.variant_selection`). The selection is read
+    back here — never re-derived — so the deploy cannot decide a different
+    variant than the build did.
+
+    Tolerant, like every other reader behind :func:`_profile_document`: a
+    setting that names a variant this repo does not define is ``osprey build``'s
+    refusal to raise, and raising it from a probe would abort a deploy over a
+    file the deploy does not build from.
+
+    :param repo_root: The deployment repo root, holding the setting and
+        ``profiles/``.
+    :return: The overlay to merge, or ``None`` when this host builds the tracked
+        profile as-is.
+    """
+    from osprey.cli.variant_selection import resolve_variant_selection
+    from osprey.errors import BuildProfileError
+
+    try:
+        return resolve_variant_selection(repo_root).path
+    except (BuildProfileError, OSError):
+        return None
+
+
+def _profile_document(repo_root: Path | str) -> dict:
+    """This deployment's profile as THIS host builds it, or an empty mapping.
+
+    The one tolerant reader behind every deploy-time probe that asks the profile
+    a question (:func:`pinned_env_keys`, :func:`_required_env_problems`). Read
+    off the repo's own file rather than the preset it was materialized from, for
+    the same reason
+    :func:`osprey.deployment.web_terminals.auth_credentials._profile_env_defaults`
+    does: only the repo's file is honestly "what this deployment declared". No
+    ``extends:`` chain is resolved, because an emitted profile is already flat
+    and a deployment root that hand-writes one keeps its parent's declarations
+    unread.
+
+    What is NOT taken as written is the host's variant layer. One repo can carry
+    several ``profiles/<name>.yml`` overlays and ``.env.variant`` picks the one
+    THIS host builds; the build merges it over ``profile.yml`` before resolving
+    anything, by the same deep merge (:func:`~osprey.cli.build_profile_merge._deep_merge`)
+    used here — so string lists union rather than replace, and an ``env.pinned``
+    or ``env.required`` name the overlay adds is one the built stack really has.
+    Reading the tracked file alone would leave every declaration a variant
+    contributes unenforced at ``osprey up``: the build renders a project whose
+    profile pins a name, and the deploy would go on believing nothing was
+    pinned. The merge covers the whole document rather than the ``env`` block
+    alone, for the same reason — the deploy block a variant overrides
+    (:func:`_ci_only_env_names`) decides which of those names a host reads.
+
+    Every "nothing to read" shape answers the same way, with an empty mapping:
+    no ``profile.yml``, an unreadable one, one that does not parse, or one whose
+    top level is not a mapping — and the same rule absorbs an unusable overlay,
+    leaving the tracked document standing. A profile that does not parse is the
+    staleness check's finding to report and ``osprey build``'s to fail on, so it
+    must not become a refusal raised from a probe here.
+
+    :param repo_root: The deployment repo root, holding ``profile.yml``.
+    :return: The parsed document, or ``{}`` when there is nothing to read.
+    """
+    from osprey.cli.repo_resolver import PROFILE_FILENAME
+
+    root = Path(repo_root).expanduser().absolute()
+    document = _read_profile_yaml(root / PROFILE_FILENAME)
+
+    overlay_path = _selected_variant_profile(root)
+    if overlay_path is None:
+        return document
+    overlay = _read_profile_yaml(overlay_path)
+    if not overlay:
+        return document
+
+    from osprey.cli.build_profile_merge import _deep_merge
+
+    return _deep_merge(document, overlay)
+
+
+def _ci_only_env_names(document: Mapping[str, object]) -> set[str]:
+    """The declared variable names that belong to CI, not to a deploy host.
+
+    The registry credential (``deploy.registry.token_env_var``) and each
+    external project's pull credential (``deploy.external_projects[].token_env_var``)
+    are read where images are pushed and pulled from a registry — the pipeline,
+    and a host that pulls prebuilt images. A host that builds its own images
+    never reads them, and refusing its start over a registry token it has no use
+    for would make every developer deploy of a facility profile unstartable.
+
+    They are named in the profile's deploy block and declared under
+    ``env.required`` beside everything else (the deploy block has no env channel
+    of its own — see :mod:`osprey.cli.build_profile_deploy`), so the exclusion
+    has to be made here rather than by the declaration.
+
+    :param document: A profile document as read by :func:`_profile_document`.
+    :return: The CI-only names. Empty when the profile has no deploy block.
+    """
+    deploy = document.get("deploy")
+    if not isinstance(deploy, dict):
+        return set()
+    blocks: list[object] = [deploy.get("registry")]
+    external = deploy.get("external_projects")
+    if isinstance(external, list):
+        blocks.extend(external)
+    names: set[str] = set()
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        token = block.get("token_env_var")
+        if isinstance(token, str) and token:
+            names.add(token)
+    return names
+
+
+def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> list[tuple[str, str]]:
+    """One finding per ``env.required`` name nothing gives this deploy a value for.
+
+    ``env.required`` is the profile's statement that the agent cannot run
+    without these variables. Nothing on the deploy path enforced it: the stack
+    started, and the missing variable surfaced later as an empty substitution, a
+    container restarting, or a tool failing to authenticate at the first request
+    — a failure mode that costs a whole deploy to observe and reads as anything
+    but "you never filled in the ``.env``".
+
+    A name counts as provided when ANY source the stack reads carries a
+    non-empty value for it: this repo's env chain (``.env.shared`` under
+    ``.env``, via :func:`~osprey.utils.dotenv.merge_chain`) or the process
+    environment. The union rather than a precedence order, because the question
+    here is existence, not which value wins — and both halves are needed: the
+    chain is read from ``repo_root``, which under ``osprey up --repo`` is not
+    the directory whose ``.env`` the CLI loaded into its own environment at
+    entry, while an exported value reaches compose without being in any file.
+
+    An empty value is a missing value. ``.env.example`` renders every required
+    name as a bare ``NAME=``, so the copied-but-not-filled-in file is the exact
+    shape this probe exists to catch, and treating its blanks as answers would
+    make the probe silent for the operator who most needs it.
+
+    Two classes of declared name are excluded, both because they are not the
+    operator's to supply on this host:
+
+    * the CI credentials (:func:`_ci_only_env_names`);
+    * everything a deploy-time writer mints (:func:`_deploy_written_env_vars`,
+      the same census :func:`_preflight_pinned_writers` refuses a pin against).
+      When the service that needs one is deployed, the mint two steps above has
+      already written it and there is nothing to report; when it is not, nothing
+      in the stack reads it, and a refusal would be about a service this deploy
+      does not run. The exemplar profile declares its dispatch tokens this way,
+      so this is the ordinary shape rather than an edge case.
+
+    Pure: it reads ``profile.yml`` and the env chain, and writes nothing.
+
+    :param repo_root: The deployment repo root, holding ``profile.yml`` and the
+        env chain.
+    :param env: The environment the stack would be started with.
+    :return: ``(problem, remedy)`` pairs in the order the profile declares the
+        names, so the report reads in the order of the file the operator opens
+        to fix it. Empty when the profile declares nothing (or nothing missing).
+    """
+    document = _profile_document(repo_root)
+    env_section = document.get("env")
+    if not isinstance(env_section, dict):
+        return []
+    declared = env_section.get("required")
+    if not isinstance(declared, list):
+        return []
+
+    excluded = _ci_only_env_names(document) | _deploy_written_env_vars()
+    chain = merge_chain(Path(repo_root))
+
+    problems: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for name in declared:
+        if not isinstance(name, str) or not name or name in seen or name in excluded:
+            continue
+        seen.add(name)
+        if (chain.get(name) or "").strip() or (env.get(name) or "").strip():
+            continue
+        problems.append(
+            (
+                f"{name} is required by this deployment's profile (env.required), but no "
+                f"value reaches the stack: it is unset in .env, .env.shared and the "
+                f"environment, or set there to an empty value.",
+                f"Set {name} in .env at the repo root. .env.example lists every variable "
+                f"this deployment reads; copy it first (cp .env.example .env) if this repo "
+                f"has no .env yet.",
+            )
+        )
+    return problems
+
+
+def pinned_env_keys(repo_root: Path | str) -> set[str]:
+    """The variable names this deployment declares under ``env.pinned``.
+
+    A pinned name is one the repo's own env chain owns outright: the value the
+    stack runs on is meant to come from ``.env.shared``/``.env`` under this
+    root, not from a shell export, not from a local override of a shared
+    default, and not from anything that writes the chain from outside. The
+    declaration lives in the profile because that is the file an operator edits
+    and reviews; the deploy reads it back here so the preflights can say which
+    of the things they already detect are merely notable and which contradict
+    something the deployment declared.
+
+    Read off the repo's own ``profile.yml`` through :func:`_profile_document`,
+    which is also where the "nothing to read" shapes are absorbed.
+
+    Every "nothing declared" shape answers the same way, with an empty set: no
+    ``profile.yml``, no ``env`` block, no ``pinned`` key, or a document this
+    cannot parse. A profile that does not parse is the staleness check's
+    finding to report and ``osprey build``'s to fail on, so it must not become a
+    refusal raised from here — and an empty set leaves every consumer at the
+    behaviour it had before pins existed.
+
+    :param repo_root: The deployment repo root, holding ``profile.yml``.
+    :return: The declared names, deduplicated. Empty when nothing is declared.
+    """
+    env_section = _profile_document(repo_root).get("env")
+    if not isinstance(env_section, dict):
+        return set()
+    declared = env_section.get("pinned")
+    if not isinstance(declared, list):
+        return set()
+    return {name for name in declared if isinstance(name, str) and name}
+
+
 def _classify_local_overrides(
     shared: Mapping[str, str],
     local: Mapping[str, str],
     previous_shared_digests: Mapping[str, str],
-) -> tuple[list[str], list[str]]:
-    """Split the keys ``.env`` overrides into deliberate ones and stale pins.
+    pinned: Collection[str] = (),
+) -> tuple[list[str], list[str], list[str]]:
+    """Split the keys ``.env`` overrides into deliberate, stale and pinned.
 
-    Both start from the same fact — a key ``.env.shared`` and ``.env`` disagree
-    about — and they deserve opposite volumes, which is the whole point of
-    reporting them separately:
+    The first two start from the same fact — a key ``.env.shared`` and ``.env``
+    disagree about — and they deserve opposite volumes, which is the whole point
+    of reporting them separately:
 
     * A **deliberate override** is the chain working exactly as designed. This
       host wants its own value, so ``.env`` carries it and wins. It is worth one
@@ -2268,6 +2641,25 @@ def _classify_local_overrides(
     matches neither is a value someone chose; an override on a shared key that
     has not moved is simply current.
 
+    The third bucket is not a severity of the same question but a different one.
+    A **pinned override** is a local value for a name the deployment declared it
+    owns (``env.pinned``, read by :func:`pinned_env_keys`), so no local value for
+    it is deliberate by definition: the declaration says the shared half decides,
+    and the local file is contradicting it. It is therefore classified first and
+    exclusively — a pinned key never also appears as deliberate or as stale,
+    because the answer to "is this override intended?" was already given in the
+    profile. Its consumer refuses (:func:`_preflight_pinned_overrides`); the two
+    unpinned buckets keep local-wins and their existing volumes.
+
+    That third question is asked of ``.env`` alone, and this is the one place
+    the three buckets do not share a starting fact. Deliberate and stale both
+    begin at "the two files disagree", which requires the shared file to have
+    said something; a pin does not, because a pinned name ``.env.shared`` never
+    anchors is precisely the shape where the local file is the stack's only
+    source for a variable the deployment says it does not decide. Only exact
+    agreement clears it — a local line that restates the shared value changes
+    nothing about what starts.
+
     All three comparisons are string equality, so they are performed on digests
     (see :data:`ENV_CHAIN_STATE_RELPATH`) rather than on the secrets themselves.
 
@@ -2275,12 +2667,29 @@ def _classify_local_overrides(
     :param local: Parsed ``.env`` as it is now.
     :param previous_shared_digests: Per-key digests of ``.env.shared`` as it
         stood at the previous deploy (see :func:`_read_chain_state`).
-    :return: ``(deliberate, stale)``, each sorted, together covering every
-        overridden key exactly once.
+    :param pinned: The names declared under ``env.pinned``. Empty — the default,
+        and what a deployment that declares nothing yields — leaves the other
+        two buckets exactly as they were before pins existed.
+    :return: ``(deliberate, stale, pinned)``, each sorted, together covering
+        every overridden key exactly once — plus, in the pinned bucket, every
+        declared name the local file sets that ``.env.shared`` does not anchor.
     """
+    declared = set(pinned)
     deliberate: list[str] = []
     stale: list[str] = []
+    contradicted: list[str] = []
     for key in sorted(local):
+        if key in declared:
+            # Asked of the LOCAL file alone, because the declaration is what
+            # makes a local line wrong — not the shared file's answer to it. A
+            # pinned name `.env.shared` does not carry (or a chain with no
+            # shared file at all) has nothing to disagree with, so requiring a
+            # disagreement here would let the one shape the pin most needs to
+            # stop — the local file as the ONLY source of a name the deployment
+            # says the shared half owns — start the stack unremarked.
+            if key not in shared or local[key] != shared[key]:
+                contradicted.append(key)
+            continue
         if key not in shared or local[key] == shared[key]:
             continue
         was = previous_shared_digests.get(key)
@@ -2292,7 +2701,181 @@ def _classify_local_overrides(
             stale.append(key)
         else:
             deliberate.append(key)
-    return deliberate, stale
+    return deliberate, stale, contradicted
+
+
+def _preflight_pinned_overrides(repo_root: Path | str) -> list[str]:
+    """Refuse the deploy when ``.env`` sets a name the profile pins.
+
+    ``env.pinned`` is a deployment saying, in the file operators edit and
+    review, that these variables are decided by the shared half of the chain and
+    nowhere else. Local-wins is the chain's normal and correct behaviour, so
+    without a declaration an override is simply this host's business — but *with*
+    one, the same override means the stack runs on a value that contradicts what
+    the deployment says it runs on, and every reading of the shared file goes on
+    describing something that is not what started. Nothing else on the path
+    notices: the override is well-formed, the stack comes up healthy, and
+    :func:`_report_chain_overrides` would file it under "working as intended".
+
+    Whether ``.env.shared`` names the variable too does not enter into it (see
+    :func:`_classify_local_overrides`). A pinned name the shared file leaves
+    unset, in a repo that has no ``.env.shared`` at all, is the same deploy from
+    the stack's point of view — one running on a local value for a variable the
+    deployment declared local files do not decide — and it is the shape the
+    declaration is least able to survive, because there is no shared value the
+    operator could compare against to notice.
+
+    A refusal rather than a warning, on the same grounds as
+    :func:`_preflight_env_chain_drift`: an override the deployment already
+    declared out of bounds has no outcome anybody asked for, and both remedies
+    (drop the local line, or drop the pin) are one edit away.
+
+    Evaluated on the **pre-mint** chain, and called from :func:`_start_stack`
+    ahead of :func:`_ensure_service_tokens`, for two reasons that point the same
+    way. The mint writes into ``.env``, so a check downstream of it would be
+    reading a file this command has already changed and could refuse on a line
+    the operator never wrote; and a deploy that is going to abort here should
+    abort having provisioned nothing.
+
+    **Names only, never values** — same rule as every report in this chain.
+
+    :param repo_root: The deployment repo root, holding the chain and the
+        profile that declares the pins.
+    :return: The empty list, when nothing is contradicted.
+    :raises RuntimeError: ``.env`` overrides at least one pinned name.
+    """
+    root = Path(repo_root).expanduser().absolute()
+    declared = pinned_env_keys(root)
+    if not declared:
+        return []
+
+    shared_path = root / ENV_SHARED_FILENAME
+    local_path = root / COMPOSE_ENV_FILENAME
+    shared = parse_dotenv_file(shared_path) if shared_path.is_file() else {}
+    local = parse_dotenv_file(local_path) if local_path.is_file() else {}
+    _, _, contradicted = _classify_local_overrides(shared, local, {}, declared)
+    if not contradicted:
+        return []
+
+    logger.error(
+        "Pinned variable overridden: %s sets %s, which this deployment pins under env.pinned.\n"
+        "  A pinned name is one the shared half of the chain owns outright. The local file wins "
+        "for every unpinned variable, and would win for these too, so the stack would start on "
+        "values that contradict what the deployment declares it runs on — with nothing in the "
+        "logs and a healthy stack to show for it. Values are never printed.\n"
+        "  To start on the declared value: remove the listed name(s) from %s. To let this host "
+        "choose its own: drop them from env.pinned in the profile and re-run `osprey build`.",
+        COMPOSE_ENV_FILENAME,
+        ", ".join(contradicted),
+        local_path,
+    )
+    raise RuntimeError(
+        f"env chain preflight failed: {COMPOSE_ENV_FILENAME} overrides "
+        f"{len(contradicted)} variable(s) pinned by this deployment (see report above). "
+        f"Remove them from {COMPOSE_ENV_FILENAME}, or drop them from env.pinned."
+    )
+
+
+def _deploy_written_env_vars() -> set[str]:
+    """Every variable name a deploy-time writer can put into ``.env``.
+
+    The census the pin declaration is checked against, and deliberately the
+    whole one rather than the subset this deploy's services would reach. A pin
+    is a static statement in the profile, so whether it is a legal thing to say
+    must not depend on which services happen to be enabled today — otherwise
+    the contradiction stays invisible until the deploy that first turns one on.
+
+    Six writers, all of them appending to (or rewriting) the local file on the
+    ordinary start path:
+
+    * :data:`_SERVICE_TOKEN_VARS` — the minted secrets;
+    * :data:`_SERVICE_DEFAULT_VARS` — the non-secret settings written down for
+      discoverability;
+    * the bluesky substrate devices, derived from the built project's channel
+      limits (:func:`_ensure_bluesky_substrate_env`);
+    * the RE manager's control-socket keypair
+      (:func:`_ensure_bluesky_control_plane_keys`);
+    * the credentials ``--reuse-stores`` restores from surviving data volumes
+      (:func:`_adopt_original_credentials`, over
+      :data:`_VOLUME_INITIALIZED_VARS`);
+    * the secrets a live store issues and the deploy harvests back into ``.env``
+      (:data:`_STORE_ISSUED_VARS`). Later in the run than the rest — the value
+      does not exist until the container is up — but written by this command all
+      the same, which is the only thing this census asks.
+
+    :return: The names, as one set.
+    """
+    written = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
+    written |= {var for pairs in _SERVICE_DEFAULT_VARS.values() for var, _default in pairs}
+    written |= {_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR}
+    written |= set(_VOLUME_INITIALIZED_VARS)
+    written |= set(_STORE_ISSUED_VARS)
+
+    # Imported rather than spelled again, from the module that defines them for
+    # the bridge. Guarded because this runs on every deploy while the writer
+    # that uses these names runs only on a bluesky one: an environment where the
+    # import fails is an environment where that writer cannot run either, so the
+    # census loses nothing it could have enforced.
+    try:
+        from osprey.services.bluesky_bridge.devices._specs_from_env import (
+            READBACKS_ENV,
+            SETPOINTS_ENV,
+            SUBSTRATE_ENV,
+        )
+    except ImportError:  # pragma: no cover - the bridge package is always present
+        logger.debug("Bluesky substrate env names unavailable; omitted from the writer census")
+    else:
+        written |= {SUBSTRATE_ENV, SETPOINTS_ENV, READBACKS_ENV}
+    return written
+
+
+def _preflight_pinned_writers(repo_root: Path | str) -> list[str]:
+    """Refuse a pin on a name the deploy itself writes.
+
+    ``env.pinned`` says a variable's value comes from this repo's chain and
+    nowhere else. A machine-minted name cannot satisfy that: the deploy writes
+    it into ``.env`` — on the first start, or whenever it is missing — so the
+    declaration and the provisioner contradict each other by construction, and
+    the two enforcement checks either side of this one would then be policing a
+    value ``osprey up`` put there itself. Refusing the *declaration* is what
+    makes pinned-and-minted an impossible state rather than a race between two
+    parts of the same command.
+
+    Checked against the whole writer census (:func:`_deploy_written_env_vars`),
+    not the services this deploy enables, so the answer is a property of the
+    profile and does not change with the config. Runs before anything reads or
+    writes the chain, because a profile making an unsatisfiable statement is
+    wrong independently of what the files currently hold.
+
+    :param repo_root: The deployment repo root, holding the profile.
+    :return: The empty list, when nothing pinned is machine-written.
+    :raises RuntimeError: ``env.pinned`` names at least one written variable.
+    """
+    declared = pinned_env_keys(repo_root)
+    if not declared:
+        return []
+    offenders = sorted(declared & _deploy_written_env_vars())
+    if not offenders:
+        return []
+
+    logger.error(
+        "Pinned variable is machine-minted: env.pinned declares %s, which the deploy "
+        "writes into %s itself.\n"
+        "  A pin says the chain under this root is the variable's only source, and these "
+        "names are provisioned by `osprey up` — the service token mint, the service "
+        "defaults, the bluesky provisioners, or the credential `--reuse-stores` restores "
+        "from a surviving data volume. The declaration cannot hold against a writer in "
+        "the same command.\n"
+        "  %s",
+        ", ".join(offenders),
+        COMPOSE_ENV_FILENAME,
+        " ".join(f"unpin {name}; it is machine-minted." for name in offenders),
+    )
+    raise RuntimeError(
+        f"env.pinned declares {len(offenders)} machine-minted variable(s) (see report "
+        f"above): {', '.join(offenders)}. "
+        + " ".join(f"unpin {name}; it is machine-minted." for name in offenders)
+    )
 
 
 def _report_chain_overrides(repo_root: Path) -> tuple[list[str], list[str]]:
@@ -2324,6 +2907,12 @@ def _report_chain_overrides(repo_root: Path) -> tuple[list[str], list[str]]:
     **Names only, never values** — on both severities, same rule as the
     shadowing warning below.
 
+    A third kind of override, one of a name declared under ``env.pinned``, is
+    not reported here at either volume. It has already refused the deploy, on
+    the pre-mint chain, in :func:`_preflight_pinned_overrides`; it is classified
+    out here so that a caller reaching this function on its own cannot file a
+    contradicted pin under "working as intended".
+
     :param repo_root: The deployment repo root, holding the chain.
     :return: ``(deliberate, stale)`` key names, each sorted.
     """
@@ -2333,7 +2922,9 @@ def _report_chain_overrides(repo_root: Path) -> tuple[list[str], list[str]]:
     local = parse_dotenv_file(local_path) if local_path.is_file() else {}
     previous = _read_chain_state(repo_root)
 
-    deliberate, stale = _classify_local_overrides(shared, local, previous)
+    deliberate, stale, _ = _classify_local_overrides(
+        shared, local, previous, pinned_env_keys(repo_root)
+    )
 
     if deliberate:
         _report_fact(
@@ -2531,7 +3122,7 @@ def _preflight_env_shadowing(
     environ: Mapping[str, str] | None = None,
     provider: ComposeProvider | None = None,
 ) -> list[str]:
-    """Warn when a shell export and the env chain disagree about a value.
+    """Warn — or, for a pinned name, refuse — when a shell export and the env chain disagree.
 
     The chain under ``<repo>`` — ``.env.shared`` then ``.env``, later winning —
     is the deployment's one secret store, and every compose invocation is
@@ -2563,18 +3154,39 @@ def _preflight_env_shadowing(
     against the merged chain — what the deployment's env files collectively say
     after ``.env`` has been laid over ``.env.shared``, which is the value
     compose is handed however the fragment is spelled. An exported name the
-    chain does not set is not a divergence (there is nothing for it to
-    contradict), and a chain key no compose file reads cannot change what
-    starts.
+    chain does not set is not a divergence *for an unpinned name* (there is
+    nothing for it to contradict, and the export is the only source there is),
+    and a chain key no compose file reads cannot change what starts.
+
+    For a **pinned** name that same shape is the refusal at its sharpest rather
+    than a non-event: the declaration says the chain is the variable's only
+    source, so an export the compose files interpolate is a shell supplying a
+    value the deployment says a shell does not supply — and with nothing in the
+    chain to disagree with, no later reading of the repo would show it. So the
+    refusal below is scoped to what compose interpolates and what the shell
+    exports, not to what the chain happens to carry.
 
     The chain's own layering is reported separately, at two severities, by
     :func:`_report_chain_overrides` — called from here so that one preflight
     covers everything the env chain can quietly get wrong.
 
-    **A warning, never a refusal.** Exporting a variable over the store is a
-    legitimate gesture — a one-off run against another host's credentials, a
-    rotation in progress — and a deploy that refused it would break the escape
-    hatch to protect people from using it.
+    **A warning, never a refusal — for every name the deployment has not
+    pinned.** Exporting a variable over the store is a legitimate gesture — a
+    one-off run against another host's credentials, a rotation in progress — and
+    a deploy that refused it would break the escape hatch to protect people from
+    using it. A name declared under ``env.pinned`` is the case where the
+    deployment has already said the escape hatch does not apply to it: the chain
+    is that variable's only source, and under Docker Compose an export is the
+    one way a value reaches the stack from around the chain without touching a
+    file. So a divergent export of a pinned name refuses, and the remedy is to
+    unset it.
+
+    The refusal does not vary by provider, though the wording does. Under
+    podman-compose the export reaches nothing rather than winning, but a repo
+    deployed under both providers must not be startable on one host and refused
+    on the other for the same shell state, and an export silently dropped is
+    still a shell disagreeing with a name the deployment says it owns. What
+    changes per provider is which of those two things the operator is told.
 
     **Names only, never values.** Which variable diverged is the actionable
     fact; what either side holds is a secret, and a warning is the one place a
@@ -2599,6 +3211,7 @@ def _preflight_env_shadowing(
         both.
     :return: The shadowed variable names, sorted. Empty when there is no
         divergence, no chain file, or nothing interpolated.
+    :raises RuntimeError: A name declared under ``env.pinned`` is shadowed.
     """
     root = Path(repo_root).expanduser().absolute()
     _report_chain_overrides(root)
@@ -2609,9 +3222,12 @@ def _preflight_env_shadowing(
         # process env is the only source and nothing is being overridden.
         return []
 
-    pinned = merge_chain(root)
-    if not pinned:
-        return []
+    # The values the chain resolves to, NOT the `env.pinned` declaration read
+    # further down — the two are different questions about the same variables,
+    # and this one is "what does the store say". A chain that resolves to
+    # nothing is not an early exit: it means every name a compose file reads is
+    # decided by the shell, which is exactly what a pin forbids.
+    chain_values = merge_chain(root)
 
     if environ is None:
         from osprey.utils.config import dotenv_shell_overrides
@@ -2632,9 +3248,25 @@ def _preflight_env_shadowing(
     shadowed = sorted(
         name
         for name in referenced
-        if name in pinned and name in process_env and process_env[name] != pinned[name]
+        if name in chain_values and name in process_env and process_env[name] != chain_values[name]
     )
-    if not shadowed:
+
+    # The pinned half asks a WIDER question than the advisory one, and has to:
+    # an unpinned name the chain never sets is not a divergence (there is
+    # nothing for the export to contradict, and the export is the only source
+    # there is), while a PINNED name the chain never sets is the divergence at
+    # its worst. The declaration says the chain decides that variable, so an
+    # export compose interpolates is a shell deciding it instead — and with no
+    # chain entry to compare against, nothing downstream would ever notice.
+    # Exact agreement with the chain still clears it, as it does above.
+    declared = pinned_env_keys(root)
+    refused = sorted(
+        name
+        for name in referenced
+        if name in declared and name in process_env and process_env[name] != chain_values.get(name)
+    )
+    advisory = [name for name in shadowed if name not in declared]
+    if not advisory and not refused:
         return []
 
     if provider is ComposeProvider.PODMAN_COMPOSE:
@@ -2645,7 +3277,7 @@ def _preflight_env_shadowing(
         )
         remedy = (
             f"To change what starts: edit the chain; an export cannot reach this stack. "
-            f"To stop the disagreement: unset {' '.join(shadowed)}."
+            f"To stop the disagreement: unset {' '.join(advisory)}."
         )
     elif provider is ComposeProvider.DOCKER_V2:
         mechanics = (
@@ -2655,7 +3287,7 @@ def _preflight_env_shadowing(
             "with."
         )
         remedy = (
-            f"To start on the chain's value: unset {' '.join(shadowed)}. To adopt the "
+            f"To start on the chain's value: unset {' '.join(advisory)}. To adopt the "
             f"exported one: edit the chain to match; a volume that already exists "
             f"keeps the credential it was created with, whichever value the container is "
             f"handed."
@@ -2667,15 +3299,189 @@ def _preflight_env_shadowing(
             "its env file first and ignores the export. The provider was not probed for "
             "this message, so both are named rather than one guessed."
         )
-        remedy = f"Either way, to leave the chain as the only source: unset {' '.join(shadowed)}."
+        remedy = f"Either way, to leave the chain as the only source: unset {' '.join(advisory)}."
 
-    _warn_fact(
-        f"shell export disagrees with this deployment's env chain: {', '.join(shadowed)}",
-        f"exported here with a value that differs from the one the chain resolves to "
-        f"({' + '.join(str(path) for path in chain)}). {mechanics} Values are never printed.",
-        remedy,
-    )
+    # Everything the escape hatch still covers is reported first, so a refusal
+    # below does not take the rest of the picture down with it.
+    if advisory:
+        _warn_fact(
+            f"shell export disagrees with this deployment's env chain: {', '.join(advisory)}",
+            f"exported here with a value that differs from the one the chain resolves to "
+            f"({' + '.join(str(path) for path in chain)}). {mechanics} Values are never printed.",
+            remedy,
+        )
+
+    if refused:
+        logger.error(
+            "Pinned variable shadowed by a shell export: %s\n"
+            "  This deployment pins these names under env.pinned, which says the chain "
+            "(%s) is their only source. %s Either way a shell is deciding, or being silently "
+            "dropped by, a variable the deployment declared its own. Values are never "
+            "printed.\n"
+            "  To deploy: unset %s. To let a shell decide this name after all: drop it from "
+            "env.pinned in the profile and re-run `osprey build`.",
+            ", ".join(refused),
+            " + ".join(str(path) for path in chain),
+            mechanics,
+            " ".join(refused),
+        )
+        raise RuntimeError(
+            f"env chain preflight failed: {len(refused)} pinned variable(s) are shadowed by a "
+            f"shell export (see report above). Unset them, or drop them from env.pinned."
+        )
+
     return shadowed
+
+
+def _declared_passthrough_names(config: Mapping[str, Any]) -> dict[str, list[str]]:
+    """The host variables each service declares under ``services.<name>.env``.
+
+    The per-service env axis: a list of host environment variable NAMES a
+    service hands to its container, written by the author in either the nested
+    (``services.<name>.config.env``) or the dotted
+    (``config: {"services.<name>.env": [...]}``) spelling. Both spellings are
+    merged into this one block during the build, so the rendered ``config.yml``
+    the deploy is handed is the single merged truth — the same block
+    ``templates/services/_env_axis.j2`` renders from.
+
+    Every "declares nothing" shape answers with an empty mapping rather than
+    raising: no ``services`` block, a service block that is not a mapping, an
+    ``env`` value that is not a list, and non-string or empty entries inside one.
+    The names are validated where the profile is parsed
+    (``build_profile_schema.env_names_errors``), so a malformed value here means
+    a hand-edited ``config.yml``, which is the deploy's to survive rather than
+    to refuse over.
+
+    :param config: The deployment's rendered config.
+    :return: ``{VARIABLE_NAME: [service, ...]}``, services in config order, so a
+        report can say which service asked for a name as well as which name.
+    """
+    services = config.get("services") if isinstance(config, Mapping) else None
+    if not isinstance(services, Mapping):
+        return {}
+
+    declared: dict[str, list[str]] = {}
+    for service, block in services.items():
+        if not isinstance(block, Mapping):
+            continue
+        names = block.get("env")
+        if isinstance(names, str) or not isinstance(names, Sequence):
+            continue
+        for name in names:
+            if isinstance(name, str) and name:
+                declared.setdefault(name, []).append(str(service))
+    return declared
+
+
+def _preflight_declared_env_unset(
+    compose_files: list[str],
+    repo_root: Path | str,
+    config: Mapping[str, Any],
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Warn when a service declares a host variable nothing on this host sets.
+
+    ``services.<name>.env`` is a promise to hand a host variable to a container,
+    and the renderer keeps it with a bare ``NAME: ${NAME}``. Deliberately bare:
+    a ``:-`` default would mean inventing a value the renderer knows nothing
+    about, and a ``:?`` would abort the whole compose document over one name
+    that only a single service asked for (see ``_env_axis.j2``). What that
+    leaves is compose substituting the EMPTY STRING — so an unset name reaches
+    the container set-and-empty, not absent, and code reading it as
+    ``os.environ.get(NAME, default)`` gets ``""`` rather than its default.
+
+    That is the right runtime behaviour and a terrible thing to discover from
+    inside a container. The declaration is the only evidence anyone intended the
+    variable to carry something, and this is the one moment the deploy holds
+    both halves — what was declared, and what this host actually has. So it says
+    so, by name, here.
+
+    **Advisory, never a refusal.** A declared name with nothing behind it is a
+    perfectly ordinary state: an optional site proxy, a knob left at its
+    in-container default, a variable this host does not need and the next one
+    does. Refusing would make the axis unusable for exactly the optional
+    passthroughs it is best at, and it would contradict the empty-when-unset
+    semantics the renderer is built around. The complement — a name the
+    deployment cannot run without — is what ``env.required`` is for, and
+    :func:`_required_env_problems` is where that one does refuse.
+
+    Scoped from both ends, so the report stays worth reading:
+
+    * only names some rendered compose file actually interpolates, via
+      :func:`_compose_interpolated_vars` — a service declared but not deployed
+      contributes no compose document, so nothing it declares is reported;
+    * only names nothing gives a value: neither this repo's env chain
+      (``.env.shared`` under ``.env``) nor the process environment. The union
+      rather than a precedence order, for the same reason
+      :func:`_required_env_problems` takes it — the question is existence, not
+      which value wins.
+
+    An empty value counts as no value, again as in :func:`_required_env_problems`:
+    ``NAME=`` in the chain and no ``NAME`` at all put the identical empty string
+    in the container, so reporting one and not the other would split a single
+    outcome across two answers.
+
+    **Names only, never values** — the rule every report on this chain holds to.
+
+    :param compose_files: The compose files this deploy will start, in ``-f``
+        order. Relative entries resolve against *repo_root*. Unreadable entries
+        are skipped: a missing render is the start's own error to raise.
+    :param repo_root: The deployment repo root, holding the env chain.
+    :param config: The deployment's rendered config, carrying the declarations.
+    :param environ: The environment to check against. ``None`` reads the live
+        one overlaid with the shell values the CLI's entry-time ``.env`` load
+        replaced, matching what the stack is actually started with.
+    :return: The declared-but-unset names, sorted. Empty when nothing is
+        declared, nothing is interpolated, or everything declared has a value.
+    """
+    declared = _declared_passthrough_names(config)
+    if not declared:
+        return []
+
+    root = Path(repo_root).expanduser().absolute()
+    referenced: set[str] = set()
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        path = path if path.is_absolute() else root / path
+        try:
+            referenced |= _compose_interpolated_vars(path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+    if not referenced:
+        return []
+
+    if environ is None:
+        from osprey.utils.config import dotenv_shell_overrides
+
+        process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
+    else:
+        process_env = environ
+
+    chain = merge_chain(root)
+    unset = sorted(
+        name
+        for name in declared
+        if name in referenced
+        and not (chain.get(name) or "").strip()
+        and not (process_env.get(name) or "").strip()
+    )
+    if not unset:
+        return []
+
+    asked_by = "; ".join(f"{name} -> {', '.join(declared[name])}" for name in unset)
+    _warn_fact(
+        f"declared for passthrough, but unset on this host: {', '.join(unset)}",
+        "A service's `env:` list names host variables it hands to its container "
+        f"({asked_by}). Nothing sets these here: not .env, not .env.shared, not the "
+        "environment. So compose substitutes the EMPTY STRING, and each container "
+        "starts with the variable set and empty rather than absent. Values are "
+        "never printed.",
+        "Set them in .env at the repo root if the containers are meant to receive "
+        "something, or drop them from the service's `env:` list in the build profile "
+        "and re-run `osprey build` if they are not.",
+    )
+    return unset
 
 
 def _check_shared_disk_preflight(config: dict) -> None:
@@ -3488,6 +4294,58 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         _report_step(f"logbook seeded: {seeded} entries")
 
 
+def _stage_openobserve_identity(config, compose_files, env, project_dir, *, provider=None) -> None:
+    """Start the telemetry store, then provision the account that writes to it.
+
+    Staged like ARIEL's store and the archiver's, and for a reason neither of
+    them has: the ingest credential is issued by the STORE, so it cannot be
+    written before the store is running. Doing it here rather than after the
+    bring-up is what makes it work on both start shapes at once, because an
+    attached ``osprey up`` replaces this process with compose and never comes
+    back to run anything afterwards.
+
+    The store is brought up on its own first, exactly as ``up`` will leave it:
+    the same compose project, the same env chain, so the ``up`` below reconciles
+    a container that is already correct rather than recreating it.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose. A harvested token is
+        mirrored into it when it already carries the name (see
+        ``openobserve_provision._mirror_into_environment``).
+    :param project_dir: Root of the built project (holds ``.env``).
+    :param provider: The compose provider this deploy resolved, so the staging
+        invocation is shaped like the ``up`` that follows it.
+    """
+    from osprey.deployment import openobserve_provision
+
+    if not openobserve_provision.store_deployed(config):
+        return
+
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+
+    _report_group("openobserve")
+    up_cmd = base_cmd + ["up", "-d", openobserve_provision.SERVICE]
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    run_captured(up_cmd, env=run_env, spool_name="openobserve-store-up", repo_root=project_dir)
+    _report_step("telemetry store started")
+
+    outcome = openobserve_provision.provision_ingest_identity(
+        config, Path(project_dir) / COMPOSE_ENV_FILENAME, env=env
+    )
+    if outcome.action == "verified":
+        _report_step("ingest identity verified")
+    elif outcome.wrote_token:
+        _report_step("ingest identity provisioned")
+
+
 def deploy_up(
     config_path,
     detached=False,
@@ -3714,6 +4572,11 @@ def _collect_unmet_preconditions(
     findings: list[tuple[str, str]] = []
     if web_terminals_enabled:
         findings.extend(web_terminal_preflight_problems(config, repo_root=repo_root))
+    # Ahead of the pin below because it is about the chain every service reads
+    # rather than about one image's build, and the deploy meets it first. Sees
+    # the chain as it stands AFTER every mint above, so a token the deploy just
+    # provisioned is not reported as missing -- see _required_env_problems.
+    findings.extend(_required_env_problems(repo_root, env))
     if (pin := _unreleased_pin_problem(config, env, dev_mode)) is not None:
         findings.append(pin)
 
@@ -3818,6 +4681,19 @@ def _start_stack(
     # conflict, so an idempotent redeploy stays green.
     _preflight_host_ports(config, compose_files)
 
+    # Refuse a pin the deploy itself would write over. Ahead of the override
+    # refusal below because it is a statement about the profile alone: a
+    # declaration that contradicts a provisioner is wrong whatever the chain
+    # currently holds, and saying so first keeps the operator from resolving an
+    # override on a name that should never have been pinned.
+    _preflight_pinned_writers(repo_root)
+
+    # Refuse a local file that overrides a name the deployment pins. On the
+    # PRE-MINT chain, so the refusal is about lines the operator wrote rather
+    # than about the ones the mint below is going to append, and so a deploy
+    # doomed by a contradicted pin aborts having provisioned nothing.
+    _preflight_pinned_overrides(repo_root)
+
     # Self-provision fail-closed service tokens into .env (before the --env-file
     # check below) so a fresh deploy is secure by default. The dispatch worker
     # mounts the same .env for provider auth; a deploy where .env already
@@ -3899,6 +4775,18 @@ def _start_stack(
     # see _preflight_env_shadowing. Before the image build below, so the
     # operator sees it in seconds rather than after the minutes a build takes.
     _preflight_env_shadowing(compose_files, repo_root, provider=provider)
+
+    # The other half of the same question, and the same volume: a service can
+    # also declare a host variable under `services.<name>.env` that nothing on
+    # this host sets. The renderer hands it over as a bare `${NAME}` by design,
+    # so compose substitutes the empty string and the container starts with the
+    # variable set-and-empty -- a state only visible from inside it. Advisory,
+    # because a declared-but-absent passthrough is an ordinary thing (an
+    # optional proxy, a knob this host does not need); `env.required` is where a
+    # deployment says a variable is not optional, and that one refuses. Beside
+    # the advisory above so one place covers everything the env chain can
+    # quietly get wrong, and above the image build for the same reason.
+    _preflight_declared_env_unset(compose_files, repo_root, config)
 
     # Set up environment for containers. The shell values the CLI's entry-time
     # `.env` load replaced are restored on top: compose documents the OPPOSITE
@@ -3992,6 +4880,14 @@ def _start_stack(
     # order they document each other.
     _stage_ariel_store(config, compose_files, env, Path(repo_root), provider=provider)
 
+    # And the telemetry store, for a third reason: its ingest credential is one
+    # the STORE issues, so the only moment it can be harvested is with the store
+    # running. Here rather than after the bring-up below because the attached
+    # `up` never returns (it replaces this process with compose), so anything
+    # that must happen on both start shapes has to happen before the branch.
+    # No-op unless this project deploys the store itself.
+    _stage_openobserve_identity(config, compose_files, env, Path(repo_root), provider=provider)
+
     if web_terminals_enabled:
         # The provider goes down with the fragment it shaped: that fragment is
         # already provider-specific (one merged file, or the repeated chain),
@@ -4045,7 +4941,8 @@ def _start_stack(
     run_captured(rm_cmd, env=run_env, spool_name="compose-rm", repo_root=repo_root, check=False)
     _report_step("cleared stopped containers")
 
-    if dev_mode and _resolve_prebuilt_images(config):
+    prebuilt = _resolve_prebuilt_images(config)
+    if dev_mode and prebuilt:
         # Nothing to build: the tags are expected to be on the host already, and
         # the `up --no-build` below runs against them. A tag that is in fact
         # missing surfaces as compose's own "No such image", which names the
@@ -4058,9 +4955,10 @@ def _start_stack(
         # <project>-dispatch:local) unless it is rebuilt — so a dev deploy must build.
         # Build in its OWN step, then `up --no-build`: a single `up --build` can
         # build a local-only tag and then fail container-create with
-        # "No such image" under Docker's containerd image store. Non-dev stays a
-        # plain `up` so compose's implicit build-on-up still covers a build-only
-        # service that has no published upstream tag to pull.
+        # "No such image" under Docker's containerd image store. Non-dev has no
+        # build step of its own, so unless the host says its images are prebuilt
+        # it stays a plain `up` and compose's implicit build-on-up still covers a
+        # build-only service that has no published upstream tag to pull.
         build_cmd = base_cmd + ["build"]
         logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
         # Watched for the duration of the build and no longer: the live view
@@ -4083,7 +4981,14 @@ def _start_stack(
     # invocations share one project name, so each would destroy the other
     # stack's containers as "orphans".
     cmd = base_cmd + ["up", "--remove-orphans"]
-    if dev_mode:
+    if dev_mode or prebuilt:
+        # Non-dev never builds in a step of its own, so on a prebuilt host the
+        # only build left to suppress is compose's implicit build-on-up. Without
+        # this a pull-only mirror deploy would answer a missing tag by building
+        # a locally-tagged impostor from the template's `build:` block instead
+        # of failing on the image that never arrived. The switch reaches
+        # compose's implicit builds only: explicit persona and auth-sidecar
+        # builds stay governed by `image_source`.
         cmd.append("--no-build")
     if detached:
         cmd.append("-d")
@@ -5049,6 +5954,21 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     subprocess.run(
         cmd, env=runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
     )
+
+    # After the restart, not before: the ingest credential is issued by a store
+    # that has to be answering to issue it, and `compose restart` takes it down
+    # and brings it back. The provisioner waits for readiness itself, so this
+    # covers the case a restart exists to repair here too, which is a data
+    # volume that was replaced under a `.env` still holding the old token.
+    #
+    # What a restart CANNOT do is deliver a newly harvested token to the
+    # containers: `compose restart` reuses each container's existing definition,
+    # so a value written now reaches them at the next `osprey up`. Provisioning
+    # anyway is what makes the store and the `.env` agree in the meantime, which
+    # is the half a later start cannot reconstruct.
+    from osprey.deployment import openobserve_provision
+
+    openobserve_provision.provision_ingest_identity(config, repo_root / COMPOSE_ENV_FILENAME)
 
     # If detached mode requested, detach after restart
     if detached:

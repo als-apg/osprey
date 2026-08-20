@@ -1219,7 +1219,8 @@ def deploy_up_web_terminals(
             compose_build_step_reporter,
         )
 
-        if dev_mode and _resolve_prebuilt_images(config):
+        prebuilt = _resolve_prebuilt_images(config)
+        if dev_mode and prebuilt:
             # Same bargain as the plain path (see _start_stack): the service tags
             # are already on the host, `up --no-build` runs against them, and a
             # missing one surfaces as compose's own "No such image".
@@ -1244,7 +1245,13 @@ def deploy_up_web_terminals(
                 )
             _report_step("built service images")
         services_cmd = services_base + ["up"]
-        if dev_mode:
+        if dev_mode or prebuilt:
+            # Same bargain as the plain path (see _start_stack): non-dev has no
+            # build step of its own, so on a prebuilt host compose's implicit
+            # build-on-up is the last thing that could build a locally-tagged
+            # impostor over an image the mirror never delivered. Wired here as
+            # well as on the plain path deliberately — this is the site a
+            # web-terminals host actually reaches.
             services_cmd.append("--no-build")
         services_cmd.append("-d")
         logger.debug(f"Running command:\n    {' '.join(services_cmd)}")

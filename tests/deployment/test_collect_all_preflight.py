@@ -300,6 +300,347 @@ def test_the_build_target_is_the_gate_the_build_itself_uses(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# The required-env probe: what the profile says the agent cannot run without
+# ---------------------------------------------------------------------------
+
+
+def _write_profile(root: Path, document: dict) -> None:
+    (root / "profile.yml").write_text(yaml.safe_dump(document), encoding="utf-8")
+
+
+def _required(root: Path, *names: str, deploy: dict | None = None) -> None:
+    document: dict = {"name": "facility", "env": {"required": list(names)}}
+    if deploy is not None:
+        document["deploy"] = deploy
+    _write_profile(root, document)
+
+
+def test_a_declared_name_no_source_provides_is_reported(tmp_path):
+    """The probe's reason for existing: the profile says the agent cannot run
+    without this variable, and nothing the stack reads carries it. Serially
+    this is a deploy that starts and then fails at the first request."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert len(problems) == 1
+    problem, remedy = problems[0]
+    assert "FACILITY_API_TOKEN" in problem
+    assert "env.required" in problem
+    # The remedy names the file that lists it and the copy that creates a `.env`.
+    assert ".env.example" in remedy
+    assert "cp .env.example .env" in remedy
+
+
+@pytest.mark.parametrize("filename", [".env", ".env.shared"])
+def test_either_chain_file_provides_the_value(tmp_path, filename):
+    """Existence is the question, so either half of the chain answers it — the
+    shared default no less than the host's own file."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+    (tmp_path / filename).write_text("FACILITY_API_TOKEN=set\n", encoding="utf-8")
+
+    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+
+
+def test_an_exported_value_provides_it_with_no_file_at_all(tmp_path):
+    """A shell export reaches compose without being in any file, so a repo with
+    no chain at all is not refused when the environment carries the value."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+
+    assert container_lifecycle._required_env_problems(tmp_path, {"FACILITY_API_TOKEN": "set"}) == []
+
+
+def test_the_chain_is_read_from_the_repo_not_from_the_process(tmp_path):
+    """Under `osprey up --repo` the CLI's own entry-time `.env` load is a
+    different directory's chain, so the probe reads the deployment repo's files
+    rather than trusting the environment it inherited."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _required(repo, "FACILITY_API_TOKEN")
+    (repo / ".env").write_text("FACILITY_API_TOKEN=set\n", encoding="utf-8")
+
+    assert container_lifecycle._required_env_problems(repo, {}) == []
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_an_empty_value_is_a_missing_value(tmp_path, value):
+    """`.env.example` renders every required name as a bare `NAME=`, so the
+    copied-but-never-filled-in file is precisely the shape this probe exists to
+    catch. Counting its blanks as answers would silence it for the operator who
+    most needs it."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+    (tmp_path / ".env").write_text(f"FACILITY_API_TOKEN={value}\n", encoding="utf-8")
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {"OTHER": "x"})
+
+    assert len(problems) == 1
+    assert "FACILITY_API_TOKEN" in problems[0][0]
+
+
+def test_an_empty_local_value_is_still_answered_by_the_environment(tmp_path):
+    """Empty means "no value here", not "no value anywhere" — the union is over
+    sources, so an export still satisfies a name blanked out in the file."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+    (tmp_path / ".env").write_text("FACILITY_API_TOKEN=\n", encoding="utf-8")
+
+    assert container_lifecycle._required_env_problems(tmp_path, {"FACILITY_API_TOKEN": "set"}) == []
+
+
+def test_every_missing_name_is_its_own_finding_in_declaration_order(tmp_path):
+    """One finding per name, in the order of the file the operator opens to fix
+    them, rather than one finding listing three names."""
+    _required(tmp_path, "ZULU_TOKEN", "ALPHA_TOKEN", "MIDDLE_TOKEN")
+    (tmp_path / ".env").write_text("MIDDLE_TOKEN=set\n", encoding="utf-8")
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert [problem.split()[0] for problem, _remedy in problems] == ["ZULU_TOKEN", "ALPHA_TOKEN"]
+
+
+def test_ci_only_credentials_never_refuse_a_host_that_builds_its_own_images(tmp_path):
+    """The registry and external-project tokens are read where images are pushed
+    and pulled from a registry. A developer host that builds locally has no use
+    for either, and refusing its start over them would make every such deploy
+    unstartable — even though the profile declares them like everything else,
+    because the deploy block has no env channel of its own."""
+    _required(
+        tmp_path,
+        "FACILITY_REGISTRY_TOKEN",
+        "PARTNER_PULL_TOKEN",
+        "FACILITY_API_TOKEN",
+        deploy={
+            "ci": "gitlab",
+            "registry": {
+                "url": "git.example.org:5050/physics/facility",
+                "token_env_var": "FACILITY_REGISTRY_TOKEN",
+            },
+            "external_projects": [
+                {
+                    "name": "partner",
+                    "url": "git.example.org:5050/partner",
+                    "image": "partner:1",
+                    "token_env_var": "PARTNER_PULL_TOKEN",
+                }
+            ],
+        },
+    )
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert [problem.split()[0] for problem, _remedy in problems] == ["FACILITY_API_TOKEN"]
+
+
+def test_a_machine_minted_name_is_never_the_operators_to_supply(tmp_path):
+    """The exemplar profile declares its dispatch tokens under `env.required`,
+    and `osprey up` mints them itself. With the service deployed the mint above
+    the pass has already written the value; without it, nothing in the stack
+    reads the name at all. Either way a refusal would send the operator to
+    invent a secret the deploy owns."""
+    minted = sorted(container_lifecycle._deploy_written_env_vars())
+    assert "EVENT_DISPATCHER_TOKEN" in minted  # the census the exclusion reuses
+    _required(tmp_path, *minted, "FACILITY_API_TOKEN")
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert [problem.split()[0] for problem, _remedy in problems] == ["FACILITY_API_TOKEN"]
+
+
+def test_a_deploy_block_without_tokens_excludes_nothing(tmp_path):
+    """The negative control for the exclusion: a profile that names no
+    credential excludes no name, so the carve-out cannot be silently swallowing
+    the whole declaration."""
+    _required(
+        tmp_path,
+        "FACILITY_API_TOKEN",
+        deploy={"ci": "gitlab", "registry": {"url": "git.example.org:5050/physics/facility"}},
+    )
+
+    assert len(container_lifecycle._required_env_problems(tmp_path, {})) == 1
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        None,  # no profile.yml at all
+        {"name": "facility"},  # no env block
+        {"name": "facility", "env": {"pinned": ["A"]}},  # no required key
+        {"name": "facility", "env": {"required": "FACILITY_API_TOKEN"}},  # scalar, not a list
+        {"name": "facility", "env": {"required": [None, ""]}},  # unusable entries
+        {"name": "facility", "env": "required"},  # env is not a mapping
+    ],
+)
+def test_every_nothing_declared_shape_reports_nothing(tmp_path, document):
+    """A profile that declares nothing, or declares it unusably, leaves the
+    deploy exactly where it was before the probe existed."""
+    if document is not None:
+        _write_profile(tmp_path, document)
+
+    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+
+
+def test_an_unparseable_profile_is_not_this_probes_refusal(tmp_path):
+    """A broken profile is the staleness check's finding and `osprey build`'s
+    failure. Raising it from here would report it as a missing variable."""
+    (tmp_path / "profile.yml").write_text("env: [unclosed\n", encoding="utf-8")
+
+    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+
+
+def test_a_name_declared_twice_is_reported_once(tmp_path):
+    _required(tmp_path, "FACILITY_API_TOKEN", "FACILITY_API_TOKEN")
+
+    assert len(container_lifecycle._required_env_problems(tmp_path, {})) == 1
+
+
+def test_the_probe_writes_nothing(tmp_path):
+    """Pure per the pass's contract: the probes run between provisioners that
+    ARE ordered against each other, so a side effect here would silently be a
+    step in that order."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+    before = sorted(p.name for p in tmp_path.iterdir())
+
+    container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_the_missing_variable_is_collected_with_the_other_findings(tmp_path):
+    """Through the pass rather than the probe: a deployment missing a required
+    variable AND carrying another problem is described once, not twice."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+
+    with pytest.raises(UnmetPreconditionsError) as excinfo:
+        container_lifecycle._collect_unmet_preconditions(
+            _three_problem_config(tmp_path),
+            tmp_path,
+            {},
+            dev_mode=False,
+            web_terminals_enabled=True,
+        )
+
+    problems = [problem for problem, _remedy in excinfo.value.findings]
+    assert any("FACILITY_API_TOKEN" in problem for problem in problems)
+    # The web findings still come first, and the chain question before the
+    # build's own pin: the order a deploy would have met them in.
+    assert "unrendered" in problems[0]
+
+
+# ---------------------------------------------------------------------------
+# The profile the deploy reads is the one THIS host built
+# ---------------------------------------------------------------------------
+# One repo, several `profiles/<name>.yml` overlays, and `.env.variant` naming
+# the one this host builds. `osprey build` merges that overlay over
+# `profile.yml` before resolving anything, so a declaration it contributes is
+# part of what the built stack IS. Reading the tracked file alone at `osprey up`
+# would leave every such declaration unenforced — the build renders a project
+# whose profile requires a variable, and the deploy goes on believing nothing
+# was required.
+
+
+def _variant(root: Path, name: str, document: dict | None = None, *, select: bool = True) -> None:
+    """Write an overlay under ``profiles/`` and (by default) select it."""
+    if document is not None:
+        variants = root / "profiles"
+        variants.mkdir(exist_ok=True)
+        (variants / f"{name}.yml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    if select:
+        (root / ".env.variant").write_text(f"OSPREY_PROFILE_VARIANT={name}\n", encoding="utf-8")
+
+
+def test_a_required_name_the_selected_variant_adds_is_enforced(tmp_path):
+    """The finding this exists for: a host whose variant declares the variable."""
+    _write_profile(tmp_path, {"name": "facility"})
+    _variant(tmp_path, "teststand", {"env": {"required": ["FACILITY_API_TOKEN"]}})
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert [problem.split()[0] for problem, _remedy in problems] == ["FACILITY_API_TOKEN"]
+
+
+def test_the_variants_declarations_are_added_to_the_tracked_ones(tmp_path):
+    """The build merges profile layers; a list does not replace, it unions.
+
+    A deploy that took the overlay as the whole answer would stop enforcing
+    everything the tracked profile declares the moment a host picked a variant.
+    """
+    _required(tmp_path, "TRACKED_TOKEN")
+    _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}})
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert sorted(problem.split()[0] for problem, _remedy in problems) == [
+        "TRACKED_TOKEN",
+        "VARIANT_TOKEN",
+    ]
+
+
+def test_a_pin_the_selected_variant_adds_is_read_back(tmp_path):
+    """`env.pinned` travels the same path, and its consumers refuse on it."""
+    _write_profile(tmp_path, {"name": "facility", "env": {"pinned": ["TRACKED_URL"]}})
+    _variant(tmp_path, "teststand", {"env": {"pinned": ["VARIANT_URL"]}})
+
+    assert container_lifecycle.pinned_env_keys(tmp_path) == {"TRACKED_URL", "VARIANT_URL"}
+
+
+def test_an_unselected_variant_contributes_nothing(tmp_path):
+    """The overlays are tracked; the choice between them is not. A repo that
+    carries three of them and selects none builds the tracked profile."""
+    _write_profile(tmp_path, {"name": "facility"})
+    _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}}, select=False)
+
+    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+
+
+def test_a_variant_this_repo_does_not_define_is_not_this_probes_refusal(tmp_path):
+    """`osprey build` refuses an unknown variant, listing the ones that work.
+
+    Raising it from a deploy probe would abort the start over a file the deploy
+    does not build from — the same reason an unparseable profile is absorbed.
+    """
+    _required(tmp_path, "TRACKED_TOKEN")
+    _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}}, select=False)
+    (tmp_path / ".env.variant").write_text("OSPREY_PROFILE_VARIANT=controlroom\n", encoding="utf-8")
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert [problem.split()[0] for problem, _remedy in problems] == ["TRACKED_TOKEN"]
+
+
+def test_a_variant_named_by_a_repo_with_no_variants_leaves_the_profile_standing(tmp_path):
+    """What a host looks like after the variants are removed from the repo."""
+    _required(tmp_path, "TRACKED_TOKEN")
+    (tmp_path / ".env.variant").write_text("OSPREY_PROFILE_VARIANT=teststand\n", encoding="utf-8")
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert [problem.split()[0] for problem, _remedy in problems] == ["TRACKED_TOKEN"]
+
+
+@pytest.mark.parametrize("overlay", ["env: [unclosed\n", "a string, not a mapping\n", ""])
+def test_an_unusable_overlay_leaves_the_tracked_document_standing(tmp_path, overlay):
+    """Same tolerant rule the tracked file gets, applied to the layer above it."""
+    _required(tmp_path, "TRACKED_TOKEN")
+    (tmp_path / "profiles").mkdir()
+    (tmp_path / "profiles" / "teststand.yml").write_text(overlay, encoding="utf-8")
+    (tmp_path / ".env.variant").write_text("OSPREY_PROFILE_VARIANT=teststand\n", encoding="utf-8")
+
+    problems = container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert [problem.split()[0] for problem, _remedy in problems] == ["TRACKED_TOKEN"]
+
+
+def test_the_variant_read_writes_nothing(tmp_path):
+    """The pass's purity contract covers the layer this reads too."""
+    _required(tmp_path, "TRACKED_TOKEN")
+    _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}})
+    before = sorted(p.name for p in tmp_path.iterdir())
+
+    container_lifecycle._required_env_problems(tmp_path, {})
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+# ---------------------------------------------------------------------------
 # Placement: below every provisioner that writes what the pass reads
 # ---------------------------------------------------------------------------
 
@@ -426,3 +767,39 @@ def test_a_pre_rename_secrets_file_is_migrated_before_the_pass_reads_it(
 
     assert stubbed_start == ["build_image"]
     assert (tmp_path / ".env.users").is_file()
+
+
+def test_a_required_name_written_one_step_above_is_not_refused(
+    tmp_path, stubbed_start, monkeypatch
+):
+    """The required-env probe inherits the pass's position: it reads the chain
+    as it stands after every provisioner above it, so a required name a step of
+    this same deploy writes into `.env` is not reported as missing on a fresh
+    repo that has never been deployed.
+
+    The counterfactual is below: with nothing writing it, the identical start
+    refuses on the same name."""
+    _required(tmp_path, "OBS_PASSWORD")
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_ensure_service_tokens",
+        lambda *a, **k: (tmp_path / ".env").write_text("OBS_PASSWORD=minted\n", encoding="utf-8"),
+    )
+
+    container_lifecycle._start_stack(_mint_dependent_config(), [], tmp_path, detached=True)
+
+    assert stubbed_start == ["build_image"]
+
+
+def test_a_required_name_nothing_provides_refuses_before_the_build(
+    tmp_path, stubbed_start, monkeypatch
+):
+    """The counterfactual, and the probe's whole point on the deploy path: the
+    refusal lands in seconds, before the minutes-long image build."""
+    _required(tmp_path, "FACILITY_API_TOKEN")
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+
+    with pytest.raises(UnmetPreconditionsError, match="FACILITY_API_TOKEN"):
+        container_lifecycle._start_stack(_mint_dependent_config(), [], tmp_path, detached=True)
+
+    assert stubbed_start == []  # nothing was built
