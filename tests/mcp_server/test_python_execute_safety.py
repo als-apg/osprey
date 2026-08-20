@@ -215,3 +215,74 @@ def test_readonly_imports_allowed(code):
 def test_readonly_imports_syntax_error_is_not_an_issue_here():
     """Syntax errors belong to check_syntax; this walker stays quiet."""
     assert _readonly_import_issues("def (:") == []
+
+
+# ---------------------------------------------------------------------------
+# Refused writes are audited
+#
+# "Log the attempt with the offending source for audit" is a requirement in its
+# own right: an agent that tries to write while the session is readonly is a
+# fact the operator needs after the fact, not only in the moment.
+# ---------------------------------------------------------------------------
+
+
+def _audit_records(root):
+    import json
+
+    from osprey.services.python_executor.refusal_audit import REFUSAL_LOG_FILENAME
+
+    path = root / "var" / "audit" / REFUSAL_LOG_FILENAME
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+@pytest.mark.unit
+async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):
+    """The import denylist refusal names the layer and keeps the offending code."""
+    from osprey.services.python_executor import refusal_audit
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: tmp_path / "var" / "audit")
+
+    code = "import epics\nepics.caput('SR:CORR:SP', 1.0)\n"
+    fn = _get_python_execute()
+    gates = "osprey.mcp_server.python_executor.tools._execution_gates"
+    with patch(f"{gates}.notify_agent_activity_async", new=AsyncMock()):
+        with assert_raises_error(error_type="safety_error"):
+            await fn(code=code, description="import a client", execution_mode="readonly")
+
+    (record,) = _audit_records(tmp_path)
+    assert record["layer"] == "import_denylist"
+    assert record["source"] == code
+    assert record["description"] == "import a client"
+    assert any("epics" in issue for issue in record["trigger"])
+
+
+@pytest.mark.unit
+async def test_a_clean_readonly_run_writes_no_audit_record(tmp_path, monkeypatch):
+    """The log must stay a record of refusals, not of executions."""
+    from osprey.services.python_executor import refusal_audit
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: tmp_path / "var" / "audit")
+
+    fn = _get_python_execute()
+    with patch(
+        "osprey.mcp_server.python_executor.executor.execute_code", new=AsyncMock()
+    ) as exec_code:
+        exec_code.return_value = _clean_result()
+        await fn(
+            code="x = 1 + 1\nprint(x)",
+            description="arithmetic",
+            execution_mode="readonly",
+            save_output=False,
+        )
+
+    assert _audit_records(tmp_path) == []
+
+
+def _clean_result():
+    from osprey.mcp_server.python_executor.executor import ExecutionResult
+
+    return ExecutionResult(success=True, stdout="2\n", stderr="", execution_time_seconds=0.1)

@@ -8,9 +8,15 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_deployment_writes_gate,
+    refuse_readonly_write,
+    report_runtime_refusal,
     require_known_execution_mode,
 )
 from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
+from osprey.services.python_executor.refusal_audit import (
+    LAYER_IMPORT_DENYLIST,
+    LAYER_PATTERN_DETECTION,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
@@ -35,12 +41,19 @@ async def execute(
       3. ``detect_control_system_operations()`` — blocks detected write
          spellings in readonly mode
     Safety layers applied during execution:
-      4. Readonly guard — in readonly runs every direct-library write entry
-         point refuses, the connectors refuse ``write_channel``, and the EPICS
-         connector stays on the read_only gateway (``OSPREY_EXECUTION_MODE``)
+      4. Readonly guard — in readonly runs every control-system write entry
+         point refuses, as do the routes that reach one without a client
+         import (starting a process, ``ctypes``); the connectors refuse
+         ``write_channel``, and the EPICS connector stays on the read_only
+         gateway (``OSPREY_EXECUTION_MODE``)
       5. ``ExecutionWrapper`` monkeypatch — validates epics.caput() against limits DB
       6. Process isolation — code runs outside the MCP server process
       7. Execution timeout — kills execution after configured timeout
+
+    A refused write is reported to the operator and recorded in the
+    deployment's audit log, at whichever layer catches it. A readonly script
+    therefore cannot shell out or load a shared library at all, even for
+    unrelated work — resubmit as readwrite, which requires human approval.
 
     A ``save_artifact(obj, title, description)`` helper is available in the
     subprocess for saving objects to the artifact gallery.
@@ -94,10 +107,14 @@ async def execute(
         except ImportError:
             import_issues = []
         if import_issues:
-            return make_error(
-                "safety_error",
-                "Control-system client libraries cannot be imported in readonly mode.",
-                [
+            await refuse_readonly_write(
+                tool="execute",
+                layer=LAYER_IMPORT_DENYLIST,
+                trigger=import_issues,
+                code=code,
+                description=description,
+                message="Control-system client libraries cannot be imported in readonly mode.",
+                suggestions=[
                     *import_issues,
                     "Use read_channel() from osprey.runtime for reads.",
                     "Set execution_mode to 'readwrite' if writes are intentional.",
@@ -120,10 +137,14 @@ async def execute(
 
     # Per-call execution-mode gate (uses pattern detection — readonly-mode safety).
     if patterns.get("has_writes") and execution_mode == "readonly":
-        return make_error(
-            "safety_error",
-            "Control-system write patterns detected in readonly mode.",
-            [
+        await refuse_readonly_write(
+            tool="execute",
+            layer=LAYER_PATTERN_DETECTION,
+            trigger=patterns.get("detected_patterns", {}),
+            code=code,
+            description=description,
+            message="Control-system write patterns detected in readonly mode.",
+            suggestions=[
                 "Set execution_mode to 'readwrite' if writes are intentional.",
                 "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
             ],
@@ -160,6 +181,16 @@ async def execute(
         await notify_agent_activity_async(
             "execute", "channel", detail="ran a script with control-system writes"
         )
+
+    # A write the runtime guard refused mid-run reaches here only as a
+    # traceback on stderr. Report it so the layer that catches the evasive
+    # spellings alerts and audits like the pre-execution ones do.
+    await report_runtime_refusal(
+        tool="execute",
+        stderr=exec_result.stderr,
+        code=code,
+        description=description,
+    )
 
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response
 
