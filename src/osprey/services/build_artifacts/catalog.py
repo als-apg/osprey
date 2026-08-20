@@ -422,6 +422,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/graphdb",
+            template_path="graphdb",
+            output_path="services/graphdb",
+            description="Graph store compose template + seed corpus (Neo4j)",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/virtual_accelerator",
             template_path="virtual_accelerator",
             output_path="services/virtual_accelerator",

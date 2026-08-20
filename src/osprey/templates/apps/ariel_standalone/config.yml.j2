@@ -185,11 +185,64 @@ services:
                     # Raise it on a large corpus, where a no-op sweep is not
                     # free (~12.5 s at 135,000 entries).
 
+  # Graph store — a Neo4j container holding a DISPOSABLE mirror of an
+  # RDF/Turtle corpus. The TTL on disk stays the source of truth and
+  # `osprey knowledge seed-graph` rebuilds the graph from it, so losing this
+  # container's volume costs a re-seed, not data. It answers the multi-hop
+  # relationship questions keyword and semantic search cannot: what a channel
+  # belongs to, what a subsystem contains, what depends on what.
+  #
+  # Deployed by default, and this block is what makes that legal: a `graphdb`
+  # entry in `deployed_services` without it is refused before compose runs —
+  # nothing else says which ports to publish. Comment out both or neither.
+  #
+  # No password key here, deliberately. The container reads GRAPHDB_PASSWORD
+  # from the project .env, which `osprey up` mints when it is unset; a password
+  # written into this file would be read by nobody and would silently lose to
+  # the minted value. Same convention as `postgresql:` above.
+  #
+  # EXTERNAL STORE: to talk to a graph store this deployment does not run, add
+  # an explicit `uri:` (e.g. bolt://graph.example.org:7687) plus an optional
+  # `username:` (default neo4j) here, and leave `graphdb` OUT of
+  # `deployed_services`. Nothing is minted on that path — set GRAPHDB_PASSWORD
+  # in the project .env yourself, or the store refuses the connection.
+  graphdb:
+    path: ./services/graphdb
+    image: neo4j:5.20-community  # Pinned to 5.20: neosemantics (n10s), the
+                                 # plugin that imports the RDF, publishes no
+                                 # build for 5.23+. Repoint it at a mirror or a
+                                 # pre-baked image on an air-gapped host.
+    port_host: 7687       # Bolt — the only protocol the neo4j driver speaks,
+                          # so this is what the seeder and the agent dial.
+    http_port_host: 7474  # HTTP — the Neo4j Browser an operator opens, and the
+                          # endpoint the container healthcheck probes.
+                          # `osprey health` does NOT use this port: it dials the
+                          # store over bolt on port_host (or an explicit `uri`),
+                          # which is what its remedies name. Both ports publish
+                          # on the project-wide `deployment.bind_address`
+                          # (default 127.0.0.1); no per-service bind_address.
+    ttl_path: ./services/graphdb/als_gtb.ttl
+                          # Corpus to seed the store from, resolved against this
+                          # file's directory (the same rule as
+                          # `facility_knowledge.bundle_path`). Ships with the
+                          # example graph; point it at your own TTL. Comment it
+                          # out to bring the store up bootstrapped but empty.
+    # JVM memory. Neo4j sizes nothing automatically inside a container — left
+    # unset it reads the HOST's memory and picks numbers the container's own
+    # limit will not honour — so all three are spelled out. Budget roughly
+    # heap_max_size + pagecache_size + ~0.5G of JVM overhead. These values run
+    # the shipped corpus comfortably; a substantially larger graph wants more.
+    heap_initial_size: 512m   # Heap the server starts with
+    heap_max_size: 1G         # Ceiling the heap may grow to
+    pagecache_size: 512m      # Off-heap cache for graph data and indexes,
+                              # separate from the heap and NOT taken out of it
+
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
   - qmd             # Comment out together with the `qmd:` block above.
+  - graphdb         # Comment out together with the `graphdb:` block above.
 {% else %}
 # Attached project (deploy_services: false): connects to a services stack
 # another OSPREY project deployed on the same host, so it scaffolds nothing.
