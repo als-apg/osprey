@@ -1,7 +1,7 @@
 """MCP tools: read/allow-listed Bluesky bridge operations.
 
 Each tool is a thin HTTP client of one endpoint of the facility-side Bluesky
-bridge. All six are safe to call without operator approval
+bridge. All seven are safe to call without operator approval
 (``permissions_allow``) — none of them can start motion; ``queue_start`` is
 the sole path by which execution begins.
 
@@ -14,6 +14,7 @@ list_devices               GET  /devices
 list_runs                   GET  /runs
 get_run_data               GET  /runs/{id}/data
 get_run_figure             GET  /runs/{id}/figure
+get_plan_source            GET  /plans/{name}/source
 ==========================  =================================================
 
 The HTTP primitive (``_http_get_json``) and the
@@ -33,6 +34,7 @@ the "Figure projection" section at the bottom of this file.
 
 import json
 from collections.abc import Sequence
+from urllib.parse import quote
 
 import anyio
 from pydantic import ValidationError
@@ -411,6 +413,85 @@ async def get_run_figure(run_id: str) -> str:
             ],
         )
     return json.dumps(projected)
+
+
+# ---------------------------------------------------------------------------
+# Tool 8: get plan source
+# ---------------------------------------------------------------------------
+
+# The bridge's own bounds on ``max_chars`` (see ``_SOURCE_TRUNCATE_CHARS`` /
+# ``_SOURCE_TRUNCATE_CHARS_MAX`` in ``services.bluesky_bridge.app``). Mirrored
+# here so this tool clamps an out-of-range ask instead of letting the route
+# answer it with a 422 the agent can do nothing useful with.
+_SOURCE_DEFAULT_MAX_CHARS = 4000
+_SOURCE_MIN_MAX_CHARS = 1
+_SOURCE_MAX_MAX_CHARS = 200_000
+
+
+@mcp.tool()
+async def get_plan_source(name: str, max_chars: int = _SOURCE_DEFAULT_MAX_CHARS) -> str:
+    """Read one plan's source text as it sits on disk.
+
+    This is the plan as written, not a description of it: read it when the
+    question is what a plan does step by step, which channels it touches, or
+    whether it matches what was asked for. list_plans is where a plan is
+    chosen; this is where the choice is checked. Reading source starts
+    nothing — execution begins only at queue_start, after a human reviews the
+    draft in the plan panel.
+
+    Args:
+        name: Plan name exactly as list_plans reports it.
+        max_chars: Maximum characters of source text to return. Clamped into
+            [1, 200000] before the request, so an over-large ask comes back
+            truncated rather than refused.
+
+    Returns:
+        JSON ``{"name", "source", "provenance", "validated", "truncated"}``.
+        ``source`` is the first ``max_chars`` characters of the file;
+        ``truncated`` is true when the file is longer than that, in which case
+        never describe the plan's ending — ask again with a larger
+        ``max_chars``, up to the 200000 ceiling. If the ask was already
+        200000, the rest of the file is not retrievable through this tool and
+        must not be described at all. ``provenance`` is the directory layer
+        the bridge's own source scan found the file in (``shipped``/
+        ``preset``/``facility``/``session``), never something the file
+        declares about itself. That scan runs in ascending trust order and
+        stops at the first match, so for a name declared in more than one
+        layer both ``source`` and ``provenance`` describe the LOWEST-trust
+        layer declaring it — which need not be the file the loader would run.
+        Treat a plan name you know to be declared in several layers as
+        ambiguous here rather than authoritative. ``validated`` is a fresh
+        check for a session-tier plan —
+        recomputed from the file's current content, so a re-authored file
+        reads false until it passes again — and is true by construction for
+        the operator-trusted shipped/preset/facility tiers.
+
+    Refusals:
+        - plan_source_unavailable: the bridge located no source file for this
+          name. That means EITHER the name is not a registered plan, OR it is
+          a plan supplied through the legacy ``bluesky.plan_module`` contract,
+          whose plans list_plans reports but whose source this endpoint's
+          layer scan does not reach. So a 404 here is not proof the plan does
+          not exist: check list_plans before telling anyone the name is wrong.
+    """
+    bounded = max(_SOURCE_MIN_MAX_CHARS, min(int(max_chars), _SOURCE_MAX_MAX_CHARS))
+    path = f"/plans/{quote(name, safe='')}/source?max_chars={bounded}"
+    status, body = await anyio.to_thread.run_sync(_http_get_json, path)
+    if status == 404:
+        return make_error(
+            "plan_source_unavailable",
+            f"The bridge has no source file for plan {name!r}: "
+            f"{bridge_error_message(body, status)}",
+            [
+                "Confirm the name against list_plans — it must match exactly.",
+                "A plan supplied through the legacy bluesky.plan_module config key appears "
+                "in list_plans but has no source file this endpoint can reach, so it 404s "
+                "here even though the plan is real and runnable.",
+            ],
+        )
+    if status != 200:
+        return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+    return json.dumps(body)
 
 
 # ---------------------------------------------------------------------------
