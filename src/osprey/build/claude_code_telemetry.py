@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import warnings
 
 # OTEL / Claude Code telemetry vars the resolver may inject into the env block.
@@ -99,7 +100,28 @@ class ObservabilityCredentialError(TelemetryConfigError):
 
     Subclasses :class:`TelemetryConfigError` (and through it ``ValueError``),
     so every existing handler keeps catching it exactly as before.
+
+    Attributes:
+        unresolved_vars: The environment variables the refused credentials
+            still name as literal ``${VAR}`` placeholders — empty when the
+            credentials were simply missing or blank, which no environment can
+            fill in. Carried on the exception rather than left to be recovered
+            from the message text: a caller that has to decide whether the
+            missing value is one its own deploy issues later (see
+            ``container_lifecycle._STORE_ISSUED_VARS``) is deciding on a
+            variable name, and re-extracting names from prose makes that
+            decision hostage to the wording of a sentence written for a human.
     """
+
+    def __init__(self, message: str, unresolved_vars: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.unresolved_vars = unresolved_vars
+
+
+#: Env-var names inside a ``${VAR}`` / ``${VAR:-default}`` reference. Applied to
+#: the credential *value* the check refused, never to a rendered message, so the
+#: names it yields are exactly the ones the config asked for.
+_CREDENTIAL_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}")
 
 
 def _running_in_container() -> bool:
@@ -262,7 +284,10 @@ def _openobserve_auth_header(
             still carries a literal ``${VAR}`` (an unresolved placeholder whose
             env var is unset) and ``defer_unresolved`` is False. Both cases are
             fixed in the deployment's secret store, which is why they carry
-            their own type rather than the general telemetry one.
+            their own type rather than the general telemetry one. The
+            unresolved case also carries the placeholder's variable names on
+            ``unresolved_vars``; the missing/blank case carries none, since
+            there is no variable to name.
     """
     oo = telemetry_cfg.get("openobserve") or {}
     user = oo.get("user")
@@ -291,7 +316,8 @@ def _openobserve_auth_header(
             raise ObservabilityCredentialError(
                 f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
                 "The referenced environment variable is unset — refusing to "
-                "encode a literal placeholder into the OpenObserve auth header."
+                "encode a literal placeholder into the OpenObserve auth header.",
+                tuple(sorted(set(_CREDENTIAL_PLACEHOLDER_RE.findall(str(cred))))),
             )
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return "Authorization", f"Basic {token}"

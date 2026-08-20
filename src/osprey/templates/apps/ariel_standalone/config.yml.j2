@@ -445,14 +445,18 @@ claude_code:
     # (Hardcoding localhost would make the in-container dispatch worker emit to
     # its own loopback and silently drop everything.)
     #
-    # OpenObserve auth + org routing. user/password read the OpenObserve root
-    # credentials from the project .env — the SAME values the openobserve service
-    # reads — so container and agent auth stay in sync (single source of truth).
-    # `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env; the
-    # ${VAR:-default} fallbacks keep the agent launchable before the first deploy.
+    # OpenObserve auth + org routing. These are the store's dedicated INGEST
+    # account, not its root credentials: `osprey up` creates a service account
+    # named ZO_INGEST_USER_EMAIL and writes the token the store issues for it
+    # to the project .env as ZO_INGEST_SA_TOKEN. The store itself still
+    # initializes from ZO_ROOT_USER_* — that stays in the compose file, and the
+    # root password never reaches the agent's config.
+    # The token reference carries NO ${VAR:-default} on purpose: a literal
+    # default would be a published credential, and there is nothing to fall
+    # back to before the first deploy provisions the account.
     openobserve:
-      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
-      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+      password: ${ZO_INGEST_SA_TOKEN}
       org: default
     # Content gates — all default ON. The store is local and loopback-bound, so
     # full capture is the default posture; set any to false to suppress that

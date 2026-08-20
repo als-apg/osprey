@@ -418,6 +418,38 @@ services:
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
+      {#- The telemetry ingest identity's SECRET. Every persona's rendered
+         config.yml carries `password: ${ZO_INGEST_SA_TOKEN}` verbatim (the
+         build defers it — the store mints the token, so no build can resolve
+         it), and the agent this container starts re-resolves that reference
+         against its own environment. Without this line the placeholder is
+         still a placeholder inside the container and the terminal refuses to
+         start: `_openobserve_auth_header` is strict at runtime, so a web
+         terminal that cannot resolve it crash-loops behind the proxy.
+
+         Unconditional, unlike the three credentials below: this is not a
+         per-persona entitlement. Every terminal runs an agent that emits
+         telemetry as the same ingest account, so there is no tier to express
+         here — which is also why gating it on a persona set would only
+         produce terminals that fail to start.
+
+         NOT in `.env.users`, though, and that exclusion is deliberate
+         (`env_production._build_env_production_subset`): the account reads
+         back every log and metric in the store, and `.env.users` is a
+         rendered, operator-facing file that `osprey users env` re-writes
+         whole. `${VAR:-}` keeps the secret out of every rendered artifact
+         instead — compose interpolates it at container-create time from the
+         deploy `.env` (the pinned --env-file, see
+         provision.web_stack_compose_cmd), which is where `osprey up` harvests
+         it to (`container_lifecycle._stage_openobserve_identity`, which runs
+         before this stack is brought up).
+
+         The `:-` default only suppresses compose's unset-variable warning. An
+         empty value does NOT quietly half-authenticate: the same strict check
+         refuses a blank credential, so a deploy that never provisioned the
+         token fails where it is visible rather than shipping an agent whose
+         telemetry is silently dropped. #}
+      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
 {%- if svc.display_name %}
       {#- Human-facing window/tab title. tojson quotes the WHOLE `KEY=value` as
          one double-quoted YAML scalar (never just the value — the compose

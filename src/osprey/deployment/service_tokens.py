@@ -109,6 +109,15 @@ def _generate_openobserve_password() -> str:
 # var that qualifies today: the Tiled key, both dispatch tokens, and the
 # Postgres/Mongo passwords are read by processes, never by people.
 #
+# A DELIBERATE ABSENCE, recorded because the omission looks like an oversight:
+# ``ZO_INGEST_SA_TOKEN`` — the OpenObserve telemetry ingest identity's secret —
+# has no recipe here and must never be given one. That value is issued by the
+# STORE (a 16-character alphanumeric token, read back from the live container
+# once it is up), not chosen by osprey. A recipe registered here would fabricate
+# a token the store never issued: the ``.env`` would look healthy and every
+# telemetry request would 401. See ``_STORE_ISSUED_VARS`` in
+# ``container_lifecycle`` for where such a var IS registered, and why.
+#
 # BLUESKY_TILED_API_KEY: Tiled validates its ``--api-key`` during server startup
 # and raises ``ValueError("The API key must only contain alphanumeric
 # characters")`` for anything else, so a rejected key makes the container exit
@@ -214,6 +223,14 @@ def _validate_openobserve_password(value: str) -> bool:
     deploy-time failure for an *operator-supplied* password (a minted one
     already conforms — see ``_generate_openobserve_password``), mirroring the
     ``BLUESKY_TILED_API_KEY``/Tiled-alphabet check.
+
+    **Scoped to the ROOT password, and to nothing else OpenObserve holds.** This
+    is a policy the store enforces on a value osprey mints, so it grades an
+    osprey-generated secret. It must not be pointed at ``ZO_INGEST_SA_TOKEN``:
+    that token is issued by the store as 16 alphanumeric characters, which
+    carries no special character and so fails this check outright — the deploy
+    would refuse the very credential the store just handed it. Validate what
+    osprey generates; record what the store issues.
     """
     if not 8 <= len(value) <= 128:
         return False

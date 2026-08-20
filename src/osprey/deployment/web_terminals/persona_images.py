@@ -28,6 +28,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.web_terminals.env_production import deploy_issued_credential_vars
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import ConfigBuilder
@@ -43,6 +44,43 @@ logger = get_logger("deployment.lifecycle")
 #: literal ``${VAR}`` it refused to encode, which is the only place the name of
 #: the variable an operator has to set is available to this module.
 _PLACEHOLDER_NAME_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}")
+
+#: The credential check's own prose ``still contains an unresolved '${VAR}'``,
+#: where ``VAR`` is boilerplate rather than a variable anyone can set. Stripped
+#: before :data:`_PLACEHOLDER_NAME_RE` runs, or every such message reports a
+#: variable literally named ``VAR`` beside the real one — which read as an
+#: instruction to set it, and now would also decide the store-issued carve-out
+#: below on a name that is not a credential at all.
+_PLACEHOLDER_BOILERPLATE_RE = re.compile(r"unresolved '\$\{VAR\}'")
+
+
+def _unresolved_placeholder_names(message: str) -> list[str]:
+    """Every env-var name an unresolved-credential message actually names."""
+    return sorted(set(_PLACEHOLDER_NAME_RE.findall(_PLACEHOLDER_BOILERPLATE_RE.sub("", message))))
+
+
+def _all_store_issued(names: list[str], config: dict) -> bool:
+    """Whether every one of ``names`` is a credential THIS deploy issues itself.
+
+    Answered by :func:`osprey.deployment.web_terminals.env_production.deploy_issued_credential_vars`
+    rather than restated here, so this carve-out and the missing-variable gate
+    read one definition — including its ``deployed_services`` half. A config
+    pointed at a telemetry store somebody else runs provisions nothing, so its
+    unresolved ingest token is a secret only the operator can supply and the
+    refusal below stands: deferring it there would let a deploy ship agents
+    whose telemetry password is a literal ``${VAR}``, under a warning saying
+    there was nothing to set.
+
+    All-or-nothing on purpose. For the deploys that DO issue these, no operator
+    can supply them — the store mints them, and `osprey up` harvests them after
+    the preflights — so an unresolved one is a sequencing fact, not a
+    misconfiguration. Any OTHER unresolved name in the same error is a real
+    missing secret, and the honest report for a mixed set is the refusal that
+    names all of them: an operator told "nothing to do here" who then has to
+    discover the other half from a container that failed to authenticate is
+    worse off than one handed the whole list at once.
+    """
+    return set(names) <= deploy_issued_credential_vars(config)
 
 
 def _persona_image_context(project_path: str | Path) -> Path:
@@ -474,7 +512,9 @@ def _resolve_persona_profile(build_profile: str, persona_name: str, profile_root
     return candidate
 
 
-def _check_existing_render(persona_name: str, project_path: Path, repo_root: Path) -> None:
+def _check_existing_render(
+    persona_name: str, project_path: Path, repo_root: Path, config: dict
+) -> None:
     """Accept a persona's rendered project, or say why it is unusable.
 
     The render is ``osprey build``'s and the start is only reading it, so this
@@ -510,10 +550,21 @@ def _check_existing_render(persona_name: str, project_path: Path, repo_root: Pat
     handed the wrong one of those goes and changes something that was never
     wrong.
 
+    One class of unresolved credential is NOT a refusal: the ones this deploy
+    issues itself (:func:`_all_store_issued`). The shipped telemetry blocks
+    authenticate as the store's ingest service account, whose token the store
+    mints and ``osprey up`` harvests — after this gate, since the store has to
+    be running first. That holds only for a deploy that RUNS the store, which
+    is why ``config`` is read here; see :func:`_all_store_issued` for why the
+    carve-out is both deployed-services-gated and all-or-nothing.
+
     Args:
         persona_name: The persona whose render is being checked.
         project_path: Its rendered project directory under ``build/``.
         repo_root: The deployment repo — the zone holding ``.env``.
+        config: Raw deploy config — read for ``deployed_services`` alone, to
+            tell a credential this start will provision from one only the
+            operator can supply.
 
     Raises:
         ValueError: Naming the persona, the directory, and the way out.
@@ -549,7 +600,29 @@ def _check_existing_render(persona_name: str, project_path: Path, repo_root: Pat
         # the credential failures land here — an unusable endpoint stays a
         # general telemetry misconfiguration and keeps the broad frame.
         env_path = repo_root / ENV_LOCAL_FILENAME
-        names = sorted(set(_PLACEHOLDER_NAME_RE.findall(str(e))))
+        names = _unresolved_placeholder_names(str(e))
+        if names and _all_store_issued(names, config):
+            # Not a refusal: every unresolved name here is a credential THIS
+            # DEPLOY issues, and it issues them later in the same start than
+            # this gate runs (`_stage_openobserve_identity`, after the
+            # preflights). Refusing would abort every first `osprey up` for the
+            # absence of a value only that aborted start could have produced.
+            # Deliberately not silent, and deliberately all-or-nothing: one
+            # name an operator does have to supply and the refusal below
+            # stands, unchanged, for the whole set.
+            logger.warning(
+                "Persona %r render at %s names %s, which is not set yet: %s. "
+                "This deploy issues that credential itself when it starts the "
+                "telemetry store, so the value lands in %s later in this same "
+                "start and the agent picks it up when it spawns. Nothing to "
+                "set by hand.",
+                persona_name,
+                project_path,
+                ", ".join(names),
+                e,
+                env_path,
+            )
+            return
         if names:
             # Names only, never values: a placeholder is unresolved precisely
             # because nothing on this host holds the value to print.
@@ -560,14 +633,30 @@ def _check_existing_render(persona_name: str, project_path: Path, repo_root: Pat
                 "Give the telemetry block's openobserve.user and "
                 f"openobserve.password real values, via {env_path} — "
             )
+        # Which sentence closes this depends on whether the deploy runs the
+        # store: "start it and the value appears" is true only where a start
+        # provisions something, and reads as an instruction to retry on a
+        # config pointed at somebody else's store — where retrying forever
+        # changes nothing.
+        if deploy_issued_credential_vars(config):
+            closing = (
+                "Note that `osprey up` mints the observability store's own "
+                "ZO_ROOT_USER_PASSWORD into that file when it starts the "
+                "store, so a deployment that has never been started will not "
+                "have one there yet."
+            )
+        else:
+            closing = (
+                "This deployment does not run the observability store itself, "
+                "so no start of it will ever issue these credentials — they "
+                "come from whoever operates that store, and the value has to "
+                "be put in that file by hand."
+            )
         raise ValueError(
             f"Persona {persona_name!r} render at {project_path} names "
             f"observability credentials this deployment cannot resolve:\n  {e}\n"
             f"{remedy}then re-render with `osprey build`. The model "
-            "configuration is not what is wrong here. Note that `osprey up` "
-            "mints the observability store's own ZO_ROOT_USER_PASSWORD into "
-            "that file when it starts the store, so a deployment that has "
-            "never been started will not have one there yet."
+            f"configuration is not what is wrong here. {closing}"
         ) from e
     except ValueError as e:
         raise ValueError(
@@ -636,7 +725,7 @@ def verify_persona_renders(
         project_path = Path(unit["project_path"])
 
         if project_path.exists():
-            _check_existing_render(persona_name, project_path, repo_root)
+            _check_existing_render(persona_name, project_path, repo_root, config)
             continue
 
         build_profile = unit["build_profile"]
