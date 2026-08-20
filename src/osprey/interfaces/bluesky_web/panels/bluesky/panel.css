@@ -628,10 +628,9 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
 }
 
 /* Source viewer */
-/* Block chrome only. Text colour belongs to `.code-python` (design-system
-   code.css), which python-highlight.js adds when it paints the source — a
-   `color` here would win the cascade over it (equal specificity, and this
-   sheet loads after the design system's) and flatten the highlighting back to
+/* Block chrome only. Token colours come from the atom-one stylesheet that
+   theme-manager.js swaps by mode; a `color` here would win the cascade over it
+   (this sheet loads after the vendor one) and flatten the highlighting back to
    one grey. */
 .source {
   font-family: var(--font-mono);
@@ -647,6 +646,14 @@ html:not([data-ui-mode="simple"]) body.embedded .sidebar-head { display: none; }
      mid-token and shift indentation, which misreads as a different nesting
      level. Hard lines scroll horizontally in the box instead. */
   white-space: pre;
+}
+
+/* highlight.js adds `.hljs`, and with it atom-one's own slab background. Drop
+   that so the block keeps the panel's surface token and reads as part of the
+   panel instead of a pasted-in editor window; the token *colours* are left
+   alone. Same treatment the web terminal gives its prompt gallery. */
+.source.hljs {
+  background: transparent;
 }
 
 /* ---- Parameter form: 2-D grid ---- */

@@ -20,9 +20,21 @@
 <!-- Shared agent-activity flash (.agent-flash), fired by draft-client.js via
      flashElement() when agent draft edits land on the Plans form. -->
 <link rel="stylesheet" href="/design-system/css/highlight.css">
-<!-- Read-only source-code colouring (.code-python / .tok-*), painted by
-     python-highlight.js into the Plans detail Source tab. -->
-<link rel="stylesheet" href="/design-system/css/code.css">
+<!-- highlight.js colours the Plans detail Source tab. The shared
+     theme-manager.js swaps this stylesheet by id when the theme mode flips,
+     reading data-href-dark/light. Local paths are RELATIVE so they resolve
+     under the web terminal's /panel/{id}/ reverse proxy, which rewrites only
+     the root-absolute /design-system/ and /static/fonts/ prefixes. -->
+<link id="hljs-theme" rel="stylesheet"
+      href="{{ vendor_url('highlight.js atom-one-dark theme', 'vendor/atom-one-dark.min.css') }}"
+      data-href-dark="{{ vendor_url('highlight.js atom-one-dark theme', 'vendor/atom-one-dark.min.css') }}"
+      data-href-light="{{ vendor_url('highlight.js atom-one-light theme', 'vendor/atom-one-light.min.css') }}">
+<link rel="prefetch"
+      href="{{ vendor_url('highlight.js atom-one-light theme', 'vendor/atom-one-light.min.css') }}">
+<!-- Classic (non-module) script, matching the web terminal: it is
+     parser-blocking, so the `hljs` global exists before the deferred module
+     graph below runs and first paints a plan. -->
+<script src="{{ vendor_url('highlight.js', 'vendor/highlight.min.js') }}"></script>
 <!-- Self-hosted brand fonts, root-absolute so it resolves against the
      serving host in every embedding context. -->
 <link rel="stylesheet" href="/static/fonts/fonts.css">
@@ -194,7 +206,7 @@
           </div>
 
           <div id="panel-source" class="tabpanel" role="tabpanel" aria-labelledby="tab-source" hidden>
-            <pre id="detail-source" class="source"></pre>
+            <pre id="detail-source" class="source language-python"></pre>
           </div>
 
           <div class="detail-foot">

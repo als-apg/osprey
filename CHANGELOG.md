@@ -13,12 +13,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
-- The Bluesky plan panel's Source tab now shows Python with syntax
-  highlighting instead of one flat grey. Colours are derived from the active
-  theme, so the tab follows every theme, and comments, keywords and literals
-  also differ in weight and slant — the distinctions still read in the
-  high-contrast themes, where hue alone carries almost nothing. Long lines now
-  scroll rather than wrapping mid-identifier. The view stays read-only.
+- The Bluesky plan panel's Source tab now shows Python with standard syntax
+  highlighting instead of one flat grey, using the same highlight.js and
+  atom-one palette the Web Terminal and Artifacts gallery already use, so code
+  reads the same way across the fleet and follows the light/dark theme mode.
+  Long lines scroll rather than wrapping mid-identifier, and the view stays
+  read-only. Offline deployments pick the highlighter up on their next `osprey
+  vendor fetch`; until then the tab shows plain, uncoloured source.
 
 - New `ariel.default_search_mode` setting names the search module that answers
   when a caller asks for no mode — the web interface's opening tab, `osprey

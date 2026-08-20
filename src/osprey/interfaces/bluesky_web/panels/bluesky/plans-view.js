@@ -64,7 +64,6 @@ import {
 import { planLayout, summarizePlanArgs } from './plan-presentation.js';
 import { renderSchemaForm } from './schema-form.js';
 import { initSplitter } from '/design-system/js/splitter.js';
-import { highlightPythonInto } from '/design-system/js/python-highlight.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -101,6 +100,35 @@ import {
  *   contributed `search` item, so the two can never diverge.
  * @property {(mode: 'expert'|'simple') => void} onModeChange
  */
+
+/**
+ * Colour an already-populated source block with highlight.js, if it loaded.
+ *
+ * `hljs` is a page global set by the classic <script> in index.html, so it is
+ * absent under unit tests and whenever the CDN is unreachable. Every call is
+ * therefore guarded and every throw swallowed: the caller has already written
+ * the source as inert `textContent`, and losing colour is a far smaller cost
+ * than losing the operator's ability to read the plan.
+ *
+ * The grammar is named by the element's `language-python` class rather than
+ * left to `highlightAuto`, whose guess is unreliable on the short, import-free
+ * snippets many plans are.
+ *
+ * @param {HTMLElement} el  Source block holding the plan text.
+ * @returns {void}
+ */
+function highlightSource(el) {
+  const { hljs } = /** @type {any} */ (globalThis);
+  if (!hljs || typeof hljs.highlightElement !== 'function') return;
+  // hljs refuses to touch an element it has already marked; this block is
+  // repainted on every plan selection, so clear the mark before each pass.
+  delete el.dataset.highlighted;
+  try {
+    hljs.highlightElement(el);
+  } catch {
+    // Inert textContent stays on screen -- see above.
+  }
+}
 
 /**
  * @param {PlansViewDeps} deps
@@ -376,10 +404,11 @@ export function createPlansView({ root, api, onOpenRun }) {
     detailDescEl.textContent = (plan && plan.description) || '';
     detailDescEl.hidden = !(plan && plan.description);
     sessionNoteEl.hidden = source.provenance !== 'session';
-    // Painted as spans rather than assigned as text: highlightPythonInto
-    // builds every node with createElement/textContent, so plan source stays
-    // un-parsed markup-wise and the bundle keeps its no-innerHTML contract.
-    highlightPythonInto(detailSourceEl, source.source);
+    // Text first, always: `textContent` is inert and renders the source
+    // correctly on its own, so a missing or broken highlight.js costs colour
+    // and nothing else. The colouring pass is layered on top.
+    detailSourceEl.textContent = source.source;
+    highlightSource(detailSourceEl);
 
     renderParamForm(plan, source);
 
