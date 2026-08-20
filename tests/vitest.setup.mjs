@@ -13,7 +13,7 @@
 import { Storage } from 'happy-dom';
 
 for (const key of ['localStorage', 'sessionStorage']) {
-  if (globalThis[key] === undefined) {
+  if (Reflect.get(globalThis, key) === undefined) {
     Object.defineProperty(globalThis, key, {
       value: new Storage(),
       configurable: true,
