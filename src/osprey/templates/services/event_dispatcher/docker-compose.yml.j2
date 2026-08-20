@@ -21,7 +21,7 @@
 
 services:
   event-dispatcher:
-    image: ${OSPREY_DISPATCH_IMAGE:-{{ services.event_dispatcher.image | default(osprey_labels.project_name ~ '-dispatch:local') }}}
+    image: ${OSPREY_DISPATCH_IMAGE:-{{ services.event_dispatcher.image | default(osprey_images.dispatch) }}}
     build:
       # EVERY relative path in this file — build contexts and bind-mount sources
       # alike — resolves against the pinned compose project directory, which is

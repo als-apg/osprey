@@ -1,16 +1,3 @@
-{#- The network axis — this service's network membership and the file-level
-    stanza that matches it — is rendered by the shared macro rather than spelled
-    out here, so every service template states the same topology the same way
-    instead of drifting into a set of near-identical dialects. With no
-    `network:` declared the macros emit exactly the blocks this file carried
-    before, byte for byte. -#}
-{%- import "services/_network_axis.j2" as net -%}
-{#- The env passthrough axis — the host variables a service's `env:` key
-    names — is rendered by the shared macro rather than hand-written per
-    template, so every service hands a variable to its container the same
-    way. With none declared it emits nothing and this file renders exactly
-    as it did before the axis existed. -#}
-{%- import "services/_env_axis.j2" as hostenv -%}
 # The gchat-bridge service pulls Google Chat events from a Pub/Sub subscription
 # and dispatches mentions of the Chat app through the osprey.dispatch pair (see
 # src/osprey/bridges/google_chat/). It is a subscriber, not a server: it opens
@@ -20,48 +7,11 @@
 # OSPREY_GCHAT_BRIDGE_IMAGE (e.g. OSPREY_GCHAT_BRIDGE_IMAGE=my-registry/osprey-gchat-bridge:dev).
 # Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
-{#- The worker's own wall-clock cap, read from the SAME config key the
-    dispatch_worker template renders it from, so a facility that raises the cap
-    raises it for both halves from one setting. The bridge's poll budget must
-    outlast it (CoreConfig.__post_init__ rejects poll_budget < worker_timeout,
-    which would crash-loop the bridge), hence the +30s default below. The
-    intermediate is defaulted to {} because a deploy may co-locate the bridge
-    with a dispatch stack whose services.dispatch_worker block is absent. The
-    leaf default is the boolean form (`default(300, true)`) because Jinja's
-    plain `default` substitutes only on Undefined: a `timeout_sec:` key written
-    with no value loads as None, which would render the literal "None" and kill
-    CoreConfig.from_env at boot on float("None"). #}
-{% set worker_timeout = (services.dispatch_worker | default({})).timeout_sec | default(300, true) %}
-{#- The dispatch pair's two addresses follow THIS BRIDGE's network axis, not
-    the pair's. On the compose network the pair answers to its service keys; on
-    the host namespace those keys resolve to nothing at all, so every dispatch
-    POST and every status poll would fail at runtime on a stack whose
-    containers all look healthy. Under host the addresses become the host's
-    own instead.
 
-    That substitution assumes the pair is on the host too. It is: the build's
-    pair-parity check refuses a host-mode bridge beside a network-joined pair,
-    so the mixed topology never reaches a deploy and nothing here has to render
-    a plausible-looking address for it.
-
-    Worker 1 is the only instance the dispatcher routes to, and its host port is
-    DERIVED with the same rule the worker template walks (`base + (i - 1) *
-    stride`) rather than restated as the base, so a facility that widens the
-    stride cannot move the workers out from under this address. Both host-only
-    keys are ABSENT under bridge, so the defaults live here — in the boolean
-    form, for the reason spelled out above the worker timeout. #}
-{%- set bridge_on_host = ((services.gchat_bridge | default({}, true)).network | default('bridge', true)) == 'host' %}
-{%- set dispatcher_port = (services.event_dispatcher | default({})).port | default(8020, true) %}
-{%- set worker_port_base = (services.dispatch_worker | default({})).worker_port_base | default(9190, true) %}
-{%- set worker_port_stride = (services.dispatch_worker | default({})).worker_port_stride | default(1, true) %}
-{#- The instance the dispatcher routes to. Multi-worker routing is not
-    implemented, so this bridge observes worker 1's runs and no others'. #}
-{%- set routed_worker = 1 %}
-{%- set routed_worker_port = (worker_port_base | int) + (routed_worker - 1) * (worker_port_stride | int) %}
 
 services:
   gchat-bridge:
-    image: ${OSPREY_GCHAT_BRIDGE_IMAGE:-{{ services.gchat_bridge.image | default(osprey_images.gchat_bridge) }}}
+    image: ${OSPREY_GCHAT_BRIDGE_IMAGE:-registry.example.org/physics/osprey/golden-project-gchat-bridge:v1.2.3}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -71,12 +21,10 @@ services:
       context: ./build/services/gchat_bridge
       dockerfile: Dockerfile
       args:
-        OSPREY_VERSION: "{{ osprey_version | default('') }}"
-        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
-{% if dev_mode | default(false) %}
-        OSPREY_DEV: "1"
-{% endif %}
-{% if 'event_dispatcher' in deployed_services %}
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+
     # Only when the dispatch pair is co-deployed: the bridge's boot sequence
     # reconciles in-flight runs against the dispatcher before accepting a single
     # new message, so start it after the dispatcher's health probe passes rather
@@ -86,17 +34,17 @@ services:
     depends_on:
       event-dispatcher:
         condition: service_healthy
-{% endif %}
+
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the bridge on one host without colliding
     # on one name. Nothing reaches this service in-network (it only makes
     # outbound calls), so the rename needs no network alias.
-    container_name: {{ osprey_labels.project_name }}-gchat-bridge
+    container_name: golden-project-gchat-bridge
     command: ["python", "-m", "osprey.bridges.google_chat"]
     labels:
-      osprey.project.name: "{{ osprey_labels.project_name }}"
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
       # Content fingerprint of the rendered config this deploy built
       # (runtime_helper's as_built_config_digest, carried in by
       # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
@@ -157,66 +105,31 @@ services:
       # ONLY place the `gchat-question` default lives — deliberately no fallback
       # here, so a config that lost the key fails at startup with the var named
       # instead of silently firing some other facility's trigger.
-      DISPATCH_TRIGGER: "{{ services.gchat_bridge.trigger }}"
-{% if 'event_dispatcher' in deployed_services %}
-{%- if bridge_on_host %}
-      # Co-deployed dispatcher, addressed across the HOST namespace: this
-      # bridge shares the host's network stack, where the compose service key
-      # `event-dispatcher` is not a name anything resolves. The dispatcher is
-      # on the host too (pair parity), so the port it listens on IS the host's.
-      DISPATCHER_URL: http://localhost:{{ dispatcher_port }}
-{%- else %}
+      DISPATCH_TRIGGER: ""
+
       # Co-deployed dispatcher: reach it by its compose service key on
       # osprey-network. The bridge runs IN the network, so the code default
       # (http://localhost:8010) and the host-published port are both wrong here.
-      DISPATCHER_URL: http://event-dispatcher:{{ dispatcher_port }}
-{%- endif %}
-{% else %}
-      # External dispatcher: supplied by the deploy environment/.env, and
-      # REQUIRED (`:?`) rather than a bare reference. Compose resolves an unset
-      # bare ${VAR} to the empty string, not to an absent key, so
-      # CoreConfig.from_env's own localhost default would never fire and
-      # require_startup() does not cover these two: the stack would boot, then
-      # every dispatch POST would go to a protocol-less URL and fail — quietly,
-      # which is the problem. DispatchClient.run turns the transport error into
-      # an error result and the subscriber acks from a finally regardless, so
-      # nothing redelivers and nothing crashes; the bridge just answers no one.
-      # `:?` turns that silent per-event failure into a startup abort naming the
-      # missing variable.
-      DISPATCHER_URL: ${DISPATCHER_URL:?set DISPATCHER_URL when the dispatcher is not co-deployed}
-{% endif %}
-{% if 'dispatch_worker' in deployed_services %}
-{%- if bridge_on_host %}
-      # The bridge polls run status and fetches artifacts from the WORKER
-      # directly (not through the dispatcher), so it needs the worker's address
-      # too — here the host's, for the reason given at DISPATCHER_URL above.
-      # Workers share one port space on the host namespace, so each walks to
-      # its own port and this is worker {{ routed_worker }}'s step of that walk.
-      WORKER_URL: http://localhost:{{ routed_worker_port }}
-{%- else %}
+      DISPATCHER_URL: http://event-dispatcher:8020
+
+
       # The bridge polls run status and fetches artifacts from the WORKER
       # directly (not through the dispatcher), so it needs the worker's
       # in-network address too. Multi-worker routing is not implemented — the
       # dispatcher routes to dispatch-worker-1 only, so that is the instance
       # whose runs this bridge observes.
-      WORKER_URL: http://dispatch-worker-{{ routed_worker }}:{{ worker_port_base }}
-{%- endif %}
-{% else %}
-      # External worker: required for the same reason as DISPATCHER_URL above —
-      # an unset bare reference resolves to "" and the bridge would poll run
-      # status against a protocol-less URL forever instead of refusing to boot.
-      WORKER_URL: ${WORKER_URL:?set WORKER_URL when the dispatch worker is not co-deployed}
-{% endif %}
+      WORKER_URL: http://dispatch-worker-1:9190
+
       # Same var the worker itself reads, from the same config key, so the
       # bridge's poll budget can never fall below the cap it must outlast.
-      DISPATCH_TIMEOUT_SEC: "{{ worker_timeout }}"
+      DISPATCH_TIMEOUT_SEC: "300"
       # ── Neutral tunables (passthrough) ──────────────────────────────────
       # Deliberately passed through from the deploy environment with an EMPTY
       # fallback rather than re-stating CoreConfig's defaults: an empty value
       # makes CoreConfig.from_env fall back to its own default, so these knobs
       # have exactly one definition (the dataclass). POLL_BUDGET is the one
       # exception — its default is derived above from the worker's cap.
-      POLL_BUDGET: "${POLL_BUDGET:-{{ worker_timeout | int + 30 }}}"
+      POLL_BUDGET: "${POLL_BUDGET:-330}"
       POLL_INTERVAL: "${POLL_INTERVAL:-}"
       DRAIN_INTERVAL: "${DRAIN_INTERVAL:-}"
       RETRY_MIN_AGE: "${RETRY_MIN_AGE:-}"
@@ -258,8 +171,7 @@ services:
       # sides so neither can drift alone.
       DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
       HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
-      TZ: {{ system.timezone }}
-{{- hostenv.passthrough(services.gchat_bridge) }}
+      TZ: UTC
     volumes:
       # The service-account key, read-only. Mounted at the SAME path it carries
       # on the host so GCHAT_SA_KEY above names one file on both sides: a second
@@ -282,15 +194,13 @@ services:
       # bind mount) so it is namespaced per compose project and survives
       # `osprey down`.
       - gchat_bridge_data:/data
-{{- net.network(services.gchat_bridge) }}
+    networks:
+      - osprey-network
 
 volumes:
   gchat_bridge_data:
     labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-{# A deliberate blank line precedes the file-level stanza, so this one call
-   carries no left-trim marker (`{{-` would eat the blank line along with the
-   newline it is meant to keep): the literal above ends its own line, the macro
-   supplies the separating newline, and under `host` — where nothing is
-   declared — the file simply ends after the volumes block. -#}
-{{ net.network_declaration(services.gchat_bridge) }}
+      com.osprey.repo-id: "0123456789ab"
+
+networks:
+  osprey-network:

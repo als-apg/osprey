@@ -1,12 +1,3 @@
-{#- The env passthrough axis — the host variables a service's `env:` key
-    names — is rendered by the shared macro rather than hand-written per
-    template, so every service hands a variable to its container the same
-    way. This file defines four containers from ONE `services.bluesky` block,
-    and every one of them calls the macro; see the bridge's call for why an
-    axis declared per service cannot arrive per container. With none declared
-    it emits nothing and this file renders exactly as it did before the axis
-    existed. -#}
-{%- import "services/_env_axis.j2" as hostenv -%}
 # The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
 # behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
 # `osprey up` builds its image locally on first run; subsequent runs
@@ -17,7 +8,7 @@
 
 services:
   bluesky-bridge:
-    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_images.bluesky_bridge) }}}
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-golden-project-bluesky-bridge:local}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -27,11 +18,9 @@ services:
       context: ./build/services/bluesky
       dockerfile: Dockerfile
       args:
-        OSPREY_VERSION: "{{ osprey_version | default('') }}"
-        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
-{% if dev_mode | default(false) %}
-        OSPREY_DEV: "1"
-{% endif %}
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
     # Ordering, not convenience: the bridge opens the RE worker environment
     # ONCE at startup and does not keep trying. `app.py`'s
     # `_open_environment_at_startup` calls `ensure_environment`, which asks
@@ -53,20 +42,12 @@ services:
     depends_on:
       queueserver:
         condition: service_healthy
-{% if 'virtual_accelerator' in deployed_services %}
-      # Only when the Virtual Accelerator is co-deployed: order the
-      # bridge's startup after the VA's CA-readiness healthcheck, so the
-      # substrate devices' ophyd-async connect doesn't race the
-      # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
-      # NOT get this — compose errors on depends_on naming an undefined service.
-      virtual-accelerator:
-        condition: service_healthy
-{% endif %}
+
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the bridge on one host without colliding
     # on one name. In-network consumers reach this service by its compose service
     # key `bluesky-bridge` — unchanged here — so this rename needs no network alias.
-    container_name: {{ osprey_labels.project_name }}-bluesky-bridge
+    container_name: golden-project-bluesky-bridge
     command:
       [
         "uvicorn",
@@ -74,12 +55,12 @@ services:
         "--host",
         "0.0.0.0",
         "--port",
-        "{{ services.bluesky.port | default(8090) }}",
+        "8090",
       ]
     labels:
-      osprey.project.name: "{{ osprey_labels.project_name }}"
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
       # Content fingerprint of the rendered config this deploy built
       # (runtime_helper's as_built_config_digest, carried in by
       # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
@@ -91,7 +72,7 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
+      - "127.0.0.1:8090:8090"
     environment:
       # No :-default — an unset token must stay EMPTY so the bridge's
       # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
@@ -106,7 +87,7 @@ services:
       # every connector lookup errors "No config.yml found" — mirrors
       # dispatch_worker's identical CONFIG_FILE convention.
       CONFIG_FILE: /app/project/config.yml
-      TZ: {{ system.timezone }}
+      TZ: UTC
       # ── queue control plane (client side) ────────────────────────────────
       # The bridge is the ONLY authenticated route to the RE Manager: panels
       # and MCP never see the qserver API. These two names are read directly
@@ -178,44 +159,10 @@ services:
       # Binding an unauthenticated document socket is never the fallback.
       BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/proxy.key_secret
       BLUESKY_ZMQ_CURVE_CLIENT_PUBLIC_KEYS: /app/curve/clients
-{% if services.bluesky.plan_dir %}
-      # Facility plan directory: the plan loader
-      # (plan_loader.py) reads BLUESKY_PLAN_DIRS as an os.pathsep-separated
-      # list of IN-CONTAINER paths and scans each as a "facility"-tier
-      # layer. This MUST be the mount target below, never the host path
-      # configured in services.bluesky.plan_dir — the container environment
-      # never sees the operator's host filesystem layout.
-      BLUESKY_PLAN_DIRS: /app/project/plans
-{% endif %}
-{% if services.bluesky.excluded_plans %}
-      # Facility plan-catalog exclusions: the plan loader
-      # (plan_loader.py) reads BLUESKY_EXCLUDED_PLANS as an os.pathsep-separated
-      # list of plan IDs to DROP from the discovered catalog, so an operator can
-      # suppress specific plans without editing any plan directory. Written by
-      # _inject_bluesky (build_cmd.py) only when non-empty — an empty exclusion
-      # set omits the key entirely, so this env var never renders.
-      BLUESKY_EXCLUDED_PLANS: "{{ services.bluesky.excluded_plans }}"
-{% endif %}
-{% if 'virtual_accelerator' in deployed_services %}
-      # Reach the co-deployed Virtual Accelerator over Channel
-      # Access. Name-server TCP transport is the one host<->container CA
-      # config proven to work — UDP broadcast discovery doesn't cross the
-      # VM boundary. Port matches services.virtual_accelerator.port so an
-      # operator override stays consistent between the two services.
-      EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
-      EPICS_CA_AUTO_ADDR_LIST: "NO"
-      # EPICS-substrate device selection. Passthrough only — the operator or
-      # deploy env chooses the actual PVs, never hardcoded here. The devices
-      # themselves are built by the queueserver worker, which is where these
-      # same three variables are read (qserver_startup.py); the bridge no
-      # longer branches on them. The :- empty default keeps an unset value
-      # harmless: no substrate means an empty device namespace, i.e.
-      # browse-only.
-      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
-      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
-{% endif %}
-{% if services.bluesky.tiled_enabled | default(false) %}
+
+
+
+
       # Tiled persistence: the bridge READS the durable catalog here to serve
       # `GET /runs/{id}/data` once a run's live buffer is gone; the worker's
       # TiledWriter is what writes it (same two variables, set on that service
@@ -224,19 +171,10 @@ services:
       # must fail closed rather than connect unauthenticated.
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
-{% endif %}
-{#- The env passthrough axis, on EVERY container this file renders — the
-    bridge here, the queueserver, Redis and Tiled. `services.bluesky.env` is
-    one declaration on one service block, and the profile has no per-container
-    spelling to narrow it with, so a name that reached only some of the four
-    would be silently partial: the author would have no way to say which ones
-    they meant and no way to see which ones they got. Applying it everywhere is
-    also what keeps a stock upstream image treated the same way here as it is
-    when it IS the service — postgresql, mongodb and openobserve all carry the
-    axis on images OSPREY does not build, and "does my variable arrive"
-    would otherwise depend on whether the container happens to be first in its
-    file. A container that reads nothing by that name ignores the entry. -#}
-{{- hostenv.passthrough(services.bluesky) }}
+
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      NO_PROXY: ${NO_PROXY}
     volumes:
       # Bind-mount source is relative to the pinned compose project directory —
       # the repo root — hence the build/services/bluesky/ prefix on this render
@@ -250,38 +188,15 @@ services:
       # publisher public keys it will accept — and never the publisher's
       # secret, which lives only in the queueserver's own mount.
       - ./data/bluesky_curve/bridge:/app/curve:ro
-{% if services.bluesky.plan_dir %}
-      # Facility plan directory: operator-supplied host path via
-      # services.bluesky.plan_dir in config.yml, mounted read-only — the
-      # bridge only discovers/execs plans from here, never writes into it.
-      # An absolute host path passes through unchanged; a relative one
-      # resolves against the compose project directory (the repo root),
-      # same rule as every other bind source in this file. The container
-      # target is fixed (matches BLUESKY_PLAN_DIRS above) so plan_loader.py
-      # never needs to know the host-side location.
-      - {{ services.bluesky.plan_dir }}:/app/project/plans:ro
-{% endif %}
-{% if (control_system | default({})).writes_enabled | default(false) %}
-      # Channel limits DB: only meaningful once writes are
-      # enabled — a read-only deploy never opens it. Mounted under the SAME
-      # /app/project root as config.yml above so a relative
-      # control_system.limits_checking.database_path (e.g.
-      # "data/channel_limits.json") resolves against the CONFIG_FILE
-      # directory (/app/project, set above) exactly as the connector/startup
-      # guard expect (limits_validator.py, app.py's
-      # _assert_limits_readable_if_writable) — the mounted config.yml lives
-      # there, not at the host build's project_root. Source path mirrors the
-      # Virtual Accelerator's data mount convention: the repo's own data/ tree,
-      # named relative to the pinned project directory.
-      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
-{% endif %}
+
+
     networks:
       # Dual-homed: osprey-network for the bluesky-web sidecar and Tiled,
       # bluesky-internal to reach the RE Manager's control socket.
       - osprey-network
       - bluesky-internal
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.bluesky.port | default(8090) }}/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -303,19 +218,13 @@ services:
     # services building the same tag race each other (the dispatch worker
     # carries the same note). `bluesky-bridge` above owns the build; this
     # service just runs the resulting image with a different command.
-    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_images.bluesky_bridge) }}}
-    container_name: {{ osprey_labels.project_name }}-bluesky-queueserver
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-golden-project-bluesky-bridge:local}
+    container_name: golden-project-bluesky-queueserver
     depends_on:
       # The manager connects to Redis at startup and exits if it cannot.
       bluesky-redis:
         condition: service_healthy
-{% if 'virtual_accelerator' in deployed_services %}
-      # Same iocInit race the bridge guards against: the startup module builds
-      # ophyd-async devices against the VA's Channel Access server, so the
-      # environment must not open before the IOC is answering.
-      virtual-accelerator:
-        condition: service_healthy
-{% endif %}
+
     # Shell form, for the one thing it buys: `$$(...)` resolves the startup
     # script's path inside the image at container start.
     #
@@ -368,9 +277,9 @@ services:
         --zmq-control-addr 'tcp://*:60615'
         --update-existing-plans-devices NEVER
     labels:
-      osprey.project.name: "{{ osprey_labels.project_name }}"
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
       # Content fingerprint of the rendered config this deploy built
       # (runtime_helper's as_built_config_digest, carried in by
       # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
@@ -390,7 +299,7 @@ services:
       # reads control_system.type / writes_enabled / limits_checking from the
       # mounted config.yml, not from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
-      TZ: {{ system.timezone }}
+      TZ: UTC
       # ── queue control plane (server side) ────────────────────────────────
       # Upstream-spelled: `start-re-manager` reads the private key from
       # QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER. It treats an EMPTY value as
@@ -438,36 +347,19 @@ services:
       BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
       BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
       BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
-{% if services.bluesky.plan_dir %}
-      # Same in-container path as the bridge's mount target below: the
-      # startup module builds the plan namespace with the same plan_loader,
-      # from the same facility plan directory, so the catalog the operator
-      # composes against and the plans the worker can actually run are one
-      # list. Never the operator's host path.
-      BLUESKY_PLAN_DIRS: /app/project/plans
-{% endif %}
-{% if services.bluesky.excluded_plans %}
-      # Exclusions apply worker-side too — a plan hidden from the catalog must
-      # not be reachable by name through a hand-built queue item.
-      BLUESKY_EXCLUDED_PLANS: "{{ services.bluesky.excluded_plans }}"
-{% endif %}
-{% if 'virtual_accelerator' in deployed_services %}
-      # Name-server TCP transport, same reasoning as the bridge's block: UDP
-      # broadcast discovery does not cross the container boundary.
-      EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
-      EPICS_CA_AUTO_ADDR_LIST: "NO"
-{% endif %}
-{% if services.bluesky.tiled_enabled | default(false) %}
+
+
+
+
       # The startup module owns the TiledWriter subscription — documents are
       # persisted from the process that produces them. The bridge keeps its
       # own Tiled env for the READ path (results retrieval fallback).
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
-{% endif %}
-{#- Same one declaration as the bridge's — see the note on its call. This
-    container is where plans actually execute, so a site proxy or CA bundle
-    the operator declared for `bluesky` is at least as load-bearing here. -#}
-{{- hostenv.passthrough(services.bluesky) }}
+
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      NO_PROXY: ${NO_PROXY}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
       # Plan/device permissions for the RE Manager. Without this file the
@@ -482,18 +374,8 @@ services:
       # publisher's secret certificate and the bridge proxy's PUBLIC one, and
       # never the proxy's secret. Same ./data/ convention as the limits DB.
       - ./data/bluesky_curve/queueserver:/app/curve:ro
-{% if services.bluesky.plan_dir %}
-      - {{ services.bluesky.plan_dir }}:/app/project/plans:ro
-{% endif %}
-{% if (control_system | default({})).writes_enabled | default(false) %}
-      # The per-put reference monitor moved into this container with the
-      # RunEngine, so the limits DB has to come with it: without the file the
-      # empty-DB failsafe blocks every write and no plan can move anything.
-      # Same /app/project root as config.yml so a relative
-      # control_system.limits_checking.database_path resolves identically on
-      # both sides.
-      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
-{% endif %}
+
+
     networks:
       # Necessarily dual-homed: bluesky-internal for the bridge and Redis,
       # osprey-network to reach the Virtual Accelerator's Channel Access
@@ -520,21 +402,19 @@ services:
   bluesky-redis:
     # Public upstream image, overridable env -> config -> default like every
     # other service image here.
-    image: ${OSPREY_BLUESKY_REDIS_IMAGE:-{{ services.bluesky.redis_image | default('redis:7.4-alpine') }}}
-    container_name: {{ osprey_labels.project_name }}-bluesky-redis
+    image: ${OSPREY_BLUESKY_REDIS_IMAGE:-redis:7.4-alpine}
+    container_name: golden-project-bluesky-redis
     restart: unless-stopped
     labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+      com.osprey.repo-id: "0123456789ab"
     # Append-only persistence: a queue that survives a bridge restart but not
     # a Redis restart would be a half-kept promise.
     command: ["redis-server", "--appendonly", "yes"]
     environment:
-      TZ: {{ system.timezone }}
-{#- Same one declaration as the bridge's — see the note on its call. Redis
-    reads none of the proxy-shaped variables the axis exists for, and that is
-    fine: an unread entry costs nothing, whereas leaving the sidecar out would
-    make the axis mean something different in this file than in every other. -#}
-{{- hostenv.passthrough(services.bluesky) }}
+      TZ: UTC
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      NO_PROXY: ${NO_PROXY}
     volumes:
       - bluesky_queueserver_redis:/data
     networks:
@@ -548,7 +428,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
-{% if services.bluesky.tiled_enabled | default(false) %}
+
 
   # OPTIONAL: a local Tiled server for the queueserver worker's TiledWriter
   # subscription to persist run documents to, and the bridge's durable read
@@ -560,16 +440,16 @@ services:
     # (env → config → default): set OSPREY_TILED_IMAGE, or
     # services.bluesky.tiled_image in config.yml, to point at a mirror or a
     # pinned digest.
-    image: ${OSPREY_TILED_IMAGE:-{{ services.bluesky.tiled_image | default('ghcr.io/bluesky/tiled:0.2.12') }}}
+    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy Tiled on one host without colliding on one
     # name. The bridge reaches this service by its compose service key `tiled`
     # (BLUESKY_TILED_URI: http://tiled:8000) — unchanged here — so this rename
     # needs no network alias.
-    container_name: {{ osprey_labels.project_name }}-bluesky-tiled
+    container_name: golden-project-bluesky-tiled
     restart: unless-stopped
     labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+      com.osprey.repo-id: "0123456789ab"
     # `serve catalog` aborts without a catalog DB argument and defaults to
     # 127.0.0.1 (unreachable from the bridge container) without --host. The
     # duckdb:// writable target is required alongside the filesystem one:
@@ -608,13 +488,12 @@ services:
     # rather than a vanished one.
     command: tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.tiled_port | default(8091) }}:8000"
+      - "127.0.0.1:8091:8000"
     environment:
-      TZ: {{ system.timezone }}
-{#- Same one declaration again — see the bridge's call. Optional container:
-    with `tiled_enabled` false this whole block is absent, so the axis reaches
-    three containers rather than four, which is the only way the count varies. -#}
-{{- hostenv.passthrough(services.bluesky) }}
+      TZ: UTC
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      NO_PROXY: ${NO_PROXY}
     volumes:
       - bluesky_tiled_catalog:/storage
     networks:
@@ -627,7 +506,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-{% endif %}
+
 
 networks:
   osprey-network:
@@ -642,9 +521,8 @@ networks:
 volumes:
   bluesky_queueserver_redis:
     labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-{% if services.bluesky.tiled_enabled | default(false) %}
+      com.osprey.repo-id: "0123456789ab"
+
   bluesky_tiled_catalog:
     labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-{% endif %}
+      com.osprey.repo-id: "0123456789ab"

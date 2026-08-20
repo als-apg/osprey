@@ -1,3 +1,9 @@
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing and this file renders exactly
+    as it did before the axis existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 services:
   postgresql:
     # Public upstream image, overridable like every other service image
@@ -44,6 +50,7 @@ services:
       # original password until recreated.
       POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-ariel}
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.postgresql) }}
     volumes:
       - ariel_postgres_data:/var/lib/postgresql/data
     networks:
