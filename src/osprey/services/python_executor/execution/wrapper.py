@@ -13,11 +13,164 @@ logger = get_logger("execution_wrapper")
 
 
 #: Message raised by every refused write in a readonly run. Tests match on
-#: it, so keep it stable.
+#: it, so keep it stable. The MCP tool layer also matches on it to recognise a
+#: runtime refusal in the subprocess's stderr, so that a write blocked *during*
+#: execution reaches the operator alert and the audit log the same way one
+#: blocked before execution does.
 READONLY_REFUSAL = (
     "readonly execution mode: control-system writes are refused — "
     "resubmit with execution_mode='readwrite' (human approval required) "
     "if the write is intended"
+)
+
+#: The substring every readonly refusal message carries, whichever layer
+#: raised it. The wrapper guard raises :data:`READONLY_REFUSAL`; the connector
+#: reference monitor raises its own, channel-named message
+#: (``osprey_connectors.control_system.base._writes_disabled_result``). Both
+#: reach the tool layer only as a traceback on the subprocess's stderr, so the
+#: tool matches on what they share rather than on either full message — which
+#: is what lets a write refused through the *approved* ``write_channel`` path
+#: be alerted and audited exactly like one refused by the guard.
+#:
+#: A test pins the connector's message against this constant, so rewording
+#: either side without the other fails rather than silently stopping the alert.
+READONLY_REFUSAL_MARKER = "readonly execution mode"
+
+
+#: Every entry point a readonly run refuses, as ``(dotted target, attributes)``.
+#: This table is the canonical machine-readable answer to "what counts as a
+#: control-system write from Python" — the docs list is written from it, and a
+#: library added here needs no other change to be enforced.
+#:
+#: The dotted target is resolved by importing its longest importable prefix and
+#: then walking attributes, so a module (``epics``), a module attribute
+#: (``epics.ca``) and a class (``p4p.client.thread.Context``) are all spelled
+#: the same way. Attributes that do not exist on the resolved object are
+#: skipped, which is what makes listing several client flavours free: an
+#: uninstalled or older library simply contributes nothing.
+#:
+#: Patching the object in ``sys.modules`` — rather than inspecting the source —
+#: is what makes this immune to spelling. ``importlib.import_module("epics")``,
+#: ``from epics import caput as _w`` and ``getattr(epics, "ca" + "put")`` all
+#: end up holding the refusing function, because they all resolve through the
+#: one module object this mutates.
+_READONLY_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # --- EPICS Channel Access (pyepics) ---
+    ("epics", ("caput", "caput_many")),
+    ("epics.PV", ("put",)),
+    ("epics.ca", ("put", "put_complete")),
+    # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
+    # server-side SharedPV, which puts values on the wire when it is opened or
+    # posted to.
+    ("p4p.client.thread.Context", ("put", "rpc")),
+    ("p4p.client.asyncio.Context", ("put", "rpc")),
+    ("p4p.client.cothread.Context", ("put", "rpc")),
+    ("p4p.server.raw.SharedPV", ("post", "open")),
+    ("p4p.server.thread.SharedPV", ("post", "open")),
+    ("p4p.server.asyncio.SharedPV", ("post", "open")),
+    # --- Channel Access (caproto) ---
+    ("caproto.sync.client", ("write", "write_read")),
+    ("caproto.threading.client.PV", ("write", "write_all")),
+    ("caproto.threading.client.Batch", ("write",)),
+    ("caproto.asyncio.client.PV", ("write",)),
+    # --- PVAccess (pvaPy). Its ``Channel`` carries one typed setter per scalar
+    # and array type, so the ``put`` prefix is swept dynamically below rather
+    # than enumerated here; ``put`` itself is listed so the table still names
+    # the library.
+    ("pvaccess.Channel", ("put", "putGet")),
+    # --- Tango. ``command_inout`` is included because a Tango command is an
+    # action on the device, not a read — refusing it is the readonly reading.
+    # ``PyTango`` is the legacy alias for the same package; when both import,
+    # they resolve to the same class object and the second patch is a no-op.
+    (
+        "tango.DeviceProxy",
+        (
+            "write_attribute",
+            "write_attributes",
+            "write_attribute_asynch",
+            "write_attributes_asynch",
+            "write_read_attribute",
+            "write_read_attributes",
+            "write_pipe",
+            "put_property",
+            "command_inout",
+            "command_inout_asynch",
+        ),
+    ),
+    ("tango.AttributeProxy", ("write", "write_asynch", "write_read")),
+    (
+        "PyTango.DeviceProxy",
+        (
+            "write_attribute",
+            "write_attributes",
+            "write_read_attribute",
+            "command_inout",
+        ),
+    ),
+    # --- Routes out of Python. A readonly run has no legitimate use for these:
+    # ``import subprocess`` is already refused in every mode by the static
+    # import check, so anything reaching the process-spawning surface at
+    # runtime got there by an evasion. ``os.fork`` is deliberately absent —
+    # forking alone cannot run a new program, and refusing it would break
+    # ordinary multiprocessing for no security gain, since the exec half of
+    # every fork+exec is refused here.
+    (
+        "subprocess",
+        (
+            "run",
+            "Popen",
+            "call",
+            "check_call",
+            "check_output",
+            "getoutput",
+            "getstatusoutput",
+        ),
+    ),
+    ("_posixsubprocess", ("fork_exec",)),
+    # ``os`` re-exports these from ``posix``; patching only ``os`` would leave
+    # ``import posix; posix.system(...)`` open, so both modules are swept.
+    (
+        "os",
+        (
+            "system",
+            "popen",
+            "execl",
+            "execle",
+            "execlp",
+            "execlpe",
+            "execv",
+            "execve",
+            "execvp",
+            "execvpe",
+            "spawnl",
+            "spawnle",
+            "spawnlp",
+            "spawnlpe",
+            "spawnv",
+            "spawnve",
+            "spawnvp",
+            "spawnvpe",
+            "posix_spawn",
+            "posix_spawnp",
+        ),
+    ),
+    (
+        "posix",
+        (
+            "system",
+            "popen",
+            "execv",
+            "execve",
+            "posix_spawn",
+            "posix_spawnp",
+        ),
+    ),
+    # --- Loading a shared library sidesteps every Python-level guard above:
+    # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
+    # single client package. ``LibraryLoader.__getattr__`` is patched too,
+    # because ``ctypes.cdll.libca`` never goes through ``CDLL`` by that name.
+    ("ctypes", ("CDLL", "PyDLL", "WinDLL", "OleDLL")),
+    ("ctypes.LibraryLoader", ("LoadLibrary", "__getattr__")),
 )
 
 
@@ -401,13 +554,21 @@ if not _execution_dir.exists():
 
         The pre-execution regex sees only the standard spellings of a write.
         ``from epics import caput as _w`` evades it, so a readonly run is
-        enforced here, at runtime: every direct-library write entry point is
-        replaced with a function that refuses. The guard is emitted *before*
-        user code and *after* the limits monkeypatch, so an alias bound in the
-        user code late-binds to the refusing function, and the refusal — not a
-        limits check — is the first thing a write hits. It is deliberately
-        independent of the limits validator: a deployment with limits checking
-        off is exactly the one with nothing else standing behind the regex.
+        enforced here, at runtime: every entry point in
+        :data:`_READONLY_WRITE_TARGETS` is replaced with a function that
+        refuses. The guard is emitted *before* user code and *after* the limits
+        monkeypatch, so an alias bound in the user code late-binds to the
+        refusing function, and the refusal — not a limits check — is the first
+        thing a write hits. It is deliberately independent of the limits
+        validator: a deployment with limits checking off is exactly the one
+        with nothing else standing behind the regex.
+
+        The table covers three kinds of route: the control-system client
+        libraries themselves, the process-spawning surface that could shell out
+        to ``caput``, and ``ctypes``, which reaches Channel Access without
+        importing any client package at all. It is emitted into the script
+        rather than applied here because the objects to patch only exist in the
+        subprocess.
 
         The connector side of the same contract lives in
         ``osprey_connectors.control_system.base`` (refuses ``write_channel``
@@ -417,41 +578,69 @@ if not _execution_dir.exists():
         if self.execution_mode != "readonly":
             return ""
 
-        guard = """
-            # Readonly run: refuse every direct control-system write entry point.
-            # Installed before user code, so an alias bound later resolves here.
+        guard = f"""
+            # Readonly run: refuse every control-system write entry point, and
+            # every route out of Python that could reach one. Installed before
+            # user code, so an alias bound later resolves here.
+            import importlib as _osprey_importlib
+
+            _osprey_targets = {_READONLY_WRITE_TARGETS!r}
+
+
             def _osprey_readonly_refuse(*_args, **_kwargs):
                 raise RuntimeError("@@REFUSAL@@")
 
-            try:
-                import epics as _osprey_epics
 
-                _osprey_epics.caput = _osprey_readonly_refuse
-                if hasattr(_osprey_epics, "PV"):
-                    _osprey_epics.PV.put = _osprey_readonly_refuse
-                if hasattr(getattr(_osprey_epics, "ca", None), "put"):
-                    _osprey_epics.ca.put = _osprey_readonly_refuse
-            except ImportError:
-                pass
-            except Exception as _osprey_guard_error:
-                print(f"⚠️  readonly guard (epics) failed: {_osprey_guard_error}")
+            def _osprey_resolve(dotted):
+                \"\"\"Import the longest importable prefix of *dotted*, then walk attributes.
 
-            # p4p ships one Context class per concurrency flavor; each is
-            # patched in its own try so an unavailable flavor costs nothing.
-            import importlib as _osprey_importlib
+                One spelling for modules, module attributes and classes alike.
+                Returns None when the target is not present, which is the
+                ordinary case for most of the table — an uninstalled library,
+                or an optional flavour of an installed one. That case has to
+                stay SILENT: it is true on every ordinary deployment, and a
+                warning per absent target would print on every readonly run.
+                \"\"\"
+                parts = dotted.split(".")
+                for _cut in range(len(parts), 0, -1):
+                    try:
+                        obj = _osprey_importlib.import_module(".".join(parts[:_cut]))
+                    except ImportError:
+                        continue
+                    for _attr in parts[_cut:]:
+                        try:
+                            obj = getattr(obj, _attr)
+                        except AttributeError:
+                            # An importable parent without the child: the
+                            # target does not exist here either.
+                            return None
+                    return obj
+                return None
 
-            for _osprey_flavor in ("thread", "asyncio", "cothread"):
+
+            for _osprey_dotted, _osprey_attrs in _osprey_targets:
                 try:
-                    _osprey_ctx = _osprey_importlib.import_module(
-                        f"p4p.client.{_osprey_flavor}"
-                    ).Context
-                    _osprey_ctx.put = _osprey_readonly_refuse
-                    _osprey_ctx.rpc = _osprey_readonly_refuse
-                except ImportError:
-                    pass
+                    _osprey_obj = _osprey_resolve(_osprey_dotted)
+                    if _osprey_obj is None:
+                        continue
+                    for _osprey_attr in _osprey_attrs:
+                        if hasattr(_osprey_obj, _osprey_attr):
+                            setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                    # pvaPy spells one typed setter per scalar and array type
+                    # (putDouble, putScalarArray, ...). Enumerating them would
+                    # go stale against the binding; the prefix will not.
+                    if _osprey_dotted == "pvaccess.Channel":
+                        for _osprey_attr in dir(_osprey_obj):
+                            if _osprey_attr.startswith("put"):
+                                setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
                 except Exception as _osprey_guard_error:
-                    print(f"⚠️  readonly guard (p4p {_osprey_flavor}) failed: {_osprey_guard_error}")
-            del _osprey_importlib, _osprey_flavor
+                    # A target that cannot be patched must not stop the ones
+                    # after it, and the operator needs to know which one.
+                    print(
+                        f"⚠️  readonly guard ({{_osprey_dotted}}) failed: {{_osprey_guard_error}}"
+                    )
+
+            del _osprey_importlib, _osprey_targets, _osprey_resolve
         """
         return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
 

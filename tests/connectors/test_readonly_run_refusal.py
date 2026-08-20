@@ -136,3 +136,26 @@ async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch, writes_enabled_d
     result = await connector.write_channel("A:SP", 1.0)
 
     assert result.success is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_readonly_refusal_message_carries_the_shared_marker(
+    monkeypatch, writes_enabled_deployment
+):
+    """The connector's refusal must stay recognisable to the tool layer.
+
+    A write refused here reaches the executor tools only as a traceback on the
+    subprocess's stderr, where it is matched by substring so that the operator
+    alert and the audit record fire for this layer too. Rewording either
+    message without the other would silently stop that, so the two are pinned
+    to one constant.
+    """
+    from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
+
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    connector = _WriteEnabledConnector()
+
+    result = await connector.write_channel("A:SP", 1.0)
+
+    assert READONLY_REFUSAL_MARKER in result.error_message
