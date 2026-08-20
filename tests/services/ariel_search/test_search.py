@@ -183,6 +183,30 @@ class TestKeywordSearchFunction:
         mock_repository.keyword_search.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_semantic_processor_terms_are_in_keyword_match_surface(
+        self, mock_repository, mock_config
+    ):
+        """Generated summaries and keywords participate in keyword search."""
+        from osprey.services.ariel_search.config import ARIELConfig
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+                "enhancement_modules": {"semantic_processor": {"enabled": True}},
+            }
+        )
+
+        await keyword_search("injection transient", mock_repository, config)
+
+        call_args = mock_repository.keyword_search.call_args
+        assert call_args is not None
+        where_clauses = call_args.kwargs["where_clauses"]
+        assert any("COALESCE(summary, '')" in clause for clause in where_clauses)
+        assert any("osprey_text_array_to_string(keywords)" in clause for clause in where_clauses)
+
+    @pytest.mark.asyncio
     async def test_fuzzy_fallback_when_no_results(self, mock_repository, mock_config):
         """Falls back to fuzzy search when FTS returns no results."""
         from osprey.services.ariel_search.search.keyword import keyword_search

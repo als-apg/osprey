@@ -252,6 +252,17 @@ class TestRender:
         assert "n: 7." in document
         assert "tags" not in document
 
+    def test_semantic_summary_and_keywords_are_body_text(self):
+        """The hybrid qmd mirror indexes semantic processor enrichment."""
+        document = render_entry(
+            make_entry(
+                summary="Short entry describes an injection kicker transient.",
+                keywords=["injection kicker", "transient"],
+            )
+        )
+        assert "Summary: Short entry describes an injection kicker transient." in document
+        assert "Keywords: injection kicker, transient." in document
+
     def test_missing_fields_degrade(self):
         """A sparse row still renders a usable document."""
         document = render_entry({"entry_id": "x"})

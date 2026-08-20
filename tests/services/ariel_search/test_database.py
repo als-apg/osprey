@@ -448,12 +448,34 @@ class TestMigrationRunnerLogic:
         assert "core_schema" in names
         assert "semantic_processor" in names
         assert "text_embedding" in names
+        assert "keyword_search_fts_index" in names
+        assert "semantic_processor_search_index" in names
+        assert "qmd_resync_index" in names
 
     def test_core_migration_instantiation(self) -> None:
         """Core migration can be instantiated directly."""
         migration = CoreMigration()
         assert migration.name == "core_schema"
         assert migration.depends_on == []
+
+    @pytest.mark.asyncio
+    async def test_core_migration_creates_raw_text_fts_index(self, ddl_conn) -> None:
+        await CoreMigration().up(ddl_conn)
+
+        joined = " ".join(" ".join(ddl_conn.sql).split())
+        assert "CREATE INDEX IF NOT EXISTS idx_entries_raw_text_fts" in joined
+        assert "USING GIN(to_tsvector('english', raw_text))" in joined
+
+    @pytest.mark.asyncio
+    async def test_semantic_migration_builds_enriched_fts_index(self, ddl_conn) -> None:
+        """Semantic processor summary and keywords share the keyword FTS surface."""
+        await SemanticProcessorMigration().up(ddl_conn)
+
+        joined = " ".join(" ".join(ddl_conn.sql).split())
+        assert "DROP INDEX IF EXISTS idx_entries_keywords" in joined
+        assert "CREATE INDEX IF NOT EXISTS idx_entries_text_search" in joined
+        assert "COALESCE(summary, '')" in joined
+        assert "osprey_text_array_to_string(keywords)" in joined
 
     def test_get_enabled_migrations_passes_configured_models(self) -> None:
         """`osprey ariel migrate` must build the embedding migration with the
@@ -782,7 +804,7 @@ class TestGetEnabledMigrations:
         """Only the always-run migrations load when no module is enabled."""
         names = [m.name for m in make_runner()._get_enabled_migrations()]
 
-        assert names == ["core_schema", "attachment_files"]
+        assert names == ["core_schema", "keyword_search_fts_index", "attachment_files"]
 
     def test_unimportable_migration_is_skipped_with_warning(self, monkeypatch, caplog) -> None:
         """A migration whose module is gone must not break the whole run."""
@@ -1089,10 +1111,13 @@ class TestSemanticProcessorMigrationDDL:
         assert statements[1] == (
             "ALTER TABLE enhanced_entries ADD COLUMN IF NOT EXISTS keywords TEXT[] DEFAULT '{}'"
         )
-        assert "CREATE INDEX IF NOT EXISTS idx_entries_keywords" in statements[2]
-        assert "USING GIN(keywords)" in statements[2]
-        assert "CREATE INDEX IF NOT EXISTS idx_entries_text_search" in statements[3]
-        assert "to_tsvector('english', raw_text || ' ' || COALESCE(summary, ''))" in statements[3]
+        assert "CREATE OR REPLACE FUNCTION osprey_text_array_to_string(TEXT[])" in statements[2]
+        assert "IMMUTABLE" in statements[2]
+        assert statements[3] == "DROP INDEX IF EXISTS idx_entries_keywords"
+        assert statements[4] == "DROP INDEX IF EXISTS idx_entries_text_search"
+        assert "CREATE INDEX IF NOT EXISTS idx_entries_text_search" in statements[5]
+        assert "COALESCE(summary, '')" in statements[5]
+        assert "osprey_text_array_to_string(keywords)" in statements[5]
 
     async def test_down_drops_indexes_before_columns(self, ddl_conn) -> None:
         """Dropping the indexed columns first would leave the drops to CASCADE."""

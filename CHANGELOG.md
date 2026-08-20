@@ -33,6 +33,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   `selective` policy, independent of whether the write-pattern scanner
   recognises the code's spelling.
 
+### Fixed
+
+- ARIEL keyword search now keeps raw and semantic full-text indexes in sync so
+  semantic summaries and keywords participate in keyword and hybrid retrieval.
+
 ### Added
 
 - A fresh `profile.yml` now shows its whole menu: every hook, rule, skill,

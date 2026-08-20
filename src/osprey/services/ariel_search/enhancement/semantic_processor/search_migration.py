@@ -1,7 +1,8 @@
-"""ARIEL semantic processor migration.
+"""Reconcile semantic processor keyword-search indexes.
 
-This module provides the database migration for the semantic processor
-enhancement module.
+Deployments that applied the original semantic processor migration already have
+its migration record, so they need a separate additive migration to rebuild the
+keyword FTS expression and remove the unqueried keyword-array index.
 """
 
 from typing import TYPE_CHECKING
@@ -13,40 +14,21 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
 
-class SemanticProcessorMigration(BaseMigration):
-    """Semantic processor enhancement migration.
-
-    Creates:
-    - summary column on enhanced_entries
-    - keywords column on enhanced_entries
-    - Full-text search indexes
-    """
+class SemanticProcessorSearchMigration(BaseMigration):
+    """Rebuilds semantic keyword-search indexes for summary and keywords."""
 
     @property
     def name(self) -> str:
         """Return migration identifier."""
-        return "semantic_processor"
+        return "semantic_processor_search_index"
 
     @property
     def depends_on(self) -> list[str]:
-        """Depends on core schema."""
-        return ["core_schema"]
+        """Depends on semantic processor columns being present."""
+        return ["semantic_processor"]
 
     async def up(self, conn: "AsyncConnection") -> None:
-        """Apply the semantic processor migration."""
-        await conn.execute(
-            """
-            ALTER TABLE enhanced_entries
-            ADD COLUMN IF NOT EXISTS summary TEXT
-            """
-        )
-        await conn.execute(
-            """
-            ALTER TABLE enhanced_entries
-            ADD COLUMN IF NOT EXISTS keywords TEXT[] DEFAULT '{}'
-            """
-        )
-
+        """Apply the enriched semantic FTS index migration."""
         await conn.execute(
             """
             CREATE OR REPLACE FUNCTION osprey_text_array_to_string(TEXT[])
@@ -60,7 +42,6 @@ class SemanticProcessorMigration(BaseMigration):
         )
         await conn.execute("DROP INDEX IF EXISTS idx_entries_keywords")
         await conn.execute("DROP INDEX IF EXISTS idx_entries_text_search")
-
         await conn.execute(
             f"""
             CREATE INDEX IF NOT EXISTS idx_entries_text_search
@@ -70,9 +51,5 @@ class SemanticProcessorMigration(BaseMigration):
         )
 
     async def down(self, conn: "AsyncConnection") -> None:
-        """Rollback the semantic processor migration."""
+        """Rollback the enriched semantic FTS index migration."""
         await conn.execute("DROP INDEX IF EXISTS idx_entries_text_search")
-        await conn.execute("DROP INDEX IF EXISTS idx_entries_keywords")
-
-        await conn.execute("ALTER TABLE enhanced_entries DROP COLUMN IF EXISTS keywords")
-        await conn.execute("ALTER TABLE enhanced_entries DROP COLUMN IF EXISTS summary")

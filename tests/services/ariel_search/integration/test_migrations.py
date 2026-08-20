@@ -278,8 +278,8 @@ class TestMigrationSQLExecution:
             # Clean up
             await conn.execute("DELETE FROM enhanced_entries WHERE entry_id = 'test-fts-func-001'")
 
-        # The query plan should reference the index
-        assert "idx_entries_text_search" in plan or "Seq Scan" in plan
+        # The query plan should reference the core raw-text FTS index
+        assert "idx_entries_raw_text_fts" in plan or "Seq Scan" in plan
 
     async def test_primary_key_constraint_exists(self, migrated_pool):
         """Verify primary key constraint exists on enhanced_entries.
