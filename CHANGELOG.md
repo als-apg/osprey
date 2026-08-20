@@ -20,6 +20,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   Readonly runs also can no longer import control-system client libraries
   (`epics`, `p4p`, `caproto`, `pvaccess`, `tango`) — reads go through
   `read_channel()`.
+- The runtime refusal now covers the routes that reach a control system
+  without importing a client: caproto, pvaPy and Tango entry points resolved
+  dynamically, starting a process (a shelled-out `caput`), and loading a
+  shared library through `ctypes`. A readonly script therefore cannot shell
+  out or open a shared library at all; resubmit such work as readwrite.
+- A refused write is now visible, not silent. The operator is alerted that a
+  write was attempted and blocked, and the attempt is recorded — with the
+  offending source — in `var/audit/readonly-refusals.jsonl`, which survives
+  builds and `osprey reset`.
 - Readwrite Python executions now always require human approval under the
   `selective` policy, independent of whether the write-pattern scanner
   recognises the code's spelling.

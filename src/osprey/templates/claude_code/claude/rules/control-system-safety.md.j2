@@ -108,8 +108,17 @@ Direct {{ protocol_name }} calls skip all of these protections.
 ## Write Operations
 
 For scripts that write to the control system, use the `execute` MCP tool directly
-with `execution_mode: "write"` —
-the `execute` tool defaults to readonly mode, which blocks write operations.
+with `execution_mode: "readwrite"` — the `execute` tool defaults to readonly
+mode, which blocks write operations. Those are the only two accepted values;
+any other spelling is rejected before the script runs.
+
+A readonly run also refuses the indirect routes to the control system: starting
+a process (so a shelled-out `caput` fails) and loading a shared library through
+`ctypes`. This applies even when the intent is unrelated to hardware, so a
+readonly script cannot shell out at all. Every refusal is reported to the
+operator and recorded in the deployment's audit log, so working around one is
+never the right move — resubmit with `execution_mode: "readwrite"` and let the
+operator approve it.
 {% if "bluesky" in enabled_servers | default([]) %}
 
 ## Measurements Go Through the Queue, Not Through Repeated Writes
