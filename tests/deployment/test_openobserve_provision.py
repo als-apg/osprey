@@ -32,6 +32,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,7 @@ class FakeStore:
         accounts: dict[str, str] | None = None,
         org: str = "default",
         healthz_failures: int = 0,
+        connect_failures: int = 0,
         root: tuple[str, str] = (ROOT_EMAIL, ROOT_PASSWORD),
         search_status: int = 200,
         refuse: set[str] | None = None,
@@ -82,6 +84,10 @@ class FakeStore:
         self.accounts = dict(accounts or {})
         self.org = org
         self.healthz_failures = healthz_failures
+        # Calls refused before any server sees them, which is what a host with
+        # nothing bound on the store's port does. Distinct from
+        # ``healthz_failures``: that one is a store that answered.
+        self.connect_failures = connect_failures
         self.root = root
         self.search_status = search_status
         # Tokens the store still lists for an account but no longer accepts.
@@ -120,6 +126,12 @@ class FakeStore:
 
     # -- routing ---------------------------------------------------------
     def handle(self, request: httpx.Request) -> httpx.Response:
+        if self.connect_failures > 0:
+            self.connect_failures -= 1
+            # Not an answer of any kind: nothing is listening, so the call never
+            # reaches a store and is not recorded as having done so.
+            raise httpx.ConnectError("Connection refused", request=request)
+
         path = request.url.path
         self.calls.append((request.method, path))
 
@@ -279,6 +291,71 @@ def test_a_store_that_never_answers_degrades_with_a_remedy(env_file, monkeypatch
     printed = " ".join(capsys.readouterr().err.split())
     assert "did not answer" in printed
     assert "osprey up" in printed
+
+
+def test_a_port_nothing_accepts_a_connection_on_is_given_up_on_early(env_file, monkeypatch, capsys):
+    """A store nobody started is not a store that is slow to start.
+
+    The runtime binds a published port the moment the container is created, so a
+    connection that keeps being refused says the container is not there — and no
+    length of waiting produces one. The minute the readiness budget allows is for
+    a store that answers; spending it here would make every start against a
+    stopped runtime sit silent for a minute before saying so.
+    """
+    monkeypatch.setattr(provision, "READY_POLL_S", 0.0)
+    monkeypatch.setattr(provision, "CONNECT_TIMEOUT_S", 0.05)
+    store = FakeStore(connect_failures=10_000)
+
+    started = time.monotonic()
+    outcome = run(store, env_file, ready_timeout_s=30.0)
+    elapsed = time.monotonic() - started
+
+    assert outcome.action == "failed"
+    assert elapsed < 5.0, (
+        f"waited {elapsed:.1f}s, which is the readiness budget, not the connect one"
+    )
+    assert store.calls == []
+    printed = " ".join(capsys.readouterr().err.split())
+    assert "did not answer" in printed
+    # The line reports the wait that happened, not the budget it did not use.
+    assert "within 30s" not in printed
+
+
+def test_a_store_that_answers_at_all_still_gets_the_whole_readiness_budget(env_file, monkeypatch):
+    """503 is a store opening its database, and that one IS worth waiting out.
+
+    The short connect budget must not leak into this case: the store is there,
+    it is simply not finished, and giving up on it after a few seconds would
+    trade a rare slow start for a deploy with no telemetry account.
+    """
+    monkeypatch.setattr(provision, "READY_POLL_S", 0.01)
+    monkeypatch.setattr(provision, "CONNECT_TIMEOUT_S", 0.0)
+    store = FakeStore(healthz_failures=10_000)
+
+    started = time.monotonic()
+    outcome = run(store, env_file, ready_timeout_s=0.3)
+    elapsed = time.monotonic() - started
+
+    assert outcome.action == "failed"
+    assert elapsed >= 0.3, f"gave up after {elapsed:.2f}s, inside the readiness budget"
+    assert store.paths.count("/healthz") > 1
+
+
+def test_a_store_whose_port_binds_late_is_still_provisioned(env_file, monkeypatch):
+    """The connect budget is a window, not a single attempt.
+
+    A container the runtime has just been asked for takes a moment to exist, so
+    the first call or two can be refused on a store that is coming up perfectly
+    well.
+    """
+    monkeypatch.setattr(provision, "READY_POLL_S", 0.0)
+    store = FakeStore(connect_failures=2)
+
+    outcome = run(store, env_file)
+
+    assert outcome.action == "created"
+    assert store.connect_failures == 0
+    assert token_in(env_file) == store.issued[-1]
 
 
 # ---------------------------------------------------------------------------

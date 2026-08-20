@@ -92,6 +92,14 @@ _DEFAULT_ORG = "default"
 READY_TIMEOUT_S = 60.0
 READY_POLL_S = 1.0
 
+#: How long the store gets to accept a TCP connection at all, which is a much
+#: smaller budget than the one above and is spent before it. A published port is
+#: accepted by the runtime's proxy the moment the container starts, so a
+#: connection refused over and over is not a store that is still waking up: it is
+#: no store at all, and waiting out ``READY_TIMEOUT_S`` for one only delays the
+#: warning. See :func:`wait_for_store`.
+CONNECT_TIMEOUT_S = 5.0
+
 #: Per-request budget. Every call here is a local HTTP round trip.
 REQUEST_TIMEOUT_S = 10.0
 
@@ -253,19 +261,48 @@ def wait_for_store(
     raising, because a store that never came up is reported like every other
     problem here and does not stop the deploy.
 
+    The wait is in two phases, because the two ways this can fail deserve very
+    different patience. A published port is bound by the runtime's own proxy as
+    soon as the container is created, so a connection that is *refused* is not a
+    slow store — it is the absence of one, and no amount of waiting produces a
+    container nobody started. The first connection therefore has only
+    ``CONNECT_TIMEOUT_S`` to happen; a wait that never gets one gives up there.
+    Once any connection has been accepted — an answer of any status, including
+    the ``503`` of a store still opening its database — the full ``deadline``
+    applies unchanged, which is the case the long budget was chosen for.
+
     ``poll_s`` resolves the module default at CALL time rather than binding it
     as a default argument, so a test can shorten the wait without reaching into
     the ``time`` module (patching that is process-wide, not call-scoped).
+    ``CONNECT_TIMEOUT_S`` is read the same way, for the same reason.
     """
     poll_s = READY_POLL_S if poll_s is None else poll_s
+    connect_deadline = time.monotonic() + CONNECT_TIMEOUT_S
+    connected = False
     while True:
         try:
             response = client.get(f"{base_url}/healthz")
+        except (httpx.ConnectError, httpx.ConnectTimeout, OSError) as exc:
+            # Nothing accepted the connection, so nothing is publishing the port.
+            # ``ConnectTimeout`` is named beside ``ConnectError`` because httpx
+            # descends the two from different parents, and ``OSError`` covers the
+            # raw ``ConnectionRefusedError`` a client that is not httpx's raises.
+            logger.debug(f"Telemetry store not accepting connections yet: {exc}")
+        except httpx.HTTPError as exc:
+            # A transport failure that is not a connect failure — a read that
+            # timed out, a truncated response — happens on a connection that WAS
+            # accepted, so it counts as one.
+            connected = True
+            logger.debug(f"Telemetry store not ready yet: {exc}")
+        else:
+            connected = True
             if response.status_code == 200:
                 return True
-        except (httpx.HTTPError, OSError) as exc:
-            logger.debug(f"Telemetry store not ready yet: {exc}")
-        if time.monotonic() >= deadline:
+            logger.debug(f"Telemetry store not ready yet: HTTP {response.status_code}")
+        now = time.monotonic()
+        if now >= deadline:
+            return False
+        if not connected and now >= connect_deadline:
             return False
         time.sleep(poll_s)
 
@@ -570,7 +607,9 @@ def provision_ingest_identity(
         invocation, when it has one. Updated in place if it already carries the
         token, for the reason ``_mirror_into_environment`` gives.
     :param transport: Optional httpx transport, for tests.
-    :param ready_timeout_s: How long the store gets to answer ``/healthz``.
+    :param ready_timeout_s: How long a store that is answering at all gets to
+        answer ``/healthz`` with a 200. A port nothing accepts a connection on
+        is given up on much sooner; see :func:`wait_for_store`.
     :return: What this run did. Never raises for a store-side problem; see the
         module docstring for why nothing here is fatal.
     """
@@ -596,10 +635,16 @@ def provision_ingest_identity(
     org = store_org(config)
 
     with httpx.Client(timeout=REQUEST_TIMEOUT_S, transport=transport) as client:
-        if not wait_for_store(client, base_url, deadline=time.monotonic() + ready_timeout_s):
+        started = time.monotonic()
+        if not wait_for_store(client, base_url, deadline=started + ready_timeout_s):
+            # The wait that happened, not the budget it was given: a port nothing
+            # ever accepted a connection on is given up on well inside
+            # ``ready_timeout_s``, and naming the budget would describe a wait
+            # nobody sat through.
+            waited = time.monotonic() - started
             return _degraded(
                 f"The telemetry store did not answer at {base_url} within "
-                f"{ready_timeout_s:.0f}s, so its ingest account was not provisioned.",
+                f"{waited:.0f}s, so its ingest account was not provisioned.",
                 _RETRY_REMEDY,
             )
 
