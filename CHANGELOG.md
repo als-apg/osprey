@@ -17,6 +17,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   pattern scanning: the sandbox refuses every direct control-system write
   entry point (however the call is spelled), the connectors refuse
   `write_channel`, and the EPICS connector stays on the read-only gateway.
+  Readonly runs also can no longer import control-system client libraries
+  (`epics`, `p4p`, `caproto`, `pvaccess`, `tango`) — reads go through
+  `read_channel()`.
 - Readwrite Python executions now always require human approval under the
   `selective` policy, independent of whether the write-pattern scanner
   recognises the code's spelling.

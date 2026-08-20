@@ -159,3 +159,59 @@ def test_quick_safety_check_standalone():
     # open() — warning level, should NOT block
     passed, issues = quick_safety_check("f = open('file.txt')")
     assert passed is True
+
+
+# ============================================================================
+# readonly import denylist — control-system client libraries
+# ============================================================================
+
+
+def _readonly_import_issues(code):
+    from osprey.services.python_executor.analysis.safety_checks import check_readonly_imports
+
+    return check_readonly_imports(code)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("import epics", id="import"),
+        pytest.param("import epics as e", id="import-as"),
+        pytest.param("from epics import caput as _w", id="from-import-alias"),
+        pytest.param("from epics.ca import put", id="from-submodule"),
+        pytest.param("import p4p.client.thread", id="dotted-import"),
+        pytest.param("from p4p.client.asyncio import Context", id="from-dotted"),
+        pytest.param("import caproto", id="caproto"),
+        pytest.param("import pvaccess", id="pvaccess"),
+        pytest.param("import tango", id="tango"),
+        pytest.param("from PyTango import DeviceProxy", id="pytango"),
+        pytest.param("def f():\n    import epics\n    return epics", id="nested-in-function"),
+    ],
+)
+def test_readonly_imports_denied(code):
+    issues = _readonly_import_issues(code)
+    assert issues, code
+    assert all("readonly" in i for i in issues), issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("import numpy as np", id="numpy"),
+        pytest.param("from osprey.runtime import read_channel", id="osprey-runtime"),
+        pytest.param("import epicsarchiver_client", id="prefix-is-not-package"),
+        pytest.param("# import epics\nprint('commented out')", id="comment-only"),
+        pytest.param("s = 'import epics'", id="string-only"),
+        pytest.param("x = epics.caput", id="no-import-statement"),
+    ],
+)
+def test_readonly_imports_allowed(code):
+    assert _readonly_import_issues(code) == []
+
+
+@pytest.mark.unit
+def test_readonly_imports_syntax_error_is_not_an_issue_here():
+    """Syntax errors belong to check_syntax; this walker stays quiet."""
+    assert _readonly_import_issues("def (:") == []

@@ -30,11 +30,17 @@ async def execute(
 
     Safety layers applied before execution:
       1. ``quick_safety_check()`` — blocks exec/eval/__import__/subprocess
-      2. ``detect_control_system_operations()`` — blocks writes in readonly mode
+      2. ``check_readonly_imports()`` — readonly runs may not import
+         control-system client libraries (epics, p4p, ...) at all
+      3. ``detect_control_system_operations()`` — blocks detected write
+         spellings in readonly mode
     Safety layers applied during execution:
-      3. ``ExecutionWrapper`` monkeypatch — validates epics.caput() against limits DB
-      4. Process isolation — code runs outside the MCP server process
-      5. Execution timeout — kills execution after configured timeout
+      4. Readonly guard — in readonly runs every direct-library write entry
+         point refuses, the connectors refuse ``write_channel``, and the EPICS
+         connector stays on the read_only gateway (``OSPREY_EXECUTION_MODE``)
+      5. ``ExecutionWrapper`` monkeypatch — validates epics.caput() against limits DB
+      6. Process isolation — code runs outside the MCP server process
+      7. Execution timeout — kills execution after configured timeout
 
     A ``save_artifact(obj, title, description)`` helper is available in the
     subprocess for saving objects to the artifact gallery.
@@ -73,6 +79,30 @@ async def execute(
             )
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
+
+    # Readonly runs may not import control-system clients at all. This is the
+    # pre-execution half of the readonly contract; the runtime half (the
+    # wrapper's readonly guard and the connector refusal) catches what no
+    # static check can.
+    if execution_mode == "readonly":
+        try:
+            from osprey.services.python_executor.analysis.safety_checks import (
+                check_readonly_imports,
+            )
+
+            import_issues = check_readonly_imports(code)
+        except ImportError:
+            import_issues = []
+        if import_issues:
+            return make_error(
+                "safety_error",
+                "Control-system client libraries cannot be imported in readonly mode.",
+                [
+                    *import_issues,
+                    "Use read_channel() from osprey.runtime for reads.",
+                    "Set execution_mode to 'readwrite' if writes are intentional.",
+                ],
+            )
 
     # Pattern detection (block writes in readonly mode)
     try:

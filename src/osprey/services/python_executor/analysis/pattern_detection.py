@@ -27,9 +27,15 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
     """
     Get framework-standard patterns for detecting control system operations.
 
-    SECURITY PURPOSE: These patterns detect ALL attempts to interact with control systems,
-    whether through the proper unified API or through direct library calls that would
-    bypass the connector's safety features (limits checking, verification, approval).
+    PURPOSE: These patterns detect the *standard spellings* of control system
+    interaction — the unified API and direct library calls that would bypass the
+    connector's safety features (limits checking, verification, approval). They
+    are an intent classifier feeding the approval flow and the audit trail, not
+    an enforcement boundary: a trivially aliased call (``from epics import caput
+    as _w``) evades any call-site regex. Readonly runs are *enforced* at runtime
+    instead — by the wrapper's readonly guard, the connector base class's
+    ``OSPREY_EXECUTION_MODE`` refusal, and the EPICS connector's read_only
+    gateway selection — and readwrite runs always require human approval.
 
     Pattern Categories:
     1. **Approved API**: osprey.runtime unified API with full safety features
@@ -43,12 +49,14 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
         Dictionary with 'write' and 'read' pattern lists
 
     Security Note:
-        An LLM could try to circumvent the connector by directly importing a
-        control system library. These patterns cover the libraries OSPREY
-        supports: pyepics (Channel Access), p4p (PVAccess), PyTango, and
-        LabVIEW bindings, plus the osprey.runtime API itself. A library outside
-        that list is not detected - add facility-specific spellings under
-        control_system.patterns in config.yml.
+        These patterns cover the libraries OSPREY supports: pyepics (Channel
+        Access), p4p (PVAccess), PyTango, and LabVIEW bindings, plus the
+        osprey.runtime API itself. A library outside that list is not detected
+        - add facility-specific spellings under control_system.patterns in
+        config.yml. Detection here is best-effort text matching; the layers
+        that do not depend on spelling are the readonly runtime guard, the
+        readonly import denylist (``check_readonly_imports``), and the
+        always-ask approval policy for readwrite runs.
     """
     return {
         "write": [
@@ -194,7 +202,7 @@ def detect_control_system_operations(
         >>> result['has_writes']
         True
 
-        EPICS circumvention detected (security layer catches direct library calls):
+        EPICS circumvention detected (standard spelling of a direct library call):
         >>> code = "epics.caput('BEAM:CURRENT', 500.0)"
         >>> result = detect_control_system_operations(code)
         >>> result['has_writes']

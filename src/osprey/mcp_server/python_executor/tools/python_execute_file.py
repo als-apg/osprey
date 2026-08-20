@@ -124,6 +124,30 @@ async def execute_file(
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
 
+    # Readonly runs may not import control-system clients at all. This is the
+    # pre-execution half of the readonly contract; the runtime half (the
+    # wrapper's readonly guard and the connector refusal) catches what no
+    # static check can.
+    if execution_mode == "readonly":
+        try:
+            from osprey.services.python_executor.analysis.safety_checks import (
+                check_readonly_imports,
+            )
+
+            import_issues = check_readonly_imports(code)
+        except ImportError:
+            import_issues = []
+        if import_issues:
+            return make_error(
+                "safety_error",
+                "Control-system client libraries cannot be imported in readonly mode.",
+                [
+                    *import_issues,
+                    "Use read_channel() from osprey.runtime for reads.",
+                    "Set execution_mode to 'readwrite' if writes are intentional.",
+                ],
+            )
+
     # Pattern detection (block writes in readonly mode)
     try:
         from osprey.services.python_executor.analysis.pattern_detection import (

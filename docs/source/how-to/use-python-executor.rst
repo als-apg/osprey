@@ -137,26 +137,39 @@ project's own environment, so executed code sees the same imports either way.
 Security Model
 ==============
 
-Five safety layers are applied in sequence:
+Seven safety layers are applied in sequence:
 
 1. **Static safety check** (``quick_safety_check``)---blocks dangerous
    patterns such as dynamic code evaluation, dynamic imports, and
    ``subprocess`` calls before execution begins.
 
-2. **Control-system pattern detection**
+2. **Readonly import denylist** (``check_readonly_imports``)---a
+   ``readonly`` run may not import control-system client libraries
+   (``epics``, ``p4p``, ``caproto``, ``pvaccess``, ``tango``) at all.
+   Reads go through ``read_channel()``.
+
+3. **Control-system pattern detection**
    (``detect_control_system_operations``)---identifies read and write
    patterns. In ``readonly`` mode, detected writes cause immediate
    rejection.
 
-3. **Limits monkeypatch** (``ExecutionWrapper`` /
+4. **Readonly runtime guard**---the declared mode is exported into the
+   subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
+   direct-library write entry point (``epics.caput``, ``PV.put``, p4p
+   ``Context.put``/``rpc``) is replaced with a refusing function, the
+   connectors refuse ``write_channel``, and the EPICS connector stays on
+   the ``read_only`` gateway --- so a write is refused at runtime and at
+   the network layer however it is spelled.
+
+5. **Limits monkeypatch** (``ExecutionWrapper`` /
    ``LimitsValidator``)---at runtime, ``epics.caput()`` calls are
    intercepted and validated against the channel limits database.
    Out-of-range values are blocked.
 
-4. **Process isolation**---code always runs in a separate subprocess, never
+6. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
 
-5. **Execution timeout**---configurable via
+7. **Execution timeout**---configurable via
    ``python_executor.execution_timeout_seconds`` (default 600 s). The
    process is killed if it exceeds the limit.
 
