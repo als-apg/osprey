@@ -19,6 +19,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `osprey profile artifacts` prints that same artifact menu from the command
   line, grouped by kind.
 
+- Sites behind a TLS-intercepting proxy can now stay on verified TLS at every
+  layer: the generated Dockerfile takes an `OSPREY_SITE_CA` build argument
+  naming a site CA staged in the build context (installed before the first
+  fetch, with `NODE_EXTRA_CA_CERTS`/`PIP_CERT`/`SSL_CERT_FILE`/
+  `REQUESTS_CA_BUNDLE` pointed at the merged bundle), `osprey vendor fetch`
+  honors a new `OSPREY_CA_BUNDLE` variable, and the `.env.shared` starter
+  carries a commented site-CA block beside the proxy one.
+
 - The OSPREY agent now knows which Bluesky plans a deployment ships with —
   what each one does and whether it moves the machine — so it can reuse an
   existing plan instead of writing a new one. New `bluesky-plans` skill,

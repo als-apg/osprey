@@ -1019,6 +1019,12 @@ ENV_SHARED = """\
 # NO_PROXY=localhost,127.0.0.1
 # HTTP_PROXY=http://proxy.example.com:8080
 # HTTPS_PROXY=http://proxy.example.com:8080
+
+# Site CA bundle — uncomment if a proxy re-signs TLS with a site CA.
+# On RHEL-family hosts the system bundle lives here:
+# SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# REQUESTS_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# NODE_EXTRA_CA_CERTS=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 """
 
 #: Written only when the factory is asked for a seeded repo. Values are the

@@ -12,8 +12,9 @@ every project.
    - What the generated ``Dockerfile`` / ``.dockerignore`` are and who owns them
    - How to keep a customized Dockerfile across rebuilds
    - Building and running the image (ports, secrets, volumes)
-   - The three build-arg extension points for site-specific installs
-   - Building behind a proxy, and staging model files for the search sidecar
+   - The build-arg extension points for site-specific installs
+   - Building behind a proxy — including one that re-signs TLS with a site CA
+     — and staging model files for the search sidecar
    - Path relocation with ``osprey build --runtime-root``
    - Air-gapped images, the non-root requirement, and Kubernetes notes
 
@@ -102,8 +103,13 @@ The image exposes these knobs for site-specific builds:
      - Version of the agent CLI installed into the image. The default pin
        matches the framework version that generated the Dockerfile; override
        to test a newer CLI without regenerating the project.
+   * - ``OSPREY_SITE_CA``
+     - ``""``
+     - Name of a site CA file staged in the build context, for networks
+       where a proxy re-signs TLS with its own CA — see
+       `TLS-Intercepting Proxies`_ below. Unset, the CA step does nothing.
 
-(A fifth ARG, ``OSPREY_DEV``, is used internally by ``osprey up
+(A sixth ARG, ``OSPREY_DEV``, is used internally by ``osprey up
 --dev`` to install a locally built wheel; you normally never set it by hand.)
 
 Example — install OSPREY from an internal mirror behind a proxy, with
@@ -162,6 +168,56 @@ dependency layer the bridge runs first and the existing
 ``NO_PROXY="$PIP_NO_PROXY"`` export follows it, so a site that needs an
 exemption there sets ``PIP_NO_PROXY`` exactly as before while ``http_proxy`` and
 ``https_proxy`` are bridged normally.
+
+TLS-Intercepting Proxies
+------------------------
+
+Some proxies do more than relay: they terminate every HTTPS connection and
+re-sign it with the site's own CA (Squid is a common example). Delivering the
+proxy values as above is then not enough — every fetch inside the build (apt,
+npm, pip, the optional ``osprey vendor fetch``) fails cert verification,
+because nothing in the image trusts that CA yet.
+
+The ``OSPREY_SITE_CA`` build argument closes the gap. A Dockerfile ``COPY``
+cannot reach outside the build context, so first stage a copy of the CA bundle
+beside the Dockerfile, then name it:
+
+.. code-block:: bash
+
+   cd build/.image/my-project
+   cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem site-ca.pem
+   docker build -t my-project --build-arg OSPREY_SITE_CA=site-ca.pem \
+     -f build/Dockerfile .
+
+That first path is where a RHEL-family build host keeps its system bundle
+(individual CA files also live under ``/etc/pki/ca-trust/source/anchors/``).
+The path is a host fact, not an image fact: the image is Debian, and inside it
+the staged CA is installed with ``update-ca-certificates`` — before the first
+fetch — into the merged Debian bundle at ``/etc/ssl/certs/ca-certificates.crt``.
+
+Installing the CA into the system store only covers the tools that read it.
+Each tool family finds its trust through a different variable, so the image
+also points all four at that merged bundle, for build steps and the running
+container alike:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - Variable
+     - Who reads it
+   * - ``NODE_EXTRA_CA_CERTS``
+     - Node (and so npm) — Node ships its own CA list and consults no
+       system store without it.
+   * - ``PIP_CERT``
+     - pip — which otherwise trusts only its bundled ``certifi`` store.
+   * - ``SSL_CERT_FILE``
+     - Python's ``ssl`` module (any default SSL context).
+   * - ``REQUESTS_CA_BUNDLE``
+     - The ``requests`` library.
+
+With no CA staged, the whole mechanism is a no-op: the variables restate each
+tool's default and the build behaves exactly as before.
 
 Prefetched Models for the Search Sidecar
 ========================================
