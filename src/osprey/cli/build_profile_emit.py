@@ -250,14 +250,30 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 """,
     "provider": """
 # --- LLM provider ------------------------------------------------------------
-# Provider the deployment's agents talk to. Must be configured in the project's
-# config.yml api.providers block.
+# Provider the deployment's agents talk to: a built-in name (anthropic, cborg,
+# als-apg, ...) or any custom gateway described under `config:` api.providers.
+# A custom gateway's key goes in this repo's .env — the variable name derives
+# from the provider name, <NAME>_API_KEY. Worked example:
+#
+# provider: my-gateway
+# config:
+#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
+#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
+#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
+#   # in Anthropic mode), so the local translation proxy is skipped:
+#   api.providers.my-gateway.api_protocol: anthropic
+#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
+#   # fall back to `model:`, with a build-time warning:
+#   api.providers.my-gateway.models:
+#     haiku: claude-haiku-4-5
+#     sonnet: claude-sonnet-4-6
+#     opus: claude-opus-4-6
 #
 # provider: anthropic
 """,
     "model": """
 # --- Default model -----------------------------------------------------------
-# A tier (haiku/sonnet/opus) or a model ID the provider serves.
+# A tier (haiku/sonnet/opus) or any model ID the provider serves.
 #
 # model: sonnet
 """,

@@ -642,10 +642,13 @@ def test_partial_render_raises(tmp_path, calls):
     assert calls == []
 
 
-def test_existing_render_with_unservable_model_raises(tmp_path, calls):
-    """A persona render whose config names a model its provider cannot serve
-    must fail the deploy here, with the path and a remedy — not boot a
-    web-terminal container that crash-loops behind the reverse proxy (502)."""
+def test_existing_render_with_free_form_model_passes(tmp_path, calls):
+    """A persona render naming a model outside the provider's tier map deploys.
+
+    The resolver passes such an ID through verbatim (the operator is trusted
+    to name a model the provider serves), so the startup-parity check must not
+    refuse it either — the terminal would boot with ANTHROPIC_MODEL set to
+    exactly that ID."""
     repo = _repo(tmp_path, "ops")
     project_path = _render(repo)
     (project_path / "config.yml").write_text(
@@ -656,11 +659,7 @@ def test_existing_render_with_unservable_model_raises(tmp_path, calls):
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="neither a model tier nor a model ID") as excinfo:
-        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
-
-    assert str(project_path) in str(excinfo.value)
-    assert "osprey build" in str(excinfo.value)  # remedy: fix the profile, rebuild
+    persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
     assert calls == []
 
 
@@ -890,14 +889,20 @@ def test_the_messages_own_placeholder_token_is_not_reported_as_a_variable(tmp_pa
 
 def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
     """The converse, and the reason arm order matters: the credential arm sits
-    ahead of the general one and must not swallow a genuine model failure."""
+    ahead of the general one and must not swallow a genuine model failure.
+
+    The one model failure left (free-form IDs now pass through) is a custom
+    provider with no models map and no default model to fall back on."""
     repo = _repo(tmp_path, "ops")
     project_path = _render(repo)
     (project_path / "config.yml").write_text(
         "project_name: ops-app\n"
+        "api:\n"
+        "  providers:\n"
+        "    my-gateway:\n"
+        "      base_url: https://gw.example.org/v1\n"
         "claude_code:\n"
-        "  provider: anthropic\n"
-        "  default_model: anthropic/claude-opus\n"
+        "  provider: my-gateway\n"
         "  telemetry:\n"
         "    enabled: true\n"
         "    backend: openobserve\n"
