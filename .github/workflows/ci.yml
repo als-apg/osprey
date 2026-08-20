@@ -2019,7 +2019,7 @@ jobs:
         # code cannot express the difference.
         #
         # The `claude` CLI case is the live one, not a hypothetical:
-        # claude-agent-sdk (0.2.110) bundles its own CLI and installs no
+        # claude-agent-sdk (0.2.136) bundles its own CLI and installs no
         # `claude` console script, so the module's
         # `is_claude_code_available()` skipif can fire on a runner where the
         # SDK would in fact work — silently reducing this lane to its offline
