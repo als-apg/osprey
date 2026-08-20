@@ -94,6 +94,8 @@ def live_reporter(monkeypatch: pytest.MonkeyPatch):
     console = Console(
         file=buffer,
         force_terminal=True,
+        color_system="standard",
+        no_color=False,
         width=_WIDTH,
         theme=osprey_theme,
         legacy_windows=False,
