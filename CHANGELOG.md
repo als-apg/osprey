@@ -11,6 +11,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Security
+
+- Readwrite Python executions now always require human approval under the
+  `selective` policy, independent of whether the write-pattern scanner
+  recognises the code's spelling.
+
 ### Added
 
 - A fresh `profile.yml` now shows its whole menu: every hook, rule, skill,
