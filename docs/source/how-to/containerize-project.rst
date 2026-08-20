@@ -219,6 +219,31 @@ container alike:
 With no CA staged, the whole mechanism is a no-op: the variables restate each
 tool's default and the build behaves exactly as before.
 
+.. note::
+
+   The same interception can fail ``osprey build`` **on the host**, before any
+   container is involved — and the symptom is confusing, because plain
+   connectivity checks all pass. While preparing the project environment,
+   pip's build-isolation subprocess dies with ``SSL: CERTIFICATE_VERIFY_FAILED``
+   fetching a build backend such as ``hatchling``, even though ``curl`` and the
+   system Python verify the same endpoints fine. The difference is the trust
+   store: those tools read the system bundle, which knows the proxy's CA, while
+   the venv's pip trusts only its bundled ``certifi`` store, which cannot build
+   the proxied chain. Point the certifi-backed clients at the system bundle
+   before building:
+
+   .. code-block:: bash
+
+      export SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt \
+             REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-bundle.crt \
+             PIP_CERT=/etc/ssl/certs/ca-bundle.crt
+
+   (``/etc/ssl/certs/ca-bundle.crt`` is the RHEL-family spelling of the system
+   bundle; Debian-family hosts use ``/etc/ssl/certs/ca-certificates.crt``.)
+   These are the same three variables the image sets for its own inside —
+   exported here, they cover the host-side build, which reads them from the
+   shell rather than from the deployment's env files.
+
 Prefetched Models for the Search Sidecar
 ========================================
 
