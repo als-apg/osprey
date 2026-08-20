@@ -33,7 +33,7 @@ import click
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
-from .output import report
+from .output import report, section
 from .profile_conventions import (
     BUILD_OUTPUT_DIR,
     CONTEXT_BASELINE_FILENAME,
@@ -77,6 +77,20 @@ def presets() -> None:
     Every name printed here is usable as 'osprey init --preset NAME'.
     """
     echo_preset_names()
+
+
+@profile.command()
+def artifacts() -> None:
+    """List every artifact the six profile lists can name.
+
+    One section per list key (hooks, rules, skills, agents, output_styles,
+    web_panels), each entry with a one-line description. The same menu
+    appears as commented entries in an emitted profile.yml.
+    """
+    from .build_profile_emit import artifact_menu_catalog
+
+    for kind, entries in artifact_menu_catalog().items():
+        section(kind, list(entries))
 
 
 @profile.command()

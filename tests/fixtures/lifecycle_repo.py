@@ -189,6 +189,9 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  # Available — uncomment to enable:
+  # - logbook-deep-research  # Multi-phase logbook investigation skill
+  # - sim-scenarios  # List and switch simulated machine scenarios
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -208,6 +211,8 @@ web_panels:
   - system-health   # SYSTEM tab, a framework health dashboard
   # The events and bluesky panels are declared in personas/readwrite.yml
   # instead, so the read-only login is built without them.
+  # Available — uncomment to enable:
+  # - lattice  # Lattice dashboard
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
