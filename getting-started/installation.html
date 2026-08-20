@@ -490,18 +490,22 @@ Windows (WSL2)</label><div class="sd-tab-content docutils">
 </section>
 <section id="step-2-install-claude-code">
 <h2>Step 2: Install Claude Code<a class="headerlink" href="#step-2-install-claude-code" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>@anthropic-ai/claude-code
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>@anthropic-ai/claude-code@2.1.146
 </pre></div>
 </div>
+<p>The pinned version is the one OSPREY’s generated projects run. Installing it
+exactly — rather than whatever was published most recently — means a brand-new
+CLI release can’t change your setup the day it comes out.</p>
 <p>Verify:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>--version
 </pre></div>
 </div>
 <section id="pinning-the-claude-code-cli-version">
 <h3>Pinning the Claude Code CLI version<a class="headerlink" href="#pinning-the-claude-code-cli-version" title="Link to this heading">#</a></h3>
-<p>Anthropic ships breaking changes to the Claude Code CLI from time to time. To
-insulate a project from upstream releases, pin a specific version in the
-project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<p>Anthropic ships breaking changes to the Claude Code CLI from time to time.
+The install command above already pins your global <code class="docutils literal notranslate"><span class="pre">claude</span></code> binary; to pin
+what a specific project launches — independently of what is installed
+globally — set a version in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.146&quot;</span><span class="w">   </span><span class="c1"># exact version, no semver ranges</span>
 </pre></div>
@@ -718,7 +722,7 @@ notebooks, databases, or simulation IOCs.</p>
 <summary class="sd-summary-title sd-card-header sd-bg-warning sd-bg-text-warning">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-alert" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg></span><span class="sd-summary-text">Common issues</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <dl class="simple">
-<dt><strong>“claude: command not found”</strong></dt><dd><p class="sd-card-text">Install Claude Code: <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">install</span> <span class="pre">-g</span> <span class="pre">&#64;anthropic-ai/claude-code</span></code></p>
+<dt><strong>“claude: command not found”</strong></dt><dd><p class="sd-card-text">Install Claude Code: <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">install</span> <span class="pre">-g</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;2.1.146</span></code></p>
 </dd>
 <dt><strong>“osprey: command not found”</strong></dt><dd><p class="sd-card-text">If you installed via <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">install</span> <span class="pre">osprey-framework</span></code>, make sure uv’s
 tool bin directory is on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code> — run <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">update-shell</span></code> once

@@ -1254,6 +1254,47 @@ badge answers <em>which tier is this user on?</em> and here the card and its per
 are the same word. Clicking any card opens that session at <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code>,
 proxied by nginx to its own container.</p>
 </section>
+<section id="what-your-operators-read-first">
+<h3>What your operators read first<a class="headerlink" href="#what-your-operators-read-first" title="Link to this heading">#</a></h3>
+<p>At the bottom of the landing page sit collapsible <strong>notices</strong> — the things your
+facility wants people to read before they open a terminal. Each notice is one
+markdown file, listed in config:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules.web_terminals</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">landing</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">notices</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/landing/working-safely.md</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/landing/local-procedures.md</span>
+<span class="w">    </span><span class="nt">footer</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ALS</span><span class="nv"> </span><span class="s">control</span><span class="nv"> </span><span class="s">room.</span><span class="nv"> </span><span class="s">Questions:</span><span class="nv"> </span><span class="s">ext.</span><span class="nv"> </span><span class="s">5555.&quot;</span>
+</pre></div>
+</div>
+<p>The file’s first heading (<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Working</span> <span class="pre">safely</span> <span class="pre">with</span> <span class="pre">the</span> <span class="pre">agent</span></code>) becomes the
+section label, and everything after it becomes the panel. So adding a section
+means writing a file and listing it — there is no schema to learn, and nothing
+about the text lives in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes a starter <code class="docutils literal notranslate"><span class="pre">data/landing/working-safely.md</span></code> into your
+project. It is yours: rewrite it for your facility, or drop it and list your own
+files instead. Sections appear in the order you list them, and each one gets an
+id from its filename, so you can point someone at
+<code class="docutils literal notranslate"><span class="pre">http://…:9080/#local-procedures</span></code> rather than at the page.</p>
+<p>Two edge cases are worth knowing:</p>
+<ul class="simple">
+<li><p><strong>Leave ``notices`` out entirely</strong> and you get OSPREY’s built-in safety
+notice. A config that says nothing still ships something.</p></li>
+<li><p><strong>Set ``notices: []``</strong> for no notices at all. That is the explicit way to
+turn them off.</p></li>
+</ul>
+<p>A file you list that does not exist is skipped and reported by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+as a warning. It is <em>not</em> replaced by the built-in notice — showing OSPREY’s
+safety text where your own procedures should have been would be worse than
+showing a gap.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Notice files are rendered to HTML at build time, so they are trusted input
+at the same level as <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> itself — anyone who can edit a notice can
+already edit your deployment’s configuration. The <code class="docutils literal notranslate"><span class="pre">footer</span></code> is a plain
+string and is always escaped.</p>
+</div>
+</section>
 <section id="two-sessions-two-write-postures">
 <h3>Two sessions, two write postures<a class="headerlink" href="#two-sessions-two-write-postures" title="Link to this heading">#</a></h3>
 <p>Each persona is a self-contained OSPREY project with its <strong>own</strong> permissions,
@@ -1318,8 +1359,9 @@ boundary itself: the refusal above fires with or without it.)</p>
 </section>
 <section id="logging-out-and-switching-users">
 <h3>Logging out and switching users<a class="headerlink" href="#logging-out-and-switching-users" title="Link to this heading">#</a></h3>
-<p>Every session’s header carries a chip naming the signed-in user; clicking it
-opens a small menu with <strong>Log out</strong>. That POSTs to the terminal’s logout
+<p>Every session’s header carries a chip in the top-left naming the terminal — the
+display name where the roster sets one, the username otherwise. Clicking it
+opens a small menu naming the signed-in user, with <strong>Log out</strong>. That POSTs to the terminal’s logout
 route, clears the local session pointer, and returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login
@@ -1670,6 +1712,7 @@ and the service containers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-multi-user-stack">Run the multi-user stack</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-build-and-osprey-up-do-for-the-web-tier">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do for the web tier</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-landing-page">The landing page</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-your-operators-read-first">What your operators read first</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#two-sessions-two-write-postures">Two sessions, two write postures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-out-and-switching-users">Logging out and switching users</a></li>
 </ul>
