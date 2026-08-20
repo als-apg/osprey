@@ -285,13 +285,16 @@ def test_ensure_service_tokens_writes_an_alphanumeric_tiled_key_every_time(
 def test_var_generators_registry_is_pinned():
     """Pin the blast radius: only vars with a downstream alphabet/policy
     constraint override the default token recipe (Tiled's alphanumeric
-    --api-key, OpenObserve's four-class root password, and the URI-safe
-    alphabet the ARIEL Postgres and archiver Mongo passwords share)."""
+    --api-key, OpenObserve's four-class root password, the URI-safe alphabet
+    the ARIEL Postgres and archiver Mongo passwords share, and the graph
+    store's password, which adds a no-``/`` rule because Neo4j receives it as
+    the password half of the composite ``NEO4J_AUTH``)."""
     assert set(container_lifecycle._VAR_GENERATORS) == {
         "BLUESKY_TILED_API_KEY",
         "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
         "MONGO_ROOT_PASSWORD",
+        "GRAPHDB_PASSWORD",
     }
     declared = {
         var for token_vars in container_lifecycle._SERVICE_TOKEN_VARS.values() for var in token_vars
@@ -501,8 +504,15 @@ def test_ensure_service_tokens_rejects_reserved_char_in_ariel_dsn_from_process_e
 
 def test_validate_only_vars_set_is_pinned():
     """Blast-radius pin for _VALIDATE_ONLY_VARS, mirroring the _VAR_GENERATORS
-    and _VAR_VALIDATORS pins."""
-    assert container_lifecycle._VALIDATE_ONLY_VARS == {"ARIEL_DSN"}
+    and _VAR_VALIDATORS pins.
+
+    The two members are here on two different grounds, and both are supported:
+    ARIEL_DSN because no osprey-native service ever declares it, and
+    GRAPHDB_PASSWORD because the service that *does* declare it (``graphdb``)
+    is absent from ``deployed_services`` on the external-store path, where the
+    operator supplies the value by hand.
+    """
+    assert container_lifecycle._VALIDATE_ONLY_VARS == {"ARIEL_DSN", "GRAPHDB_PASSWORD"}
 
 
 def test_validator_registry_keyset_is_pinned():
@@ -516,6 +526,7 @@ def test_validator_registry_keyset_is_pinned():
         "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
         "MONGO_ROOT_PASSWORD",
+        "GRAPHDB_PASSWORD",
     }
 
     declared = {
@@ -528,6 +539,17 @@ def test_validator_registry_keyset_is_pinned():
     # neither, the same "no dead entries" invariant _VAR_GENERATORS pins.
     live_validators = set(container_lifecycle._VAR_VALIDATORS)
     assert live_validators <= declared | container_lifecycle._VALIDATE_ONLY_VARS
-    # And the two sets are actually disjoint from each other today — ARIEL_DSN
-    # reaches _ensure_service_tokens only through the validate-only path.
-    assert container_lifecycle._VALIDATE_ONLY_VARS.isdisjoint(declared)
+    # ARIEL_DSN specifically must stay OUT of the declared minted vars: it names
+    # a Postgres this deploy does not run, so a _SERVICE_TOKEN_VARS entry for it
+    # would mean minting a DSN — fabricating a hostname nothing can honour.
+    #
+    # This is deliberately narrower than the full-set disjointness it replaces.
+    # Membership in BOTH maps is a supported pattern, not a mistake to catch:
+    # GRAPHDB_PASSWORD is declared by "graphdb" (deployed → minted) AND
+    # validate-only (external store, graphdb absent from deployed_services →
+    # the operator supplies the value and it is checked, never fabricated).
+    # See PROPOSAL.md's external-stores bullet. A var that is genuinely
+    # unmintable, like ARIEL_DSN, is the case worth pinning; a var that is
+    # mintable on one path and operator-supplied on another is not, and a later
+    # registry addition of that shape should not have to re-litigate this.
+    assert "ARIEL_DSN" not in declared

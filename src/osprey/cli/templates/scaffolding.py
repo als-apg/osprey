@@ -60,6 +60,7 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
     "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "MONGO_ROOT_PASSWORD": "archiver store root password (the seeder, recorder and agent all authenticate with it)",
+    "GRAPHDB_PASSWORD": "graph store password (the seeder, health check and deploy staging all authenticate with it)",
 }
 
 

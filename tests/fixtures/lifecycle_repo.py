@@ -944,6 +944,7 @@ OSPREY_AUTH_PW_BOB=bob
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
+# GRAPHDB_PASSWORD=  # graphdb — graph store password (the seeder, health check and deploy staging all authenticate with it)
 """
 
 #: The committed half of the env chain, as `osprey init` authors it: every line
