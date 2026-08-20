@@ -274,6 +274,10 @@ def chat(
         inject_provider_env,
         load_provider_spec,
     )
+    from osprey.build.claude_code_telemetry import (
+        ObservabilityCredentialError,
+        telemetry_creds_are_store_issued,
+    )
     from osprey.deployment.staleness import BUILD_DIRNAME
     from osprey.utils.claude_launcher import build_claude_launch_argv
 
@@ -322,6 +326,27 @@ def chat(
         spec = load_provider_spec(build_dir)
     except yaml.YAMLError as exc:
         raise _unreadable_config(config_path, exc) from exc
+    except ObservabilityCredentialError as exc:
+        # Keep this arm ahead of any broader one added later: it subclasses
+        # ValueError, so an `except ValueError` below would swallow it whole.
+        #
+        # Resolving the provider also resolves the telemetry block, so an
+        # observability credential that does not exist yet arrives as a failure
+        # to read the provider — and on a deployment that has never run
+        # `osprey up`, the store-issued token in the shipped telemetry block is
+        # exactly that. Drop telemetry for this session and start; the session
+        # is read-oriented, ends when the operator closes it, and losing its
+        # traces is not a reason to withhold the agent. Anything else — a
+        # credential an operator has to set, or one that is simply blank —
+        # keeps raising untouched.
+        if not telemetry_creds_are_store_issued(exc):
+            raise
+        output.warn(
+            "Telemetry is off for this session",
+            f"`osprey up` issues {', '.join(exc.unresolved_vars)} when it starts the "
+            "telemetry store, and this deployment has not been started yet.",
+        )
+        spec = load_provider_spec(build_dir, include_telemetry=False)
 
     if spec is None:
         # No provider configured, so inject_provider_env — the only caller of

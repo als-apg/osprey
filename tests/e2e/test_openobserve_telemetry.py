@@ -8,6 +8,16 @@ the REAL resolver (:func:`_build_telemetry_env`) computes from the project
 credentials, and asserts via the OpenObserve query API that both landed (i.e.
 auth was accepted and ingest works).
 
+TWO identities are covered, and the distinction is the point. The root
+credential (``ZO_ROOT_USER_*``) initializes the store and is what this fixture
+brings it up with. The INGEST identity is what every shipped telemetry block
+authenticates as: ``osprey up`` creates a service account in the store and
+writes the token the store issues for it into the repo's ``.env`` as
+``ZO_INGEST_SA_TOKEN``. The ingest round-trip reads those values back from
+``.env`` rather than restating them, so it fails if the provisioning step
+silently did not run — and a wrong-credential rejection is pinned for both, or
+a store that stopped enforcing auth would pass every positive assertion.
+
 Why synthetic and not a live agent turn: a real ``claude_code_*`` metric needs
 an actual model turn + a provider API key, which this CI lane deliberately does
 not require. The synthetic payload exercises exactly the thing under test — the
@@ -45,7 +55,15 @@ import pytest
 import yaml
 
 from osprey.build.claude_code_telemetry import _build_telemetry_env
+from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
+from osprey.deployment.openobserve_provision import INGEST_TOKEN_VAR
+from osprey.utils.dotenv import parse_dotenv_file
 from tests.e2e._volumes import remove_project_volumes
+
+#: The ingest account NAME, read off the registry that pairs it with the token
+#: rather than spelled again here — the two must never disagree about which
+#: identity the harvested token belongs to.
+INGEST_EMAIL_VAR = _STORE_ISSUED_VARS[INGEST_TOKEN_VAR].identity_var
 
 # Deliberately NOT OpenObserve's 5080 default: this is a shared dev machine and
 # 5080 can collide with an unrelated process. Pinned through the SOURCE zone at
@@ -336,7 +354,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
-def _resolver_telemetry_env() -> dict[str, str]:
+def _resolver_telemetry_env(user: str = OO_EMAIL, password: str = OO_PASSWORD) -> dict[str, str]:
     """Build the telemetry env via the REAL resolver helper, pinned at the deployed URL.
 
     The endpoint is set explicitly to the deployed host:port (the resolver's
@@ -344,20 +362,25 @@ def _resolver_telemetry_env() -> dict[str, str]:
     :5080, not this test's pinned port). The Basic auth header, however, is the
     genuine value the resolver computes from the deployment's credentials — so a
     successful ingest proves OSPREY's real header authenticates.
+
+    The credentials are arguments rather than the module constants because the
+    same resolver serves two identities here: the root credential this fixture
+    initializes the store with, and the ingest service account ``osprey up``
+    provisions — which is what every shipped telemetry block names.
     """
     return _build_telemetry_env(
         {
             "enabled": True,
             "backend": "openobserve",
             "endpoint": f"{OO_BASE_URL}/api/{OO_ORG}",
-            "openobserve": {"user": OO_EMAIL, "password": OO_PASSWORD, "org": OO_ORG},
+            "openobserve": {"user": user, "password": password, "org": OO_ORG},
         },
         in_container=False,
     )
 
 
-def _auth_header_from_resolver() -> str:
-    env = _resolver_telemetry_env()
+def _auth_header_from_resolver(user: str = OO_EMAIL, password: str = OO_PASSWORD) -> str:
+    env = _resolver_telemetry_env(user, password)
     otlp_headers = env["OTEL_EXPORTER_OTLP_HEADERS"]
     # OTLP header wire format: comma-separated k=v; value may contain '=' (base64
     # padding), so split on the FIRST '=' only.
@@ -545,6 +568,130 @@ def test_bad_credentials_are_rejected(deployed_openobserve: Path) -> None:
     bad = "Basic " + base64.b64encode(b"wrong@user.local:nope").decode()
     status, _ = _otlp_post(f"/api/{OO_ORG}/v1/logs", _synthetic_event(1), bad)
     assert status in (401, 403), f"expected auth rejection, got {status}"
+
+
+# ---------------------------------------------------------------------------
+# The ingest identity — what the shipped configs actually authenticate as
+# ---------------------------------------------------------------------------
+
+
+def _ingest_credentials(repo: Path) -> tuple[str, str]:
+    """The ingest account name + token ``osprey up`` left in the repo's ``.env``.
+
+    ``pytest.fail``, not ``assert``: an absent token means the provisioning step
+    never ran (or failed), which is deterministic — rerunning would burn two
+    more multi-minute deploys on the same outcome.
+    """
+    env = parse_dotenv_file(repo / ".env")
+    email = env.get(INGEST_EMAIL_VAR, "")
+    token = env.get(INGEST_TOKEN_VAR, "")
+    if not token:
+        pytest.fail(
+            f"{INGEST_TOKEN_VAR} absent from {repo / '.env'} after `osprey up` — "
+            f"the ingest identity was never provisioned. Keys present: {sorted(env)!r}"
+        )
+    if not email:
+        pytest.fail(f"{INGEST_EMAIL_VAR} absent from {repo / '.env'} after `osprey up`")
+    return email, token
+
+
+def test_the_deploy_provisions_a_distinct_ingest_identity(deployed_openobserve: Path) -> None:
+    """The token is the STORE's, not something OSPREY minted for itself.
+
+    Pinned as "not the root password" rather than by format alone: the whole
+    point of the service-account route is that the credential the agent carries
+    is a different secret from the one that administers the store, so a
+    provisioner that quietly reused the root password would satisfy every
+    round-trip below and defeat the change entirely.
+    """
+    _email, token = _ingest_credentials(deployed_openobserve)
+
+    assert token != OO_PASSWORD
+    # Server-generated, and never handed to the root password's validator (8-128
+    # chars, four character classes) — it would be refused.
+    assert token.isalnum(), f"unexpected token shape: {len(token)} chars"
+
+
+def test_synthetic_otlp_roundtrip_via_the_ingest_identity(deployed_openobserve: Path) -> None:
+    """The round-trip the shipped telemetry blocks actually perform.
+
+    Same synthetic payload and same REAL resolver as the root-credential
+    round-trip above, with the one thing under test swapped: the credentials
+    are the ones `osprey up` provisioned and wrote to ``.env``, read back from
+    there rather than restated here.
+    """
+    email, token = _ingest_credentials(deployed_openobserve)
+    auth = _auth_header_from_resolver(user=email, password=token)
+    decoded = base64.b64decode(auth.removeprefix("Basic ")).decode()
+    assert decoded == f"{email}:{token}"
+
+    now_ns = int(time.time() * 1_000_000_000)
+    metric_status, metric_body = _otlp_post(
+        f"/api/{OO_ORG}/v1/metrics", _synthetic_metric(now_ns), auth
+    )
+    assert metric_status == 200, (
+        f"ingest-identity metric rejected: {metric_status} {metric_body} — "
+        f"{_container_cred_diagnosis()}"
+    )
+    event_status, event_body = _otlp_post(f"/api/{OO_ORG}/v1/logs", _synthetic_event(now_ns), auth)
+    assert event_status == 200, f"ingest-identity event rejected: {event_status} {event_body}"
+
+    start_us = (now_ns // 1_000) - 3_600_000_000
+    end_us = (now_ns // 1_000) + 60_000_000
+    deadline = time.monotonic() + INGEST_QUERY_TIMEOUT_SEC
+    event_total = 0
+    while time.monotonic() < deadline:
+        # Queried with the SAME identity that wrote it: the account reads back
+        # what it ingests, which is a documented property of this route (there
+        # is no ingest-only role in any OpenObserve edition) and is what makes
+        # this assertion possible without falling back to the root credential.
+        _, eres = _query(
+            f"/api/{OO_ORG}/_search?type=logs",
+            {
+                "query": {
+                    "sql": "SELECT * FROM \"default\" WHERE service_name = 'claude-code'",
+                    "start_time": start_us,
+                    "end_time": end_us,
+                    "size": 5,
+                }
+            },
+            auth,
+        )
+        event_total = eres.get("total", 0)
+        if event_total >= 1:
+            break
+        time.sleep(2.0)
+
+    assert event_total >= 1, "no record visible after ingest via the ingest identity"
+
+
+def test_a_wrong_token_for_the_ingest_account_is_rejected(deployed_openobserve: Path) -> None:
+    """The negative half, aimed at the identity that now carries the traffic.
+
+    Without it, a store that had somehow stopped enforcing auth on the ingest
+    account would pass every assertion above.
+    """
+    email, token = _ingest_credentials(deployed_openobserve)
+    wrong = ("x" if not token.startswith("x") else "y") + token[1:]
+    assert wrong != token
+
+    bad = "Basic " + base64.b64encode(f"{email}:{wrong}".encode()).decode()
+    status, _ = _otlp_post(f"/api/{OO_ORG}/v1/logs", _synthetic_event(1), bad)
+    assert status in (401, 403), f"expected auth rejection, got {status}"
+
+
+def test_the_rendered_config_names_the_ingest_identity(deployed_openobserve: Path) -> None:
+    """The render is what the deployed agent reads, so pin it there and not only
+    in the template: user carries its own fallback, the token carries none.
+
+    A ``:-default`` on the token would be a literal credential shipped in every
+    render — which is exactly what this deployment path exists to avoid.
+    """
+    config = yaml.safe_load((deployed_openobserve / "build" / "config.yml").read_text())
+    openobserve = config["claude_code"]["telemetry"]["openobserve"]
+
+    assert openobserve["user"] == f"${{{INGEST_EMAIL_VAR}:-ingest@example.com}}"
+    assert openobserve["password"] == f"${{{INGEST_TOKEN_VAR}}}"
 
 
 @pytest.mark.skipif(

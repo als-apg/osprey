@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -3529,3 +3530,85 @@ def test_persona_less_roster_without_writes_is_not_armed() -> None:
     # Assert
     env = compose["services"]["web-alice"]["environment"]
     assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in env)
+
+
+# ---------------------------------------------------------------------------
+# Telemetry ingest token -> EVERY per-user container
+#
+# The one telemetry credential a web terminal must hold, and the one place it
+# can arrive. Each persona's rendered config.yml carries the ingest token
+# reference verbatim -- the build defers it, because the STORE mints the value
+# -- and the agent re-resolves it against the container's own environment at
+# spawn. `.env.users` deliberately does not carry it
+# (`env_production._build_env_production_subset`), so without this line the
+# placeholder is still a placeholder inside the container and the terminal's
+# strict startup check refuses to run: a crash-loop behind the proxy, on every
+# deploy, for every user.
+#
+# Unconditional, unlike the three credentials above: every terminal runs an
+# agent that emits telemetry as the same account, so there is no tier to
+# express -- gating it on a persona set would only produce terminals that
+# cannot start.
+# ---------------------------------------------------------------------------
+
+_INGEST_TOKEN_LINE = "ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}"
+
+
+def test_every_user_container_receives_the_telemetry_ingest_token() -> None:
+    """Both users, whatever their persona: the token is not an entitlement."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        assert _INGEST_TOKEN_LINE in compose["services"][service]["environment"]
+
+
+def test_the_ingest_token_is_emitted_without_any_persona_set() -> None:
+    """The no-project-root render path (`osprey scaffold web-terminals render`)
+    passes no persona sets at all. The three entitlement credentials are omitted
+    there; this one must not be, or that render produces a stack whose terminals
+    cannot start."""
+    # Act
+    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
+
+    # Assert
+    assert _INGEST_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_the_ingest_token_is_interpolated_never_written_into_the_artifact() -> None:
+    """The secret itself never lands in a rendered file: compose resolves the
+    reference at container-create time from the deploy `.env`, which is where
+    `osprey up` harvests the token to."""
+    # Act
+    rendered = render_web_terminals(_config(["alice"]))["docker-compose.web.yml"]
+
+    # Assert
+    assert "${ZO_INGEST_SA_TOKEN" in rendered
+
+
+def test_the_shipped_config_and_the_container_env_name_the_same_variable() -> None:
+    """The end of the chain, pinned across the two files that have to agree.
+
+    A persona's telemetry block names the variable; this compose service is the
+    only thing that puts it in the container. Repoint one without the other --
+    exactly what happened when the shipped configs moved off the store's root
+    credential -- and every web terminal starts naming a variable nothing sets.
+    """
+    # Arrange
+    import osprey
+
+    shipped_config = Path(osprey.__file__).parent / "templates" / "project" / "config.yml.j2"
+    shipped = shipped_config.read_text(encoding="utf-8")
+    declared = re.search(r"^ *password: \$\{([A-Za-z_][A-Za-z0-9_]*)\}$", shipped, re.MULTILINE)
+    assert declared, "the shipped telemetry block no longer names a bare ${VAR} password"
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
+
+    # Assert
+    environment = compose["services"]["web-alice"]["environment"]
+    delivered = {entry.split("=", 1)[0] for entry in environment}
+    assert declared.group(1) in delivered

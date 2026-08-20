@@ -38,6 +38,13 @@ different volumes:
   against is a REFUSAL, naming ``osprey build``, because a file added or
   removed after the build contributes nothing to what the stack reads.
 
+And one advisory about the other direction — a name the deployment DECLARED for
+passthrough (``services.<name>.env``) that nothing on this host sets. The
+renderer hands such a name over as a bare ``${NAME}`` by design, so compose
+substitutes the empty string and the container starts with the variable
+set-and-empty; the declaration is the only evidence anyone meant otherwise, and
+this is the one moment the deploy holds both halves of the question.
+
 No container runtime is touched: the unit tests call the preflights directly,
 and the end-to-end tests drive ``osprey up`` with the runtime stubbed out.
 """
@@ -1229,3 +1236,862 @@ def test_an_unreadable_marker_falls_back_to_the_env_file_reading(tmp_path):
 
     with pytest.raises(RuntimeError):
         _preflight_env_chain_drift(_files(), repo)
+
+
+# ---------------------------------------------------------------------------
+# A pinned name the local file overrides refuses the deploy
+# ---------------------------------------------------------------------------
+# Local-wins is the chain working as designed, and stays that way for every
+# name a deployment has not spoken about. `env.pinned` is where it speaks: these
+# variables are decided by the shared half, so an override of one is not this
+# host's business but a contradiction of what the deployment says it runs on.
+# The refusal is evaluated on the PRE-MINT chain, ahead of the token mint that
+# writes into `.env` itself.
+
+
+def _pins(root: Path, *names: str) -> Path:
+    """A repo-root ``profile.yml`` declaring the given names under ``env.pinned``."""
+    entries = "".join(f"    - {name}\n" for name in names)
+    path = root / "profile.yml"
+    path.write_text(f"name: proj\nenv:\n  pinned:\n{entries}", encoding="utf-8")
+    return path
+
+
+def test_a_pinned_name_the_local_file_overrides_refuses(tmp_path, caplog):
+    repo = _repo(tmp_path, f"ARIEL_DB_PASSWORD={_PINNED}\n")
+    _shared(repo, f"ARIEL_DB_PASSWORD={_EXPORTED}\n")
+    _pins(repo, "ARIEL_DB_PASSWORD")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="env.pinned"):
+        container_lifecycle._preflight_pinned_overrides(repo)
+
+    assert "ARIEL_DB_PASSWORD" in caplog.text
+
+
+def test_the_refusal_names_the_variable_and_neither_value(tmp_path, caplog):
+    """Same names-never-values rule as every other report on this chain."""
+    repo = _repo(tmp_path, f"ARIEL_DB_PASSWORD={_PINNED}\n")
+    _shared(repo, f"ARIEL_DB_PASSWORD={_EXPORTED}\n")
+    _pins(repo, "ARIEL_DB_PASSWORD")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        container_lifecycle._preflight_pinned_overrides(repo)
+
+    assert _PINNED not in caplog.text and _EXPORTED not in caplog.text
+    assert _PINNED not in str(excinfo.value) and _EXPORTED not in str(excinfo.value)
+
+
+def test_every_contradicted_pin_is_named(tmp_path, caplog):
+    repo = _repo(tmp_path, "A=local\nB=local\nC=local\n")
+    _shared(repo, "A=shared\nB=shared\nC=local\n")
+    _pins(repo, "A", "B", "C")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        container_lifecycle._preflight_pinned_overrides(repo)
+
+    # C is pinned too, but the two files agree about it, so it is not overridden.
+    assert "A, B" in caplog.text
+    assert "2 variable(s)" in str(excinfo.value)
+
+
+def test_an_unpinned_override_is_not_refused(tmp_path):
+    """Local-wins stays the default; the declaration is what changes the answer."""
+    repo = _repo(tmp_path, "A=local\n")
+    _shared(repo, "A=shared\n")
+    _pins(repo, "B")
+
+    assert container_lifecycle._preflight_pinned_overrides(repo) == []
+
+
+def test_a_pinned_name_the_two_files_agree_on_is_not_an_override(tmp_path):
+    repo = _repo(tmp_path, "A=same\n")
+    _shared(repo, "A=same\n")
+    _pins(repo, "A")
+
+    assert container_lifecycle._preflight_pinned_overrides(repo) == []
+
+
+def test_a_pinned_name_the_local_file_never_sets_is_silent(tmp_path):
+    repo = _repo(tmp_path, "B=local\n")
+    _shared(repo, "A=shared\n")
+    _pins(repo, "A")
+
+    assert container_lifecycle._preflight_pinned_overrides(repo) == []
+
+
+def test_a_pinned_name_only_the_local_file_sets_refuses(tmp_path, caplog):
+    """The shared half not anchoring the name is the WORST version of this.
+
+    A pin says the shared half owns the variable. If ``.env`` is then the only
+    file that sets it, the stack runs entirely on a local value for a name the
+    deployment declares local files do not decide — and, unlike an override of
+    a shared line, there is no shared value anyone could compare against to
+    notice. Requiring a disagreement here would have made the declaration
+    enforceable in exactly the case it was not needed.
+    """
+    repo = _repo(tmp_path, "A=local\n")
+    _shared(repo, "B=shared\n")
+    _pins(repo, "A")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="env.pinned"):
+        container_lifecycle._preflight_pinned_overrides(repo)
+
+    assert "A" in caplog.text
+
+
+def test_a_pinned_name_set_locally_with_no_shared_file_at_all_refuses(tmp_path):
+    """The same shape one step further out: a chain whose shared half is absent.
+
+    A repo with no ``.env.shared`` anchors nothing, so every pinned name it
+    declares would be unenforceable if the refusal needed a shared line to
+    compare against.
+    """
+    repo = _repo(tmp_path, "A=local\n")
+    _pins(repo, "A")
+
+    with pytest.raises(RuntimeError, match="env.pinned"):
+        container_lifecycle._preflight_pinned_overrides(repo)
+
+
+def test_an_unpinned_name_only_the_local_file_sets_is_still_silent(tmp_path):
+    """The widening is scoped to the declaration.
+
+    ``.env`` carrying a name ``.env.shared`` never mentions is the ordinary way
+    a deployment holds a host-local value; only a pin makes it a contradiction.
+    """
+    repo = _repo(tmp_path, "A=local\n")
+    _shared(repo, "B=shared\n")
+    _pins(repo, "C")
+
+    assert container_lifecycle._preflight_pinned_overrides(repo) == []
+    assert _report_chain_overrides(repo) == ([], [])
+
+
+def test_a_repo_that_declares_no_pins_keeps_its_pre_pin_behaviour(tmp_path):
+    """No profile, no declaration, no new refusal — the whole chain still works."""
+    repo = _repo(tmp_path, "A=local\n")
+    _shared(repo, "A=shared\n")
+
+    assert container_lifecycle._preflight_pinned_overrides(repo) == []
+    assert _report_chain_overrides(repo) == (["A"], [])
+
+
+def test_a_contradicted_pin_never_reaches_the_deliberate_line(tmp_path, caplog):
+    """The buckets are disjoint: a pin is refused, not filed as intended."""
+    repo = _repo(tmp_path, "A=local\nB=local\n")
+    _shared(repo, "A=shared\nB=shared\n")
+    _pins(repo, "A")
+
+    with caplog.at_level(logging.INFO):
+        assert _report_chain_overrides(repo) == (["B"], [])
+
+    assert "variable(s): B." in caplog.text
+
+
+def test_a_contradicted_pin_is_not_reported_as_a_stale_pin(tmp_path, caplog):
+    """Stale-pin detection is a question about unpinned keys only."""
+    repo = _repo(tmp_path, "A=old-shared-value\n")
+    _shared(repo, "A=old-shared-value\n")
+    _report_chain_overrides(repo)  # the deploy that recorded the shared value
+    _shared(repo, "A=new-shared-value\n")
+    _pins(repo, "A")
+
+    with caplog.at_level(logging.WARNING):
+        assert _report_chain_overrides(repo) == ([], [])
+
+    assert "Stale pin" not in caplog.text
+
+
+def test_the_refusal_runs_before_the_token_mint(tmp_path, monkeypatch):
+    """PRE-MINT: the mint writes into ``.env``, and a doomed deploy provisions nothing.
+
+    A check downstream of the mint would be reading a file this very command has
+    already appended to, so it could refuse on a line no operator wrote.
+    """
+    repo = _repo(tmp_path, "A=local\n", _worker_compose("./.env.shared", "./.env"))
+    _shared(repo, "A=shared\n")
+    _pins(repo, "A")
+
+    order: list[str] = []
+    ran = _stub_runtime(monkeypatch, order)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_ensure_service_tokens",
+        lambda config, expose, env_path: order.append("mint") or set(),
+    )
+
+    with pytest.raises(RuntimeError, match="env.pinned"):
+        container_lifecycle._start_stack(
+            {"project_name": "proj", "deployed_services": ["postgresql"]},
+            _files(),
+            repo,
+            detached=True,
+            env_path=repo / ".env",
+        )
+
+    assert order == [], "the mint or the image build ran despite the refusal"
+    assert [cmd for cmd in ran if "compose" in cmd] == [], (
+        "a compose command ran despite the refusal"
+    )
+
+
+def test_a_deployment_whose_pins_are_respected_starts(tmp_path, monkeypatch):
+    """The refusal must be about the contradiction, not about declaring pins."""
+    repo = _repo(tmp_path, "B=local\n", _worker_compose("./.env.shared", "./.env"))
+    _shared(repo, "A=shared\n")
+    _pins(repo, "A")
+    ran = _stub_runtime(monkeypatch, [])
+
+    container_lifecycle._start_stack(
+        {"project_name": "proj", "deployed_services": ["postgresql"]},
+        _files(),
+        repo,
+        detached=True,
+        env_path=repo / ".env",
+    )
+
+    assert any("up" in cmd for cmd in ran), "the deploy did not reach `compose up`"
+
+
+# ---------------------------------------------------------------------------
+# A pinned name a shell export shadows refuses the deploy
+# ---------------------------------------------------------------------------
+# The export is the other way a value reaches the stack from around the chain,
+# and under Docker Compose it is the way that wins. The warning-only escape
+# hatch stays open for every unpinned name; for a pinned one the deployment has
+# already said the chain is the only source, so the divergence refuses and the
+# remedy is to unset the name. The decision is provider-independent; only the
+# mechanics sentence changes.
+
+
+def test_a_shadowed_pin_refuses_the_deploy(tmp_path, monkeypatch, caplog):
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\n",
+        "environment:\n  POSTGRES_PASSWORD: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="env.pinned"):
+        _preflight_env_shadowing(_files(), repo, provider=ComposeProvider.DOCKER_V2)
+
+    assert "PINNED_UPSTREAM_URL" in caplog.text
+    assert "unset PINNED_UPSTREAM_URL" in caplog.text
+
+
+def test_the_shadow_refusal_prints_neither_value(tmp_path, monkeypatch, caplog):
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\n",
+        "environment:\n  POSTGRES_PASSWORD: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        _preflight_env_shadowing(_files(), repo, provider=ComposeProvider.DOCKER_V2)
+
+    assert _PINNED not in caplog.text and _EXPORTED not in caplog.text
+    assert _PINNED not in str(excinfo.value) and _EXPORTED not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "provider, expected",
+    [
+        (ComposeProvider.DOCKER_V2, "substitutes the EXPORTED value"),
+        (ComposeProvider.PODMAN_COMPOSE, "reaches nothing"),
+        (None, "The supported providers invert this"),
+    ],
+)
+def test_the_refusal_states_the_provider_mechanics(
+    tmp_path, monkeypatch, caplog, provider, expected
+):
+    """Same decision under every provider; the sentence explaining it differs.
+
+    A repo deployed under both providers must not be startable on one host and
+    refused on the other for the same shell state — and an export silently
+    dropped is still a shell disagreeing with a name the deployment owns.
+    """
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\n",
+        "environment:\n  POSTGRES_PASSWORD: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError):
+        _preflight_env_shadowing(_files(), repo, provider=provider)
+
+    assert expected in caplog.text
+
+
+def test_an_unpinned_export_keeps_its_escape_hatch(tmp_path, monkeypatch, caplog):
+    """A one-off run against another host's credentials still warns and starts."""
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\n",
+        "environment:\n  POSTGRES_PASSWORD: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "SOMETHING_ELSE")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.WARNING):
+        assert _preflight_env_shadowing(_files(), repo) == ["PINNED_UPSTREAM_URL"]
+
+    assert "PINNED_UPSTREAM_URL" in caplog.text
+
+
+def test_an_agreeing_export_of_a_pinned_name_is_not_a_divergence(tmp_path, monkeypatch, caplog):
+    """The pin is about disagreement, not about exporting the name at all."""
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\n",
+        "environment:\n  POSTGRES_PASSWORD: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _PINNED)
+
+    with caplog.at_level(logging.WARNING):
+        assert _preflight_env_shadowing(_files(), repo) == []
+
+    assert caplog.text == ""
+
+
+def test_a_pinned_name_no_compose_file_reads_is_not_refused(tmp_path, monkeypatch, caplog):
+    """Interpolation scope is unchanged: a name nothing reads cannot change a start."""
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\n",
+        "environment:\n  UNRELATED: static\n",
+    )
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    assert _preflight_env_shadowing(_files(), repo) == []
+
+
+def test_an_exported_pin_the_chain_never_sets_refuses(tmp_path, monkeypatch, caplog):
+    """The chain being silent about the name does not make the export harmless.
+
+    A pin says the chain is that variable's only source. If the chain sets it
+    nowhere and a compose file interpolates it, the exported value is the ONLY
+    thing that reaches the stack — a shell deciding a variable the deployment
+    declared its own, with no chain entry anyone could later compare against.
+    """
+    repo = _repo(
+        tmp_path,
+        "OTHER=x\n",
+        "environment:\n  POSTGRES_PASSWORD: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="env.pinned"):
+        _preflight_env_shadowing(_files(), repo, provider=ComposeProvider.DOCKER_V2)
+
+    assert "PINNED_UPSTREAM_URL" in caplog.text
+    assert _EXPORTED not in caplog.text
+
+
+def test_an_exported_pin_refuses_even_when_the_chain_resolves_to_nothing(
+    tmp_path, monkeypatch, caplog
+):
+    """The chain's files exist but carry no values — every name is the shell's.
+
+    This is the same deploy as the one above, one step further out, and the
+    shape an early "nothing in the chain, nothing to compare" exit used to walk
+    straight past.
+    """
+    repo = _repo(tmp_path, "\n", "environment:\n  A: ${PINNED_UPSTREAM_URL}\n")
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="env.pinned"):
+        _preflight_env_shadowing(_files(), repo)
+
+
+def test_an_unpinned_export_the_chain_never_sets_is_still_not_a_divergence(
+    tmp_path, monkeypatch, caplog
+):
+    """The widening is the declaration's, not the interpolation's.
+
+    Without a pin, an exported name the chain does not carry is simply how that
+    variable reaches the stack; there is nothing for it to contradict, and
+    warning about it would flag every ordinary passthrough.
+    """
+    repo = _repo(
+        tmp_path,
+        "OTHER=x\n",
+        "environment:\n  POSTGRES_PASSWORD: ${LOOSE_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "SOMETHING_ELSE")
+    monkeypatch.setenv("LOOSE_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.WARNING):
+        assert _preflight_env_shadowing(_files(), repo) == []
+
+    assert caplog.text == ""
+
+
+def test_a_repo_with_no_chain_at_all_is_still_left_alone(tmp_path, monkeypatch):
+    """The boundary the refusal stops at: no env file, no ``--env-file``.
+
+    Compose is pointed at no store whatsoever, so the process environment is
+    the only source there is and a pin has nothing to be the source instead.
+    Refusing here would make such a deployment unstartable rather than pinned.
+    """
+    repo = _repo(tmp_path, None, "environment:\n  A: ${PINNED_UPSTREAM_URL}\n")
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    assert _preflight_env_shadowing(_files(), repo) == []
+
+
+def test_an_exported_pin_the_chain_never_sets_refuses_before_the_image_build(tmp_path, monkeypatch):
+    """End to end, on the deploy path: nothing is built and nothing is started."""
+    repo = _repo(
+        tmp_path,
+        "OTHER=x\n",
+        _worker_compose("./.env.shared", "./.env")
+        + "\n    environment:\n      A: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _shared(repo, "STILL_NOT_THE_PINNED_NAME=y\n")
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    order: list[str] = []
+    ran = _stub_runtime(monkeypatch, order)
+
+    with pytest.raises(RuntimeError, match="env.pinned"):
+        container_lifecycle._start_stack(
+            {"project_name": "proj", "deployed_services": ["postgresql"]},
+            _files(),
+            repo,
+            detached=True,
+            env_path=repo / ".env",
+        )
+
+    assert order == [], "the image build ran despite the refusal"
+    assert [cmd for cmd in ran if "compose" in cmd] == [], (
+        "a compose command ran despite the refusal"
+    )
+
+
+def test_the_unpinned_warning_is_emitted_before_the_pinned_refusal(tmp_path, monkeypatch, caplog):
+    """The refusal must not take the rest of the picture down with it."""
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\nLOOSE_UPSTREAM_URL={_PINNED}\n",
+        "environment:\n  A: ${PINNED_UPSTREAM_URL}\n  B: ${LOOSE_UPSTREAM_URL}\n",
+    )
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+    monkeypatch.setenv("LOOSE_UPSTREAM_URL", _EXPORTED)
+
+    with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError):
+        _preflight_env_shadowing(_files(), repo, provider=ComposeProvider.DOCKER_V2)
+
+    warned = [record for record in caplog.records if record.levelno == logging.WARNING]
+    refused = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert warned and refused
+    assert "LOOSE_UPSTREAM_URL" in warned[0].getMessage()
+    assert "PINNED_UPSTREAM_URL" not in warned[0].getMessage()
+
+
+def test_a_shadowed_pin_refuses_before_the_image_build(tmp_path, monkeypatch):
+    repo = _repo(
+        tmp_path,
+        f"PINNED_UPSTREAM_URL={_PINNED}\n",
+        _worker_compose("./.env.shared", "./.env")
+        + "\n    environment:\n      A: ${PINNED_UPSTREAM_URL}\n",
+    )
+    _shared(repo, "OTHER=x\n")
+    _pins(repo, "PINNED_UPSTREAM_URL")
+    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
+
+    order: list[str] = []
+    ran = _stub_runtime(monkeypatch, order)
+
+    with pytest.raises(RuntimeError, match="env.pinned"):
+        container_lifecycle._start_stack(
+            {"project_name": "proj", "deployed_services": ["postgresql"]},
+            _files(),
+            repo,
+            detached=True,
+            env_path=repo / ".env",
+        )
+
+    assert order == [], "the image build ran despite the refusal"
+    assert [cmd for cmd in ran if "compose" in cmd] == [], (
+        "a compose command ran despite the refusal"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Declared for passthrough, but unset on this host: an advisory, by name
+# ---------------------------------------------------------------------------
+# `services.<name>.env` is a service's promise to hand a HOST variable to its
+# container, and the renderer keeps it with a bare `${NAME}` — no `:-` default
+# (which would mean inventing a value) and no `:?` refusal (which would abort a
+# whole compose document over one service's variable). What that leaves is
+# compose substituting the EMPTY STRING, so an unset name reaches the container
+# set-and-empty rather than absent. Right at runtime, and invisible from
+# outside the container — which is why the deploy, holding both the
+# declarations and the host's env chain, says so here.
+
+
+def _declaring(*services: tuple[str, list[str]]) -> dict:
+    """A deploy config whose services declare the given passthrough names."""
+    return {
+        "project_name": "proj",
+        "deployed_services": [name for name, _ in services],
+        "services": {
+            name: {"path": f"./services/{name}", "env": names} for name, names in services
+        },
+    }
+
+
+def test_a_declared_name_nothing_sets_is_reported(tmp_path, caplog):
+    """The declaration is the only evidence anyone meant the variable to carry something."""
+    repo = _repo(
+        tmp_path,
+        "OTHER=x\n",
+        "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        unset = container_lifecycle._preflight_declared_env_unset(
+            _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+        )
+
+    assert unset == ["SITE_HTTP_PROXY"]
+    assert "SITE_HTTP_PROXY" in caplog.text
+
+
+def test_the_report_names_the_service_that_asked_for_it(tmp_path, caplog):
+    """A bare variable name leaves the operator hunting for who wants it."""
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+
+    with caplog.at_level(logging.WARNING):
+        container_lifecycle._preflight_declared_env_unset(
+            _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+        )
+
+    assert "qmd" in caplog.text
+
+
+def test_the_report_says_the_container_gets_an_empty_value(tmp_path, caplog):
+    """ "Unset" and "empty" are the same outcome here, and only one of them is obvious.
+
+    Code inside the container reading `os.environ.get(NAME, default)` gets ``""``
+    — which beats the default — so an operator told only "it is unset" would go
+    looking for a variable that is, from the container's side, present.
+    """
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+
+    with caplog.at_level(logging.WARNING):
+        container_lifecycle._preflight_declared_env_unset(
+            _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+        )
+
+    assert "EMPTY STRING" in caplog.text
+    assert ".env" in caplog.text
+
+
+def test_a_name_the_chain_sets_is_silent(tmp_path, caplog):
+    """The passthrough works. There is nothing to report."""
+    repo = _repo(
+        tmp_path,
+        "SITE_HTTP_PROXY=http://proxy.example:3128\n",
+        "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(
+                _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+            )
+            == []
+        )
+
+    assert caplog.text == ""
+
+
+def test_a_name_only_the_shared_half_sets_is_silent(tmp_path, caplog):
+    """`.env.shared` is a chain member; a value there reaches compose like any other."""
+    repo = _repo(tmp_path, None, "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+    _shared(repo, "SITE_HTTP_PROXY=http://proxy.example:3128\n")
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(
+                _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+            )
+            == []
+        )
+
+
+def test_a_name_only_the_process_environment_sets_is_silent(tmp_path, caplog):
+    """An export reaches compose without being in any file, so it is a value.
+
+    The question here is existence, not which side wins — that is the shadowing
+    preflight's question, and it is asked about names both sides set.
+    """
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(
+                _files(),
+                repo,
+                _declaring(("qmd", ["SITE_HTTP_PROXY"])),
+                environ={"SITE_HTTP_PROXY": "http://proxy.example:3128"},
+            )
+            == []
+        )
+
+    assert caplog.text == ""
+
+
+def test_an_empty_value_is_no_value(tmp_path, caplog):
+    """`NAME=` and no NAME at all put the identical empty string in the container.
+
+    `.env.example` renders a name the deployment reads as a bare `NAME=`, so the
+    copied-but-not-filled-in file is the exact shape this advisory exists to
+    catch — and treating its blanks as answers would silence it for the operator
+    who most needs it. Same rule `_required_env_problems` holds to.
+    """
+    repo = _repo(
+        tmp_path, "SITE_HTTP_PROXY=\n", "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n"
+    )
+
+    with caplog.at_level(logging.WARNING):
+        unset = container_lifecycle._preflight_declared_env_unset(
+            _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+        )
+
+    assert unset == ["SITE_HTTP_PROXY"]
+
+
+def test_a_declaration_no_compose_file_interpolates_is_not_reported(tmp_path, caplog):
+    """A service declared but not deployed renders no document, so it asks for nothing.
+
+    Reporting a passthrough that cannot reach any container this deploy starts
+    would make the advisory loudest about the services a deployment switched
+    off, which is the fastest way to teach an operator to scroll past it.
+    """
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SOMETHING_ELSE: ${SOMETHING_ELSE:-x}\n")
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(
+                _files(), repo, _declaring(("bluesky", ["SITE_HTTP_PROXY"])), environ={}
+            )
+            == []
+        )
+
+    assert caplog.text == ""
+
+
+def test_an_interpolated_name_no_service_declared_is_not_reported(tmp_path, caplog):
+    """This is not a census of every unset variable a compose file mentions.
+
+    Every template interpolates names with defaults it supplies itself. What
+    this advisory is about is the ones an author DECLARED, which is the only
+    evidence that an empty value was not the intent.
+    """
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  IMAGE: ${OSPREY_QMD_IMAGE:-proj:local}\n")
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(
+                _files(), repo, _declaring(("qmd", [])), environ={}
+            )
+            == []
+        )
+
+    assert caplog.text == ""
+
+
+def test_every_unset_name_is_named_across_every_service(tmp_path, caplog):
+    """Sorted, and complete: filling one in and hitting the next is the trap."""
+    repo = _repo(
+        tmp_path,
+        "OTHER=x\n",
+        "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
+        "environment:\n  FACILITY_TZ: ${FACILITY_TZ}\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        unset = container_lifecycle._preflight_declared_env_unset(
+            _files(2),
+            repo,
+            _declaring(("qmd", ["SITE_HTTP_PROXY"]), ("bluesky", ["FACILITY_TZ"])),
+            environ={},
+        )
+
+    assert unset == ["FACILITY_TZ", "SITE_HTTP_PROXY"]
+
+
+def test_one_name_two_services_is_reported_once(tmp_path, caplog):
+    """The operator sets one variable, so they are told about one variable."""
+    repo = _repo(
+        tmp_path,
+        "OTHER=x\n",
+        "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
+        "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        unset = container_lifecycle._preflight_declared_env_unset(
+            _files(2),
+            repo,
+            _declaring(("qmd", ["SITE_HTTP_PROXY"]), ("bluesky", ["SITE_HTTP_PROXY"])),
+            environ={},
+        )
+
+    assert unset == ["SITE_HTTP_PROXY"]
+    assert "qmd" in caplog.text and "bluesky" in caplog.text
+
+
+def test_no_declaration_anywhere_is_silent(tmp_path, caplog):
+    """The overwhelmingly common shape: no deployment declares the axis at all."""
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  X: ${SITE_HTTP_PROXY}\n")
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(
+                _files(), repo, {"project_name": "proj"}, environ={}
+            )
+            == []
+        )
+
+    assert caplog.text == ""
+
+
+@pytest.mark.parametrize(
+    "services",
+    [
+        {"qmd": "not-a-mapping"},
+        {"qmd": {"env": "SITE_HTTP_PROXY"}},
+        {"qmd": {"env": True}},
+        {"qmd": {"env": [None, 7, ""]}},
+    ],
+)
+def test_a_hand_edited_declaration_degrades_to_nothing(tmp_path, caplog, services):
+    """A config.yml nobody validated must not become the reason a deploy crashes.
+
+    The names are validated where the profile is parsed, so any of these shapes
+    means a hand-edited rendered config — which an advisory has no standing to
+    refuse over, and every reason not to raise from.
+    """
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  X: ${SITE_HTTP_PROXY}\n")
+    config = {"project_name": "proj", "services": services}
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(_files(), repo, config, environ={})
+            == []
+        )
+
+
+def test_a_missing_compose_file_is_skipped_not_raised_by_the_advisory(tmp_path, caplog):
+    """A missing render is the start's own error to raise, not this advisory's."""
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+
+    with caplog.at_level(logging.WARNING):
+        unset = container_lifecycle._preflight_declared_env_unset(
+            [*_files(), "build/services/gone.yml"],
+            repo,
+            _declaring(("qmd", ["SITE_HTTP_PROXY"])),
+            environ={},
+        )
+
+    assert unset == ["SITE_HTTP_PROXY"]
+
+
+def test_a_repo_with_no_chain_still_reports(tmp_path, caplog):
+    """With no env file at all, nothing sets the name — which is the finding.
+
+    Unlike the shadowing preflight, which has nothing to compare against without
+    a store, this question is answerable from an empty chain: the process
+    environment is then the only source, and it either carries the name or does
+    not.
+    """
+    repo = _repo(tmp_path, None, "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+
+    with caplog.at_level(logging.WARNING):
+        unset = container_lifecycle._preflight_declared_env_unset(
+            _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"])), environ={}
+        )
+
+    assert unset == ["SITE_HTTP_PROXY"]
+
+
+def test_the_default_environ_reads_the_live_process_environment(tmp_path, monkeypatch, caplog):
+    """`environ=None` is the deploy path's own call, and must see what it exports."""
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+    monkeypatch.setenv("SITE_HTTP_PROXY", "http://proxy.example:3128")
+
+    with caplog.at_level(logging.WARNING):
+        assert (
+            container_lifecycle._preflight_declared_env_unset(
+                _files(), repo, _declaring(("qmd", ["SITE_HTTP_PROXY"]))
+            )
+            == []
+        )
+
+
+def test_the_advisory_warns_but_still_starts_the_stack(tmp_path, monkeypatch, caplog):
+    """Never a refusal — and end to end, the operator running `osprey up` sees it.
+
+    A declared name with nothing behind it is an ordinary state: an optional
+    site proxy, a knob this host does not need. `env.required` is where a
+    deployment says a variable is not optional, and that is the check that
+    refuses.
+    """
+    repo = _repo(
+        tmp_path,
+        "OTHER=x\n",
+        "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n",
+    )
+    monkeypatch.delenv("SITE_HTTP_PROXY", raising=False)
+    ran = _stub_runtime(monkeypatch, [])
+
+    with caplog.at_level(logging.WARNING):
+        container_lifecycle._start_stack(
+            _declaring(("qmd", ["SITE_HTTP_PROXY"])),
+            _files(),
+            repo,
+            detached=True,
+            env_path=repo / ".env",
+        )
+
+    assert any("up" in cmd for cmd in ran), "the deploy did not reach `compose up`"
+    assert "SITE_HTTP_PROXY" in caplog.text
+
+
+def test_the_advisory_runs_before_the_image_build(tmp_path, monkeypatch):
+    """Waiting out a minutes-long build to be told a variable is empty wastes it."""
+    repo = _repo(tmp_path, "OTHER=x\n", "environment:\n  SITE_HTTP_PROXY: ${SITE_HTTP_PROXY}\n")
+    monkeypatch.delenv("SITE_HTTP_PROXY", raising=False)
+
+    order: list[str] = []
+    _stub_runtime(monkeypatch, order)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_preflight_declared_env_unset",
+        lambda files, root, config, **kwargs: order.append("declared") or [],
+    )
+
+    container_lifecycle._start_stack(
+        _declaring(("qmd", ["SITE_HTTP_PROXY"])),
+        _files(),
+        repo,
+        detached=True,
+        env_path=repo / ".env",
+    )
+
+    assert order == ["declared", "image"]

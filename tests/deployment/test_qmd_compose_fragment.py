@@ -40,6 +40,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+from pathlib import Path
 
 import pytest
 import yaml
@@ -548,7 +549,11 @@ def test_setup_build_dir_produces_both_of_the_sidecars_artifacts(tmp_path, monke
     repo = tmp_path / "repo"
     packaged = resources.files(osprey).joinpath("templates", "services")
     shutil.copytree(str(packaged / "qmd"), repo / "services" / "qmd")
-    shutil.copy2(str(packaged / "_network_axis.j2"), repo / "services" / "_network_axis.j2")
+    # Every shared macro partial, by the same glob the build copies them with
+    # (_copy_shared_service_partials) — naming one leaves the next to fail here
+    # as a TemplateNotFound.
+    for partial in sorted(Path(str(packaged)).glob("_*.j2")):
+        shutil.copy2(partial, repo / "services" / partial.name)
     monkeypatch.chdir(repo)
 
     setup_build_dir(

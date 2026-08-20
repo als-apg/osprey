@@ -1,0 +1,99 @@
+# The bluesky-web service owns the browser-facing FastAPI sidecar (see
+# src/osprey/interfaces/bluesky_web/) that serves the operator web panels and
+# same-origin read-proxies the bluesky bridge.
+# `osprey up` builds its image locally on first run; subsequent runs
+# reuse the local tag. To use a prebuilt/published image instead, set
+# OSPREY_BLUESKY_WEB_IMAGE (e.g. OSPREY_BLUESKY_WEB_IMAGE=my-registry/osprey-bluesky-web:dev).
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+services:
+  bluesky-web:
+    image: ${OSPREY_BLUESKY_WEB_IMAGE:-golden-project-bluesky-web:local}
+    build:
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env).
+      context: ./build/services/bluesky_web
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the sidecar on one host without colliding
+    # on one name. In-network consumers reach this service by its compose service
+    # key `bluesky-web` — unchanged here — so this rename needs no network alias.
+    container_name: golden-project-bluesky-web
+    command:
+      [
+        "uvicorn",
+        "osprey.interfaces.bluesky_web.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8095",
+      ]
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8095:8095"
+    environment:
+      # The connector-backed sidecar reads config.yml at runtime. CWD is the
+      # image WORKDIR (/app), not the project dir, so without CONFIG_FILE this
+      # falls back to /app/config.yml — mirrors the bluesky bridge's identical
+      # CONFIG_FILE convention.
+      CONFIG_FILE: /app/project/config.yml
+      TZ: UTC
+      # Reach the co-deployed bluesky bridge by its in-network compose service
+      # key `bluesky-bridge` — never the host-published port.
+      BLUESKY_BRIDGE_URL: http://bluesky-bridge:8090
+      # No :-default — an unset token must stay EMPTY rather than booting with
+      # a guessable secret (mirrors the bridge's own launch-token convention).
+      # The sidecar attaches this token to every queue WRITE it relays (add,
+      # start, stop — including the `cancel: true` withdrawal — and abort) and
+      # to no read, letting the bridge hold the only copy of which writes need
+      # arming. An empty value simply omits the header, so the bridge refuses
+      # the writes it gates instead of accepting a guessed credential.
+      # `osprey up` auto-generates a strong random token into the
+      # project .env when unset (see container_lifecycle.py's per-service
+      # token-mint map).
+      BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+    volumes:
+      # Bind-mount source is relative to the compose project directory
+      # (build/services/), not this file's own subdir — hence the
+      # bluesky-web/ prefix (mirrors the bridge's config.yml:ro convention).
+      - ./build/services/bluesky_web/config.yml:/app/project/config.yml:ro
+
+    networks:
+      - osprey-network
+    healthcheck:
+      # curl isn't in the python:3.11-slim image — probe in-image with
+      # python, matching the bridge's own healthcheck idiom.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8095/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — uvicorn/FastAPI startup and
+      # the first image build (which bakes in the sidecar's
+      # dependencies at build time, not at container start) take a few seconds.
+      start_period: 15s
+
+networks:
+  osprey-network:

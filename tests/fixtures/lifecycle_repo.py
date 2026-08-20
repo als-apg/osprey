@@ -882,6 +882,11 @@ GITIGNORE = """\
 # unanchored `build/` or `.env*` would also swallow a same-named path anywhere
 # deeper in the tree — including files moved there later — and it would do it
 # silently.
+#
+# The same pattern covers `.env.variant`, which is not a secret but is
+# host-local for the same reason: it holds `OSPREY_PROFILE_VARIANT=<name>`, naming
+# which `profiles/<name>.yml` overlay THIS host builds. Committing it would
+# hand this host's choice to every other one.
 /.env*
 !/.env.example
 !/.env.shared
@@ -979,6 +984,10 @@ ENV_SHARED = """\
 # A key set in both files takes its value from `.env`. There is nothing more to
 # it than that: same syntax, same variables, lower precedence.
 #
+# One exception, and only if profile.yml asks for it: a variable listed under
+# `env.pinned` is this file's to decide. `osprey up` refuses to start when
+# `.env` or a shell export sets one.
+#
 # Never put a secret here — this file is committed. An API key, a token or a
 # password goes in `.env`, which git ignores and which never leaves the host.
 # Neither file ever enters a container image; both are read at run time.
@@ -1034,6 +1043,10 @@ edited by hand.
 setting appears in both, the one in `.env` wins. That is how a single host
 changes a shared default without affecting anyone else. None of these files go
 into a container image — they are all read when the deployment starts.
+
+If `profile.yml` lists a variable under `env.pinned`, that one is the exception:
+`.env.shared` decides it, and `osprey up` refuses to start when `.env`
+or a shell export disagrees.
 
 `.osprey-compose.yml` at the root is generated the same way, so a deploy
 can hand the container runtime one file instead of several. It is kept out of

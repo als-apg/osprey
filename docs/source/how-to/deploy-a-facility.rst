@@ -21,6 +21,7 @@ facility writes itself.
    - Adding a container the facility owns, with its own image-build job
    - Emitting the CI pipeline and the health check with ``osprey scaffold ci``
    - Rendering the build and bringing the stack up
+   - Making the deployment come back by itself after a reboot
 
    **Prerequisites:** A working OSPREY installation, ``git``, and Docker or
    Podman running locally.
@@ -341,8 +342,11 @@ compose template per service directory, rendered by the build.
 The image reference follows the framework convention — environment variable,
 then config key, then a local tag. A laptop deploy builds the image from the
 sources beside the template; the deploy host selects the pipeline's pushed image
-by setting ``OSPREY_FACILITY_MCP_IMAGE``. :doc:`deploy-project` covers the
-template variables in full.
+by setting ``OSPREY_FACILITY_MCP_IMAGE``. The last layer is this template's own
+literal, so the stack-wide registry and tag axes do not reach it: to have a
+facility-owned image follow them, write the default with the same shape they
+produce. :doc:`deploy-project` covers the template variables, the image chain,
+and those axes in full.
 
 
 Step 5 — Fill in the deployment coordinates
@@ -605,6 +609,97 @@ something looks wrong. It also says whether ``build/`` still matches
 When the answer is not obvious from those, run them inside an OSPREY agent
 session in the repository: the agent reads the same output you do, and it has
 the deployment's configuration and rendered files at hand.
+
+
+Starting it again after a reboot
+================================
+
+Nothing so far survives the host restarting: the containers come back only when
+somebody runs ``osprey up -d`` again. ``osprey scaffold systemd`` writes a
+systemd user unit that does it for you.
+
+.. code-block:: bash
+
+   osprey scaffold systemd
+
+It writes ``osprey.service`` at the repository root and prints the commands that
+install it on this machine:
+
+.. code-block:: bash
+
+   cp /path/to/repo/osprey.service ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   systemctl --user enable --now osprey.service
+
+Run the scaffold verb **on the machine that will run the deployment**. Both the
+repository directory and the ``osprey`` program are written into the unit as
+full paths, because systemd starts a unit with no working directory and a short
+``PATH`` — a unit generated on your laptop would name paths the host does not
+have. Run it again after the repository moves or OSPREY is reinstalled
+somewhere else. Re-running is otherwise safe: a unit whose content already
+matches is left untouched, stamp included, so an OSPREY upgrade alone produces
+no diff, and a file the scaffolder did not write is reported and left alone
+unless you pass ``--force``.
+
+If no ``osprey`` program can be found to name, the command refuses rather than
+writing a unit that points at nothing. Check that ``command -v osprey`` answers
+in the same shell — if OSPREY lives in a virtual environment, activate it and
+re-run.
+
+One more step, and it is the one people miss:
+
+.. code-block:: bash
+
+   loginctl enable-linger $USER
+
+A user unit runs inside that account's own ``systemd --user`` instance, which
+logind starts at login and tears down when the account's last session ends.
+Without linger there is no user instance at boot, so the unit never runs, and it
+stops again the moment you log out. ``osprey up`` already enables linger by
+itself for a rootless-podman deployment running web terminals — rootless podman
+puts the containers themselves under that same user instance, so they need it
+too — but every other deployment needs the command run once by hand. On Docker
+hosts the containers run under the Docker daemon and are unaffected by linger;
+the unit that starts them is still a user unit, so it still needs it.
+
+Check it the way you would check any unit:
+
+.. code-block:: bash
+
+   systemctl --user status osprey.service
+   journalctl --user -u osprey.service -b
+
+Why the unit runs ``osprey`` and not compose
+--------------------------------------------
+
+The unit's ``ExecStart`` is ``osprey up -d`` and its ``ExecStop`` is ``osprey
+down`` — not a compose command against the rendered files in ``build/``. That is
+deliberate. A compose invocation started by systemd would have to reproduce, by
+hand and correctly, everything ``osprey up`` assembles around compose:
+
+- ``COMPOSE_PROJECT_NAME``, pinned to the project name in the configuration
+  rather than left to compose's own fallback of the current directory's name.
+  It decides which containers, networks and volumes the command addresses; get
+  it wrong at boot and the host quietly grows a second copy of the stack beside
+  the one your volumes belong to.
+- ``OSPREY_ENV_DIGEST``, a hash of the ``.env`` chain that the rendered files
+  carry as a container label. It is what makes an edit to ``.env`` reach a
+  running container. A compose run that left it unset would look like a changed
+  document on every boot and recreate the whole stack for no reason.
+- The ``.env`` chain itself — ``.env.shared`` then ``.env`` — collapsed in the
+  right order, and the repository pinned as compose's project directory so it
+  resolves those files at all.
+- The container runtime, which ``osprey up`` detects (or reads from the
+  configuration) and then probes for the compose provider behind it; the
+  supported providers do not take the same command line.
+- Everything that is not compose: the host-port check that refuses before it
+  touches a container, the drift check that refuses when ``build/`` no longer
+  matches ``profile.yml``, minting any missing service credentials into
+  ``.env``, the second compose invocation a multi-user deployment needs for its
+  web tier, and ``scripts/verify.sh`` afterwards.
+
+Wrapping the verb keeps all of that in one place: the unit is two commands, and
+a boot does exactly what you do by hand.
 
 .. seealso::
 

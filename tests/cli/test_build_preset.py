@@ -188,10 +188,17 @@ def test_preset_control_assistant_ships_live_openobserve_telemetry(
     # hardcoded localhost endpoint would make the in-container worker emit to its
     # own loopback and silently drop everything, so it must be absent.
     assert "endpoint" not in tel
-    # Creds carry the ${VAR:-default} form (mirrors the compose template) so the
-    # resolver never hits its fail-loud path before the first deploy mints them.
-    assert tel["openobserve"]["password"] == "${ZO_ROOT_USER_PASSWORD:-Complexpass#123}"
-    assert tel["openobserve"]["user"] == "${ZO_ROOT_USER_EMAIL:-root@example.com}"
+    # The agent authenticates as the store's dedicated INGEST service account,
+    # never as root: the store still initializes itself from ZO_ROOT_USER_*, but
+    # that pair stays in the compose file and the root password never reaches
+    # the agent's config.
+    assert tel["openobserve"]["user"] == "${ZO_INGEST_USER_EMAIL:-ingest@example.com}"
+    # The token carries NO ${VAR:-default}, and that absence is the point: a
+    # literal default token in a shipped template would be a published
+    # credential. `osprey up` provisions the account and writes the token the
+    # store issues into .env; the preflights defer this one variable rather
+    # than refusing a start that has not reached that step yet.
+    assert tel["openobserve"]["password"] == "${ZO_INGEST_SA_TOKEN}"
 
 
 def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:

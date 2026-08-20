@@ -331,10 +331,14 @@ class TestDegradationsAreReported:
     def test_a_pinned_worker_image_reports_the_build_it_skipped(
         self, default_altitude, printed, monkeypatch
     ):
-        monkeypatch.setattr(container_lifecycle, "resolve_project_name", lambda config: "demo")
+        # The skipped build is named by the image axes, so the message follows
+        # the config's project name rather than a patched resolver — and an
+        # axis exported in the developer's shell would rename it.
+        monkeypatch.delenv("OSPREY_IMAGE_REGISTRY", raising=False)
+        monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
 
         container_lifecycle._build_project_image(
-            {"deployed_services": ["dispatch_worker"]},
+            {"project_name": "demo", "deployed_services": ["dispatch_worker"]},
             False,
             {"OSPREY_WORKER_IMAGE": "ghcr.io/example/worker:1"},
         )

@@ -38,6 +38,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   built-in safety notice, or set it to `[]` for none. `landing.footer` sets the
   line underneath.
 
+- `osprey scaffold systemd` writes a systemd user unit that brings the
+  deployment back after a reboot. It emits `osprey.service` at the repository
+  root and prints how to install it; the unit runs `osprey up -d` and `osprey
+  down` with the repository and the `osprey` program named as full paths. Boot
+  start also needs `loginctl enable-linger $USER` once — see the deploy how-to.
+
 - New `ariel.default_search_mode` setting names the search module that answers
   when a caller asks for no mode — the web interface's opening tab, `osprey
   ariel search` without `--mode`, and the service API. The shipped templates
@@ -84,16 +90,41 @@ Compatibility is documented in release notes, not encoded in the version string.
   `web.channel_suggestions.enabled` and `web.channel_suggestions.max_channels`
   tune or disable it.
 
-- A host that cannot build images can now skip the dev-mode image build, with
+- A host that cannot build images can now run without building, with
   `prebuilt_images: true` in `config.yml` or `OSPREY_PREBUILT_IMAGES=1` for one
-  shell. `osprey up --dev` then starts the containers from the image tags
-  already on the host.
+  shell. `osprey up` then starts the containers from the image tags already on
+  the host, in dev mode and outside it. The persona and auth-sidecar images are
+  a separate mechanism and still follow
+  `modules.web_terminals.image_source`.
+- Two new keys name the registry and tag that every OSPREY-built service image
+  defaults to: `images.registry` and `images.tag` (or `OSPREY_IMAGE_REGISTRY`
+  and `OSPREY_IMAGE_TAG` for one build), so a whole stack can be moved to a
+  mirror or to a pipeline's tag in one place. A per-service `image` pin or
+  `OSPREY_<SVC>_IMAGE` still wins; unset, images are named as before.
 - The qmd search sidecar can take its three model files from a host directory
   instead of downloading them during the image build. Point
   `services.qmd.models_dir` at a directory holding the staged files: the build
   skips the downloads and the directory is mounted read-only into the
   container, with the same SHA256 check moved to container start. For build
   hosts with no route to the model host.
+- `osprey up` warns, by name, when a service declares a host variable under
+  `env:` that nothing on this host sets. The container would otherwise start
+  with the variable set-and-empty. Advisory only; `env.required` is where a
+  deployment says a variable is mandatory.
+
+### Changed
+
+- The agent's telemetry no longer authenticates to the local OpenObserve store
+  as root. `osprey up` starts the store, creates a dedicated ingest service
+  account, and saves the token the store issues into the project `.env`
+  (`ZO_INGEST_USER_EMAIL` / `ZO_INGEST_SA_TOKEN`) — nothing to set by hand, and
+  the root password now stays on the deploy host. A token that has stopped
+  working, after the account was rotated or the `openobserve_data` volume was
+  recreated, is replaced on the next `osprey up`. The ingest account cannot
+  create or delete users, but it can read all stored telemetry and the user
+  roster: OpenObserve has no ingest-only role in any edition. Existing projects
+  pick this up on a rebuild; a `.env.users` written earlier needs
+  `ZO_INGEST_USER_EMAIL` appended to it, and the deploy says so.
 
 - Authored plans can now be retired. `DELETE /plans/session/{name}` on the
   Bluesky bridge removes a session-tier plan file, which until now stayed in
@@ -151,6 +182,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   form offered no suggestions for as long as it stayed open. It now waits for
   the catalog before rendering, and renders without suggestions rather than
   stalling if the catalog cannot be fetched.
+- A service's `env:` passthrough list is no longer dropped for bluesky,
+  bluesky_web, gchat_bridge, nextcloud_bridge, virtual_accelerator, mongodb and
+  archiver_recorder. All ten services now honour it, in both the nested and the
+  dotted spelling.
 - Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
   first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.
   Seeding skips the enhancement passes, so `hybrid` search previously searched

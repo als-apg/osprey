@@ -413,6 +413,25 @@ def test_loose_file_in_the_per_user_convention_states_the_roster_rule(profile_di
     assert f"Move it into {PER_USER_CONTEXT_DIRNAME}/shift-notes/" not in message
 
 
+def test_loose_file_advice_offers_the_baseline_slot_too(profile_dir: Path):
+    """Both routes, because the message cannot tell which one the file wants.
+
+    A loose file here is as likely to be the shared baseline under the wrong
+    name as it is to be one user's context, and the baseline slot is the only
+    other place the convention carries a file. Offering just the per-user route
+    tells an operator with baseline text to file it under one user, where the
+    other users never see it.
+    """
+    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / "shift-notes.md")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        validate_convention_sources(profile_dir)
+
+    message = str(excinfo.value)
+    assert f"rename it to {PER_USER_CONTEXT_DIRNAME}/{CONTEXT_BASELINE_FILENAME}" in message
+    assert f"{PER_USER_CONTEXT_DIRNAME}/<user>/shift-notes.md" in message
+
+
 def test_base_md_at_the_convention_root_is_accepted_and_planned(profile_dir: Path):
     """``base.md`` is the per-user convention's one loose file: the shared
     baseline every seeded user starts from, overriding the framework's
@@ -734,6 +753,32 @@ def test_zone_generated_dirnames_are_the_ones_the_table_knows():
     creates these directories and build wipes one, all from these constants."""
     assert BUILD_OUTPUT_DIR in KNOWN_ROOT_ENTRIES
     assert STATE_DIR in KNOWN_ROOT_ENTRIES
+
+
+def test_zone_scaffolded_boot_unit_is_not_flagged(zone_repo: Path):
+    """`osprey scaffold systemd` writes the unit beside the profile.
+
+    The repo root IS the profile root, so an unrecognized unit would make every
+    build after the scaffold warn about a file OSPREY itself told the operator
+    to create — a warning that can never be cleared except by deleting the unit.
+    """
+    from osprey.cli.deploy_scaffold_templates import SYSTEMD_UNIT_NAME
+
+    _write(zone_repo / SYSTEMD_UNIT_NAME)
+    assert unknown_root_entries(zone_repo) == []
+
+
+def test_zone_boot_unit_spelling_matches_the_verb_that_writes_it():
+    """The two literals cannot drift apart.
+
+    `profile_conventions` spells the unit name itself rather than importing it,
+    because the module that owns the name imports this one. A rename on either
+    side that missed the other would bring the every-build warning straight
+    back, so the equality is asserted instead of assumed.
+    """
+    from osprey.cli.deploy_scaffold import SYSTEMD_OUTPUT_NAME
+
+    assert SYSTEMD_OUTPUT_NAME in KNOWN_ROOT_ENTRIES
 
 
 def test_zone_layout_still_flags_a_genuinely_stray_entry(zone_repo: Path):

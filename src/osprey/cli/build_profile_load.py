@@ -464,6 +464,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     env_raw = raw.get("env", {})
     env = EnvConfig(
         required=env_raw.get("required", []),
+        pinned=env_raw.get("pinned", []),
         defaults=env_raw.get("defaults", {}),
         file=env_raw.get("file"),
     )

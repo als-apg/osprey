@@ -1,0 +1,61 @@
+# =============================================================================
+# Demo Facility — OSPREY deployment unit
+# =============================================================================
+# osprey-scaffold: deploy/systemd
+# osprey-version: OSPREY_VERSION
+#
+# Emitted by `osprey scaffold systemd`. Install it as a user unit on the deploy
+# host and the deployment comes back by itself after a reboot:
+#
+#   cp osprey.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now osprey.service
+#
+# A user unit only survives logout — and therefore only starts at boot — once
+# logind is told to keep the account's session alive:
+#
+#   loginctl enable-linger $USER
+#
+# `osprey up` already does that for a rootless-podman deployment running web
+# terminals; anything else needs the command run once by hand.
+#
+# Re-run `osprey scaffold systemd` after the repo moves or OSPREY is
+# reinstalled elsewhere — both paths below are absolute. The marker line above
+# is what makes re-emission safe, so a file without it is treated as
+# hand-written and left alone unless you pass --force.
+# =============================================================================
+
+[Unit]
+Description=Demo Facility OSPREY deployment
+Documentation=https://als-apg.github.io/osprey/how-to/deploy-a-facility.html
+
+[Service]
+# `osprey up -d` starts the containers and returns. The containers are the
+# service, so there is no process for systemd to track and the unit stays
+# active on its own once the start command succeeds — which is what makes
+# `systemctl --user stop` reach ExecStop rather than find nothing to stop.
+Type=oneshot
+RemainAfterExit=yes
+
+# systemd starts a unit with a stripped PATH and no working directory of its
+# own. Every osprey verb resolves the deployment by walking up from where it is
+# run, so the directory is pinned here and the executable is named in full.
+WorkingDirectory=/srv/osprey/demo-facility
+ExecStart=/usr/local/bin/osprey up -d
+ExecStop=/usr/local/bin/osprey down
+
+# A start that has to pull images before anything can come up takes longer than
+# the 90 seconds systemd allows a oneshot by default, and a timeout there kills
+# the deploy midway.
+TimeoutStartSec=900
+
+# Stopping is bounded by the same default, and a stack whose containers each
+# take their SIGTERM grace period can outlast it. systemd answers a stop that
+# runs long by SIGKILLing the unit's whole cgroup — which lands on `osprey down`
+# partway through, leaving containers, networks and volumes behind for the next
+# start to trip over. Five minutes is past any orderly teardown while still
+# short enough that a genuinely wedged stop does not hold up a reboot.
+TimeoutStopSec=300
+
+[Install]
+WantedBy=default.target

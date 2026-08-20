@@ -653,8 +653,18 @@ def test_env_production_quotes_a_value_that_would_not_survive_a_re_read(tmp_path
 #: How the shipped telemetry block spells its two credentials: reference
 #: literals carrying their own fallbacks, not env-var NAMES the way
 #: ``llm.api_key_env_var`` does.
+# The pre-ingest-account spelling, kept because it is still a legal config an
+# operator may be carrying and the root password is still the store's admin
+# credential: these two exercise the DEFAULTED reference form and the root
+# identity, which the shipped configs no longer name.
 _SHIPPED_STORE_USER = "${ZO_ROOT_USER_EMAIL:-root@example.com}"
 _SHIPPED_STORE_PASSWORD = "${ZO_ROOT_USER_PASSWORD:-Complexpass#123}"
+
+# What every bundled config.yml.j2 telemetry block ships today. The token
+# carries no ``:-default`` on purpose -- a literal default token would be a
+# published credential -- so it is also the canonical BARE reference here.
+_SHIPPED_INGEST_USER = "${ZO_INGEST_USER_EMAIL:-ingest@example.com}"
+_SHIPPED_INGEST_TOKEN = "${ZO_INGEST_SA_TOKEN}"
 
 
 @pytest.mark.parametrize(
@@ -677,12 +687,14 @@ def test_env_reference_tells_the_two_reference_forms_from_a_literal(value, expec
 
 
 def _write_telemetry_persona(
-    tmp_path, name="operator-proj", *, provider="anthropic", **credentials
+    tmp_path, name="operator-proj", *, provider="anthropic", enabled=True, **credentials
 ):
     """Write a rendered persona project carrying a telemetry block.
 
     ``credentials`` are placed under ``claude_code.telemetry.openobserve``
     verbatim, so a test can spell each one the way a real config would.
+    ``enabled`` is the master switch, which decides whether the credentials
+    under it are ever presented to anything.
     """
     project_dir = tmp_path / name
     project_dir.mkdir()
@@ -693,7 +705,7 @@ def _write_telemetry_persona(
                 "claude_code": {
                     "provider": provider,
                     "telemetry": {
-                        "enabled": True,
+                        "enabled": enabled,
                         "backend": "openobserve",
                         "openobserve": {"org": "default", **credentials},
                     },
@@ -705,9 +717,16 @@ def _write_telemetry_persona(
     return name  # catalog project_path, relative to the deploy project root
 
 
-def _catalog_config(project_path, persona="operator"):
-    """A local-mode deploy config whose roster runs one catalogued persona."""
+def _catalog_config(project_path, persona="operator", deployed_services=("openobserve",)):
+    """A local-mode deploy config whose roster runs one catalogued persona.
+
+    Deploys the telemetry store by default, which is the shipped shape and the
+    only one in which `osprey up` issues the ingest token itself. Pass an empty
+    ``deployed_services`` for the external-store deploy, where nothing ever
+    provisions it.
+    """
     return {
+        "deployed_services": list(deployed_services),
         "facility": {"timezone": "UTC"},
         "modules": {
             "web_terminals": {
@@ -727,13 +746,19 @@ def test_env_production_never_carries_the_store_admin_password(tmp_path):
     ZO_ROOT_USER_PASSWORD is the observability store's single admin credential,
     and .env.users is handed to every persona alike -- a copy here would grant
     every read-only terminal admin read of every transcript in the store. The
-    account NAME is not a secret and does cross, which is what makes the
+    INGEST account NAME is not a secret and does cross, which is what makes the
     omission of the password a decision rather than an oversight.
+
+    The root account NAME does not cross either, and that is the same decision
+    seen from the other side: nothing a web terminal runs authenticates as
+    root, so shipping the name of the account whose only password is the admin
+    credential would be naming a door this file deliberately holds no key to.
     """
     _write_dotenv(
         tmp_path / ".env",
         {
             "ANTHROPIC_API_KEY": "cc-secret",
+            "ZO_INGEST_USER_EMAIL": "ingest-account@example.org",
             "ZO_ROOT_USER_EMAIL": "store-account@example.org",
             "ZO_ROOT_USER_PASSWORD": "store-admin-secret",
         },
@@ -748,10 +773,226 @@ def test_env_production_never_carries_the_store_admin_password(tmp_path):
 
     generated = env_production.parse_dotenv_file(result)
     raw_text = result.read_text(encoding="utf-8")
-    assert generated["ZO_ROOT_USER_EMAIL"] == "store-account@example.org"
+    assert generated["ZO_INGEST_USER_EMAIL"] == "ingest-account@example.org"
+    assert "ZO_ROOT_USER_EMAIL" not in generated
     assert "ZO_ROOT_USER_PASSWORD" not in generated
     assert "ZO_ROOT_USER_PASSWORD" not in raw_text
     assert "store-admin-secret" not in raw_text
+
+
+def test_env_production_never_carries_the_telemetry_ingest_token(tmp_path):
+    """The same decision for the identity the shipped configs now name.
+
+    ZO_INGEST_SA_TOKEN is narrower than the root password -- it cannot create
+    users -- but OpenObserve has no ingest-only role in any edition, so the
+    account also reads back every log and metric in the store. One .env.users
+    is handed to every persona alike, so it stays out for the same reason.
+    """
+    _write_dotenv(
+        tmp_path / ".env",
+        {
+            "ANTHROPIC_API_KEY": "cc-secret",
+            "ZO_INGEST_USER_EMAIL": "ingest-account@example.org",
+            "ZO_INGEST_SA_TOKEN": "Fak3T0kenFak3T0k",
+        },
+    )
+    config = _catalog_config(
+        _write_telemetry_persona(
+            tmp_path,
+            user=_SHIPPED_INGEST_USER,
+            password=_SHIPPED_INGEST_TOKEN,
+        )
+    )
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    generated = env_production.parse_dotenv_file(result)
+    raw_text = result.read_text(encoding="utf-8")
+    assert generated["ZO_INGEST_USER_EMAIL"] == "ingest-account@example.org"
+    assert "ZO_INGEST_SA_TOKEN" not in generated
+    assert "Fak3T0kenFak3T0k" not in raw_text
+
+
+def test_env_production_generates_before_the_ingest_token_has_been_issued(tmp_path):
+    """The deadlock this exclusion exists to prevent.
+
+    The shipped telemetry block names ZO_INGEST_SA_TOKEN with no ``:-default``
+    of its own -- a literal default token would be a published credential --
+    and the store issues that token only once `osprey up` has started it, which
+    is LATER in the same start than this gate runs. Treating it as a missing
+    operator-supplied variable would refuse every first deploy for the absence
+    of a value only that refused deploy could have produced.
+    """
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(
+        _write_telemetry_persona(
+            tmp_path,
+            user=_SHIPPED_INGEST_USER,
+            password=_SHIPPED_INGEST_TOKEN,
+        )
+    )
+
+    assert env_production.users_env_generation_problem(config, tmp_path) is None
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    assert result.is_file()
+    assert "ZO_INGEST_SA_TOKEN" not in result.read_text(encoding="utf-8")
+
+
+def test_a_store_issued_credential_is_not_reported_as_an_operator_requirement(tmp_path):
+    """Stated against the registry rather than the spelling, so widening
+    _STORE_ISSUED_VARS carries this exclusion with it."""
+    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
+
+    config = _catalog_config(_write_telemetry_persona(tmp_path, password=_SHIPPED_INGEST_TOKEN))
+
+    reported = env_production._telemetry_credential_requirements(config, tmp_path)
+
+    assert set(reported) & set(_STORE_ISSUED_VARS) == set()
+    assert "ZO_INGEST_SA_TOKEN" in _STORE_ISSUED_VARS  # the exclusion is not vacuous
+
+
+# ---------------------------------------------------------------------------
+# The store-issued exclusion is gated on DEPLOYING the store
+#
+# `_STORE_ISSUED_VARS` says which credentials a store mints rather than an
+# operator. It does NOT say this project runs that store. A deploy pointed at
+# somebody else's OpenObserve never reaches `_stage_openobserve_identity` --
+# `store_deployed` turns it into a no-op -- so nothing provisions the token and
+# the operator is its only source. Excluding it there would ship agents whose
+# telemetry password is the literal `${ZO_INGEST_SA_TOKEN}`.
+# ---------------------------------------------------------------------------
+
+
+def test_an_external_store_makes_the_ingest_token_an_operator_requirement(tmp_path):
+    """The refusal this batch must not have lost."""
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, password=_SHIPPED_INGEST_TOKEN),
+        deployed_services=(),
+    )
+
+    reported = env_production._telemetry_credential_requirements(config, tmp_path)
+
+    assert "ZO_INGEST_SA_TOKEN" in reported
+
+
+def test_an_external_store_refuses_the_deploy_naming_the_unset_token(tmp_path):
+    """End to end through the gate an operator meets: the deploy that cannot
+    resolve the token is refused, by name, instead of generating a .env.users
+    and starting terminals that authenticate with a placeholder."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(
+        _write_telemetry_persona(
+            tmp_path,
+            user=_SHIPPED_INGEST_USER,
+            password=_SHIPPED_INGEST_TOKEN,
+        ),
+        deployed_services=(),
+    )
+
+    problem = env_production.users_env_generation_problem(config, tmp_path)
+
+    assert problem is not None
+    assert "ZO_INGEST_SA_TOKEN" in problem
+
+
+def test_telemetry_switched_off_is_asked_for_no_credential_at_all(tmp_path):
+    """The master switch is read before the credential under it.
+
+    `enabled: false` makes the builder export no OTLP env, so the password is
+    never presented to anything and no literal `${VAR}` can reach a store. The
+    external-store refusal below is about a credential that WILL be used; this
+    one would block a deploy over a block it already declared inert.
+    """
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, enabled=False, password=_SHIPPED_INGEST_TOKEN),
+        deployed_services=(),
+    )
+
+    reported = env_production._telemetry_credential_requirements(config, tmp_path)
+
+    assert reported == {}
+
+
+def test_telemetry_switched_off_does_not_refuse_the_deploy(tmp_path):
+    """Same gate through the refusal an operator actually meets.
+
+    Deliberately on the external-store shape (`deployed_services=()`), the one
+    branch that DOES refuse while telemetry is on -- so a regression that drops
+    the switch check shows up here as a refusal rather than as silence.
+    """
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, enabled=False, password=_SHIPPED_INGEST_TOKEN),
+        deployed_services=(),
+    )
+
+    assert env_production.users_env_generation_problem(config, tmp_path) is None
+
+
+def test_telemetry_switched_off_still_refuses_an_ordinary_missing_secret(tmp_path):
+    """The switch silences the telemetry credential, not the whole gate.
+
+    A provider auth secret is not a telemetry credential and is not covered by
+    any of this module's carve-outs, so a deploy missing one is refused whether
+    its telemetry block is live or not.
+    """
+    _write_dotenv(tmp_path / ".env", {"UNRELATED": "x"})
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, enabled=False, password=_SHIPPED_INGEST_TOKEN),
+        deployed_services=(),
+    )
+
+    problem = env_production.users_env_generation_problem(config, tmp_path)
+
+    assert problem is not None
+    assert "ANTHROPIC_API_KEY" in problem
+    assert "ZO_INGEST_SA_TOKEN" not in problem
+
+
+def test_an_absent_telemetry_switch_reads_as_off(tmp_path):
+    """Absent is OFF, matching `build_telemetry_env`'s own `get("enabled")`.
+
+    A block with no master switch exports nothing, so treating it as live here
+    would ask for a credential the builder was never going to send.
+    """
+    project_dir = tmp_path / "no-switch"
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_name": "no-switch",
+                "claude_code": {
+                    "provider": "anthropic",
+                    "telemetry": {
+                        "backend": "openobserve",
+                        "openobserve": {"password": _SHIPPED_INGEST_TOKEN},
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _catalog_config("no-switch", deployed_services=())
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
+
+
+def test_the_deployed_services_gate_reads_the_registry_not_a_spelling(tmp_path):
+    """`deploy_issued_credential_vars` answers from the registry entry's own
+    service, so a var registered for a store this deploy does not run is not
+    silently carved out by the name of a store it does."""
+    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
+
+    service = _STORE_ISSUED_VARS["ZO_INGEST_SA_TOKEN"].service
+    issued = env_production.deploy_issued_credential_vars
+
+    assert issued({"deployed_services": [service]}) == {"ZO_INGEST_SA_TOKEN"}
+    assert issued({"deployed_services": []}) == set()
+    assert issued({}) == set()
+    # Some OTHER service being deployed does not issue this one's credential.
+    assert issued({"deployed_services": ["postgresql"]}) == set()
 
 
 def test_env_production_omits_the_store_password_a_config_declares_it_needs(tmp_path):
@@ -778,17 +1019,27 @@ def test_env_production_omits_the_store_password_a_config_declares_it_needs(tmp_
 
 def test_env_production_copies_the_store_account_name_when_the_chain_sets_it(tmp_path):
     """A fixed-key enumerated category, like TZ and ARIEL_DSN: present in the
-    chain, copied; absent, silently skipped."""
+    chain, copied; absent, silently skipped.
+
+    The key is the INGEST account, the identity every agent authenticates to
+    the store as; ``osprey up`` writes it into the chain alongside the root
+    account name, and only this one crosses.
+    """
     _write_dotenv(
         tmp_path / ".env",
-        {**_INCLUDED_ENV, "ZO_ROOT_USER_EMAIL": "store-account@example.org"},
+        {
+            **_INCLUDED_ENV,
+            "ZO_INGEST_USER_EMAIL": "ingest-account@example.org",
+            "ZO_ROOT_USER_EMAIL": "store-account@example.org",
+        },
     )
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
     )
 
-    assert generated["ZO_ROOT_USER_EMAIL"] == "store-account@example.org"
+    assert generated["ZO_INGEST_USER_EMAIL"] == "ingest-account@example.org"
+    assert "ZO_ROOT_USER_EMAIL" not in generated
 
 
 def test_env_production_omits_the_store_account_name_when_the_chain_lacks_it(tmp_path):
@@ -798,7 +1049,7 @@ def test_env_production_omits_the_store_account_name_when_the_chain_lacks_it(tmp
         env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
     )
 
-    assert "ZO_ROOT_USER_EMAIL" not in generated
+    assert "ZO_INGEST_USER_EMAIL" not in generated
 
 
 def test_env_production_bare_telemetry_password_absent_from_the_chain_refuses(tmp_path):
@@ -823,13 +1074,21 @@ def test_env_production_bare_telemetry_password_absent_from_the_chain_refuses(tm
 
 def test_env_production_bare_telemetry_password_in_the_deploy_config_refuses_too(tmp_path):
     """The deploy config is read the same way a persona project is: on the
-    zero-migration path it IS the project the web image runs."""
+    zero-migration path it IS the project the web image runs.
+
+    Spelled with its master switch on, like every rendered block ships -- the
+    switch is what decides the credential is presented at all, and leaving it
+    out would test an inert block rather than this one's point.
+    """
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
     config = {
         "facility": {},
         "claude_code": {
             "provider": "anthropic",
-            "telemetry": {"openobserve": {"password": "${ZO_ROOT_USER_PASSWORD}"}},
+            "telemetry": {
+                "enabled": True,
+                "openobserve": {"password": "${ZO_ROOT_USER_PASSWORD}"},
+            },
         },
         "modules": {"web_terminals": {"image_source": "local"}},
     }
@@ -899,6 +1158,55 @@ def test_env_production_existing_file_with_the_store_account_name_does_not_warn(
         env_production.ensure_env_production(config, tmp_path)
 
     assert "ZO_ROOT_USER_EMAIL" not in caplog.text
+
+
+def test_an_existing_users_file_from_before_the_ingest_repoint_is_told_what_to_append(
+    tmp_path, caplog
+):
+    """The upgrade path for a deployment that already has a .env.users.
+
+    Such a file was generated when the shipped telemetry block named the ROOT
+    account, so it carries ZO_ROOT_USER_EMAIL and nothing about the ingest
+    identity — and an existing file is never regenerated, by design, so the
+    repointed identity would otherwise never reach it and every terminal would
+    keep naming an account whose credential this file does not carry.
+
+    The advisory is the whole mechanism: it names the missing variable and it
+    names APPEND as the fix. Nothing here narrows or rewrites the file — the
+    operator-authored line below has to survive, since silently replacing a
+    hand-maintained file is the failure this never-clobber rule exists to
+    prevent.
+    """
+    users_env = tmp_path / ".env.users"
+    original = (
+        "# operator-authored, do not touch\n"
+        "ANTHROPIC_API_KEY=ok\n"
+        "ZO_ROOT_USER_EMAIL=store-account@example.org\n"
+        "SITE_SPECIFIC_THING=keep-me\n"
+    )
+    users_env.write_text(original, encoding="utf-8")
+    config = _catalog_config(_write_telemetry_persona(tmp_path, user=_SHIPPED_INGEST_USER))
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "ZO_INGEST_USER_EMAIL" in caplog.text
+    assert "claude_code.telemetry.openobserve.user" in caplog.text
+    assert "APPEND" in caplog.text
+    assert users_env.read_text(encoding="utf-8") == original
+
+    # And the named remedy actually resolves it: one appended line, every
+    # existing byte still there, advisory silent on the next deploy.
+    users_env.write_text(
+        original + "ZO_INGEST_USER_EMAIL=ingest-account@example.org\n", encoding="utf-8"
+    )
+    caplog.clear()
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "ZO_INGEST_USER_EMAIL" not in caplog.text
+    assert "SITE_SPECIFIC_THING=keep-me" in users_env.read_text(encoding="utf-8")
 
 
 def test_env_production_no_telemetry_block_means_no_telemetry_advisory(tmp_path, caplog):

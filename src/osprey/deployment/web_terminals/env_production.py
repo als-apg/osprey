@@ -171,18 +171,35 @@ _ENV_REFERENCE_RE = re.compile(r"\A\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}\
 #: Where a project's telemetry credentials live in its own ``config.yml``.
 _TELEMETRY_CONFIG_PATH = ("claude_code", "telemetry", "openobserve")
 
-#: The observability store's account NAME — an email address, not a secret.
-#: A fixed name rather than a config-declared one, like ``TZ`` and
+#: The observability store's INGEST account NAME — an email address, not a
+#: secret. A fixed name rather than a config-declared one, like ``TZ`` and
 #: ``ARIEL_DSN``: the shipped configs reference it under this spelling and
-#: ``osprey up`` writes it into the deploy env chain under it too.
-_TELEMETRY_USER_ENV_VAR = "ZO_ROOT_USER_EMAIL"
+#: ``osprey up`` writes it into the deploy env chain under it too (the
+#: non-secret defaults block of
+#: :func:`osprey.deployment.container_lifecycle._ensure_service_tokens`).
+#:
+#: This is deliberately NOT ``ZO_ROOT_USER_EMAIL``. The store initializes
+#: itself from ``ZO_ROOT_USER_*``, but the agent — and therefore every web
+#: terminal running one — authenticates as the separate service account
+#: ``osprey up`` provisions, whose token is
+#: :data:`osprey.deployment.openobserve_provision.INGEST_TOKEN_VAR`. Naming the
+#: root account here would have every terminal present a name whose only
+#: matching password is the store's admin credential, which this file is not
+#: allowed to carry.
+#:
+#: There is no companion constant for the SECRET. The password half is read
+#: from the config, not from a fixed spelling here — see
+#: :func:`_telemetry_credential_requirements`, which reports whatever variable
+#: the telemetry block's ``password:`` names — so repointing the templates at
+#: the ingest token needed no change on that side.
+_TELEMETRY_USER_ENV_VAR = "ZO_INGEST_USER_EMAIL"
 
 
 def _env_reference(value: object) -> tuple[str, bool] | None:
     """Read a config value that IS an env-var reference.
 
     The telemetry credential keys hold the reference itself (``user:
-    ${ZO_ROOT_USER_EMAIL:-root@example.com}``) rather than the *name* of a
+    ${ZO_INGEST_USER_EMAIL:-ingest@example.com}``) rather than the *name* of a
     variable the way ``llm.api_key_env_var`` does, so telling a reference from
     a plain literal — and a bare reference from one carrying its own default —
     takes reading the value, which is what this does.
@@ -213,6 +230,27 @@ def _telemetry_credentials(cfg: dict) -> dict:
             return {}
         node = node.get(key)
     return node if isinstance(node, dict) else {}
+
+
+def _telemetry_enabled(cfg: dict) -> bool:
+    """Whether one project's config asks for telemetry at all.
+
+    The master switch, read exactly the way the builder reads it
+    (:func:`osprey.build.claude_code_telemetry.build_telemetry_env`, whose first
+    act is to return an empty env for a falsy or absent ``enabled``). Same rule
+    on both sides on purpose: a block this module treats as live while the
+    builder discards it would have an operator hunting for a credential nothing
+    was ever going to send.
+
+    Absent reads as OFF, not on. A config with no ``enabled`` key exports
+    nothing, so the credentials underneath it are decoration.
+    """
+    node: object = cfg
+    for key in _TELEMETRY_CONFIG_PATH[:-1]:
+        if not isinstance(node, dict):
+            return False
+        node = node.get(key)
+    return bool(node.get("enabled")) if isinstance(node, dict) else False
 
 
 def _referenced_persona_names(config: dict) -> list[str]:
@@ -274,7 +312,7 @@ def _load_config_yml(path: Path) -> dict | None:
 
 
 def _telemetry_credential_references(
-    config: dict, project_root: Path, field: str, *, bare_only: bool
+    config: dict, project_root: Path, field: str, *, bare_only: bool, enabled_only: bool = False
 ) -> dict[str, str]:
     """``{var: origin}`` for one telemetry credential key across every config in play.
 
@@ -287,10 +325,15 @@ def _telemetry_credential_references(
     :param field: Key under ``claude_code.telemetry.openobserve`` to read.
     :param bare_only: When true, report only references with no ``:-default``
         of their own — the ones that cannot resolve to anything on their own.
+    :param enabled_only: When true, skip a config whose telemetry master switch
+        is off. Each config answers for itself, since a roster can mix a persona
+        that exports with one that does not.
     """
     references: dict[str, str] = {}
 
     def _record(cfg: dict, source: str) -> None:
+        if enabled_only and not _telemetry_enabled(cfg):
+            return
         reference = _env_reference(_telemetry_credentials(cfg).get(field))
         if reference is None:
             return
@@ -315,6 +358,43 @@ def _telemetry_credential_references(
     return references
 
 
+def deploy_issued_credential_vars(config: dict) -> set[str]:
+    """The store-issued credentials THIS deploy will actually issue.
+
+    :data:`osprey.deployment.container_lifecycle._STORE_ISSUED_VARS` says which
+    variables *a* store mints rather than an operator. It does not say that this
+    project runs that store — and that difference decides whether an unset one
+    is a sequencing fact or a missing secret:
+
+    * The project deploys the store. ``osprey up`` starts it and harvests the
+      credential (``container_lifecycle._stage_openobserve_identity``), later in
+      the same start than the gates that read this. Nothing for an operator to
+      set, and asking would deadlock the only run that could produce the value.
+    * The project points at a store somebody else runs. Nothing in this deploy
+      ever creates an account in it, so the credential arrives only if the
+      operator puts it in the env chain. Treating it as self-issued there would
+      ship an agent whose telemetry password is the literal ``${VAR}``.
+
+    Each registration names its ``service``, and membership in
+    ``deployed_services`` is the whole gate — the same truth
+    :func:`osprey.deployment.openobserve_provision.store_deployed` reads, so the
+    carve-out and the provisioner can never disagree about which stores this
+    deploy runs. Read off the registry rather than restated, so a var added to
+    it is covered here on the same commit.
+
+    :param config: Raw deploy config.
+    :return: The subset of the registry this deploy issues itself. Empty when it
+        runs none of the registered stores.
+    """
+    # Imported inside the function, not at module scope: container_lifecycle
+    # imports this module (through web_terminals.provision), so a top-level
+    # import here would be a cycle.
+    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
+
+    deployed = set(config.get("deployed_services") or [])
+    return {var for var, issued in _STORE_ISSUED_VARS.items() if issued.service in deployed}
+
+
 def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict[str, str]:
     """``{var: origin}`` for telemetry passwords a config REQUIRES from the env chain.
 
@@ -325,13 +405,55 @@ def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict
     :func:`ensure_env_production` can refuse a deploy that would ship one,
     exactly as it refuses a missing provider auth secret.
 
+    Nothing here is bound to one variable spelling: whatever the telemetry
+    block's ``password:`` names is what gets reported. That is why repointing
+    the shipped configs from the store's root password to its ingest service
+    account's token (``ZO_INGEST_SA_TOKEN``) needed no edit on this side, while
+    :data:`_TELEMETRY_USER_ENV_VAR` — the account NAME, which IS a fixed
+    spelling — did.
+
     The result feeds the missing-variable gate ONLY. It must never reach
-    :func:`_build_env_production_subset`: the store password is the store's
-    single admin credential, and ``.env.users`` is handed to every persona
-    alike, so copying it there would grant every read-only terminal admin read
-    of every transcript in the store.
+    :func:`_build_env_production_subset`, for either identity: the root
+    password is the store's single admin credential, and the ingest account
+    reads back every log and metric in the store as well (there is no
+    ingest-only role in any OpenObserve edition). ``.env.users`` is handed to
+    every persona alike, so copying either one there would grant every
+    read-only terminal read of every transcript in the store.
+
+    One class of variable is EXCLUDED from the report, and only on the deploys
+    that earn the exclusion: the credentials this deploy itself issues
+    (:func:`deploy_issued_credential_vars`). The telemetry ingest token is one
+    on a project that deploys the store — the store mints it, ``osprey up``
+    harvests it into the chain (see
+    :func:`osprey.deployment.openobserve_provision.provision_ingest_identity`),
+    and that harvest happens LATER in the same start than this gate runs.
+    Reporting it would refuse every first deploy for the absence of a value
+    only that refused deploy could have produced: a deadlock, not a
+    misconfiguration. This is the same distinction
+    :func:`osprey.deployment.container_lifecycle._required_env_problems` draws
+    — an operator is asked only for the variables an operator can supply.
+
+    Point the same config at a store this deploy does NOT run and the exclusion
+    lifts: nothing will ever provision that token, so the operator is the only
+    source and the refusal is the honest answer. Suppressing it there would
+    ship agents authenticating with a literal ``${VAR}`` — the exact failure
+    this gate exists to prevent — under a message telling the operator there
+    was nothing to set.
+
+    A config whose telemetry master switch is OFF is not asked for anything
+    either, and that gate comes first. ``enabled: false`` means the builder
+    exports no OTLP env at all, so nothing ever presents the credential and no
+    literal ``${VAR}`` can reach a store — the failure this gate exists to
+    prevent cannot happen. Refusing there would block a deploy over a block the
+    deploy already declared inert, and send the operator to obtain a token that
+    would go unused.
     """
-    return _telemetry_credential_references(config, project_root, "password", bare_only=True)
+    referenced = _telemetry_credential_references(
+        config, project_root, "password", bare_only=True, enabled_only=True
+    )
+    self_issued = deploy_issued_credential_vars(config)
+
+    return {var: origin for var, origin in referenced.items() if var not in self_issued}
 
 
 def _telemetry_user_references(config: dict, project_root: Path) -> dict[str, str]:
@@ -491,25 +613,31 @@ def _build_env_production_subset(
       ``modules.ariel.dsn`` directly. Unlike every entry above this is read
       from ``config``, not ``dotenv``: the DSN is itself a literal config
       value, not the *name* of an env var holding one.
-    - ``ZO_ROOT_USER_EMAIL`` — the observability store's account NAME, copied
-      when the chain sets it and silently skipped otherwise. A fixed key rather
-      than a config-declared one, like the two entries below: the shipped
+    - ``ZO_INGEST_USER_EMAIL`` — the observability store's INGEST account NAME,
+      copied when the chain sets it and silently skipped otherwise. A fixed key
+      rather than a config-declared one, like the two entries below: the shipped
       telemetry block references it under this spelling and ``osprey up``
       writes it into the deploy env chain under it too. An account name is not
       a secret; it is here because a terminal that emits telemetry has to name
-      the same account the store was configured with, and the reference's own
-      fallback address is the wrong one on any deploy that set this.
+      the same account the store was provisioned with, and the reference's own
+      fallback address is the wrong one on any deploy that set this. The ROOT
+      account name (``ZO_ROOT_USER_EMAIL``) is not copied: nothing a terminal
+      runs authenticates as root.
     - ``TZ`` — always, from ``facility.timezone`` (default ``"UTC"``, matching
       the schema's own documented default), likewise a literal config value.
 
-    The store's PASSWORD is deliberately not here beside its account name.
-    ``ZO_ROOT_USER_PASSWORD`` is the observability store's single admin
-    credential — the same value the store container itself is configured with —
-    so a copy in this rosterwide file would grant every persona, read-only ones
-    included, admin read of every transcript the store holds. It stays out for
-    the same reason the service tokens do (see below), and
+    The telemetry SECRET is deliberately not here beside the account name, and
+    that holds for either identity. ``ZO_ROOT_USER_PASSWORD`` is the store's
+    single admin credential — the same value the store container itself is
+    configured with. ``ZO_INGEST_SA_TOKEN``, the token the store issues for the
+    ingest service account, is narrower but not narrow enough for a rosterwide
+    file: OpenObserve has no ingest-only role in any edition, so that account
+    also reads back every log and metric in the store and lists its user
+    roster. Either one copied here would grant every persona, read-only ones
+    included, read of every transcript the store holds. Both stay out for the
+    same reason the service tokens do (see below), and
     :func:`_telemetry_credential_requirements` exists to REPORT a config that
-    depends on it rather than to satisfy one.
+    depends on one rather than to satisfy it.
 
     NEVER included, by construction (this function never reads them at all):
     build-time credentials — the CI provider token, the container-registry
@@ -719,14 +847,17 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
         telemetry_names = ", ".join(telemetry_missing)
         telemetry_verb = "are" if len(telemetry_missing) > 1 else "is"
         telemetry_note = (
-            f" Note: {telemetry_names} {telemetry_verb} the observability store's single admin "
-            "credential, so this file never carries it — one .env.users is "
-            "handed to every persona alike, read-only ones included, and admin "
-            "access to that store reads every transcript in it. Setting it in "
-            "the chain configures the store itself; a scoped ingest credential "
-            "is what will let a terminal authenticate to the store. A telemetry "
-            "block that names its own fallback (${VAR:-default}) is not asked "
-            "for here at all."
+            f" Note: {telemetry_names} {telemetry_verb} an observability-store "
+            "credential that reads every transcript the store holds — the root "
+            "password is the store's single admin credential, and the ingest "
+            "service account `osprey up` provisions reads back every log and "
+            "metric too (OpenObserve has no ingest-only role in any edition). "
+            "One .env.users is handed to every persona alike, read-only ones "
+            "included, so this file never carries either of them. The env "
+            "chain is still where it belongs — that is what the store and the "
+            "agent read — but a web terminal will not receive it from here. A "
+            "telemetry block that names its own fallback (${VAR:-default}) is "
+            "not asked for here at all."
         )
     return (
         f"Generating {users_env_path} from {sources_desc} would leave web "
@@ -983,7 +1114,11 @@ def _warn_if_telemetry_account_absent(
         "terminals emitting telemetry will name whatever that reference "
         "resolves to inside the container — its own fallback address, or the "
         "placeholder verbatim when it has none — so the store rejects their "
-        "records unless its account happens to match. Delete the file to "
-        "regenerate it from the env chain, or add the variable(s) to it "
-        "directly."
+        "records unless its account happens to match. This file is never "
+        "regenerated once it exists, which is what keeps an operator-authored "
+        "one intact, so the fix is a write of your own: APPEND the missing "
+        "variable(s) to it (a later assignment wins, and nothing already in "
+        "the file is disturbed). `osprey users env --output "
+        f"{users_env_path}` re-renders it instead — that REPLACES the file "
+        "whole, so use it only if nothing was added to this one by hand."
     )

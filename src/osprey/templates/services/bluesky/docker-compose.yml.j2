@@ -1,3 +1,12 @@
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. This file defines four containers from ONE `services.bluesky` block,
+    and every one of them calls the macro; see the bridge's call for why an
+    axis declared per service cannot arrive per container. With none declared
+    it emits nothing and this file renders exactly as it did before the axis
+    existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 # The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
 # behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
 # `osprey up` builds its image locally on first run; subsequent runs
@@ -8,7 +17,7 @@
 
 services:
   bluesky-bridge:
-    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_labels.project_name ~ '-bluesky-bridge:local') }}}
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_images.bluesky_bridge) }}}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -216,6 +225,18 @@ services:
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 {% endif %}
+{#- The env passthrough axis, on EVERY container this file renders — the
+    bridge here, the queueserver, Redis and Tiled. `services.bluesky.env` is
+    one declaration on one service block, and the profile has no per-container
+    spelling to narrow it with, so a name that reached only some of the four
+    would be silently partial: the author would have no way to say which ones
+    they meant and no way to see which ones they got. Applying it everywhere is
+    also what keeps a stock upstream image treated the same way here as it is
+    when it IS the service — postgresql, mongodb and openobserve all carry the
+    axis on images OSPREY does not build, and "does my variable arrive"
+    would otherwise depend on whether the container happens to be first in its
+    file. A container that reads nothing by that name ignores the entry. -#}
+{{- hostenv.passthrough(services.bluesky) }}
     volumes:
       # Bind-mount source is relative to the pinned compose project directory —
       # the repo root — hence the build/services/bluesky/ prefix on this render
@@ -282,7 +303,7 @@ services:
     # services building the same tag race each other (the dispatch worker
     # carries the same note). `bluesky-bridge` above owns the build; this
     # service just runs the resulting image with a different command.
-    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_labels.project_name ~ '-bluesky-bridge:local') }}}
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_images.bluesky_bridge) }}}
     container_name: {{ osprey_labels.project_name }}-bluesky-queueserver
     depends_on:
       # The manager connects to Redis at startup and exits if it cannot.
@@ -443,6 +464,10 @@ services:
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 {% endif %}
+{#- Same one declaration as the bridge's — see the note on its call. This
+    container is where plans actually execute, so a site proxy or CA bundle
+    the operator declared for `bluesky` is at least as load-bearing here. -#}
+{{- hostenv.passthrough(services.bluesky) }}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
       # Plan/device permissions for the RE Manager. Without this file the
@@ -505,6 +530,11 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     environment:
       TZ: {{ system.timezone }}
+{#- Same one declaration as the bridge's — see the note on its call. Redis
+    reads none of the proxy-shaped variables the axis exists for, and that is
+    fine: an unread entry costs nothing, whereas leaving the sidecar out would
+    make the axis mean something different in this file than in every other. -#}
+{{- hostenv.passthrough(services.bluesky) }}
     volumes:
       - bluesky_queueserver_redis:/data
     networks:
@@ -581,6 +611,10 @@ services:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.tiled_port | default(8091) }}:8000"
     environment:
       TZ: {{ system.timezone }}
+{#- Same one declaration again — see the bridge's call. Optional container:
+    with `tiled_enabled` false this whole block is absent, so the axis reaches
+    three containers rather than four, which is the only way the count varies. -#}
+{{- hostenv.passthrough(services.bluesky) }}
     volumes:
       - bluesky_tiled_catalog:/storage
     networks:

@@ -1,3 +1,9 @@
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing and this file renders exactly
+    as it did before the axis existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 # The virtual-accelerator service owns the PyAT-backed EPICS soft-IOC (see
 # src/osprey/services/virtual_accelerator/). `osprey up` builds its
 # image locally on first run; subsequent runs reuse the local tag. To use a
@@ -29,7 +35,7 @@
 
 services:
   virtual-accelerator:
-    image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default(osprey_labels.project_name ~ '-va:local') }}}
+    image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default(osprey_images.va) }}}
     platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
     build:
       # EVERY relative path here resolves against the pinned compose project
@@ -95,6 +101,7 @@ services:
       # build-owned data dir.
       VA_STATE_DIR: /state/simulation
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.virtual_accelerator) }}
     # Bind-mount sources are relative to the pinned compose project directory —
     # the deployment repo root — so each is spelled from there. Both read-only:
     # the IOC only ever reads.

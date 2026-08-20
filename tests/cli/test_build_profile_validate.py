@@ -287,6 +287,39 @@ def test_invalid_env_var_name_is_rejected(tmp_path: Path) -> None:
     assert _errors(profile, tmp_path) == ["Invalid env var name: not-a-var"]
 
 
+def test_pinned_env_var_names_are_held_to_the_required_pattern(tmp_path: Path) -> None:
+    """``pinned`` names the same kind of thing as ``required``, one message per name."""
+    profile = BuildProfile(name="x", env=EnvConfig(pinned=["OK_VAR", "not-a-var", "also bad"]))
+    assert _errors(profile, tmp_path) == [
+        "Invalid env.pinned var name: 'not-a-var'",
+        "Invalid env.pinned var name: 'also bad'",
+    ]
+
+
+def test_pinned_env_entries_that_are_not_strings_are_rejected(tmp_path: Path) -> None:
+    """A YAML author who writes a bare number gets a name error, not a crash."""
+    profile = BuildProfile(name="x", env=EnvConfig(pinned=[7]))  # type: ignore[list-item]
+    assert _errors(profile, tmp_path) == ["Invalid env.pinned var name: 7"]
+
+
+def test_pinned_env_block_that_is_not_a_list_is_rejected(tmp_path: Path) -> None:
+    """A scalar where a list belongs would otherwise validate character by character."""
+    profile = BuildProfile(name="x", env=EnvConfig(pinned="OSPREY_TOKEN"))  # type: ignore[arg-type]
+    assert _errors(profile, tmp_path) == ["env.pinned must be a list of env var names (got str)"]
+
+
+def test_pinned_env_names_reach_the_profile_from_yaml() -> None:
+    """The key is parsed, not silently dropped — the validator has to see it."""
+    profile = _parse_profile({"name": "x", "env": {"pinned": ["OSPREY_TOKEN"]}})
+    assert profile.env.pinned == ["OSPREY_TOKEN"]
+    assert profile.env.required == []
+
+
+def test_a_profile_without_pinned_env_names_declares_none() -> None:
+    """Absent means empty, so nothing changes for a profile written before pins."""
+    assert _parse_profile({"name": "x", "env": {"required": ["OSPREY_TOKEN"]}}).env.pinned == []
+
+
 def test_missing_env_file_is_rejected(tmp_path: Path) -> None:
     """env.file names a profile-relative file to copy; it must exist."""
     profile = BuildProfile(name="x", env=EnvConfig(file="env.template"))

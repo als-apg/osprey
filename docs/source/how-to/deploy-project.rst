@@ -12,6 +12,7 @@ How to run a deployment's containerized services.
    - Configuring services in ``config.yml`` (minimal example)
    - Authoring ``docker-compose.yml.j2`` templates
    - Which compose providers are supported, and what changes between them
+   - Overriding service images, and mirroring every image into one registry
    - Network binding and attachment, the ``.env`` chain, and the ``--dev`` workflow
 
    **Prerequisites:** Docker or Podman installed locally.
@@ -377,65 +378,265 @@ Before reaching for a claim, check whether a config key or environment
 variable already covers your need — most service knobs (ports, images,
 credentials, retention) are configurable without forking the template.
 
+.. _deployment-image-overrides:
+
 Overriding Service Images
 =========================
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default:
+default. Thirteen images, one row each:
 
 .. list-table::
    :header-rows: 1
+   :widths: 20 30 28 22
 
    * - Service
      - Environment variable
      - Config key
+     - Packaged default
    * - postgresql
      - ``OSPREY_POSTGRES_IMAGE``
      - ``services.postgresql.image``
+     - upstream pin
    * - openobserve
      - ``OSPREY_OPENOBSERVE_IMAGE``
      - ``services.openobserve.image``
+     - upstream pin
+   * - mongodb
+     - ``OSPREY_MONGODB_IMAGE``
+     - ``services.mongodb.image``
+     - upstream pin
    * - event_dispatcher
      - ``OSPREY_DISPATCH_IMAGE``
      - ``services.event_dispatcher.image``
+     - ``<project>-dispatch``
    * - dispatch_worker
      - ``OSPREY_WORKER_IMAGE``
      - ``services.dispatch_worker.image``
+     - ``<project>``
    * - nextcloud_bridge
      - ``OSPREY_NEXTCLOUD_BRIDGE_IMAGE``
      - ``services.nextcloud_bridge.image``
+     - ``<project>-nextcloud-bridge``
    * - gchat_bridge
      - ``OSPREY_GCHAT_BRIDGE_IMAGE``
      - ``services.gchat_bridge.image``
+     - ``<project>-gchat-bridge``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
+     - ``<project>-bluesky-bridge``
    * - bluesky (Tiled sidecar)
      - ``OSPREY_TILED_IMAGE``
      - ``services.bluesky.tiled_image``
+     - upstream pin
+   * - bluesky (Redis sidecar)
+     - ``OSPREY_BLUESKY_REDIS_IMAGE``
+     - ``services.bluesky.redis_image``
+     - upstream pin
    * - bluesky_web
      - ``OSPREY_BLUESKY_WEB_IMAGE``
      - ``services.bluesky_web.image``
+     - ``<project>-bluesky-web``
    * - virtual_accelerator
      - ``OSPREY_VA_IMAGE``
      - ``services.virtual_accelerator.image``
+     - ``<project>-va``
    * - qmd
      - ``OSPREY_QMD_IMAGE``
      - ``services.qmd.image``
+     - ``<project>-qmd``
 
-Point either layer at an internal registry mirror or a pinned digest when
-your deployment host cannot (or should not) pull public images.
+Point either of the first two layers at an internal registry mirror or a
+pinned digest when your deployment host cannot (or should not) pull public
+images.
+
+Five of the thirteen are **upstream pins** — images somebody else publishes,
+named exactly as they publish them. The other eight are **built by OSPREY**
+from your project, and their default reference is assembled rather than
+fixed: a project name, a per-service suffix, and the two axes below.
+
+.. _deployment-image-axes:
+
+The two image axes
+------------------
+
+An OSPREY-built default is always spelled the same way::
+
+   <registry>/<project><service suffix>:<tag>
+
+Two stack-wide settings supply the ends of that name, so an entire deployment
+can be moved to a registry — or to a different tag — without touching any of
+the thirteen rows above:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 30 24 30
+
+   * - Axis
+     - Environment variable
+     - Config key
+     - When neither is set
+   * - Registry
+     - ``OSPREY_IMAGE_REGISTRY``
+     - ``images.registry``
+     - no prefix at all
+   * - Tag
+     - ``OSPREY_IMAGE_TAG``
+     - ``images.tag``
+     - ``local``
+
+.. code-block:: yaml
+
+   # config.yml — every OSPREY-built image comes from the mirror,
+   # at the tag the pipeline pushed
+   images:
+     registry: registry.example.org/accelerator
+     tag: "2026.08.1"
+
+.. code-block:: bash
+
+   # or, for one build
+   OSPREY_IMAGE_REGISTRY=registry.example.org/accelerator \
+     OSPREY_IMAGE_TAG=2026.08.1 osprey build
+
+For each axis the environment variable wins, then the config key, then the
+packaged default. A blank value counts as unset on both layers — an
+exported-but-empty variable is how a shell spells "I did not set this", so a
+stray ``OSPREY_IMAGE_TAG=`` cannot render an image reference with no tag. A
+trailing slash on the registry is optional: one is added if you leave it out,
+and never doubled if you put it in.
+
+Two things about *when* and *where* this applies are worth having straight:
+
+* **The axes are the innermost layer, not an override.** They decide what the
+  packaged default of an OSPREY-built image is. A ``services.<name>.image``
+  pin still beats them for that one service, and an ``OSPREY_<SVC>_IMAGE``
+  variable still beats both. Setting an axis moves everything you have not
+  pinned individually.
+* **The axes are read when the compose files are rendered**, not when the
+  containers start. Export them for the ``osprey build`` that produces the
+  deployment; the per-image ``OSPREY_<SVC>_IMAGE`` variables, by contrast, are
+  filled in by compose at ``osprey up`` time. With neither axis set the render
+  is what it always was — ``<project>:local`` and its siblings — so a
+  deployment that never heard of them is unaffected.
+
+The axes never touch the five upstream pins. Prefixing ``mongo:7`` with your
+registry would name an image that exists in no registry; mirror those through
+their own row instead.
+
+The web tier names its registry separately
+------------------------------------------
+
+The web tier — the landing page and the one containerized terminal per
+operator, described in :doc:`multi-user` — carries its own, older spelling of
+the same two ideas, and the two vocabularies coexist rather than merging:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 38 38
+
+   * -
+     - Service images
+     - Web tier
+   * - Registry
+     - ``images.registry`` / ``OSPREY_IMAGE_REGISTRY``
+     - ``registry.url``
+   * - Tag
+     - ``images.tag`` / ``OSPREY_IMAGE_TAG``
+     - ``modules.web_terminals.image_tag``
+
+Neither pair reaches the other's images. ``images.registry`` does not move the
+web images, and ``registry.url`` does not move the service images. A
+deployment that mirrors everything sets both pairs, and sets them to the same
+place — that is the one case where the divergence costs you a line of config
+rather than nothing.
+
+Whether the web tier pulls those images or builds them on the deploy host is a
+third, separate setting: ``modules.web_terminals.image_source``
+(``registry``, the default, or ``local``). It is unrelated to the axes, and it
+is also the setting that governs the persona and auth-sidecar builds — see
+below.
+
+.. _deployment-mirror-channel:
+
+Mirroring every image into one registry
+---------------------------------------
+
+A host behind a strict firewall, or with no route to the public internet at
+all, needs every image it starts to come from a registry it can reach. There
+are four channels to point at that mirror, and a deployment that misses one
+fails at ``up`` on the image it forgot:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - Images
+     - How to point them at your mirror
+   * - The eight OSPREY-built images
+     - Set the registry axis once — ``images.registry``, or
+       ``OSPREY_IMAGE_REGISTRY`` for a single build.
+   * - The five upstream pins
+     - One row at a time: ``services.<name>.image`` (or the row's
+       ``OSPREY_..._IMAGE`` variable) naming your mirrored copy.
+   * - The web tier's images
+     - ``registry.url`` plus ``modules.web_terminals.image_tag``.
+   * - nginx and the auth sidecar
+     - ``modules.web_terminals.nginx_image`` and
+       ``modules.web_terminals.auth.image``. **These two carry no environment
+       variable**, so a mirror reaches them through ``config.yml`` only —
+       there is no one-shell equivalent.
+
+.. code-block:: yaml
+
+   # config.yml — all four channels, one mirror
+   images:
+     registry: registry.example.org/accelerator
+     tag: "2026.08.1"
+
+   registry:
+     url: registry.example.org/accelerator
+
+   services:
+     postgresql:
+       image: registry.example.org/mirror/pgvector/pgvector:pg16
+     mongodb:
+       image: registry.example.org/mirror/mongo:7
+     openobserve:
+       image: registry.example.org/mirror/openobserve:v0.14.4
+     bluesky:
+       tiled_image: registry.example.org/mirror/tiled:0.2.12
+       redis_image: registry.example.org/mirror/redis:7.4-alpine
+
+   modules:
+     web_terminals:
+       image_tag: "2026.08.1"
+       nginx_image: registry.example.org/mirror/nginx:1.27-alpine
+       auth:
+         image: registry.example.org/accelerator/demo-assistant-auth:2026.08.1
+
+Copy only the rows for services you actually deploy — the upstream pins for a
+service that is not in ``deployed_services`` are never rendered.
+
+Naming the mirror is half the job: the host also has to stop *building*. That
+is the switch in the next section. If your route is a self-built image rather
+than a mirror, :doc:`containerize-project` covers the air-gapped build trio —
+``OSPREY_PIP_SPEC`` for an internal package mirror, ``PIP_NO_PROXY`` to exempt
+it from the proxy, and ``OSPREY_OFFLINE=1`` to vendor the web assets into the
+image.
+
+.. _deployment-prebuilt-images:
 
 Deploying Prebuilt Images
 =========================
 
 Some hosts cannot build images at all — no build tooling, no registry in
-reach — and run instead on images built elsewhere and loaded from a tarball.
-There, the image build that a :ref:`dev-mode <development-mode>` deploy
-normally runs is not merely slow but impossible. The top-level
-``prebuilt_images`` key skips it, so ``osprey up --dev`` starts the containers
-from the tags already on the host:
+reach — and run instead on images pulled from a mirror or loaded from a
+tarball. There, an image build is not merely slow but impossible. The
+top-level ``prebuilt_images`` key turns building off, so the deploy starts the
+containers from the tags already on the host:
 
 .. code-block:: yaml
 
@@ -445,7 +646,7 @@ from the tags already on the host:
 .. code-block:: bash
 
    # or, for one shell
-   OSPREY_PREBUILT_IMAGES=1 osprey up --dev
+   OSPREY_PREBUILT_IMAGES=1 osprey up
 
 ``1``, ``true``, ``yes`` and ``on`` turn the switch on; ``0``, ``false``,
 ``no`` and ``off`` turn it off — case does not matter. The variable wins over
@@ -453,10 +654,32 @@ the config key in both directions, so ``OSPREY_PREBUILT_IMAGES=0`` forces a
 build for one shell even on a host whose ``config.yml`` pins the key. With
 neither set, deploys build as they always have.
 
-The deploy reports ``skipped image build (prebuilt images)`` where it would
-otherwise have built. Nothing checks up front that the tags are really
-present — a missing one surfaces as compose's own ``No such image`` error,
-which names the image to load.
+The switch covers both ways a build can start:
+
+* In :ref:`dev mode <development-mode>` it skips the wheel-and-image build
+  step, and the deploy reports ``skipped image build (prebuilt images)`` where
+  it would otherwise have built.
+* In ordinary (non-dev) mode there is no build step to skip — but compose
+  would still build any service whose compose document carries a ``build:``
+  block the first time it brings it up. The switch passes ``--no-build``, so
+  compose starts what is there instead. Nothing is reported as skipped,
+  because nothing was scheduled.
+
+**What the switch does not reach.** It governs compose's implicit builds only.
+The persona images and the auth sidecar are built explicitly, by a different
+mechanism, and stay governed by ``modules.web_terminals.image_source``: a host
+that cannot build at all needs ``image_source: registry`` *as well as*
+``prebuilt_images``. Setting only one of the two is the usual way a genuinely
+build-less host still ends up trying to build something.
+
+Nothing checks up front that the tags are really present. A missing one
+surfaces as compose's own ``No such image`` error, which names the image to
+load or pull.
+
+Together with the mirror settings above, the pull-only shape of a restricted
+deployment is: point all four image channels at the mirror, set
+``prebuilt_images: true``, and set ``modules.web_terminals.image_source:
+registry``.
 
 .. _qmd-search-sidecar:
 
@@ -751,7 +974,8 @@ A deployment reads its environment from two files at the repository root:
 on every path that reads them — the deploy, the CLI, the containers. That is
 the whole rule: same syntax, same variables, ``.env.shared`` simply sits lower.
 Setting a key in ``.env`` is how one host departs from a shared default, and
-there is nothing else to do about it.
+there is nothing else to do about it — unless the profile has declared that
+variable the shared file's to decide (see :ref:`deployment-pinned-env`).
 
 Both files stay on the host. Neither ever enters a container image: they are
 read at run time and handed to the container runtime, which uses them to fill
@@ -804,7 +1028,7 @@ worth editing because the next command overwrites them:
        accept only one
    * - ``build/.env.chain-state.json``
      - machine — fingerprints of the shared values as of the last deploy, so a
-       stale local pin can be spotted. It stores digests, never values.
+       stale local value can be spotted. It stores digests, never values.
 
 The generated ``.gitignore`` keeps all of them out of version control except
 ``.env.shared`` and ``.env.example``, which carry nothing a host may not share.
@@ -860,6 +1084,9 @@ are.
   remove the key from ``.env``; to keep a local value deliberately, set it to
   the value this host actually wants. The warning repeats until you do one or
   the other.
+* **Pinned variables** — a refusal. A profile can declare that some variables
+  are the shared file's to decide and no one else's; ``osprey up`` then refuses
+  to start when anything contradicts that. See :ref:`deployment-pinned-env`.
 * **Chain drift** — a refusal. Which env files the stack reads is decided when
   the project is rendered, not when it starts: adding ``.env.shared`` to a
   project built without one puts none of its values into the containers, and
@@ -868,7 +1095,9 @@ are.
 * **Shell exports** — when a variable exported in your shell disagrees with the
   value the chain resolves to, ``osprey up`` names it and says which of the two
   the compose provider it just probed will actually substitute (see
-  :ref:`compose-interpolation-precedence`).
+  :ref:`compose-interpolation-precedence`). A warning, so the export stays
+  available as an escape hatch — except for a pinned name, where it is a
+  refusal.
 
 .. note::
 
@@ -879,6 +1108,77 @@ are.
    from ``services.postgresql`` — keeps such deployments working. To adopt
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
+
+.. _deployment-pinned-env:
+
+Pinning a variable to the chain
+-------------------------------
+
+``.env`` winning is the right default, and for a few variables it is the wrong
+one: a proxy every host at the site has to go through, a hostname the whole
+facility shares. A profile can say so, in ``profile.yml``:
+
+.. code-block:: yaml
+
+   env:
+     pinned:
+       - HTTPS_PROXY
+       - FACILITY_ARCHIVER_HOST
+
+Pinning does not change how a value resolves. It changes what ``osprey up``
+does when something contradicts the declaration: it refuses to start, rather
+than let the stack run on a value from a source the deployment said it would
+not come from. Three checks, one for each way that can happen:
+
+* **The declaration itself.** Pinning a name the deploy writes for you is
+  refused — a service token or password it mints, a service default it records,
+  a Bluesky substrate variable, a credential ``--reuse-stores`` restores from a
+  surviving volume. A pin says the chain is the variable's only source, and
+  ``osprey up`` writing that same name into ``.env`` contradicts it by
+  construction. The message names each offender and its remedy:
+  ``unpin <NAME>; it is machine-minted.`` The check covers every name any writer
+  can produce, not only the services this deployment currently enables, so
+  turning a service on later cannot make a profile that was fine start
+  refusing.
+* **A local override.** ``.env`` setting a pinned name is refused. Without the
+  pin that is just this host's business; with it, the stack would start on a
+  value contradicting what the deployment declares it runs on — and nothing
+  else would notice, because the override is well-formed and the stack comes up
+  healthy.
+* **A shell export.** An export disagreeing with the chain is a warning for any
+  unpinned variable, deliberately: exporting over the store is a legitimate
+  one-off. For a pinned name it is a refusal, under either compose provider.
+  Docker Compose would substitute the exported value; podman-compose would
+  ignore it. Neither outcome is acceptable for a name the deployment declared
+  its own, and a repo must not be startable on one host and refused on another
+  for the same shell state, so the answer is the same on both — only the
+  explanation differs.
+
+All three run before any secret is minted and before any image is built, so a
+deploy that is going to stop here stops having provisioned nothing. All three
+print names and never values.
+
+Either remedy is one edit. To start on the declared value, remove the name from
+``.env`` or unset the export. To let this host decide it after all, drop the
+name from ``env.pinned`` and re-run ``osprey build``.
+
+**A pin covers the chain and the shell, not the files derived from them.**
+Those two are where a value can reach a container while every reading of
+``.env.shared`` goes on describing something else. ``.env.users`` carries a
+copy of what the chain already resolved to, and ``.env.auth`` holds credentials
+the deploy mints; neither is a place a pinned variable's value gets decided, so
+there is nothing there for the declaration to contradict.
+
+The declaration is read from ``profile.yml`` at the repository root, as
+``osprey build`` emitted it — a flat document. A hand-written profile that
+inherits its ``env`` block through ``extends:`` leaves the parent's pins unread
+and nothing enforced; spell them out in the repository's own profile.
+
+.. note::
+
+   The warning ``osprey up`` prints as **Stale pin** is a different thing: a
+   value pinned by hand in ``.env`` that has fallen behind the shared default.
+   It is unrelated to ``env.pinned``, and it stays a warning.
 
 .. _development-mode:
 

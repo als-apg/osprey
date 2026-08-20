@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -143,6 +144,72 @@ def _copy_shared_service_partials(dest_services_root: Path) -> int:
     for partial in partials:
         shutil.copy2(partial, dest_services_root / partial.name)
     return len(partials)
+
+
+#: The one key on a `services.<name>` block that belongs to the AUTHOR rather
+#: than to the injector that writes the block. Everything else an injector puts
+#: there it derives from its own profile block (a port, a trigger, a path), so
+#: replacing the block wholesale is right; `env:` is the exception, because it
+#: is written by hand and by nothing else.
+_AUTHORED_SERVICE_KEYS = ("env",)
+
+
+def _carry_authored_keys(services: Any, name: str, block: dict[str, Any]) -> dict[str, Any]:
+    """Carry an author-written key across an injector's whole-block replacement.
+
+    Every dedicated injector installs its ``services.<name>`` block with
+    :func:`~osprey.utils.config_writer.anchored_put`, which is a whole-VALUE
+    assignment: whatever stood at that key is gone. That is deliberate for the
+    keys the injector derives (the block is regenerated from the profile on
+    every build, and a stale port left behind would be worse than none), but the
+    env-passthrough axis is not derived from anything — ``services.<name>.env``
+    is a list of host variable NAMES the author wrote, in one of two spellings,
+    and both of them land in this same block *before* the injectors run:
+
+    * nested — ``services.<name>.config.env``, written by
+      :func:`_inject_profile_services`;
+    * dotted — ``config: {"services.<name>.env": [...]}``, merged by
+      ``build_cmd._apply_config_overrides``.
+
+    So without this the seven services that have a dedicated injector accept the
+    declaration at validation, write it to ``config.yml``, and then silently drop
+    it a few steps later — the author sees no error and no passthrough, which is
+    the failure the dispatch-pair rejection exists to prevent, one layer wider.
+    The macro that renders the axis (``templates/services/_env_axis.j2``) reads
+    exactly this key, so carrying it forward is all that is needed for the seven
+    to behave like the services with no injector at all.
+
+    Copied by reference and only when present, so a service that declares
+    nothing renders byte-for-byte what it rendered before: no empty ``env: []``
+    appears in any config.yml that did not already carry one.
+
+    A key the new block already carries is left alone, which is what keeps this
+    usable from :func:`_inject_profile_services` too. That injector builds its
+    block from ``svc_def.config`` — the nested spelling — while the dotted one
+    is already sitting in the block being replaced, so a rule of "carry
+    unconditionally" would silently promote the dotted spelling over the nested
+    one for every profile service. Filling only the gap leaves the existing
+    precedence exactly where it was and fixes only the case where the value
+    would otherwise be lost.
+
+    Args:
+        services: The ``services`` mapping being written into (a ruamel
+            ``CommentedMap`` in practice), holding whatever earlier steps wrote.
+        name: The service key about to be replaced.
+        block: The freshly built block. Mutated in place and returned, so this
+            wraps an ``anchored_put`` argument without restructuring the caller.
+
+    Returns:
+        ``block``, with any authored key the previous block carried and the new
+        one does not.
+    """
+    previous = services.get(name) if hasattr(services, "get") else None
+    if not isinstance(previous, Mapping):
+        return block
+    for key in _AUTHORED_SERVICE_KEYS:
+        if key in previous and key not in block:
+            block[key] = previous[key]
+    return block
 
 
 def _copy_service_templates(project_path: Path) -> int:
@@ -310,7 +377,9 @@ def _inject_profile_services(
             config["services"] = {}
         svc_config = {"path": f"./services/{name}"}
         svc_config.update(svc_def.config)
-        anchored_put(config["services"], name, svc_config)
+        anchored_put(
+            config["services"], name, _carry_authored_keys(config["services"], name, svc_config)
+        )
 
         # Add to deployed_services
         deployed = config.get("deployed_services", [])
@@ -607,7 +676,11 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
         # Python-side because the Jinja render context has no `os` module.
         svc_config["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
-    anchored_put(config["services"], "bluesky", svc_config)
+    anchored_put(
+        config["services"],
+        "bluesky",
+        _carry_authored_keys(config["services"], "bluesky", svc_config),
+    )
     deployed = config.get("deployed_services", []) or []
     if "bluesky" not in [str(s) for s in deployed]:
         anchored_append(deployed, "bluesky")
@@ -702,10 +775,14 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     anchored_put(
         config["services"],
         "virtual_accelerator",
-        {
-            "path": "./services/virtual_accelerator",
-            "port": va.port,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "virtual_accelerator",
+            {
+                "path": "./services/virtual_accelerator",
+                "port": va.port,
+            },
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     if "virtual_accelerator" not in [str(s) for s in deployed]:
@@ -803,10 +880,14 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
     anchored_put(
         config["services"],
         "bluesky_web",
-        {
-            "path": "./services/bluesky_web",
-            "port": bluesky_web.port,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "bluesky_web",
+            {
+                "path": "./services/bluesky_web",
+                "port": bluesky_web.port,
+            },
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     if "bluesky_web" not in [str(s) for s in deployed]:
@@ -920,10 +1001,14 @@ def _inject_nextcloud_bridge(
     anchored_put(
         config["services"],
         "nextcloud_bridge",
-        {
-            "path": "./services/nextcloud_bridge",
-            "trigger": nextcloud_bridge.trigger,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "nextcloud_bridge",
+            {
+                "path": "./services/nextcloud_bridge",
+                "trigger": nextcloud_bridge.trigger,
+            },
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     if "nextcloud_bridge" not in [str(s) for s in deployed]:
@@ -1016,10 +1101,14 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     # OSPREY_GCHAT_BRIDGE_IMAGE, or set ``services.gchat_bridge.image`` here, to
     # use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["gchat_bridge"] = {
-        "path": "./services/gchat_bridge",
-        "trigger": gchat_bridge.trigger,
-    }
+    config["services"]["gchat_bridge"] = _carry_authored_keys(
+        config["services"],
+        "gchat_bridge",
+        {
+            "path": "./services/gchat_bridge",
+            "trigger": gchat_bridge.trigger,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "gchat_bridge" not in [str(s) for s in deployed]:
         deployed.append("gchat_bridge")
@@ -1129,17 +1218,25 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
     anchored_put(
         config["services"],
         "mongodb",
-        {
-            "path": "./services/mongodb",
-            "port_host": va_archiver.port_host,
-            "username": va_archiver.username,
-            "compression": va_archiver.compression,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "mongodb",
+            {
+                "path": "./services/mongodb",
+                "port_host": va_archiver.port_host,
+                "username": va_archiver.username,
+                "compression": va_archiver.compression,
+            },
+        ),
     )
     anchored_put(
         config["services"],
         "archiver_recorder",
-        {"path": "./services/archiver_recorder"},
+        _carry_authored_keys(
+            config["services"],
+            "archiver_recorder",
+            {"path": "./services/archiver_recorder"},
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     for name in ("mongodb", "archiver_recorder"):

@@ -46,7 +46,11 @@ from osprey.deployment.compose_generator import (
     read_rendered_env_chain,
     record_env_chain_membership,
 )
-from osprey.deployment.container_lifecycle import ENV_MERGED_RELPATH, _env_file_args
+from osprey.deployment.container_lifecycle import (
+    ENV_MERGED_RELPATH,
+    _env_file_args,
+    pinned_env_keys,
+)
 from osprey.deployment.runtime_helper import ComposeProvider
 from osprey.utils.dotenv import (
     ENV_LOCAL_FILENAME,
@@ -651,3 +655,74 @@ class TestShellOverrideRecordAcrossTheChain:
         config.load_project_dotenv()
 
         assert config.dotenv_shell_overrides() == {CONFLICT: "from-the-shell"}
+
+
+# ---------------------------------------------------------------------------
+# What the deployment declares its chain owns: env.pinned
+# ---------------------------------------------------------------------------
+# The chain is the deployment's one secret store, and the preflights above can
+# already see when something reaches the stack from around it — a shell export,
+# a local pin of a shared default. What they cannot see is whether that was
+# meant to be possible. `env.pinned` in the repo's own profile.yml is where a
+# deployment says which names its chain owns outright; this is the deploy-side
+# read of that declaration, and every "nothing declared" shape has to answer
+# the same way, because the consumers turn a non-empty answer into a refusal.
+
+
+def _write_profile(root: Path, document: str) -> Path:
+    """Lay down a repo-root profile.yml with the given body."""
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "profile.yml"
+    path.write_text(document, encoding="utf-8")
+    return path
+
+
+class TestPinnedEnvKeysDeclaration:
+    """The deploy-side read of ``env.pinned``, over every shape it can meet."""
+
+    def test_declared_names_are_read_back(self, tmp_path: Path) -> None:
+        """The ordinary case: what the profile lists is what the deploy sees."""
+        _write_profile(
+            tmp_path,
+            "name: x\nenv:\n  required:\n    - OSPREY_OTHER\n  pinned:\n"
+            f"    - {CONFLICT}\n    - {SHARED_ONLY}\n",
+        )
+        assert pinned_env_keys(tmp_path) == {CONFLICT, SHARED_ONLY}
+
+    def test_the_declaration_is_independent_of_required(self, tmp_path: Path) -> None:
+        """``required`` says a name must be set; only ``pinned`` says where."""
+        _write_profile(tmp_path, f"name: x\nenv:\n  required:\n    - {CONFLICT}\n")
+        assert pinned_env_keys(tmp_path) == set()
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            pytest.param("name: x\n", id="no-env-block"),
+            pytest.param("name: x\nenv:\n  defaults:\n    A: b\n", id="env-without-pinned"),
+            pytest.param("name: x\nenv:\n  pinned: []\n", id="empty-list"),
+            pytest.param("name: x\nenv: not-a-mapping\n", id="env-not-a-mapping"),
+            pytest.param(f"name: x\nenv:\n  pinned: {CONFLICT}\n", id="pinned-not-a-list"),
+            pytest.param("- just\n- a\n- list\n", id="document-not-a-mapping"),
+            pytest.param("name: x\nenv:\n  pinned:\n   - A\n  - B\n", id="unparseable-yaml"),
+        ],
+    )
+    def test_every_shape_that_declares_nothing_answers_empty(
+        self, tmp_path: Path, document: str
+    ) -> None:
+        """Including the broken ones.
+
+        A profile that does not parse is ``osprey build``'s failure and the
+        staleness check's report; a refusal raised from here would turn it into
+        a deploy-time crash inside a preflight that has no finding of its own.
+        """
+        _write_profile(tmp_path, document)
+        assert pinned_env_keys(tmp_path) == set()
+
+    def test_a_repo_without_a_profile_declares_nothing(self, tmp_path: Path) -> None:
+        """No profile.yml at the root is silence, not an error."""
+        assert pinned_env_keys(tmp_path) == set()
+
+    def test_names_are_read_from_this_repos_profile_only(self, tmp_path: Path) -> None:
+        """A profile one directory up is another deployment's declaration."""
+        _write_profile(tmp_path, f"name: parent\nenv:\n  pinned:\n    - {CONFLICT}\n")
+        assert pinned_env_keys(tmp_path / "repo") == set()

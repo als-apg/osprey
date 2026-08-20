@@ -123,6 +123,20 @@ def test_find_service_config_resolves_bluesky(tmp_path: Path) -> None:
     assert template_path == "./services/bluesky/docker-compose.yml.j2"
 
 
+def _image_defaults(project_name: str) -> dict[str, str]:
+    """The image map ``_inject_project_metadata`` injects, for hand-built ctx.
+
+    The bridge's image line renders its innermost fallback from this mapping,
+    so a context assembled by hand still has to carry it. Taken from the
+    production helper rather than restated, so these renders follow the
+    registry and tag axes instead of pinning a name the generator may not
+    produce any more.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    return resolve_image_defaults({"project_name": project_name})
+
+
 def _render_copied_compose(project_path: Path, config: dict) -> dict:
     """Render the compose template `_inject_bluesky` copied, using the same
     context-key contract `compose_generator.render_template` uses, and parse
@@ -133,13 +147,19 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
     import yaml as pyyaml
     from jinja2 import Environment, FileSystemLoader
 
-    env = Environment(loader=FileSystemLoader(str(project_path / "services" / "bluesky")))
+    # Both roots: the template imports the shared axis macros as
+    # "services/_*.j2" (resolved from the project root, as at deploy time),
+    # while the template itself is addressed by bare name from its own dir.
+    env = Environment(
+        loader=FileSystemLoader([str(project_path), str(project_path / "services" / "bluesky")])
+    )
     tmpl = env.get_template("docker-compose.yml.j2")
     ctx = {
         "osprey_labels": {
             "project_name": "p",
             "project_root": str(project_path),
         },
+        "osprey_images": _image_defaults("p"),
         "osprey_version": "",
         "system": {"timezone": "UTC"},
         "deployment": {},

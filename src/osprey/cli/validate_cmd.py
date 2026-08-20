@@ -64,6 +64,13 @@ def check_profile_file(profile_file: Path) -> None:
     check, lint the declared web stack against the config a build would render,
     and report.
 
+    The host-variant overlay is applied first, exactly as ``osprey build``
+    applies it. Without that, this verb would judge a document no host builds:
+    a repo whose ``.env.variant`` selects ``profiles/teststand.yml`` would be
+    called valid on the strength of the tracked profile while the render the
+    build produces is the merged one — and the operator would find out at build
+    time, from the verb they ran validate to stay ahead of.
+
     Args:
         profile_file: An existing profile file — a repo's ``profile.yml`` or a
             persona delta.
@@ -73,9 +80,17 @@ def check_profile_file(profile_file: Path) -> None:
     """
     from .build_profile import resolve_build_profile
     from .build_profile_deploy import deploy_aware_config_errors
+    from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
+    variant = VariantSelection(name=None, path=None)
     try:
-        build_profile, profile_dir = resolve_build_profile(profile_file, None)
+        # Only a repo root has a host variant. A persona delta named directly is
+        # a file among its siblings, not a deployment, and the directory holding
+        # it carries no setting to read.
+        if profile_file.name == PROFILE_FILENAME:
+            variant = resolve_variant_selection(profile_file.parent)
+        overlays = (variant.path,) if variant.path is not None else ()
+        build_profile, profile_dir = resolve_build_profile(profile_file, None, overlays)
         # Named explicitly rather than left to resolution's internals: this
         # command exists to run exactly this check, so it must not become a
         # no-op if resolution ever stops validating on its own.
@@ -94,6 +109,14 @@ def check_profile_file(profile_file: Path) -> None:
         # below says "Profile is valid", and `BuildProfile.validate` already owns
         # the "Build profile validation failed" header for its own errors.
         raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
+
+    # Before the verdict, and worded as `osprey build` words it: the reader has
+    # to know WHICH document was judged before being told it is fine.
+    if variant.selected:
+        note(
+            f"host variant {variant.name} "
+            f"({VARIANT_DIRNAME}/{variant.name}.yml over {PROFILE_FILENAME})"
+        )
 
     report(f"✓ Profile is valid: {profile_file}", style=Styles.SUCCESS)
 
@@ -126,6 +149,9 @@ def validate(target: Path | None, repo: Path | None) -> None:
     directories, the data: tree, service templates, lifecycle steps, env vars —
     then lints the declared web stack against the config a build would render.
     Every problem found is reported, not just the first.
+
+    Judges what this host builds: when .env.variant selects an overlay under
+    profiles/, that overlay is merged in first, and named in the output.
 
     Exits 0 when the profile is valid, 2 with the accumulated errors when it is
     not, so a CI job can gate on it.

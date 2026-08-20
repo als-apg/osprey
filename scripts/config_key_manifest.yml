@@ -94,6 +94,25 @@ keys:
       PRESENCE is all-templates; VALUES deliberately diverge ([] /
       [openobserve] / [postgresql, openobserve]). The guard must not assert
       value equality here.
+  images.registry:
+    rendered: false
+    evidence: 'images\.get\("registry"\)'
+    note: >-
+      Hidden key, unset in all five templates. One of the two stack-wide image
+      axes (`compose_generator.resolve_image_axes`): the registry every
+      OSPREY-built image's DEFAULT reference is prefixed with, so the images CI
+      pushes and the images a deploy pulls are the same images. Overridden by
+      OSPREY_IMAGE_REGISTRY in the environment, and outranked in the other
+      direction by a `services.<svc>.image` pin or an
+      `OSPREY_<SVC>_IMAGE` compose override. Never applied to the third-party
+      pins beside them — prefixing an upstream name yields no image at all.
+  images.tag:
+    rendered: false
+    evidence: 'images\.get\("tag"\)'
+    note: >-
+      The other axis, same layering. Defaults to `local` — the tag `osprey up`
+      builds on the host — so a deployment that sets neither key renders
+      byte-for-byte what it rendered before the axes existed.
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
   services.openobserve: {evidence: 'get\("openobserve", \{\}\)'}
