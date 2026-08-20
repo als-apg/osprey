@@ -2907,7 +2907,7 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
-      timeout-minutes: 25
+      timeout-minutes: 15
       run: |
         uv run pytest tests/e2e/test_deploy_writeback_e2e.py -v --tb=short
 
