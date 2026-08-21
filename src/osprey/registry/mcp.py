@@ -228,7 +228,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "create_interactive_plot",
             "create_dashboard",
             "create_document",
-            "artifact_save",
+            "artifact_register",
             "artifact_delete",
             "artifact_delete_all",
             "provenance_locator",

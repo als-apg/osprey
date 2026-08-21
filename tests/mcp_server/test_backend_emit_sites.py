@@ -332,9 +332,9 @@ async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, monkeyp
 
 
 async def _save_artifact(title="Test Artifact"):
-    from osprey.mcp_server.workspace.tools.artifact_save import artifact_save
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
 
-    save_fn = get_tool_fn(artifact_save)
+    save_fn = get_tool_fn(artifact_register)
     save_result = await save_fn(title=title, content="# Hello", content_type="markdown")
     return extract_response_dict(save_result)["artifact_id"]
 

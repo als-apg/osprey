@@ -14,7 +14,7 @@ and ``create_dashboard`` tools, which are on the settings allow-list
 (auto-approved). The sandboxing makes that auto-approval genuinely safe.
 
 All visualization output goes through ``save_artifact()`` in user code,
-which writes to a manifest file collected by ``_collect_artifacts()``.
+which writes to a manifest file collected by ``collect_artifacts()``.
 There is no auto-capture of matplotlib figures or stdout markers.
 """
 
@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+from osprey.stores.artifact_manifest import SAVE_ARTIFACT_SOURCE, collect_artifacts
 
 logger = logging.getLogger("osprey.mcp_server.workspace.execution.sandbox_executor")
 
@@ -330,182 +331,7 @@ builtins.open = _sandboxed_open
 _execution_dir = Path(r"{exec_folder_str}")
 _execution_dir.mkdir(parents=True, exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# save_artifact() injection
-# ---------------------------------------------------------------------------
-def save_artifact(obj, title="Untitled", description="", artifact_type=None, category=""):
-    """Save an object as a gallery artifact.
-
-    Supported types:
-      - plotly Figure -> interactive HTML
-      - matplotlib Figure -> PNG image
-      - pandas DataFrame -> HTML table
-      - str -> markdown or HTML (auto-detected)
-      - dict / list -> JSON
-      - bytes -> binary file
-      - numpy ndarray -> .npy file
-
-    Args:
-        obj: The object to save.
-        title: Human-readable title shown in the gallery.
-        description: Optional longer description.
-        artifact_type: Override the auto-detected type.
-        category: Optional category key for gallery grouping.
-    """
-    import json as _json
-    import uuid as _uuid
-    from pathlib import Path as _Path
-
-    artifacts_dir = _execution_dir / "artifacts"
-    artifacts_dir.mkdir(exist_ok=True)
-
-    art_id = _uuid.uuid4().hex[:12]
-
-    # Slugify title for filename
-    _slug = title.lower().strip()
-    _slug = "".join(c if c.isalnum() or c in (" ", "-", "_") else "" for c in _slug)
-    _slug = _slug.replace(" ", "_")[:60] or "artifact"
-
-    # Smart type detection and serialization
-    content = None
-    detected_type = None
-    filename = None
-    mime_type = None
-
-    # Plotly Figure
-    try:
-        import plotly.graph_objects as _go
-        if isinstance(obj, _go.Figure):
-            content = obj.to_html(include_plotlyjs=False, full_html=True).encode()
-            detected_type = "plot_html"
-            filename = f"{{art_id}}_{{_slug}}.html"
-            mime_type = "text/html"
-    except ImportError:
-        pass
-
-    # Bokeh Model (layout, figure, widget, etc.)
-    if content is None:
-        try:
-            import bokeh.model as _bmodel
-            if isinstance(obj, _bmodel.Model):
-                from bokeh.embed import file_html
-                from bokeh.resources import INLINE as _INLINE
-                content = file_html(obj, resources=_INLINE, title=title).encode()
-                detected_type = "dashboard_html"
-                filename = f"{{art_id}}_{{_slug}}.html"
-                mime_type = "text/html"
-        except ImportError:
-            pass
-
-    # Matplotlib Figure
-    if content is None:
-        try:
-            import matplotlib.figure as _mfig
-            if isinstance(obj, _mfig.Figure):
-                import io as _io
-                _buf = _io.BytesIO()
-                obj.savefig(_buf, format="png", dpi=150, bbox_inches="tight")
-                _buf.seek(0)
-                content = _buf.read()
-                detected_type = "plot_png"
-                filename = f"{{art_id}}_{{_slug}}.png"
-                mime_type = "image/png"
-        except ImportError:
-            pass
-
-    # Pandas DataFrame
-    if content is None:
-        try:
-            import pandas as _pd
-            if isinstance(obj, _pd.DataFrame):
-                content = obj.to_html(classes="artifact-table", border=0).encode()
-                detected_type = "table_html"
-                filename = f"{{art_id}}_{{_slug}}.html"
-                mime_type = "text/html"
-        except ImportError:
-            pass
-
-    # str
-    if content is None and isinstance(obj, str):
-        if obj.lstrip().startswith(("<", "<!")) and "</" in obj:
-            content = obj.encode()
-            detected_type = "html"
-            filename = f"{{art_id}}_{{_slug}}.html"
-            mime_type = "text/html"
-        else:
-            content = obj.encode()
-            detected_type = "markdown"
-            filename = f"{{art_id}}_{{_slug}}.md"
-            mime_type = "text/markdown"
-
-    # dict / list
-    if content is None and isinstance(obj, (dict, list)):
-        content = _json.dumps(obj, indent=2, default=str).encode()
-        detected_type = "json"
-        filename = f"{{art_id}}_{{_slug}}.json"
-        mime_type = "application/json"
-
-    # bytes
-    if content is None and isinstance(obj, bytes):
-        content = obj
-        detected_type = "binary"
-        filename = f"{{art_id}}_{{_slug}}.bin"
-        mime_type = "application/octet-stream"
-
-    # numpy ndarray -- last of the type branches so every type already handled
-    # above keeps its exact sniffing order. Object dtypes are left out:
-    # np.save cannot write them without pickle, so they keep falling through
-    # to the repr() fallback.
-    if content is None:
-        try:
-            import numpy as _np
-            if isinstance(obj, _np.ndarray) and not obj.dtype.hasobject:
-                import io as _nio
-                _nbuf = _nio.BytesIO()
-                _np.save(_nbuf, obj, allow_pickle=False)
-                content = _nbuf.getvalue()
-                detected_type = "file"
-                filename = f"{{art_id}}_{{_slug}}.npy"
-                mime_type = "application/octet-stream"
-        except ImportError:
-            pass
-
-    # Fallback: repr as text
-    if content is None:
-        content = repr(obj).encode()
-        detected_type = "text"
-        filename = f"{{art_id}}_{{_slug}}.txt"
-        mime_type = "text/plain"
-
-    final_type = artifact_type or detected_type
-
-    # Write artifact file
-    artifact_path = artifacts_dir / filename
-    artifact_path.write_bytes(content)
-
-    # Update manifest
-    manifest_path = artifacts_dir / "manifest.json"
-    if manifest_path.exists():
-        manifest = _json.loads(manifest_path.read_text())
-    else:
-        manifest = []
-
-    entry = {{
-        "id": art_id,
-        "filename": filename,
-        "title": title,
-        "description": description,
-        "artifact_type": final_type,
-        "mime_type": mime_type,
-        "size_bytes": len(content),
-    }}
-    if category:
-        entry["category"] = category
-    manifest.append(entry)
-    manifest_path.write_text(_json.dumps(manifest, indent=2))
-
-    print(f"Artifact saved: {{title}} ({{final_type}}, {{len(content)}} bytes)")
-
+{SAVE_ARTIFACT_SOURCE}
 
 # ---------------------------------------------------------------------------
 # Execution metadata
@@ -602,38 +428,6 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
     return None
 
 
-def _collect_artifacts(execution_folder: Path) -> list[dict]:
-    """Collect artifacts saved by save_artifact() inside the subprocess."""
-    manifest_path = execution_folder / "artifacts" / "manifest.json"
-    if not manifest_path.exists():
-        return []
-
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        logger.debug("Failed to read artifact manifest", exc_info=True)
-        return []
-
-    artifacts = []
-    for entry in manifest:
-        file_path = execution_folder / "artifacts" / entry["filename"]
-        if file_path.exists():
-            art = {
-                "path": file_path,
-                "title": entry.get("title", "Untitled"),
-                "description": entry.get("description", ""),
-                "artifact_type": entry.get("artifact_type", "file"),
-                "mime_type": entry.get("mime_type", "application/octet-stream"),
-            }
-            if entry.get("category"):
-                art["category"] = entry["category"]
-            artifacts.append(art)
-        else:
-            logger.debug("Artifact file missing: %s", file_path)
-
-    return artifacts
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -724,7 +518,7 @@ async def execute_sandbox_code(
 
     # 4. Read results
     metadata = _read_execution_metadata(execution_folder)
-    artifacts = _collect_artifacts(execution_folder)
+    artifacts = collect_artifacts(execution_folder)
 
     if metadata:
         final_stdout = metadata.get("stdout", stdout_text)

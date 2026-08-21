@@ -155,7 +155,7 @@ def test_deliberately_saved_notebook_still_emits(project, notified):
         artifact_type="notebook",
         title="Orbit analysis",
         mime_type="application/x-ipynb+json",
-        tool_source="artifact_save",
+        tool_source="artifact_register",
     )
     wait_drained()
 

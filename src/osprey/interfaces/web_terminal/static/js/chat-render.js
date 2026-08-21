@@ -196,7 +196,7 @@ export const TOOL_PHRASES = Object.freeze({
   screenshot_capture: 'taking a screenshot',
 
   // Workspace artifacts (plots, documents and stored datasets alike).
-  artifact_save: 'saving an artifact',
+  artifact_register: 'registering an artifact',
   artifact_get: 'opening an artifact',
   artifact_list: 'listing saved artifacts',
   artifact_read: 'reading a saved artifact',

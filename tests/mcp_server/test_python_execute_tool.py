@@ -702,10 +702,10 @@ def test_save_artifact_in_full_wrapper():
 
 @pytest.mark.unit
 def test_collect_artifacts_reads_manifest(tmp_path):
-    """_collect_artifacts() reads manifest.json and returns artifact dicts."""
+    """collect_artifacts() reads manifest.json and returns artifact dicts."""
     import json
 
-    from osprey.mcp_server.python_executor.executor import _collect_artifacts
+    from osprey.stores.artifact_manifest import collect_artifacts
 
     # Set up an artifacts/ subdirectory with a manifest and file
     art_dir = tmp_path / "artifacts"
@@ -725,7 +725,7 @@ def test_collect_artifacts_reads_manifest(tmp_path):
     ]
     (art_dir / "manifest.json").write_text(json.dumps(manifest))
 
-    result = _collect_artifacts(tmp_path)
+    result = collect_artifacts(tmp_path)
     assert len(result) == 1
     assert result[0]["title"] == "Test JSON"
     assert result[0]["artifact_type"] == "json"
@@ -734,10 +734,10 @@ def test_collect_artifacts_reads_manifest(tmp_path):
 
 @pytest.mark.unit
 def test_collect_artifacts_empty_when_no_manifest(tmp_path):
-    """_collect_artifacts() returns empty list when no manifest exists."""
-    from osprey.mcp_server.python_executor.executor import _collect_artifacts
+    """collect_artifacts() returns empty list when no manifest exists."""
+    from osprey.stores.artifact_manifest import collect_artifacts
 
-    assert _collect_artifacts(tmp_path) == []
+    assert collect_artifacts(tmp_path) == []
 
 
 @pytest.mark.unit
@@ -746,7 +746,7 @@ async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
 
-    # Create artifact file that _collect_artifacts would return
+    # Create artifact file that collect_artifacts would return
     art_dir = tmp_path / "collected_artifacts"
     art_dir.mkdir()
     art_file = art_dir / "abc123_test_data.json"

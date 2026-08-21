@@ -1,10 +1,11 @@
-"""The numpy branch in the sandboxed workspace executor's ``save_artifact()``.
+"""The numpy branch of ``save_artifact()`` inside the sandboxed workspace executor.
 
-This is the third copy of Osprey's "save this object" serializer — alongside
-``ArtifactStore._serialize_object`` and the python-executor wrapper injection,
-both pinned in ``tests/stores/test_numpy_serializer_parity.py``. This one is
-emitted as source text into the sandbox subprocess, so the only honest way to
-test it is to run it: every test here executes real user code through
+The sandbox injects the same ``save_artifact()`` source as the python executor
+(``osprey.stores.artifact_manifest.SAVE_ARTIFACT_SOURCE``), which delegates to
+``artifact_store.serialize_object`` — pinned in
+``tests/stores/test_numpy_serializer_parity.py``. What is specific here is the
+sandbox itself: its import allow-list and patched ``open()`` must still let that
+delegation work, so every test executes real user code through
 ``execute_sandbox_code`` the way the rest of the sandbox suite does.
 """
 

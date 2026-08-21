@@ -23,7 +23,7 @@ def store(tmp_path):
 @pytest.fixture
 def get_tool():
     """Get the raw async function for artifact_get."""
-    from osprey.mcp_server.workspace.tools.artifact_save import artifact_get
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_get
 
     return get_tool_fn(artifact_get)
 

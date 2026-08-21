@@ -74,8 +74,9 @@ jobs:
     # the 6-hour default.
     #
     # 45 rather than 30, and the cells are no longer close to it. A healthy run
-    # is ~11 min (ubuntu 3.12) to ~22 min (ubuntu 3.11, which also measures
-    # coverage); macOS finishes in ~9-14. What forces the headroom is a known
+    # is ~15-18 min on all four cells, coverage cell included: it measures
+    # through PEP 669 (see COVERAGE_CORE below), which costs near enough
+    # nothing, so no cell is an outlier any more. What forces the headroom is a known
     # intermittent tail worth ~12 minutes: a worker wedges mid-test and its
     # share has to be redistributed to a replacement, or the session hangs
     # after the last test on non-daemon threads that outlive it. Both are
@@ -140,9 +141,29 @@ jobs:
         # and stack-dump file per xdist worker, written here and uploaded below.
         # Unset everywhere else, so local runs are unaffected.
         OSPREY_CI_DIAG_DIR: ci-diag
+        # PEP 669 tracing for the coverage cell below. Honoured only on 3.12+
+        # (and not self-enabling until 3.14), inert on the cells that measure
+        # no coverage, so it is set once for the matrix rather than branched.
+        COVERAGE_CORE: sysmon
       # Coverage is measured only on the cell that uploads to Codecov below —
-      # the other three cells were paying ~25% runtime (measured) for a report
-      # nobody reads.
+      # the other three cells were paying for a report nobody reads.
+      #
+      # That cell is 3.12 and not the floor version, and COVERAGE_CORE above is
+      # why. coverage.py can trace through PEP 669 (`sys.monitoring`) instead of
+      # the C trace function, and on this suite that is the difference between
+      # ~free and ~2x: measured at 150s bare / 283s ctrace / 130s sysmon over
+      # tests/{registry,connectors,mcp_server,cli} on 3.12, and visible in CI as
+      # a 14.6-minute 3.12 cell beside a 36.1-minute 3.11 one running the same
+      # tests. `sys.monitoring` needs 3.12+, so on a 3.11 cell coverage refuses
+      # it and falls back to the slow core with only a warning ("sys.monitoring
+      # isn't available in this version", coverage/core.py) — measuring on the
+      # floor version was buying the 2x silently. Both backends produce
+      # identical numbers; only the cost differs.
+      #
+      # This cell and the Codecov `if:` below must name the same version, or
+      # coverage.xml is written by one cell and looked for by another — which
+      # `fail_ci_if_error: false` would swallow into a silent coverage
+      # blackout. test_ci_workflow_wiring.py pins the two together.
       #
       # -n 4 --dist loadgroup (pytest-xdist): the cross-test global-state
       # bleed this lane used to flake on under -n (stdlib subprocess.run
@@ -179,7 +200,7 @@ jobs:
       # stub cannot answer, needs no terminal, and is what makes the serial
       # step's failures worth reading.
       run: |
-        if [ "${{ matrix.python-version }}" = "3.11" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+        if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
@@ -295,7 +316,7 @@ jobs:
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
-      if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
+      if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
       with:
         files: ./coverage.xml
         flags: unittests

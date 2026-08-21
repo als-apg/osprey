@@ -44,7 +44,7 @@ def create_server() -> FastMCP:
             archiver_downsample,
             artifact_export,
             artifact_query,
-            artifact_save,
+            artifact_register,
             create_dashboard,
             create_document,
             create_interactive_plot,

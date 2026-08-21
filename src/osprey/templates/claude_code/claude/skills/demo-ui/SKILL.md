@@ -132,7 +132,7 @@ workspace as a real object the operator can open, keep, and come back to.
    note in the bottom activity strip that clears in seconds — hence step 2 first.
 4. **Pin it** — `artifact_pin` and say why an operator would: pinned artifacts stay
    at the top through a long shift.
-5. **Add a short note** — `artifact_save` with `content_type: "markdown"`, a few
+5. **Add a short note** — `artifact_register` with `content_type: "markdown"`, a few
    lines interpreting the figure, with one piece of inline math so the KaTeX
    rendering shows. Keep it to a paragraph and a short list; this is a companion
    to the plot, not a report.

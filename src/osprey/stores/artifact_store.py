@@ -6,8 +6,9 @@ root (``agent_data.base_dir``) in ``artifacts/``, and served by the Artifact
 Server gallery.
 
 Two entry points create artifacts:
-  1. ``save_artifact()`` — injected into ``execute`` namespace
-  2. ``artifact_save`` — standalone MCP tool for files / inline content
+  1. ``save_artifact()`` — injected into execution subprocesses for live
+     Python objects (see :mod:`osprey.stores.artifact_manifest`)
+  2. ``artifact_register`` — MCP tool for files on disk / literal text
 
 This module provides the low-level storage layer used by both.
 """
@@ -151,11 +152,15 @@ class ArtifactEntry:
         return resp
 
 
-def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
+def serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
     """Detect the type of *obj* and serialise it to bytes.
 
+    The one serializer behind every "save this object" path: the in-process
+    :meth:`ArtifactStore.save_object` and the ``save_artifact()`` injected into
+    execution subprocesses (:mod:`osprey.stores.artifact_manifest`).
+
     Returns:
-        (content_bytes, artifact_type, filename_ext, mime_type)
+        (content_bytes, artifact_type, filename, mime_type)
     """
     slug = _slugify(title)
 
@@ -166,6 +171,19 @@ def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
         if isinstance(obj, go.Figure):
             html = obj.to_html(include_plotlyjs=False, full_html=True)
             return html.encode(), "plot_html", f"{slug}.html", "text/html"
+    except ImportError:
+        pass
+
+    # --- Bokeh Model (layout, figure, widget, ...) ---
+    try:
+        import bokeh.model  # type: ignore[import-untyped]
+
+        if isinstance(obj, bokeh.model.Model):
+            from bokeh.embed import file_html
+            from bokeh.resources import INLINE
+
+            html = file_html(obj, resources=INLINE, title=title)
+            return html.encode(), "dashboard_html", f"{slug}.html", "text/html"
     except ImportError:
         pass
 
@@ -382,7 +400,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         Detects Plotly figures, matplotlib figures, DataFrames, strings, dicts
         and numpy arrays (saved as ``.npy``).
         """
-        content, detected_type, filename, mime = _serialize_object(obj, title)
+        content, detected_type, filename, mime = serialize_object(obj, title)
 
         return self.save_file(
             file_content=content,
@@ -402,7 +420,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         title: str,
         description: str = "",
         artifact_type: str | None = None,
-        tool_source: str = "artifact_save",
+        tool_source: str = "artifact_register",
         metadata: dict[str, Any] | None = None,
         category: str = "",
     ) -> ArtifactEntry:

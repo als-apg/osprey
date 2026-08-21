@@ -141,7 +141,7 @@ description: >
   Facility-specific end-to-end visibility check. When invoked, read the render's
   channel-limits data file and save a report proving the overlay skill and the
   data bundle are both reachable in the running worker container.
-allowed-tools: Read, mcp__osprey_workspace__artifact_save
+allowed-tools: Read, mcp__osprey_workspace__artifact_register
 ---
 
 # Facility Marker
@@ -151,7 +151,8 @@ When this skill is invoked, do exactly the following, in order:
 1. Read the file `build/data/channel_limits.json` from the working directory.
 2. Note the value of its top-level `_sentinel` field.
 3. Save a short markdown report using the workspace artifact tool
-   (`mcp__osprey_workspace__artifact_save`) with `content` (inline markdown).
+   (`mcp__osprey_workspace__artifact_register`) with `content` (inline markdown)
+   and `content_type` set to `markdown`.
    The report body MUST contain, each on its own line and verbatim:
    - the literal token `{OVERLAY_MARKER}`
    - the `_sentinel` value you read from the data file
@@ -190,13 +191,13 @@ _OVERLAY_TRIGGER_ENTRY = {
             "Invoke the facility-marker skill now using the Skill tool, and follow "
             "its steps exactly: read the file build/data/channel_limits.json from "
             "the working directory, then save a markdown report via the workspace "
-            "artifact_save tool. Do not skip any step."
+            "artifact_register tool. Do not skip any step."
         ),
         "surface_prompt": _SURFACE_PROMPT,
         "allowed_tools": [
             "Skill",
             "Read",
-            "mcp__osprey_workspace__artifact_save",
+            "mcp__osprey_workspace__artifact_register",
         ],
     },
 }

@@ -1,4 +1,4 @@
-"""MCP tools: artifact_save, artifact_delete, artifact_delete_all, artifact_get.
+"""MCP tools: artifact_register, artifact_delete, artifact_delete_all, artifact_get.
 
 Register files or inline content as gallery artifacts, delete them (one at a
 time or a whole scope), or look up artifact metadata and file paths.
@@ -16,7 +16,7 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import gallery_url
 from osprey.mcp_server.workspace.server import mcp
 
-logger = logging.getLogger("osprey.mcp_server.tools.artifact_save")
+logger = logging.getLogger("osprey.mcp_server.tools.artifact_register")
 
 # Content-type to artifact_type mapping
 _CONTENT_TYPE_MAP = {
@@ -28,19 +28,23 @@ _CONTENT_TYPE_MAP = {
 
 
 @mcp.tool()
-async def artifact_save(
+async def artifact_register(
     title: str,
     description: str = "",
     file_path: str | None = None,
     content: str | None = None,
-    content_type: str = "markdown",
+    content_type: str | None = None,
     category: str = "",
 ) -> str:
-    """Save an artifact to the OSPREY gallery for interactive viewing.
+    """Register a file on disk, or literal text, as a gallery artifact.
 
-    Creates a gallery artifact from either an existing file on disk or
-    inline string content. Use this to register screenshots, markdown
-    summaries, HTML content, or any file Claude has produced.
+    Use this for things that already exist as a file or as text: a
+    screenshot, a CSV or PDF a tool left on disk, a markdown summary you
+    wrote. The content is stored as given — nothing is serialized.
+
+    A live Python object (a figure, a DataFrame, a dict of computed numbers)
+    cannot be passed here; save it from the code that produced it with
+    ``save_artifact()`` inside ``execute``.
 
     Exactly one of ``file_path`` or ``content`` must be provided.
 
@@ -48,8 +52,8 @@ async def artifact_save(
         title: Human-readable title for the artifact.
         description: Optional longer description.
         file_path: Path to an existing file to register as an artifact.
-        content: Inline string content (markdown, HTML, text, or JSON).
-        content_type: Type of inline content — "markdown", "html", "text",
+        content: Literal text to store (markdown, HTML, plain text, or JSON).
+        content_type: Required with ``content`` — "markdown", "html", "text",
                       or "json". Ignored when file_path is provided.
         category: Optional category for gallery grouping. See the type
                   registry for valid categories.
@@ -77,6 +81,13 @@ async def artifact_save(
             ],
         )
 
+    if content and content_type is None:
+        return make_error(
+            "validation_error",
+            "content requires content_type.",
+            [f"Pass content_type as one of: {', '.join(_CONTENT_TYPE_MAP)}."],
+        )
+
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
@@ -100,7 +111,7 @@ async def artifact_save(
                 source_path=source,
                 title=title,
                 description=description,
-                tool_source="artifact_save",
+                tool_source="artifact_register",
                 category=category,
             )
         else:
@@ -124,7 +135,7 @@ async def artifact_save(
                 title=title,
                 description=description,
                 mime_type=mime,
-                tool_source="artifact_save",
+                tool_source="artifact_register",
                 category=category,
             )
 
@@ -138,7 +149,7 @@ async def artifact_save(
             ["Check the file path exists.", "Use an absolute path or path relative to CWD."],
         )
     except PermissionError as exc:
-        logger.exception("artifact_save permission denied")
+        logger.exception("artifact_register permission denied")
         return make_error(
             "permission_denied",
             f"Cannot write artifact: {exc}",
@@ -151,7 +162,7 @@ async def artifact_save(
     except ToolError:
         raise
     except Exception as exc:
-        logger.exception("artifact_save failed")
+        logger.exception("artifact_register failed")
         return make_error(
             "internal_error",
             f"Artifact save failed: {exc}",
@@ -181,7 +192,7 @@ async def artifact_delete(artifact_id: str) -> str:
             return make_error(
                 "not_found",
                 f"Artifact {artifact_id} not found.",
-                ["Check the artifact_id from a previous artifact_save response."],
+                ["Check the artifact_id from a previous artifact_register response."],
             )
 
         return json.dumps(
@@ -314,7 +325,7 @@ async def artifact_get(artifact_id: str) -> str:
             return make_error(
                 "not_found",
                 f"Artifact {artifact_id} not found.",
-                ["Use artifact_list or check a previous artifact_save response."],
+                ["Use artifact_list or check a previous artifact_register response."],
             )
 
         file_path = store.get_file_path(artifact_id)

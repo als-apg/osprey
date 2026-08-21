@@ -852,12 +852,12 @@ triggers:
         Investigate this event and save a short status report. First take a
         quick look at the working directory (Glob/Read) to ground yourself, then
         use the workspace artifact tool to save a concise markdown report
-        summarizing the event payload and what you would do next. Confirm the
-        artifact you created.
+        (content_type markdown) summarizing the event payload and what you would
+        do next. Confirm the artifact you created.
       allowed_tools:
         - Glob
         - Read
-        - mcp__osprey_workspace__artifact_save
+        - mcp__osprey_workspace__artifact_register
         - mcp__osprey_workspace__create_document
 
   # 4. Requests a tool the worker blocks server-side; teaches the denylist.
