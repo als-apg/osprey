@@ -54,9 +54,12 @@ repos:
       - id: check-yaml
       # Check TOML syntax
       - id: check-toml
-      # Prevent large files from being committed
+      # Prevent large files from being committed. The floor is set by the
+      # generated demo-machine graph corpus
+      # (templates/apps/control_assistant/data/demo_machine.ttl, ~1.5 MB);
+      # raise the number rather than excluding a path, so the guard stays armed.
       - id: check-added-large-files
-        args: ['--maxkb=1000']
+        args: ['--maxkb=2000']
       # Check for files that would conflict on case-insensitive filesystems
       - id: check-case-conflict
       # Detect private keys
