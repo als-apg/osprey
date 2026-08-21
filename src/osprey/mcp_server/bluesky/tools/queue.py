@@ -225,7 +225,11 @@ def _refuse_writes_disabled(refused: str) -> NoReturn:
         "writes_disabled",
         f"Control-system writes are disabled in this deployment "
         f"(control_system.writes_enabled=false in config.yml), so {refused} is refused.",
-        [f"Set control_system.writes_enabled: true in config.yml to allow {refused}."],
+        [
+            f"Enabling writes is an operator action: set "
+            f"control_system.writes_enabled: true in the build profile "
+            f"(profile.yml on the host), then rebuild and redeploy, to allow {refused}."
+        ],
     )
 
 
@@ -488,9 +492,10 @@ async def queue_add(draft_revision: int) -> str:
         if not writes_ok and _code_of(body) == "launch_token_required":
             extra_hints = [
                 "This server withheld the launch token because "
-                "control_system.writes_enabled is false in this deployment — enabling "
-                "writes in config.yml, not a different token, is what unblocks adding "
-                "to a running queue.",
+                "control_system.writes_enabled is false in this deployment — an "
+                "operator enabling writes in the build profile (profile.yml on the "
+                "host, then rebuild and redeploy), not a different token, is what "
+                "unblocks adding to a running queue.",
             ]
         return _relay_refusal(
             body,

@@ -1,367 +1,238 @@
 ---
 name: osprey-build-interview
 description: >
-  Interactive interview to create a custom OSPREY build profile for a new accelerator, detector,
-  or beamline application. Use when someone says "interview me", "create a build profile",
-  "set up my agent", "configure my detector", "onboard me", or needs to create an OSPREY project
-  tailored to their specific control system. Also covers someone who already has something —
-  trigger on "I already have a project", "bring my existing setup forward", "my profile is in
-  the old layout", or converting an existing web-terminal variant into a persona of the
-  profile it belongs to. Also trigger when onboarding a new colleague, or when anyone needs
-  help figuring out what their OSPREY agent should look like.
+  Interactive interview that sets up a custom OSPREY deployment for a new
+  accelerator, beamline, or detector application. Use when someone says
+  "interview me", "set up my agent", "create a deployment for my system",
+  "onboard me", or needs an OSPREY project tailored to their control system.
+  Also handles migration from existing OSPREY projects (including
+  LangGraph-era projects) — trigger on "migrate my project", "I have an
+  existing project", "upgrade from old OSPREY", "bring my project forward".
+  Resume a previous interview by invoking this skill inside a deployment
+  repo that contains an INTERVIEW.md.
 ---
 
-# OSPREY Build Profile Interview
+# OSPREY Build Interview
 
-Interview someone who works on an accelerator, beamline, or detector — an operator or
-scientist, not a software engineer — and turn what they tell you into a **build profile**:
-the small set of files `osprey build` consumes to render a working OSPREY project for
-their system. Plan on roughly **three batched `AskUserQuestion` calls** — a fourth when
-the assistant is headed for a shared machine — and about **five minutes** of their time.
+You are helping someone set up an OSPREY deployment tailored to their
+facility. They may not know OSPREY at all. The outcome is a real, buildable
+deployment repo — created in the first minutes and refined iteratively —
+plus an `INTERVIEW.md` decision record inside it.
 
-## Write down only what cannot be discovered
+## The one rule: the repo is the source of truth
 
-This skill deliberately holds no catalog of OSPREY's features. Presets, providers, config
-keys, artifacts, and schemas all change from release to release, and any list copied in
-here is wrong within weeks. Whenever you need one, **discover it at runtime** — every
-command and path for that is in `references/osprey-map.md`, this skill's only reference
-file. Read the map before you generate anything, and go back to it the moment you catch
-yourself about to state a fact about OSPREY from memory.
+**Never assert anything about OSPREY that you did not just read from the
+live repo or from CLI output.** Configuration keys, available artifacts,
+defaults, valid values, directory layout — all of it comes from the
+materialized `profile.yml` (whose comments explain every key), from
+`osprey <command> --help`, and from `osprey profile artifacts`. The
+discovery commands and repo-zone map live in `references/osprey-map.md` —
+read it before generating anything. If anything in this skill contradicts
+what the repo or CLI says, the repo wins — and the discrepancy is a bug in
+this skill worth reporting.
 
-The same rule governs the past. This file carries no account of how earlier releases were
-arranged and no steps for moving off one, because a remembered layout is the one kind of
-fact you can never check. When someone arrives with an existing setup, the installed
-version and the files in front of you are the evidence; there is nothing else.
+Practical consequences:
 
-## What you produce
+- When explaining an option, quote or closely paraphrase the profile's own
+  comment for it. Do not explain from memory.
+- Before discussing any topic, re-read the relevant section of the live
+  `profile.yml` first.
+- After every edit, run `osprey validate`. It is the correctness oracle —
+  not your recollection of what keys exist.
+- Use `osprey set key=value` for scalar config edits (it preserves
+  comments); use targeted Edit calls for structural changes (list entries,
+  uncommenting blocks). Never rewrite the whole file.
 
-A **facility repo**: a git repository whose root holds the `profile.yml` (started from a bundled preset and then edited — the map has the command
-that emits one), a plain-language `README.md`, and a channel database plus channel
-limits when the person gave you signal details. One command lays the whole repo out; the
-CI pipeline is emitted once the `deploy:` block is filled in. Generation is covered in
-full further down this file.
+## Interview stance
 
-## What the interview must establish
+- **Conversational, not a form.** There is no fixed question sequence. The
+  user steers; you keep a map of what is decided and what is open.
+- **Defaults are respectable.** The preset is a curated, working
+  configuration. Anything the user does not care about stays as-is. Do not
+  walk section-by-section through the profile; do not interrogate details
+  that do not change their outcome.
+- **Depth on demand.** Go deep only where the user shows interest or where
+  a decision they made forces a follow-up (e.g. enabling writes forces the
+  limits conversation).
+- **Always shippable.** The repo builds at every point. Whenever there is a
+  natural pause, offer to show it running (`osprey build`, `osprey up -d`,
+  `osprey chat`, or the web terminal) — seeing the agent respond beats
+  another question.
+- **Use AskUserQuestion for forks**, with short ASCII previews when a
+  choice is easier shown than described.
 
-These are **goals, not a question script.** Compose questions that suit the person in
-front of you, in whatever order the conversation wants, and follow up wherever an answer
-is thin. New OSPREY capabilities should reach the interview through discovery, never
-through someone editing a question menu here.
+## Flow
 
-1. **Whether they are starting from scratch** — see below. Ask this one first; it
-   changes what the rest of the conversation is for.
-2. **What the system is** — the kind of system, a short project name (lowercase, hyphens,
-   no spaces), a one-line plain-English description, and the facility.
-3. **How it connects** — simulated data to start with (the safe default for anyone
-   unsure), or a live control-system connection. If live, collect the connection details
-   that connection needs.
-4. **Which signals** — the process variables the assistant will work with: names,
-   descriptions, units, typical ranges, and which are read-only versus writable. If they
-   have no list yet, capture the *shape* instead — signal types, rough count, naming
-   convention, a few examples — and generate a skeleton they can fill in later. Also
-   establish whether historical or archived data matters, and where it lives if so.
-5. **What privilege level** — see below.
-6. **Which AI service** — see below.
-7. **Whether it gets deployed, and where** — see below.
-8. **Who uses it, and what runs** — see below.
+### 0. Resume check
 
-### The existing-setup fork
+If the current directory (or a path the user gives) contains an
+`INTERVIEW.md`, this is a resume: read it, summarize the state in two or
+three sentences ("Decided: …; still open: …"), and continue from the Open
+section. Do not re-ask decided questions.
 
-Open with it, in one plain question: *are we starting from scratch, or do you already
-have something running?* "Something" is deliberately loose — an OSPREY project from an
-earlier release, a profile in a layout that no longer matches, hand-written instructions
-for the assistant, a tool someone wrote for it, a set of scripts, a web-terminal
-deployment built before the current arrangement existed. People rarely volunteer any of
-this, because it does not feel like part of "setting up an assistant" to them.
+### 1. Pre-init round
 
-If they are starting fresh, that is the whole of this goal. Carry on with the rest.
+One AskUserQuestion round collecting only what `osprey init` needs plus
+routing:
 
-If they already have something, the goal is **not** to run a migration procedure. It is
-to find out what exists, and then decide *with them*, item by item, what carries forward
-into the new profile and what retires. You work that out from evidence on their machine,
-not from anything remembered about how OSPREY used to be arranged.
+- **Project name** (lowercase-with-dashes; becomes the repo directory and
+  deployment name)
+- **Fresh start or migration** from an existing OSPREY/LangGraph project
+- **Facility** (free text; used for timezone/naming later)
 
-Gather the evidence first, before you ask a single migration question:
+If migration: also get the path to the old project, then follow
+`references/migration-legacy.md` for the scan before continuing — its
+findings pre-fill decisions below.
 
-- **What version is installed here** — `osprey --version`. Everything below is relative
-  to it, and it is the only version whose behaviour you can check.
-- **What a current setup looks like** — materialize a profile into a scratch directory
-  from a bundled preset (the canonical one, unless something they said points
-  elsewhere) and read what it writes. That is the shape their setup is moving towards,
-  defined by the installation in front of you rather than by memory. Delete it
-  afterwards; it exists to be read, and the real one gets materialized later.
-- **What they actually have** — open it. The old project or profile, the instructions,
-  the tools, the scripts, the deployment. Read the files rather than asking them to
-  describe the contents; they usually cannot, and it is the fastest part of this.
+### 2. Materialize the repo
 
-Now derive your own questions by comparing the two. For each thing they have, the
-question is which of three things it is: a fact that belongs in the new profile, an
-artifact that carries across as a file the profile owns, or something the framework
-does natively and that should retire. Ask one at a time, in plain language, and say what
-each answer costs them — a thing that retires is work they no longer maintain, which is
-usually welcome news once it is put that way. Where you cannot tell whether the
-framework covers something, check the installation instead of guessing; the map
-lists the commands that answer that.
-
-Two cases are common enough to name, though neither gets a procedure here:
-
-- **A deployment whose extra terminals were built as separate variants.** OSPREY's own
-  messages send people here for this one. The goal is to end with a single profile that
-  every terminal renders from, so that a change to the facility's data or conventions
-  reaches all of them at once instead of being copied around. A materialized profile
-  that configures terminals *is* the shape, and it shows you both halves: the per-terminal
-  files it writes beside `profile.yml`, and the way the profile's own terminal catalog
-  points at them. Give each existing variant that same shape, carrying over only its
-  *real* differences from the shared profile, and point the catalog at the result. If a
-  runtime message is what sent them here, it names that setting outright — take it from
-  the message or from the materialized example, never from memory.
-- **Instructions, tools, and scripts written against an older arrangement.** These are
-  usually the valuable part: they encode how the facility actually works. Move the
-  content, not the wiring — the profile's convention directories are where facility-owned
-  artifacts live, and the materialized `README.md` says which directory each kind lands
-  in on this version.
-
-**Do not write, follow, or invent a version-specific migration recipe.** No numbered
-upgrade steps, no "in the old layout, X was called Y" lore, and nothing in this file will
-ever grow into a migration guide — a recipe here would be describing a release nobody in
-front of you is running. Read what is installed, read what they have, and reason about
-the difference in the open where they can correct you.
-
-Either path ends in the same place: one facility repo, described below.
-
-### The privilege question
-
-Ask it the way an operator thinks about it: *should the assistant only look at things, or
-also change things?* Read-only is the default and the recommended starting point. Do not
-lecture them about approval flows, limit checking, or verification — the preset you
-select encodes the safety posture, and restating it here would only go stale. Your job is
-to pick the preset that delivers what they asked for.
-
-If they do want the assistant to change things, gather what the profile needs in order to
-do that safely: exactly which signals should be writable, and the safe operating range
-for each.
-
-### The provider question
-
-Ask which AI service they have access to. Most people know this as "whatever my lab gives
-me", and some genuinely do not know. Build the answer options from the **live provider
-registry** — the map points at it — never from a list written down here. Present the
-discovered names plainly, and keep an "I'm not sure" option that does not block progress.
-Model choice defaults to whatever the preset supplies; only ask about it if they raise
-it, and take the valid values from the same registry.
-
-### The deployment questions
-
-Deployment coordinates are opt-in, so the first thing to settle here is the fork: *is
-this destined for a shared machine that other people log in to, or does it run where
-you are?* A profile that only ever builds on one person's laptop needs none of what
-follows, and "not yet" is a perfectly good answer — it can be added the day a server
-appears. Do not walk someone through server details for a system that has no server.
-
-If there is a shared machine, establish how the software gets there and who meets it:
-
-- **How it is built and published** — which CI platform builds the images, where the
-  built images are kept, and how the machine running them gets hold of them: pulling
-  what CI built, or building its own on the spot. A facility whose deploy host cannot
-  reach the registry is the ordinary reason for the second answer, not an exotic case.
-- **Which machine runs it** — how to reach it, which account owns the checkout there,
-  and where on the machine that checkout lives.
-- **Anything else it pulls** — some deployments run another project's image alongside
-  their own; if theirs does, get that project's coordinates too.
-- **Who uses it** — one person, or a room of operators who each want their own
-  terminal. A multi-operator deployment needs the roster, because each person gets
-  their own workspace on the host.
-- **What actually runs** — which of the framework's optional services this deployment
-  turns on. Services nobody asked for still cost startup time and attention on the
-  host, so take the answer rather than assuming the preset's.
-
-Ask these the way you asked the rest: plainly, with defaults ready, and without a
-lecture on pipelines. The keys these answers become are not written down here — the
-deploy schema in the map is the source of truth for the block's shape, and you read it
-when you write the block, not when you ask the questions.
-
-## Running the conversation
-
-- Open with a one-line welcome and an honest estimate: a few minutes, "I'm not sure" is
-  always an acceptable answer, and everything can be changed later.
-- Ask the fresh-or-existing fork before the batches, on its own. If they already have
-  something, go and read it before you ask anything else — the batches below are worth
-  more once you know what is already there, and some of their answers will be sitting in
-  the files.
-- Batch related questions into a single `AskUserQuestion` call instead of asking one at a
-  time. Aim for three batches: what the system is; how it connects and which signals;
-  then privilege level and AI service. Add a fourth only if the deployment fork says
-  there is a shared machine — someone building on their laptop should never see it.
-- Recap in a sentence between batches — "so far I have…" — so they stay oriented and can
-  catch a misunderstanding early.
-- Explain *why* a question matters before you ask it. A question with no visible purpose
-  feels like a form.
-- Have a default ready for everything. If they hesitate, offer the simple option, say it
-  can be extended later, and move on.
-- Prefer the minimal setup. Someone starting with simulated data and their main signals
-  has a working assistant today; anything else can be layered on any time.
-- Plain language throughout. Skip the framework vocabulary; say what a thing does.
-
-## Consistency review before generating
-
-Once the goals are covered, review the collected requirements yourself — as a
-skeptic hunting for gaps and contradictions — and resolve whatever you find *with the
-person* rather than guessing. Categories worth checking:
-
-- Write access wanted, but no safe operating ranges given for the writable signals.
-- "Read-only" stated, but the work they described requires changing values.
-- A live control-system connection chosen, but the connection details are missing.
-- Historical data expected, but no archive source identified.
-- Signals implied by the use case that never made it into the list, or missing units and
-  ranges on signals they intend to analyze.
-- Scope much narrower, or much broader, than what they said they wanted.
-- A shared machine described, but no answer for how it gets the images it runs.
-- Several operators expected, but nothing said about who they are.
-- Something they already had that never got a decision — neither carried into the
-  profile nor deliberately retired. An item that quietly fell off the list is the one
-  they will miss first.
-
-## Generating the profile
-
-Pick the starting preset first. `osprey profile presets` reports what this
-installation ships; open the ones that sound close — the map says where they live — and
-take the one whose privilege level and connection mode match what the interview
-established. The `control-assistant` family is the canonical example and a
-sensible default when nothing else stands out.
-
-Then lay out the facility repo:
-
-```
-osprey init <facility-name> --preset <closest-preset>
+```bash
+osprey init --list-presets           # confirm available presets today
+osprey init <name> --preset control-assistant
 ```
 
-`--preset` is required. The command refuses to write into a directory that already holds
-a deployment, which a second pass through the interview will hit — move the old one aside
-or write into a fresh name, and tell the person which you did.
+Use the control-assistant preset unless the user's stated purpose obviously
+matches a more specific preset in the list (read the preset list output —
+do not assume the roster).
 
-What you get back is a git repository rather than a loose directory, laid out in four
-zones. The repo ROOT is the editable source: `profile.yml` sits directly at the top,
-beside its `data/` tree, its convention directories, and the CI pipeline that lands there
-once the `deploy:` block is filled in. `.env` holds the secrets — provider keys and the
-tokens `osprey up` mints — and is kept out of git alongside `build/`, which holds what
-`osprey build` renders. `var/` holds runtime state. The map records the layout and what each
-part is for. One consequence runs through everything below: every path you edit is a path
-at the repo root, and no command needs to be told where the repo is — they all find it by
-walking up from wherever you are standing.
+Then read what appeared: `profile.yml` top to bottom (it is written to be
+read), plus a quick look at the repo layout (`data/`, `personas/`, `.env`,
+`README.md` if present). This read is your knowledge base for the entire
+interview.
 
-`profile.yml` is standalone and self-documenting: the preset's full
-configuration written out explicitly — no `extends:` — with the preset's own comments,
-next to a `data/` tree copied from the preset and the convention directories its
-`README.md` walks through. Read it before you edit it. It is the current, authoritative
-statement of what a profile can say, which is exactly why no copy of it lives in this
-file.
+### 3. Coverage map
 
-Now edit **only the deltas the interview actually decided** — the project name and
-description, the connection mode, the AI service, the signals. Everything that never
-came up in the conversation already carries the preset's answer, so leave those keys as
-materialized rather than second-guessing them. Under `config:`, use dotted keys
-(`system.timezone: "America/Los_Angeles"`); nested YAML there does not merge the way
-people expect.
+Build a map from the top-level sections actually present in this
+`profile.yml` — never from a remembered list. Mark four topics as **core**
+(hardwired, must be resolved before wrap-up):
 
-If the interview established a shared machine, the deployment coordinates go in the
-profile's `deploy:` block. Its schema — the map points at it — is the source of truth
-for the block's shape, and it reports every problem in one pass, so writing the block
-and then running the profile validator is the quickest way to get it right.
+1. **Provider + credentials** — which AI provider, and is a working key in
+   `.env`?
+2. **Control system** — which connector; simulated or real hardware; if
+   real, the connection details the profile's comments ask for.
+3. **Write access & safety** — may the agent change hardware values? If
+   yes: which channels, what limits, which safety hooks stay on.
+4. **Project identity** — name, facility, timezone.
 
-One trap belongs to that block. How the machine obtains its images has two possible
-homes, and some presets already answer it under `config:` — so a profile that has never
-been touched can carry the answer, and a profile someone else wrote almost certainly
-does. The build refuses outright when both homes are filled in, because two homes for
-one fact are free to disagree, and this disagreement decides whether the host builds its
-own images or pulls them. So before you write the block, look for that existing answer
-under `config:` and remove it: the `deploy:` block is the home, and the build carries
-its value across into the rendered config for you. The refusal names the offending entry
-if you get there first.
+Everything else is **optional** and sits at its preset default until the
+user raises it. Render the map as a compact ASCII card (■ core
+resolved/pending, □ optional at default) and show it at the start, after
+each core decision, and whenever the user seems lost.
 
-Write `README.md` in the same plain language you used in the interview: what this
-profile builds, what was decided and why, what was left at preset defaults, and what to
-do next.
+### 4. Core round
 
-## The signals
+Resolve the four core topics, grounded in the live file: for each, read the
+relevant keys and comments, present the current value and what it means,
+and ask what they want. Apply edits immediately (`osprey set` / Edit),
+validate, and record in `INTERVIEW.md`.
 
-Generate the channel database and the channel limits from what they gave you — names,
-descriptions, units, ranges, and which ones are writable. Do not work from a schema
-written down anywhere in this skill. Open the two live examples the map points at (a
-channel-database template and a channel-limits file, both shipping in the wheel, both
-documenting themselves inline) and follow their shape. If they described a device family
-and a naming convention rather than listing every signal, the template shows how to
-express that without typing out hundreds of names.
+### 5. Adaptive loop
 
-Channel limits only matter when the assistant may change things. Every writable signal
-needs its safe operating range; if one is missing, go back and ask rather than inventing
-a number.
+Repeat until the user is satisfied:
 
-## Verify it builds before you hand it over
+1. Show the trimmed map; invite direction ("What would you like to change,
+   add, or see?").
+2. For an **opt-out**: the profile's own comments say what each entry does
+   and which blocks can be deleted. Delete list entries or blocks exactly
+   as instructed there.
+3. For an **opt-in of a framework artifact**: the emitted profile lists
+   available-but-unselected artifacts as commented entries, and commented
+   block templates for optional features (`mcp_servers`, `dispatch`, …).
+   Uncomment, adjust, validate. `osprey profile artifacts` gives the full
+   catalog when the user wants to browse.
+4. For **custom work** (their own MCP server, rules, skills, panel,
+   custom code): the repo's convention directories (`rules/`, `skills/`,
+   `agents/`, `mcp_servers/`, `services/`, `project/`, …) are the drop-in
+   points — the directory name is the declaration (see
+   `references/osprey-map.md`). Place ready material there, scaffold a stub
+   if that helps, and record any remaining implementation as a **Deferred**
+   entry in `INTERVIEW.md` with pointers. Do not implement custom
+   components mid-interview.
+5. After every change: `osprey validate`, then update `INTERVIEW.md`.
+6. At natural pauses, offer a live look: build and run it.
 
-Build the profile yourself before you tell anyone it works:
+### 6. Devil's advocate (mandatory before wrap-up)
 
-```
-osprey build --repo <facility-name> --skip-deps
-```
+Spawn one subagent with: the full `INTERVIEW.md`, the current
+`profile.yml`, and the latest `osprey validate` output. Its brief:
 
-Exit 0 is required. `--skip-deps` keeps it quick — you are checking that the profile
-renders, not installing anything. The render lands in the repo's `build/` zone, which is
-kept out of git, so there is nothing to clean up afterwards. `--repo` is only needed
-because you are standing outside the repo; from inside it, plain `osprey build` does the
-same thing.
+> Find gaps and inconsistencies in this OSPREY deployment setup. Check at
+> least: write access enabled without limits or with safety hooks/rules
+> removed; provider configured but no key in `.env`; a real control system
+> selected without the connection details its comments require; declared
+> feature blocks nothing reads (comments state the pairings); decisions in
+> INTERVIEW.md not reflected in profile.yml and vice versa; use cases the
+> user described that the current selection cannot serve. Classify each
+> finding CRITICAL (unsafe or broken) / RECOMMENDED / OPTIONAL. Judge only
+> against the provided artifacts, not against assumptions about OSPREY.
 
-If it exits non-zero, read the actual error, correct the profile, and run it again.
-Never hand over a profile that does not build, and never describe a failed build as a
-success. If it still fails after a few honest attempts, say plainly what the error says
-and what you tried; that is far more useful to them than a confident handover of
-something broken.
+Resolve every CRITICAL finding with the user; offer RECOMMENDED ones;
+mention OPTIONAL ones in passing.
 
-## When something does not fit
+### 7. Wrap-up
 
-**The build verification fails.** As above — read the error, fix the profile, retry, and
-be straight about it if you cannot get it green.
+- Final `osprey validate` and `osprey build`; fix anything they raise.
+- Set `INTERVIEW.md` status to `complete`; move anything unresolved to
+  Open/Deferred so it is not lost.
+- Close with next steps read from the repo itself (its README and CLI
+  help): typically `osprey up -d`, `osprey chat`, the web terminal, and
+  where to edit `profile.yml` later.
 
-**`osprey` is not on PATH.** Check this before you ask the first question. Everything
-here depends on asking a live installation what exists, so without the CLI you cannot do
-this honestly. Tell them exactly what to run — `pip install osprey-framework`, or
-whatever their facility's install instructions say — and then stop cleanly. Do not fall
-back to answering from memory and do not fabricate preset, config, or service names to
-keep the conversation moving; answering from recall is exactly how this skill goes
-stale.
+## INTERVIEW.md format
 
-**They describe an existing setup you cannot open.** It is on another machine, or behind
-a login, or they only half remember it. Say so plainly and work from what you *can* see:
-build the profile from the interview as though it were fresh, and write down in the
-README which of their existing pieces still need a decision. Do not reconstruct the old
-setup from their description plus a guess at how that release was arranged — a migration
-built on a remembered layout silently drops the parts nobody thought to mention. They can
-bring the files to the next session, and picking it up then costs almost nothing.
+Create it at the repo root right after `osprey init`, and keep it current
+throughout — it is the resume state, the decision record, and the devil's
+advocate input.
 
-**They have no signal list yet.** Do not block on it and do not emit an empty database.
-Write a skeleton in the shape they described, with placeholders that are obviously
-placeholders, and put instructions in the README for replacing them and rebuilding. They
-can come back with the real list any time.
+```markdown
+# Interview record — <deployment name>
 
-**No preset is a good fit.** Start from the closest one anyway. Record what it does not
-cover as stub files in the profile's convention directories — the materialized
-`README.md` names them and says where each one lands — and as notes in that README, so
-the gap is visible and someone can fill it in place. Authoring a profile from scratch to
-avoid an imperfect preset costs far more than it saves.
+status: in-progress   # in-progress | complete
+updated: <YYYY-MM-DD>
 
-## Handing over
+## Coverage
+core: provider ✔ · control system ✔ · writes/safety ✖ · identity ✔
+touched: <optional topics discussed>
 
-They rebuild their project from the finished profile at any time with:
+## Decided
+- <decision> — <one-line rationale> (<date>)
 
-```
-osprey build
+## Open
+- <question still unresolved, and what unblocks it>
+
+## Deferred / follow-up work
+- <custom work or later phase, with pointers>
+
+## Migration notes            # only when migrating
+- <source path, classification decisions, ported/skipped items>
 ```
 
-Run it from anywhere in the repo; the render lands in `build/` either way. Drop
-`--skip-deps` for a project that actually runs — that is the difference between the
-verification build above and a usable one.
+Commit it with the repo's other files whenever the user commits.
 
-This skill settles *what* to build. Running what was built is the CLI's own job and
-has no skill of its own: `osprey scaffold ci` emits the pipeline and health check
-from the profile's `deploy:` block, `osprey up` brings the stack up, and `osprey
-status` / `osprey logs` are where triage starts. Each verb's `--help` is the current
-catalog; do not reproduce it here.
+## Migration
+
+A migration is the same interview with pre-filled answers. Read
+`references/migration-legacy.md` for the scan patterns and the
+SALVAGE / OBSOLETE / TRANSFORM / EVALUATE classification rules (that file
+describes the frozen legacy architecture, so its hardcoded knowledge is
+safe). Then:
+
+- Channel databases and data files → the new repo's `data/` tree.
+- Config values (gateways, archiver URLs, provider) → `osprey set` into the
+  live profile, guided by the new profile's own comments.
+- Custom code (connectors, providers, rules, MCP servers) → the matching
+  convention directory; each EVALUATE item becomes a confirm-with-user
+  question and an `INTERVIEW.md` entry (ported / skipped / deferred).
+- Present findings as confirmations ("I found X — keep it?"), never
+  re-interrogation. The user already made these decisions once.
+
+## Guidelines
+
+- Explain *why* a question matters in the user's terms (safety, cost,
+  capability) — one sentence, then the question.
+- If the user is unsure, pick the safe default, say so, and record it as
+  Decided with rationale "default — revisit anytime".
+- Summarize progress briefly after each core decision, not after every
+  exchange.
+- Never edit `build/` (rendered output) or paste secrets into files other
+  than `.env`.

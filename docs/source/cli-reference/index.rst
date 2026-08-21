@@ -215,6 +215,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 
    osprey profile validate TARGET
    osprey profile presets
+   osprey profile artifacts
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -227,6 +228,11 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 ``osprey profile presets``
    List bundled preset names, one per line. Every name printed is usable as
    ``--preset NAME`` for ``osprey init``.
+
+``osprey profile artifacts``
+   List every artifact the six profile lists can name — hooks, rules, skills,
+   agents, output styles, and web panels — with a one-line description of
+   each. The same menu appears as commented entries in an emitted profile.
 
 .. code-block:: bash
 
@@ -926,9 +932,10 @@ can be installed either globally or into a specific project's
 
    Currently supported skills:
 
-   * ``osprey-build-interview`` — guided facility-repository generation (see
-     :doc:`/getting-started/osprey-build-interview`). Typically installed globally
-     so it is available in any Osprey agent session.
+   * ``osprey-build-interview`` — set up or migrate an OSPREY deployment
+     through a guided conversation anchored on the live deployment repo (see
+     :doc:`/getting-started/osprey-build-interview`). Typically installed
+     globally so it is available in any Osprey agent session.
    * ``osprey-contribute`` — walks a contributor through the GitHub Flow
      journey from a working-tree change to a merged PR on ``main`` (branching,
      atomic commits, push, PR, rebase, merge).
@@ -964,10 +971,24 @@ switch the interfaces over to local bundles.
 
    ``-q, --quiet`` — Suppress per-file output.
 
-   ``-k, --insecure`` — Skip TLS cert verification. Every asset is still
-   checked against its manifest SHA256, so this is safe behind corporate
-   proxies (e.g. Squid) that intercept TLS. Also enabled via
-   ``OSPREY_VENDOR_INSECURE=1``.
+   Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
+   fails cert verification until it is pointed at the site's CA bundle.
+   That is the first remedy to reach for — verification stays on:
+
+   .. code-block:: bash
+
+      OSPREY_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+        osprey vendor fetch
+
+   ``SSL_CERT_FILE`` works too (Python's default SSL context honors it);
+   ``OSPREY_CA_BUNDLE`` wins when both are set. The path above is the
+   RHEL-family system bundle — on Debian-family hosts it is
+   ``/etc/ssl/certs/ca-certificates.crt``.
+
+   ``-k, --insecure`` — The fallback when no CA bundle is at hand: skip TLS
+   cert verification. Every asset is still checked against its manifest
+   SHA256, so this is safe behind corporate proxies that intercept TLS.
+   Also enabled via ``OSPREY_VENDOR_INSECURE=1``.
 
 ``osprey vendor verify``
    Verify all vendor assets exist on disk with correct SHA256 checksums.
@@ -975,7 +996,8 @@ switch the interfaces over to local bundles.
 .. code-block:: bash
 
    osprey vendor fetch                    # Download all assets
-   osprey vendor fetch --insecure         # Behind a TLS-intercepting proxy
+   OSPREY_CA_BUNDLE=/path/to/ca.pem osprey vendor fetch   # TLS-intercepting proxy, verified
+   osprey vendor fetch --insecure         # Fallback: no CA bundle at hand
    osprey vendor verify                   # Check checksums
 
 Environment Variables

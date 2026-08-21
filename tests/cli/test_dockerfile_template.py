@@ -3,8 +3,8 @@
 `osprey build` renders a reference container recipe (Dockerfile +
 .dockerignore) into every project root. These tests pin:
 
-- content invariants (base image, port, project path, the 3-ARG site
-  extension contract),
+- content invariants (base image, port, project path, the site-extension
+  ARG contract),
 - the security-critical .dockerignore entries (secrets never enter the image),
 - the pairing between the repo's hatch exclude list and its .gitignore (what
   must not ship has to be kept out of both),
@@ -39,6 +39,7 @@ EXPECTED_ARGS = {
     "OSPREY_DEV": "",
     "PIP_NO_PROXY": "",
     "OSPREY_OFFLINE": "0",
+    "OSPREY_SITE_CA": "",
 }
 
 
@@ -92,7 +93,7 @@ class TestDockerfileContent:
         assert "WORKDIR /app/hello-docker" in text
 
     def test_arg_contract(self, hello_project):
-        """Exactly the 3 contract ARGs, with the documented defaults."""
+        """Exactly the contract ARGs, with the documented defaults."""
         text = (hello_project / "Dockerfile").read_text()
         declared = dict(re.findall(r'^ARG (\w+)="([^"]*)"$', text, flags=re.MULTILINE))
         assert declared == EXPECTED_ARGS
@@ -181,6 +182,78 @@ class TestDockerfileContent:
         assert len(cli_bodies) == 1, f"expected exactly one CLI-install RUN, got {len(cli_bodies)}"
         assert 'npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"' in cli_bodies[0]
         assert "nodejs" not in cli_bodies[0], "the CLI pin shares a RUN with the apt install"
+
+    @classmethod
+    def _ca_run_body(cls, text: str) -> str:
+        """The single site-CA RUN body: installs the staged CA gated on
+        ``OSPREY_SITE_CA`` (a no-op when the ARG is unset)."""
+        bodies = [b for b in cls._run_command_bodies(text) if "update-ca-certificates" in b]
+        assert len(bodies) == 1, f"expected exactly one site-CA RUN, got {len(bodies)}"
+        return bodies[0]
+
+    def test_site_ca_copy_idiom_present(self, hello_project):
+        """The site CA is staged via the guaranteed-sibling glob idiom — the
+        always-present .dockerignore keeps the COPY from failing when nothing
+        is staged."""
+        text = (hello_project / "Dockerfile").read_text()
+        assert re.search(
+            r"^COPY \.dockerignore \*\.cr\[t\] \*\.pe\[m\] /tmp/ca-ctx/", text, flags=re.MULTILINE
+        ), "missing `COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/` CA-staging idiom"
+
+    def test_site_ca_layer_precedes_the_first_network_fetch(self, hello_project):
+        """``update-ca-certificates`` must run before any RUN that fetches over
+        HTTPS — a CA installed after the first apt/npm/pip fetch is a CA those
+        fetches never trusted."""
+        text = (hello_project / "Dockerfile").read_text()
+        ca = self._ca_run_body(text)
+        assert '[ -n "$OSPREY_SITE_CA" ]' in ca, "CA install must be gated on OSPREY_SITE_CA"
+        assert "/usr/local/share/ca-certificates/" in ca
+        assert text.index("update-ca-certificates") < text.index("apt-get update"), (
+            "the site-CA layer must precede the first network fetch"
+        )
+
+    def test_site_ca_envs_cover_every_tool_family(self, hello_project):
+        """Node, pip, Python ssl and requests each read a different variable;
+        all four must point at the merged Debian bundle, so build and runtime
+        fetches alike trust a staged site CA."""
+        text = (hello_project / "Dockerfile").read_text()
+        for var in ("NODE_EXTRA_CA_CERTS", "PIP_CERT", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+            assert f"{var}=/etc/ssl/certs/ca-certificates.crt" in text, (
+                f"{var} does not point at the system bundle"
+            )
+
+    def test_ca_run_unset_arg_is_noop_success(self, hello_project, tmp_path):
+        """Empirical probe: with OSPREY_SITE_CA unset the RUN is a successful
+        no-op that installs nothing and still cleans up the staged context."""
+        ca = self._ca_run_body((hello_project / "Dockerfile").read_text())
+        result, ctx, store = _probe_ca_body(ca, tmp_path, staged=False, arg="")
+        assert result.returncode == 0, (
+            f"no-CA site-CA layer must exit 0:\n{result.stdout}\n{result.stderr}"
+        )
+        assert not ctx.exists(), "staged context not cleaned up on the no-CA path"
+        assert list(store.iterdir()) == [], "a CA was installed with the ARG unset"
+
+    def test_ca_run_installs_the_named_file(self, hello_project, tmp_path):
+        """Empirical probe: with the ARG naming a staged file, the RUN lands it
+        in the trust-store directory under the fixed .crt name
+        update-ca-certificates requires, then cleans up."""
+        ca = self._ca_run_body((hello_project / "Dockerfile").read_text())
+        result, ctx, store = _probe_ca_body(ca, tmp_path, staged=True, arg="site-ca.crt")
+        assert result.returncode == 0, f"site-CA install failed:\n{result.stdout}\n{result.stderr}"
+        assert (store / "osprey-site-ca.crt").exists()
+        assert not ctx.exists()
+
+    def test_ca_run_missing_staged_file_fails(self, hello_project, tmp_path):
+        """Empirical probe: an ARG naming a file that was never staged must fail
+        the build loudly — a silently skipped CA surfaces later as an opaque
+        cert error in whichever fetch hits the proxy first."""
+        ca = self._ca_run_body((hello_project / "Dockerfile").read_text())
+        result, _, store = _probe_ca_body(ca, tmp_path, staged=False, arg="site-ca.crt")
+        assert result.returncode != 0, (
+            f"site-CA layer exited 0 despite the named file missing:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+        assert list(store.iterdir()) == []
 
     @classmethod
     def _deps_run_body(cls, text: str) -> str:
@@ -390,6 +463,38 @@ def _probe_wheel_body(body: str, tmp_path, *, with_wheel: bool):
         env=env,
     )
     return result, ctx
+
+
+def _probe_ca_body(body: str, tmp_path, *, staged: bool, arg: str):
+    """Execute the site-CA RUN body in a sandbox with a real shell.
+
+    ``/tmp/ca-ctx`` and the trust-store directory are rewritten to temp dirs
+    and a no-op ``update-ca-certificates`` stub shadows any real one on PATH,
+    so the probe exercises the gate, the install and the cleanup without a
+    container. Returns ``(CompletedProcess, ctx_path, store_path)``.
+    """
+    ctx = tmp_path / "ca-ctx"
+    ctx.mkdir()
+    (ctx / ".dockerignore").write_text("")
+    if staged:
+        (ctx / "site-ca.crt").write_text("-----BEGIN CERTIFICATE-----\n")
+    store = tmp_path / "ca-store"
+    store.mkdir()
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "update-ca-certificates"
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+    env = dict(
+        os.environ,
+        PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+        OSPREY_SITE_CA=arg,
+    )
+    rewritten = body.replace("/tmp/ca-ctx", str(ctx)).replace(
+        "/usr/local/share/ca-certificates", str(store)
+    )
+    result = subprocess.run(["sh", "-c", rewritten], capture_output=True, text=True, env=env)
+    return result, ctx, store
 
 
 def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):

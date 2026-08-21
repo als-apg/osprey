@@ -344,8 +344,12 @@ keys:
       deliberately differs (10 providers in project/control_assistant/
       hello_world, a 6-provider subset in the two standalone bundles). The
       guard checks SHAPE per provider (base_url present, all three tiers
-      mapped), never membership. A provider with no models map hard-errors in
-      build/claude_code_resolver.py, which is the quoted evidence.
+      mapped), never membership. At runtime a tier no source maps falls back
+      to the default model with a warning; only a provider with no models map
+      AND no default model to fall back on hard-errors in
+      build/claude_code_resolver.py, which is the quoted evidence. The guard
+      stays stricter than the runtime on purpose — a shipped template should
+      map every tier rather than lean on that fallback.
 
   # ── Claude Code ─────────────────────────────────────────────────────
   claude_code:

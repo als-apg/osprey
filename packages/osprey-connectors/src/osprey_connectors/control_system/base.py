@@ -8,6 +8,7 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 import functools
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -102,16 +103,42 @@ class ChannelWriteResult:
     refusal_reason: str | None = None
 
 
+def is_readonly_run() -> bool:
+    """True inside a python-executor sandbox launched with ``execution_mode="readonly"``.
+
+    The executor exports ``OSPREY_EXECUTION_MODE`` into its subprocess so the
+    per-run claim is enforceable at runtime, independent of the pre-execution
+    pattern scan. Outside the sandbox the variable is unset and only the
+    deployment posture (``control_system.writes_enabled``) applies.
+    """
+    return os.environ.get("OSPREY_EXECUTION_MODE") == "readonly"
+
+
 def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteResult:
-    """Build the refusal result returned when writes are disabled at launch time."""
+    """Build the refusal result for a write the monitor never attempted.
+
+    Two reasons share this shape: the deployment has writes off, or this
+    particular script was submitted readonly. The message names the right one
+    so the operator is not sent to flip ``writes_enabled`` when the deployment
+    already allows writes and the run simply was not declared readwrite.
+    """
+    if is_readonly_run():
+        message = (
+            f"Write to '{channel_address}' blocked: this script is running in "
+            "readonly execution mode. Resubmit it with execution_mode='readwrite' "
+            "(human approval required) if the write is intended."
+        )
+    else:
+        message = (
+            f"Write to '{channel_address}' blocked: writes are disabled. "
+            "Set control_system.writes_enabled: true in the build profile "
+            "(profile.yml on the host), then rebuild and redeploy."
+        )
     return ChannelWriteResult(
         channel_address=channel_address,
         value_written=value,
         success=False,
-        error_message=(
-            f"Write to '{channel_address}' blocked: writes are disabled. "
-            "Set control_system.writes_enabled: true in config.yml"
-        ),
+        error_message=message,
         blocked=True,
         refusal_reason="WRITES_DISABLED",
     )
@@ -191,7 +218,9 @@ def _warn_once_if_fail_on_mismatch_set(verification: Any) -> None:
     logger.warning(
         "config.yml sets control_system.write_verification.fail_on_mismatch: true, "
         "but that key has no reader and never had one — a failed verification does "
-        "not block or roll back a write on this path. Remove it. The path that does "
+        "not block or roll back a write on this path. Remove it from the build "
+        "profile (profile.yml on the host) and rebuild — config.yml is regenerated "
+        "on every build, so editing it directly does not stick. The path that does "
         "enforce verification is write_channel_checked(), which raises when a write "
         "is refused, fails, or comes back unverified; scan plans write through it."
     )
@@ -228,7 +257,12 @@ class ControlSystemConnector(ABC):
         ``permissions.deny`` on the write tool, followed by regenerating and
         relaunching the agent. In-flight control of an active scan is the
         RunEngine's own ``abort`` / ``pause`` — never a config flag.
+
+        A readonly sandbox run (see :func:`is_readonly_run`) is refused
+        regardless of the deployment posture.
         """
+        if is_readonly_run():
+            return False
         try:
             from osprey_connectors.config import get_config_value
 

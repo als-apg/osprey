@@ -928,6 +928,66 @@ class TestPreflightAuthSecret:
         assert "⚠" in result.stderr
         assert "ANTHROPIC_API_KEY" in result.stderr
 
+    def test_keyless_proxy_provider_missing_secret_warns_no_abort(
+        self, runner, monkeypatch, deployment
+    ):
+        """A proxy provider whose registry adapter declares requires_api_key =
+        False (ollama) warns instead of aborting -- there is no upstream auth
+        for the missing secret to fail."""
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        spec = _stub_spec(
+            provider="ollama",
+            auth_env_var="ANTHROPIC_AUTH_TOKEN",
+            auth_secret_env="OLLAMA_API_KEY",
+            needs_proxy=True,
+        )
+        monkeypatch.setattr(
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "⚠" in result.stderr
+        assert "OLLAMA_API_KEY" in result.stderr
+        # The adapter's own api_key_note is the wording, not a generic refusal.
+        assert "does not require" in result.stderr
+
+    def test_unknown_proxy_provider_missing_secret_still_aborts(
+        self, runner, monkeypatch, deployment
+    ):
+        """A custom proxy the adapter registry has never heard of keeps the
+        strict behavior: no registry metadata licenses skipping its secret."""
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        spec = _stub_spec(
+            provider="my-proxy",
+            auth_env_var="ANTHROPIC_AUTH_TOKEN",
+            auth_secret_env="MY_PROXY_API_KEY",
+            needs_proxy=True,
+        )
+        monkeypatch.setattr(
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.delenv("MY_PROXY_API_KEY", raising=False)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1
+        assert "MY_PROXY_API_KEY" in result.output
+
     def test_no_provider_configured_skipped(self, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)

@@ -100,13 +100,17 @@ def test_both_client_flavors_and_rpc_carry_bypass_annotations(tmp_path):
         assert "refused at runtime" in annotation
 
 
-def test_rpc_refusal_is_explained_as_unconditional(tmp_path):
-    """The prose behind the rpc line says approval cannot rescue the call."""
+def test_rpc_refusal_is_explained_honestly(tmp_path):
+    """The prose behind the rpc line says approval cannot rescue the call, and
+    names when the runtime refusal actually applies (readonly runs; limits
+    checking) rather than overclaiming an unconditional block."""
     content = _render_safety_rule(tmp_path, "p4p-rpc-prose", "epics")
 
     prose = " ".join(content.split())
     assert "`ctxt.rpc(...)` is the one to remember" in prose
-    assert "refused at runtime and no approval can let it through" in prose
+    assert "there is nothing for the approval workflow to check" in prose
+    assert "refused at runtime in every readonly run" in prose
+    assert "wherever limits checking is enabled" in prose
     assert "Use `write_channel` for the write you actually need." in prose
 
 

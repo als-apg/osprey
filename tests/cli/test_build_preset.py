@@ -830,29 +830,27 @@ class TestDeployServicesKnob:
         assert not (_project(tmp_path, "op") / "services").exists()
 
 
-def test_set_unservable_model_fails_build(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A model the selected provider cannot serve must fail the build itself.
+def test_set_free_form_model_builds(runner: CliRunner, tmp_path: Path) -> None:
+    """A model ID outside the provider's tier map builds — it passes through.
 
-    The web-terminal container runs the same resolver strict at startup, so a
-    build that merely warns here ships a deploy whose per-user terminals
-    crash-loop behind the reverse proxy (502). The build is the checkpoint the
-    operator actually watches — it must stop the `build && deploy` chain.
+    Refusing here kept every model the tier map did not name (a newly released
+    ID, a gateway-only alias) unusable until the map caught up. The resolver
+    now trusts the provider to serve the ID and puts it in ANTHROPIC_MODEL
+    verbatim; a misspelt ID fails at the provider, naming the ID.
     """
-    with caplog.at_level(logging.ERROR):
-        result = _materialize(
-            runner,
-            str(tmp_path),
-            "smoke",
-            "hello-world",
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=anthropic/claude-opus",
-        )
-    assert result.exit_code != 0, result.output
-    _assert_build_error_logged(caplog, "neither a model tier nor a model id")
+    result = _materialize(
+        runner,
+        str(tmp_path),
+        "smoke",
+        "hello-world",
+        "--set",
+        "provider=als-apg",
+        "--set",
+        "model=anthropic/claude-opus",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = _config_yaml(_project(tmp_path, "smoke"))
+    assert cfg["claude_code"]["default_model"] == "anthropic/claude-opus"
 
 
 def test_set_value_invalid_yaml_raises() -> None:

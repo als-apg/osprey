@@ -61,6 +61,40 @@ def check_imports(code: str) -> list[str]:
     return issues
 
 
+# Control-system client libraries a readonly run may not import. Reads go
+# through ``osprey.runtime.read_channel``; importing a client directly in a
+# readonly script is only ever a route around the write gates. Checking at the
+# import statement is immune to the aliasing that defeats call-site regexes
+# (``from epics import caput as _w``), and an import never appears inside a
+# comment or string, so it has none of the regex false positives either.
+_READONLY_DENIED_IMPORTS = frozenset({"epics", "p4p", "caproto", "pvaccess", "tango", "PyTango"})
+
+
+def check_readonly_imports(code: str) -> list[str]:
+    """Return an issue per control-system client import. Empty = none found.
+
+    Matches on the top-level package, so ``p4p.client.thread`` and
+    ``from epics.ca import put`` are both caught. Syntax errors are the
+    business of :func:`check_syntax`; this walker stays quiet on them.
+    """
+    issues: list[str] = []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return issues
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names = [node.module]
+        else:
+            continue
+        for name in names:
+            if name.split(".")[0] in _READONLY_DENIED_IMPORTS:
+                issues.append(f"Import of '{name}' is not allowed in readonly mode")
+    return issues
+
+
 def quick_safety_check(code: str) -> tuple[bool, list[str]]:
     """Run all safety checks. Returns (passed, issues).
 

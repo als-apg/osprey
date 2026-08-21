@@ -45,7 +45,9 @@ _TIMEOUT = 15.0  # seconds
 
 _UNREACHABLE_HINTS = [
     "Confirm the facility Bluesky bridge process is running.",
-    "Check the BLUESKY_BRIDGE_URL env var or bluesky.bridge_url in config.yml.",
+    "Check the BLUESKY_BRIDGE_URL env var — it overrides the configured bridge URL.",
+    "To change the configured URL, set bluesky.bridge_url in the build profile "
+    "(profile.yml on the host), then rebuild and redeploy.",
 ]
 
 # Shared by every tool module (read_tools, queue, stop): the hint attached to

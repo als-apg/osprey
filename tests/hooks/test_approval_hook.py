@@ -118,7 +118,7 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "caput('PV', 1.0)", "execution_mode": "write"},
+        {"code": "caput('PV', 1.0)", "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -340,7 +340,7 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "caput('PV', 1.0)", "execution_mode": "write"},
+        {"code": "caput('PV', 1.0)", "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -369,7 +369,7 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "epics.caput('PV', 5.0)", "execution_mode": "write"},
+        {"code": "epics.caput('PV', 5.0)", "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -836,7 +836,7 @@ def test_tool_policy_selective_execute_write_mode_asks(tmp_path, hook_runner, ma
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "print(42)", "execution_mode": "write"},
+        {"code": "print(42)", "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -1050,3 +1050,60 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     assert returncode == 0
     assert stdout.strip() == ""
     assert "Traceback" not in stderr
+
+
+# ============================================================================
+# readwrite mode always asks — approval does not rest on pattern detection
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, make_config):
+    """A readwrite run prompts even when the detector sees no write pattern.
+
+    The agent asking for write mode is itself the signal: approval for
+    readwrite must not depend on the regex recognising the spelling."""
+    config = make_config(
+        {
+            "approval": {"enabled": True, "default_policy": "selective"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "print('nothing to see')", "execution_mode": "readwrite"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_config):
+    """``from epics import caput as _w`` evades every write regex; readwrite still asks."""
+    config = make_config(
+        {
+            "approval": {"enabled": True, "default_policy": "selective"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {
+            "code": "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)",
+            "execution_mode": "readwrite",
+        },
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"

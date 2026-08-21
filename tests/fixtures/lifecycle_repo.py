@@ -142,7 +142,25 @@ app_template: control_assistant
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
+model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+
+# Any custom gateway works too: name it as the provider, describe it under
+# `config:` below, and put its key in this repo's .env — the variable name
+# derives from the provider name, <NAME>_API_KEY. Worked example:
+#
+# provider: my-gateway
+# config:
+#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
+#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
+#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
+#   # in Anthropic mode), so the local translation proxy is skipped:
+#   api.providers.my-gateway.api_protocol: anthropic
+#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
+#   # fall back to `model:` above, with a build-time warning:
+#   api.providers.my-gateway.models:
+#     haiku: claude-haiku-4-5
+#     sonnet: claude-sonnet-4-6
+#     opus: claude-opus-4-6
 
 # How the agent searches for channels. `osprey set channel_finder_mode=...`
 # also accepts in_context or middle_layer.
@@ -189,6 +207,9 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  # Available — uncomment to enable:
+  # - logbook-deep-research  # Multi-phase logbook investigation skill
+  # - sim-scenarios  # List and switch simulated machine scenarios
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -208,6 +229,8 @@ web_panels:
   - system-health   # SYSTEM tab, a framework health dashboard
   # The events and bluesky panels are declared in personas/readwrite.yml
   # instead, so the read-only login is built without them.
+  # Available — uncomment to enable:
+  # - lattice  # Lattice dashboard
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -996,6 +1019,12 @@ ENV_SHARED = """\
 # NO_PROXY=localhost,127.0.0.1
 # HTTP_PROXY=http://proxy.example.com:8080
 # HTTPS_PROXY=http://proxy.example.com:8080
+
+# Site CA bundle — uncomment if a proxy re-signs TLS with a site CA.
+# On RHEL-family hosts the system bundle lives here:
+# SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# REQUESTS_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# NODE_EXTRA_CA_CERTS=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 """
 
 #: Written only when the factory is asked for a seeded repo. Values are the

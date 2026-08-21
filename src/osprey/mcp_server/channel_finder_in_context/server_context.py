@@ -131,9 +131,15 @@ class ChannelFinderICContext:
                 raise RuntimeError(
                     "No subagent model configured. Set either "
                     "'channel_finder.pipelines.in_context.subagent_model' or "
-                    "'claude_code.provider' (with 'default_model' tier) in config.yml."
+                    "'claude_code.provider' (with 'default_model' tier) in the "
+                    "build profile (profile.yml on the host), then rebuild and "
+                    "redeploy."
                 )
-            self._subagent_model_id = spec.tier_to_model[spec.default_model_tier]
+            # Free-form default_model IDs pass through verbatim (they are what
+            # ANTHROPIC_MODEL carries); otherwise the default tier's mapped ID.
+            self._subagent_model_id = (
+                spec.default_model_id or spec.tier_to_model[spec.default_model_tier]
+            )
             self._subagent_provider = ic_provider if ic_provider else spec.provider
 
         # Arm rate limiter for providers with a known RPM cap

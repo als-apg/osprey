@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import copy
 import io
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -249,14 +250,30 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 """,
     "provider": """
 # --- LLM provider ------------------------------------------------------------
-# Provider the deployment's agents talk to. Must be configured in the project's
-# config.yml api.providers block.
+# Provider the deployment's agents talk to: a built-in name (anthropic, cborg,
+# als-apg, ...) or any custom gateway described under `config:` api.providers.
+# A custom gateway's key goes in this repo's .env — the variable name derives
+# from the provider name, <NAME>_API_KEY. Worked example:
+#
+# provider: my-gateway
+# config:
+#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
+#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
+#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
+#   # in Anthropic mode), so the local translation proxy is skipped:
+#   api.providers.my-gateway.api_protocol: anthropic
+#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
+#   # fall back to `model:`, with a build-time warning:
+#   api.providers.my-gateway.models:
+#     haiku: claude-haiku-4-5
+#     sonnet: claude-sonnet-4-6
+#     opus: claude-opus-4-6
 #
 # provider: anthropic
 """,
     "model": """
 # --- Default model -----------------------------------------------------------
-# A tier (haiku/sonnet/opus) or a model ID the provider serves.
+# A tier (haiku/sonnet/opus) or any model ID the provider serves.
 #
 # model: sonnet
 """,
@@ -426,6 +443,93 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "nextcloud_bridge",
     "gchat_bridge",
 )
+
+# The six artifact-selection lists, in profile spelling. Each gets a generated
+# "available but not selected" menu of commented entries at emit time, so the
+# emitted file shows the whole opt-in surface the same way the commented
+# templates above show the whole opt-in block surface.
+_ARTIFACT_LIST_KEYS: tuple[str, ...] = (
+    "hooks",
+    "rules",
+    "skills",
+    "agents",
+    "output_styles",
+    "web_panels",
+)
+_MENU_HEADER = "# Available — uncomment to enable:"
+
+
+def _first_sentence(text: str) -> str:
+    """First sentence of a catalog description, for a one-line menu comment."""
+    head, sep, _rest = text.partition(". ")
+    return f"{head}." if sep else head
+
+
+def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
+    """Selectable artifact names with one-line descriptions, per profile list key.
+
+    Names come from the same sources the profile validator trusts — the
+    artifact library for the five .claude kinds, the web-panel registry for
+    panels — so this menu can never disagree with what a profile may name.
+    Universal panels (always served) are excluded: they are not opt-ins.
+    """
+    from osprey.cli.templates.artifact_library import _TYPE_TO_SUBDIR, list_artifacts
+    from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+    from osprey.services.build_artifacts import BuildArtifactCatalog
+
+    catalog = BuildArtifactCatalog.default()
+    menu: dict[str, list[tuple[str, str]]] = {}
+    for artifact_type, subdir in _TYPE_TO_SUBDIR.items():
+        entries: list[tuple[str, str]] = []
+        for name in list_artifacts(artifact_type):
+            artifact = catalog.get(f"{subdir}/{name}")
+            entries.append((name, _first_sentence(artifact.description) if artifact else ""))
+        menu[artifact_type] = entries
+    labels = {d.panel_id: d.name for d in FRAMEWORK_WEB_SERVERS.values()}
+    menu["web_panels"] = [
+        (panel, labels.get(panel, "")) for panel in sorted(BUILTIN_PANELS - UNIVERSAL_PANELS)
+    ]
+    return menu
+
+
+def _insert_artifact_menus(text: str) -> str:
+    """Append "available but not selected" commented entries to each artifact list.
+
+    Text-level like the commented-template append: the dumped document is
+    scanned for the six top-level list keys, each block runs until the first
+    non-indented line, and unselected artifacts are offered as comments at the
+    block's end. A name already present in the block — active or mentioned in
+    a hand-written comment — is skipped, so curated preset commentary wins.
+    """
+    menu = artifact_menu_catalog()
+    lines = text.splitlines(keepends=True)
+    out: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        out.append(line)
+        index += 1
+        key = next((k for k in _ARTIFACT_LIST_KEYS if line.startswith(f"{k}:")), None)
+        if key is None:
+            continue
+        block: list[str] = [line]
+        while index < len(lines) and lines[index][:1] in (" ", "\t"):
+            block.append(lines[index])
+            out.append(lines[index])
+            index += 1
+        block_text = "".join(block)
+        offers = [
+            (name, description)
+            for name, description in menu.get(key, [])
+            if not re.search(rf"\b{re.escape(name)}\b", block_text)
+        ]
+        if offers:
+            out.append(f"  {_MENU_HEADER}\n")
+            for name, description in offers:
+                suffix = f"  # {description}" if description else ""
+                out.append(f"  # - {name}{suffix}\n")
+    return "".join(out)
 
 
 def _config_segments(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
@@ -1093,6 +1197,10 @@ def emit_standalone_profile_yaml(
         f"#   preset content hash: {preset_hash}"
     )
     text = _replace_header(text, header)
+
+    # Unselected artifacts appear as commented menu entries inside their list,
+    # so the opt-in surface of the six selection lists is visible in place.
+    text = _insert_artifact_menus(text)
 
     # Opt-in knobs the resolved profile does not carry appear as documented
     # commented templates, so no configurable surface is invisible. Look the key

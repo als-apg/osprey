@@ -627,13 +627,13 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             USERS_ENV_FILENAME,
             _build_env_production_subset,
             _claude_code_auth_secret_vars,
+            render_env_users,
         )
         from osprey.utils.config import load_project_config
         from osprey.utils.dotenv import (
             ENV_LOCAL_FILENAME,
             ENV_SHARED_FILENAME,
             chain_files,
-            format_env_line,
             merge_chain,
             parse_dotenv_file,
         )
@@ -675,7 +675,9 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
 
         deploy_config = load_project_config(session.config)
 
-        required_vars, extra_vars = _claude_code_auth_secret_vars(deploy_config, project_root)
+        required_vars, extra_vars, _keyless_vars = _claude_code_auth_secret_vars(
+            deploy_config, project_root
+        )
         missing = {var: origin for var, origin in required_vars.items() if var not in dotenv}
         if missing:
             # Warn rather than refuse: whether an absent auth secret is fatal is
@@ -691,9 +693,11 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
         subset = _build_env_production_subset(
             deploy_config, dotenv, {**required_vars, **extra_vars}
         )
-        # Same line renderer the deploy path writes through, so a value needing
-        # quotes to survive a re-read is rendered identically either way.
-        rendered = "".join(f"{format_env_line(key, value)}\n" for key, value in subset.items())
+        # The deploy path's own renderer (readme header + quoted lines), so a
+        # file rendered here and one `osprey up` generates are byte-identical.
+        # The header reaches stdout too: stdout IS the file in that mode, and
+        # comment lines are valid dotenv for every compose reader.
+        rendered = render_env_users(subset)
 
         if output_path is None:
             # ALLOWLISTED raw click.echo, not a renderer primitive: stdout here

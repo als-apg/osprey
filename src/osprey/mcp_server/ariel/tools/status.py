@@ -59,6 +59,7 @@ async def status() -> str:
             f"Failed to get status: {exc}",
             [
                 "Check ARIEL database connectivity.",
-                "Verify config.yml has correct ariel.database settings.",
+                "If the ariel.database settings are wrong, fix them in the build "
+                "profile (profile.yml on the host), then rebuild and redeploy.",
             ],
         )

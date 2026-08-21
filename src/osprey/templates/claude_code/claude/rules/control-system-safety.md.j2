@@ -55,10 +55,11 @@ ctxt.put("SR:MAG:QF:01:CURRENT:SP", 150)    # Bypasses limits + approval
 ctxt.rpc("SR:SVC:ORBIT", request)           # Not approvable — refused at runtime
 ```
 
-`ctxt.rpc(...)` is the one to remember: it is refused at runtime and no
-approval can let it through. An rpc call carries an arbitrary payload, so
-limits checking cannot apply to it — there is nothing for the approval
-workflow to check. Use `write_channel` for the write you actually need.
+`ctxt.rpc(...)` is the one to remember: an rpc call carries an arbitrary
+payload, so limits checking cannot apply to it — there is nothing for the
+approval workflow to check. It is refused at runtime in every readonly run
+and wherever limits checking is enabled. Use `write_channel` for the write
+you actually need.
 {% elif cs_type == 'tango' %}
 ```python
 # DO NOT use these — they bypass safety controls
@@ -107,8 +108,17 @@ Direct {{ protocol_name }} calls skip all of these protections.
 ## Write Operations
 
 For scripts that write to the control system, use the `execute` MCP tool directly
-with `execution_mode: "write"` —
-the `execute` tool defaults to readonly mode, which blocks write operations.
+with `execution_mode: "readwrite"` — the `execute` tool defaults to readonly
+mode, which blocks write operations. Those are the only two accepted values;
+any other spelling is rejected before the script runs.
+
+A readonly run also refuses the indirect routes to the control system: starting
+a process (so a shelled-out `caput` fails) and loading a shared library through
+`ctypes`. This applies even when the intent is unrelated to hardware, so a
+readonly script cannot shell out at all. Every refusal is reported to the
+operator and recorded in the deployment's audit log, so working around one is
+never the right move — resubmit with `execution_mode: "readwrite"` and let the
+operator approve it.
 {% if "bluesky" in enabled_servers | default([]) %}
 
 ## Measurements Go Through the Queue, Not Through Repeated Writes

@@ -987,7 +987,9 @@ def main():
             code = tool_input.get("code", "")
 
             writes_detected = has_write_patterns(code, config)
-            needs_approval = exec_mode == "write" or writes_detected
+            # The agent asking for write mode is itself the signal: approval must not
+            # rest on the regex recognising the spelling of the write.
+            needs_approval = exec_mode == "readwrite" or writes_detected
             if needs_approval:
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:

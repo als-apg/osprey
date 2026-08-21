@@ -2271,7 +2271,8 @@ def _build_repo(
         if not build_profile.provider:
             raise click.UsageError(
                 f"{PROFILE_FILENAME} names no provider. Add `provider: "
-                "<als-apg|cborg|anthropic|amsc-i2|argo>`, or run "
+                "<als-apg|cborg|anthropic|amsc-i2|argo>` — or any custom "
+                "provider you declare under `config:` api.providers — or run "
                 "`osprey set provider=<...>`."
             )
         _check_osprey_version_requirement(build_profile)

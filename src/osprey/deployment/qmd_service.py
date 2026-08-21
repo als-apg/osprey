@@ -279,7 +279,7 @@ def _models_staging_remedy(directory: Path) -> str:
         "`hf_<org>_<basename>` form above — the download names differ — then re-run\n"
         "the deploy.\n"
         f"To go back to build-time downloads, remove {MODELS_DIR_CONFIG_KEY} from "
-        "config.yml."
+        "under `config:` in profile.yml and run `osprey build`."
     )
 
 

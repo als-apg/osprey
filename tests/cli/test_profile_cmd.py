@@ -48,16 +48,27 @@ def test_profile_group_is_registered_on_the_cli() -> None:
     assert group.get_command(None, "profile") is profile
 
 
-def test_profile_help_lists_the_two_subcommands(runner: CliRunner) -> None:
+def test_profile_help_lists_the_three_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(profile, ["--help"])
     assert result.exit_code == 0, result.output
-    for name in ("presets", "validate"):
+    for name in ("presets", "validate", "artifacts"):
         assert name in result.output
 
 
 # --------------------------------------------------------------------------
 # presets
 # --------------------------------------------------------------------------
+
+
+def test_artifacts_lists_every_kind_with_known_members(runner: CliRunner) -> None:
+    """One section per profile list key, populated from the live catalog."""
+    result = runner.invoke(profile, ["artifacts"])
+    assert result.exit_code == 0, result.output
+    for kind in ("hooks", "rules", "skills", "agents", "output_styles", "web_panels"):
+        assert kind in result.output
+    assert "approval" in result.output  # a hook
+    assert "lattice" in result.output  # a web panel
+    assert "control-operator" in result.output  # the output style
 
 
 def test_presets_prints_every_bundled_preset(runner: CliRunner) -> None:

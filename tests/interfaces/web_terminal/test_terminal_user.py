@@ -166,9 +166,11 @@ class TestSessionFooter:
         # initLogoutButton() and the command palette both find it by id.
         assert 'id="logout-btn"' in body
         assert 'data-landing-url="https://facility.example/portal"' in body
-        # Identity lives in the header menu now, not in the display card.
+        # Identity lives in the header menu now, not in the display card —
+        # but Log out renders in BOTH places: the chip's menu and the display
+        # card's action row (its own id; initLogoutButton() binds both).
         assert "display-menu-identity" not in body
-        assert "display-menu-logout" not in body
+        assert 'id="display-menu-logout-btn"' in body
 
     def test_header_is_identity_free_for_a_single_user_deployment(self, client):
         """No OSPREY_TERMINAL_USER: no identity chip, and no logout control —
@@ -178,6 +180,7 @@ class TestSessionFooter:
         assert 'class="header-identity"' not in body
         assert 'id="header-identity-trigger"' not in body
         assert 'id="logout-btn"' not in body
+        assert 'id="display-menu-logout-btn"' not in body
         assert 'id="display-menu-settings"' in body
 
     def test_user_without_a_landing_url_is_named_but_offered_no_logout(self, workspace_dir):
@@ -187,6 +190,7 @@ class TestSessionFooter:
 
         assert 'class="header-identity-who-name">alice<' in body
         assert 'id="logout-btn"' not in body
+        assert 'id="display-menu-logout-btn"' not in body
 
     def test_deployment_name_moved_out_of_the_action_cluster(self, workspace_dir):
         """app_name renders once, on the left beside the product name, and once

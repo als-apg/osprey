@@ -12,6 +12,8 @@ import ssl
 import urllib.error
 from unittest.mock import patch
 
+import pytest
+
 from osprey.interfaces import vendor
 
 _FAKE_MANIFEST = {
@@ -63,6 +65,34 @@ class TestSslContext:
         ctx = vendor._ssl_context(insecure=False)
         assert ctx.check_hostname is True
         assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+    def test_ca_bundle_env_threads_cafile(self, monkeypatch):
+        """OSPREY_CA_BUNDLE becomes the context's cafile — the verified route
+        behind a TLS-intercepting proxy."""
+        monkeypatch.setenv("OSPREY_CA_BUNDLE", "/site/ca-bundle.pem")
+        with patch.object(vendor.ssl, "create_default_context") as create:
+            ctx = vendor._ssl_context(insecure=False)
+        create.assert_called_once_with(cafile="/site/ca-bundle.pem")
+        assert ctx is create.return_value
+
+    def test_ca_bundle_env_nonexistent_path_is_a_clear_error(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("OSPREY_CA_BUNDLE", str(tmp_path / "no-such-bundle.pem"))
+        with pytest.raises(RuntimeError, match="OSPREY_CA_BUNDLE"):
+            vendor._ssl_context(insecure=False)
+
+    def test_ca_bundle_env_unparseable_file_is_a_clear_error(self, monkeypatch, tmp_path):
+        junk = tmp_path / "junk.pem"
+        junk.write_text("not a certificate")
+        monkeypatch.setenv("OSPREY_CA_BUNDLE", str(junk))
+        with pytest.raises(RuntimeError, match="OSPREY_CA_BUNDLE"):
+            vendor._ssl_context(insecure=False)
+
+    def test_insecure_wins_over_ca_bundle_env(self, monkeypatch):
+        """--insecure means "do not verify" whatever else is set; a bundle path
+        must not resurrect verification (or fail on a bad path)."""
+        monkeypatch.setenv("OSPREY_CA_BUNDLE", "/site/ca-bundle.pem")
+        ctx = vendor._ssl_context(insecure=True)
+        assert ctx.verify_mode == ssl.CERT_NONE
 
 
 class TestFetchAll:

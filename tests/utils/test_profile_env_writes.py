@@ -22,6 +22,7 @@ import pytest
 
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
+    ENV_LOCAL_BANNER,
     append_profile_env,
     parse_dotenv_file,
 )
@@ -53,6 +54,19 @@ class TestFreshFile:
             "ARIEL_DB_PASSWORD": "pw",
             "ZO_ROOT_USER_PASSWORD": "zo",
         }
+
+    def test_created_file_is_stamped_with_the_readme_header(self, tmp_path):
+        env_path = tmp_path / ".env"
+        append_profile_env(env_path, {"TOKEN": "t"})
+        assert env_path.read_text(encoding="utf-8").startswith(ENV_LOCAL_BANNER)
+
+    def test_existing_file_is_not_stamped(self, tmp_path):
+        # Append-only: the header is a creation-time courtesy, and an existing
+        # file's opening lines belong to the operator.
+        env_path = tmp_path / ".env"
+        env_path.write_text("OTHER=x\n", encoding="utf-8")
+        append_profile_env(env_path, {"TOKEN": "t"})
+        assert ENV_LOCAL_BANNER not in env_path.read_text(encoding="utf-8")
 
     def test_created_file_is_0600(self, tmp_path):
         env_path = tmp_path / ".env"
@@ -147,12 +161,20 @@ class TestSectionBanner:
         append_profile_env(env_path, {"SECOND": "2"})
         text = env_path.read_text(encoding="utf-8")
         assert text.count(DEPLOY_MINTED_BANNER) == 1
-        assert text.splitlines() == [DEPLOY_MINTED_BANNER, "FIRST=1", "SECOND=2"]
+        assert text.splitlines() == [
+            *ENV_LOCAL_BANNER.splitlines(),
+            "",
+            DEPLOY_MINTED_BANNER,
+            "FIRST=1",
+            "SECOND=2",
+        ]
 
     def test_custom_banner_used(self, tmp_path):
         env_path = tmp_path / ".env"
         append_profile_env(env_path, {"TOKEN": "t"}, "# ── Seeded by osprey init ──")
-        assert env_path.read_text(encoding="utf-8").startswith("# ── Seeded by osprey init ──\n")
+        text = env_path.read_text(encoding="utf-8")
+        assert text.startswith(ENV_LOCAL_BANNER)
+        assert "# ── Seeded by osprey init ──\nTOKEN=t\n" in text
 
     def test_no_banner_when_nothing_added(self, tmp_path):
         env_path = tmp_path / ".env"

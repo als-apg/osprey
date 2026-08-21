@@ -151,7 +151,7 @@ async def _execute_via_local(
     """Execute code in a host subprocess with the ExecutionWrapper."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(limits_validator=limits_validator)
+    wrapper = ExecutionWrapper(limits_validator=limits_validator, execution_mode=execution_mode)
     wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
     # Write wrapped script to execution folder
@@ -167,6 +167,12 @@ async def _execute_via_local(
     python_bin = str(resolve_agent_interpreter(project_root))
 
     sandbox_env = scrub_sensitive_env(os.environ.copy())
+    # The declared mode becomes a runtime property of the subprocess: the
+    # connector base class refuses writes and the EPICS connector stays on
+    # the read_only gateway when this says readonly, so a readonly run cannot
+    # write however the call is spelled — the pre-execution regex only ever
+    # saw the standard spellings.
+    sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode
 
     try:
         proc = await asyncio.create_subprocess_exec(
