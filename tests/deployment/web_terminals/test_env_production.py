@@ -515,6 +515,7 @@ def test_env_production_never_carries_the_dispatcher_token(tmp_path):
             "EVENT_DISPATCHER_TOKEN": "fire-any-trigger",
             "DISPATCH_WORKER_TOKEN": "worker",
             "BLUESKY_LAUNCH_TOKEN": "arm-the-queue",
+            "GRAPHDB_PASSWORD": "rewrite-the-graph",
         },
     )
     config = _persona_config(tmp_path, {"operator": "als-apg"})
@@ -530,6 +531,12 @@ def test_env_production_never_carries_the_dispatcher_token(tmp_path):
         "EVENT_DISPATCHER_TOKEN",
         "DISPATCH_WORKER_TOKEN",
         "BLUESKY_LAUNCH_TOKEN",
+        # The graphdb store's only credential, and a write-capable one. It is
+        # granted per-persona through the compose `environment:` block for a
+        # different reason than the tier boundary -- the read-only tier is meant
+        # to have it -- but it stays out of this rosterwide file all the same,
+        # which would otherwise hand it to personas configuring no graph store.
+        "GRAPHDB_PASSWORD",
     ):
         assert service_token not in generated
 

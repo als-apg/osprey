@@ -3529,3 +3529,93 @@ def test_persona_less_roster_without_writes_is_not_armed() -> None:
     # Assert
     env = compose["services"]["web-alice"]["environment"]
     assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in env)
+
+
+# ---------------------------------------------------------------------------
+# Graph store config -> per-user Neo4j password
+#
+# `osprey up` mints a strong GRAPHDB_PASSWORD into the deploy `.env`, and Neo4j
+# initializes its volume with it. Inside a web terminal the consumer is the
+# `graph` MCP server, which resolves what to dial and with which password
+# through `resolve_graphdb_connection` -- that reads the variable from the
+# environment and otherwise falls back to the shipped default, so a container
+# that never receives it authenticates with the wrong password and every graph
+# query fails.
+#
+# Per-user, not `.env.users`, for the same reason as the credentials above: that
+# file is handed to every user alike and cannot say "the personas that configure
+# a graph store". Note this grant crosses the tier boundary on purpose -- Neo4j
+# has one write-capable account, and read-only-ness is enforced by the graph
+# server's read transactions, not by withholding the password.
+# ---------------------------------------------------------------------------
+
+_GRAPHDB_PASSWORD_LINE = "GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}"
+
+
+def test_graphdb_persona_gets_the_store_password() -> None:
+    """A user whose persona configures a graph store gets the minted Neo4j password
+    in its own `environment:` block, interpolated from the deploy `.env` at compose
+    time so the secret is never written into a rendered artifact."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), graphdb_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    assert _GRAPHDB_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_persona_without_graphdb_gets_no_store_password() -> None:
+    """A persona that configures no graph store needs no graph-store credential."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), graphdb_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("GRAPHDB_PASSWORD" in line for line in bob_env)
+
+
+def test_render_without_graphdb_personas_emits_no_store_password_line() -> None:
+    """The no-project-root render path passes no persona set and so emits no
+    credential, exactly as it does for the dispatcher token."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        env = compose["services"][service]["environment"]
+        assert not any("GRAPHDB_PASSWORD" in line for line in env)
+
+
+def test_persona_less_roster_gets_graphdb_password_from_the_config_itself() -> None:
+    """The zero-migration path -- roster entries that name no persona, where the web
+    image IS the deploy project -- has no persona to look up, so entitlement is read
+    from this same config with no disk read."""
+    # Arrange
+    config = copy.deepcopy(_config(["alice"]))
+    config["services"] = {"graphdb": {}}
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    assert _GRAPHDB_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_persona_less_roster_without_graphdb_gets_no_password() -> None:
+    """The same path with no graph store configured: nothing to dial, so nothing to
+    authenticate with."""
+    # Act
+    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
+
+    # Assert
+    env = compose["services"]["web-alice"]["environment"]
+    assert not any("GRAPHDB_PASSWORD" in line for line in env)

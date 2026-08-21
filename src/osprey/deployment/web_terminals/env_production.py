@@ -531,12 +531,13 @@ def _build_env_production_subset(
     that can distinguish users, and that is the per-user ``environment:`` block
     in ``docker-compose.web.yml``. See
     :func:`osprey.deployment.web_terminals.render.render_web_terminals`, whose
-    ``dispatcher_personas``, ``ariel_personas`` and ``launch_token_personas``
-    arguments each carry the subset of the roster entitled to one credential —
-    ``EVENT_DISPATCHER_TOKEN``, ``ARIEL_DB_PASSWORD`` and
-    ``BLUESKY_LAUNCH_TOKEN`` respectively — emitted into that user's own
-    ``environment:`` block and interpolated by compose from the deploy ``.env``,
-    so the secret never lands in a rendered artifact either.
+    ``dispatcher_personas``, ``ariel_personas``, ``launch_token_personas`` and
+    ``graphdb_personas`` arguments each carry the subset of the roster entitled
+    to one credential — ``EVENT_DISPATCHER_TOKEN``, ``ARIEL_DB_PASSWORD``,
+    ``BLUESKY_LAUNCH_TOKEN`` and ``GRAPHDB_PASSWORD`` respectively — emitted
+    into that user's own ``environment:`` block and interpolated by compose
+    from the deploy ``.env``, so the secret never lands in a rendered artifact
+    either.
 
     So this is NOT the claim that no web terminal ever presents a service token —
     the EVENTS panel's proxy presents the dispatcher token server-side, so the
@@ -559,13 +560,24 @@ def _build_env_production_subset(
     grant is per-persona; a copy of the token in this file would hand it to
     exactly the personas the predicate is there to exclude.
 
-    One nuance applies to all three credentials alike. A roster entry that names
+    ``GRAPHDB_PASSWORD`` is the opposite case, and it is here for the same
+    structural reason rather than the tier one. Neo4j has a single, write-capable
+    account, so its predicate,
+    :func:`osprey.deployment.web_terminals.personas.config_needs_graphdb_password`,
+    deliberately does NOT read ``writes_enabled``: the read-only tier is meant to
+    search the graph, and read-only-ness is enforced by the ``graph`` MCP
+    server's read transactions rather than by which persona holds the password.
+    It still stays out of this file, because a rosterwide copy would grant it to
+    personas that configure no graph store at all.
+
+    One nuance applies to all four credentials alike. A roster entry that names
     no persona — the zero-migration path, where the web image IS the deploy
     project — consults no persona set at all; the render answers it straight
     from the deploy config, via ``config_needs_launch_token``,
-    ``config_needs_dispatcher_token`` or ``config_needs_ariel_password``. An
-    empty persona set therefore does NOT mean "this credential is granted
-    nowhere": persona-less entries are decided independently of it.
+    ``config_needs_dispatcher_token``, ``config_needs_ariel_password`` or
+    ``config_needs_graphdb_password``. An empty persona set therefore does NOT
+    mean "this credential is granted nowhere": persona-less entries are decided
+    independently of it.
 
     This is the security spec for this function: a var absent from the
     enumerated list above can never appear in the returned dict, regardless of

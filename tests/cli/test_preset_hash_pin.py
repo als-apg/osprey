@@ -48,11 +48,22 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "control-assistant-ariel": (
         "sha256:9e71eaa1c45afcf201a12a1722fab5b80ffcb059ff45b0d602785c7e37a1cea5"
     ),
+    # The two operator tiers below moved together, and alone, when each gained
+    # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
+    # block — the attached-render personas scaffold no services of their own, so
+    # without it their terminals would dial the shipped default port rather than
+    # the port the hosting deployment publishes its graph store on. The base
+    # `control-assistant` and the `control-assistant-ariel` tier are untouched
+    # (the change is in these two leaves, not in the base they extend), which is
+    # why only two of the four digests above move here. NOT behavior-neutral: a
+    # rebuilt operator terminal gains the `graph` MCP server and its tools, so
+    # the deploy-side staleness advisory firing on already-deployed
+    # operator-tier projects is the correct signal.
     "control-assistant-readonly": (
-        "sha256:8a304867bb0f9d2aab63d6ebd3490780d6e720780d01562a72c92ce62ddc46f5"
+        "sha256:7ecd21a4eee57c7aa370f9434538007c835d81d457b13a8b067c396af8c79ac7"
     ),
     "control-assistant-readwrite": (
-        "sha256:2a9af46cc9affb350db60b7df30ebc58f51d3ce19634ae05292e67d40bad60e2"
+        "sha256:17f8d92db053ce23154e0a97f42902223fbd84397e735a32534ba5255b64670f"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

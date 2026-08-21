@@ -19,14 +19,17 @@ render helpers live at the top so new sections append without restructuring.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey.cli.build_profile import BuildProfile, resolve_build_profile
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
+from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
 
 # ---------------------------------------------------------------------------
@@ -135,6 +138,57 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
 
 def _errors(findings: list[Finding]) -> list[Finding]:
     return [f for f in findings if f.severity == "error"]
+
+
+def _build_persona_stack(repo: Path) -> Path:
+    """``osprey init`` the hosting preset, then ``osprey build`` the whole stack.
+
+    One build renders the host project at ``build/`` and one project per catalog
+    persona beside it at ``build/<repo>-<persona>``. Nothing here is stubbed: the
+    config a persona render reads is the one the pipeline actually assembles, and
+    a persona's ``config:`` overlay is applied by the build between the base
+    template render and the Claude Code re-render — an ordering that decides
+    whether a preset key can reach the agent surface at all, and one no
+    config-only helper in this module can observe.
+
+    Args:
+        repo: Directory to materialize the deployment repo into.
+
+    Returns:
+        The repo root; persona renders live under ``<repo>/build/``.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.build_cmd import build
+    from osprey.cli.init_cmd import init
+
+    runner = CliRunner()
+    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    assert created.exit_code == 0, created.output
+    built = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert built.exit_code == 0, built.output
+    return repo
+
+
+def _graph_permission_entries() -> list[str]:
+    """The four rendered permission strings, derived from the registry.
+
+    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
+    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
+    qualification happens here rather than being restated where it could drift
+    from what the render emits.
+    """
+    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
+
+
+def _graph_entries(values) -> list[str]:
+    return sorted(entry for entry in values if str(entry).startswith("mcp__graph__"))
+
+
+@pytest.fixture(scope="module")
+def built_persona_stack(tmp_path_factory) -> Path:
+    """The hosting preset built once, personas included."""
+    return _build_persona_stack(tmp_path_factory.mktemp("persona-stack") / "my-facility")
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +497,121 @@ class TestControlAssistantPersonas:
         for name in ("control-assistant-readonly", "control-assistant-readwrite"):
             profile = resolve_preset(name)
             assert profile.config.get("modules.web_terminals.enabled") is False
+
+    def test_personas_pin_the_graph_store_port(self) -> None:
+        """Both operator tiers carry ``services.graphdb.port_host``, identically.
+
+        The personas render attached (``deploy_services: false``), so the app
+        template gives them ``services: {}`` and nothing says where the graph
+        store listens. This one dotted key is what puts a ``services.graphdb``
+        block into a persona's config at all — which is what makes the graph MCP
+        server render for them (see the build test below).
+
+        Spelled identically on both sides on purpose: the key cancels in
+        ``test_personas_differ_only_on_the_tier_contract``'s wholesale
+        comparison, so the tier contract stays three axes wide. It is NOT a
+        write boundary — reading the graph is a read on either tier.
+        """
+        for name in ("control-assistant-readonly", "control-assistant-readwrite"):
+            profile = resolve_preset(name)
+            assert profile.config.get("services.graphdb.port_host") == 7687
+            # Flat dotted key: a nested ``services:`` mapping here is silently
+            # dropped by the deep merge, so the block would never arrive.
+            assert "services" not in profile.config
+
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
+    def test_operator_personas_render_the_graph_tools(
+        self, built_persona_stack: Path, persona: str
+    ) -> None:
+        """Both operator terminals can query the hosting deployment's graph.
+
+        Asserted on a real build rather than on the resolved profile, because the
+        claim spans the whole pipeline: the preset's dotted key has to survive
+        ``_apply_config_overrides``, land as a ``services.graphdb`` block in the
+        rendered config, be seen by ``config_derived_context`` as
+        ``graphdb_configured``, and only then reach ``resolve_servers`` before
+        the Claude Code artifacts are written. An overlay applied after server
+        resolution would leave every assertion below false while the profile
+        still carried the key.
+
+        Both surfaces are checked: the main agent (permissions + a launchable
+        ``.mcp.json`` entry + the PostToolUse prefix, and nothing behind ``ask``
+        — these tools read) and the channel-finder subagent's frontmatter.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
+        assert project.is_dir(), f"{persona} was never rendered"
+
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert (config.get("services") or {}).get("graphdb") == {"port_host": 7687}
+
+        permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
+        assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+        assert _graph_entries(permissions.get("ask") or []) == []
+
+        graph_server = json.loads((project / ".mcp.json").read_text())["mcpServers"]["graph"]
+        assert graph_server["args"] == ["-m", "osprey.mcp_server.graph"]
+
+        hook_cfg = json.loads((project / ".claude" / "hooks" / "hook_config.json").read_text())
+        assert "mcp__graph__" in hook_cfg["server_prefixes"]
+        assert "mcp__graph__" not in hook_cfg["approval_prefixes"]
+
+        frontmatter = yaml.safe_load(
+            (project / ".claude" / "agents" / "channel-finder.md")
+            .read_text(encoding="utf-8")
+            .split("---")[1]
+        )
+        tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
+        assert _graph_entries(tools) == _graph_permission_entries()
+
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
+    def test_graph_port_lands_inside_the_attached_renders_services_map(
+        self, built_persona_stack: Path, persona: str
+    ) -> None:
+        """The dotted key is written *into* the attached render's empty
+        ``services`` map, and leaves nothing else behind.
+
+        An attached persona scaffolds no services of its own — the app template
+        gives it ``services: {}`` — so after the overlay that map must hold the
+        graph store and nothing more. The test above asks what
+        ``services.graphdb`` is; this one asks what the whole map is, which is
+        the half that catches a dotted overlay landing beside the map instead of
+        inside it: a literal top-level ``"services.graphdb.port_host"`` string
+        key would satisfy ``config.yml`` as YAML, be ignored in silence by every
+        reader of ``services.graphdb``, and leave the assertion above free to
+        pass on a second, correct copy.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+
+        assert config["services"] == {"graphdb": {"port_host": 7687}}
+        assert [key for key in config if "." in str(key)] == []
+
+    def test_ariel_persona_renders_no_graph_surface(self, built_persona_stack: Path) -> None:
+        """The logbook tier is graph-less, and by omission rather than by veto.
+
+        ``control-assistant-ariel`` switches off every control-surface tool
+        server explicitly (``claude_code.servers.<name>.enabled: false``), but
+        carries no ``services.graphdb`` key at all — so the graph server never
+        becomes eligible in the first place and needs no such line. That
+        distinction matters for whoever edits these presets next: adding the port
+        key to this tier would hand it the graph tools, and no ``enabled: false``
+        elsewhere would take them away again.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-ariel"
+        assert project.is_dir(), "the ariel persona was never rendered"
+
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert (config.get("services") or {}).get("graphdb") is None
+        assert "services.graphdb.port_host" not in resolve_preset("control-assistant-ariel").config
+
+        hits = sorted(
+            str(path.relative_to(project))
+            for path in (project / ".claude").rglob("*")
+            if path.is_file()
+            and "mcp__graph__" in path.read_text(encoding="utf-8", errors="ignore")
+        )
+        assert hits == [], f"the logbook tier configures no graph store but rendered {hits}"
+        assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
 
 
 # ---------------------------------------------------------------------------

@@ -306,6 +306,159 @@ def test_launch_token_is_granted_per_user_and_never_through_the_shared_env_file(
 
 
 # ---------------------------------------------------------------------------
+# services.graphdb -> per-user graph-store password, resolved from disk
+#
+# The same seam as above, for the fourth grant. `config_needs_graphdb_password`
+# and `render_web_terminals` are each pinned on their own in test_personas.py
+# and test_render.py; what only this file can prove is the COMPOSITION --- that
+# the predicate's answer for a persona project really on disk is the answer the
+# rendered compose file carries, for every YAML spelling of the block that the
+# predicate distinguishes.
+#
+# The spellings are not interchangeable, and the difference is invisible at a
+# glance: a mapping-valued `graphdb: {}` resolves to a fully-defaulted store and
+# renders the graph server, so it must grant; a bare `graphdb:` parses as None
+# and configures nothing, so it must not. The tier boundary does NOT apply here,
+# unlike the launch token above --- reading the graph is a read, so a read-only
+# persona that configures a store is entitled to its credential.
+# ---------------------------------------------------------------------------
+
+_GRAPHDB_PASSWORD_LINE = "GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}"
+
+
+def _graphdb_roster_config(tmp_path):
+    """A four-user roster covering every spelling the grant predicate separates.
+
+    One persona per cell, each project really on disk:
+
+    * ``alice`` --- a READ-ONLY persona whose config carries a mapping-valued
+      ``services.graphdb: {}``. Entitled: the block resolves to a defaulted
+      store, and the write switch is not part of this grant.
+    * ``bob`` --- configures a store but vetoes the server with
+      ``claude_code.servers.graph.enabled: false``. Not entitled: nothing in the
+      container would dial it.
+    * ``carol`` --- a bare null-valued ``services.graphdb:`` key. Not entitled:
+      the key is present but configures no store.
+    * ``dave`` --- a malformed block (a non-numeric ``port_host``). Not entitled,
+      and the render must complete rather than raise: a deploy is not the place
+      to discover a typo by traceback.
+    """
+    config = _config(
+        [
+            {"name": "alice", "index": 0, "persona": "readonly_graph"},
+            {"name": "bob", "index": 1, "persona": "graph_vetoed"},
+            {"name": "carol", "index": 2, "persona": "null_block"},
+            {"name": "dave", "index": 3, "persona": "malformed"},
+        ]
+    )
+    config["modules"]["web_terminals"]["personas"] = {
+        "readonly_graph": {
+            "project": "ro-graph",
+            "project_path": _write_persona_project(
+                tmp_path,
+                "ro-graph",
+                {"control_system": {"writes_enabled": False}, "services": {"graphdb": {}}},
+            ),
+        },
+        "graph_vetoed": {
+            "project": "vetoed",
+            "project_path": _write_persona_project(
+                tmp_path,
+                "vetoed",
+                {
+                    "services": {"graphdb": {"port_host": 7687}},
+                    "claude_code": {"servers": {"graph": {"enabled": False}}},
+                },
+            ),
+        },
+        "null_block": {
+            "project": "null-block",
+            "project_path": _write_persona_project(
+                tmp_path, "null-block", {"services": {"graphdb": None}}
+            ),
+        },
+        "malformed": {
+            "project": "malformed",
+            "project_path": _write_persona_project(
+                tmp_path, "malformed", {"services": {"graphdb": {"port_host": "not-a-port"}}}
+            ),
+        },
+    }
+    return config
+
+
+def test_write_grants_the_graph_password_to_the_persona_that_configures_a_store(tmp_path):
+    """The wiring, proven from disk: a persona project carrying a resolvable
+    ``services.graphdb`` block gets the store's password in its OWN
+    ``environment:`` block, interpolated from the deploy ``.env`` at compose time
+    so no secret is written into a rendered artifact.
+
+    Asserted on a READ-ONLY persona deliberately. This grant crosses the tier
+    boundary the launch token above defends, and a fixture that granted it to a
+    write-armed persona would leave that difference untested.
+    """
+    write_web_terminal_artifacts(_graphdb_roster_config(tmp_path), tmp_path)
+
+    services = _rendered_services(tmp_path / "build")
+    assert _GRAPHDB_PASSWORD_LINE in services["web-alice"]["environment"]
+
+
+@pytest.mark.parametrize(
+    ("user", "why"),
+    [
+        ("bob", "the graph server is switched off, so nothing would dial the store"),
+        ("carol", "a bare `graphdb:` key parses as None and configures no store"),
+        ("dave", "a malformed block resolves to no store at all"),
+    ],
+)
+def test_write_grants_the_graph_password_to_no_one_else(tmp_path, user: str, why: str):
+    """Every non-entitled spelling, asserted positively on the persona that must
+    not hold the credential. A test that only checks the entitled persona passes
+    just as happily when the password leaks to the whole roster.
+    """
+    write_web_terminal_artifacts(_graphdb_roster_config(tmp_path), tmp_path)
+
+    env = _rendered_services(tmp_path / "build")[f"web-{user}"]["environment"]
+    assert not any("GRAPHDB_PASSWORD" in value for value in env), why
+
+
+def test_a_malformed_graphdb_block_renders_instead_of_raising(tmp_path):
+    """A typo in one persona's block must not take the whole deploy down.
+
+    The predicate reads a malformed block as "no store", so the render completes
+    and every other persona's entitlement is decided normally --- which is what
+    makes the parametrized denial above a statement about entitlement rather
+    than about the deploy having failed before it got there.
+    """
+    written = write_web_terminal_artifacts(_graphdb_roster_config(tmp_path), tmp_path)
+
+    assert (tmp_path / "build" / "docker-compose.web.yml") in written
+    assert set(_rendered_services(tmp_path / "build")) >= {
+        "web-alice",
+        "web-bob",
+        "web-carol",
+        "web-dave",
+    }
+
+
+def test_graph_password_is_granted_per_user_and_never_through_the_shared_env_file(tmp_path):
+    """``.env.users`` is ROSTERWIDE, so the grant must reach exactly one
+    ``environment:`` block and nothing else --- the same placement argument the
+    launch token makes, and the reason this credential is absent from the
+    ``.env.users`` subset (see ``test_env_production.py``).
+    """
+    write_web_terminal_artifacts(_graphdb_roster_config(tmp_path), tmp_path)
+
+    compose_text = (tmp_path / "build" / "docker-compose.web.yml").read_text(encoding="utf-8")
+    # Counted by LINE, not by occurrence: the grant spells the variable twice in
+    # its own line (`VAR=${VAR:-default}`), so a bare substring count would read
+    # the single correct grant as two.
+    mentions = [line for line in compose_text.splitlines() if "GRAPHDB_PASSWORD" in line]
+    assert mentions == [f"      - {_GRAPHDB_PASSWORD_LINE}"]
+    assert not (tmp_path / ".env.users").exists()
+
+
+# ---------------------------------------------------------------------------
 # The Bash/launch-token conflict guard
 #
 # The one accepted cost of granting BLUESKY_LAUNCH_TOKEN is that the chat
