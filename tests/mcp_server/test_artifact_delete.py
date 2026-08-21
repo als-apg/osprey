@@ -32,7 +32,7 @@ def store(tmp_path):
 @pytest.fixture
 def delete_tool():
     """The raw async function behind the ``artifact_delete`` MCP tool."""
-    from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete
 
     return get_tool_fn(artifact_delete)
 
@@ -40,7 +40,7 @@ def delete_tool():
 @pytest.fixture
 def delete_all_tool():
     """The raw async function behind the ``artifact_delete_all`` MCP tool."""
-    from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete_all
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete_all
 
     return get_tool_fn(artifact_delete_all)
 
@@ -138,7 +138,7 @@ class TestArtifactDeleteAllScope:
     @pytest.mark.asyncio
     async def test_scope_is_required_in_the_tool_schema(self):
         from osprey.mcp_server.workspace.server import mcp
-        from osprey.mcp_server.workspace.tools import artifact_save  # noqa: F401  (registers)
+        from osprey.mcp_server.workspace.tools import artifact_register  # noqa: F401  (registers)
 
         schema = (await mcp.get_tool("artifact_delete_all")).parameters
         assert "scope" in schema["properties"], schema

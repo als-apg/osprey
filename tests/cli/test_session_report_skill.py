@@ -110,8 +110,8 @@ class TestSessionReportSkillStructure:
     def test_references_archiver_downsample(self, skill_text):
         assert "archiver_downsample" in skill_text
 
-    def test_references_artifact_save(self, skill_text):
-        assert "artifact_save" in skill_text
+    def test_references_artifact_register(self, skill_text):
+        assert "artifact_register" in skill_text
 
     def test_references_reference_file(self, skill_text):
         assert "reference.md" in skill_text

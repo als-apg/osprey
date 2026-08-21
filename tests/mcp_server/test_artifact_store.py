@@ -4,7 +4,7 @@ Covers:
   - ArtifactStore: save_file, save_object, save_from_path, list/get
   - Smart serialization (serialize_object)
   - save_artifact() injection into execute tool namespace
-  - artifact_save MCP tool (file_path and content modes)
+  - artifact_register MCP tool (file_path and content modes)
   - Artifact Gallery app routes
 """
 
@@ -530,24 +530,24 @@ class TestSingleton:
 
 
 # ---------------------------------------------------------------------------
-# artifact_save MCP tool
+# artifact_register MCP tool
 # ---------------------------------------------------------------------------
 
 
-def _get_artifact_save():
-    from osprey.mcp_server.workspace.tools.artifact_save import artifact_save
+def _get_artifact_register():
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
 
-    return get_tool_fn(artifact_save)
+    return get_tool_fn(artifact_register)
 
 
-class TestArtifactSaveTool:
-    """Tests for the artifact_save MCP tool."""
+class TestArtifactRegisterTool:
+    """Tests for the artifact_register MCP tool."""
 
     @pytest.mark.asyncio
     async def test_save_inline_markdown(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         result = await fn(
             title="Test Summary",
             content="# Summary\n\nAll systems nominal.",
@@ -562,7 +562,7 @@ class TestArtifactSaveTool:
     async def test_save_inline_html(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         result = await fn(
             title="HTML Report",
             content="<h1>Report</h1><p>Done.</p>",
@@ -577,7 +577,7 @@ class TestArtifactSaveTool:
     async def test_save_inline_json(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         result = await fn(
             title="JSON Data",
             content='{"key": "value"}',
@@ -596,7 +596,7 @@ class TestArtifactSaveTool:
         source = tmp_path / "test_data.csv"
         source.write_text("a,b,c\n1,2,3\n")
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         result = await fn(
             title="CSV Data",
             file_path=str(source),
@@ -609,7 +609,7 @@ class TestArtifactSaveTool:
     async def test_both_file_and_content_error(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await fn(
                 title="Bad",
@@ -623,17 +623,28 @@ class TestArtifactSaveTool:
     async def test_neither_file_nor_content_error(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await fn(title="Empty")
 
         _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
+    async def test_inline_content_requires_content_type(self, tmp_path, monkeypatch):
+        """The caller names the type; the tool never guesses markdown."""
+        monkeypatch.chdir(tmp_path)
+
+        fn = _get_artifact_register()
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(title="Untyped", content="# Summary")
+
+        assert "content_type" in _exc_ctx["envelope"]["error_message"]
+
+    @pytest.mark.asyncio
     async def test_invalid_content_type_error(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         with assert_raises_error() as _exc_ctx:
             await fn(
                 title="Bad Type",
@@ -648,7 +659,7 @@ class TestArtifactSaveTool:
     async def test_file_not_found_error(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_artifact_save()
+        fn = _get_artifact_register()
         with assert_raises_error(error_type="file_not_found") as _exc_ctx:
             await fn(
                 title="Missing",
@@ -882,7 +893,7 @@ class TestArtifactGalleryApp:
     @pytest.mark.asyncio
     async def test_mcp_artifact_delete_clears_focus(self, app_client, monkeypatch):
         """MCP artifact_delete tool drives the listener path → clears focus."""
-        from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete
+        from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete
         from osprey.stores.artifact_store import initialize_artifact_store
 
         client, tmp_path = app_client
@@ -909,7 +920,7 @@ class TestArtifactGalleryApp:
         self, app_client, monkeypatch
     ):
         """A save_data artifact is the same record — one delete tool, one listener path."""
-        from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete
+        from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete
         from osprey.stores.artifact_store import initialize_artifact_store
 
         client, tmp_path = app_client
@@ -933,7 +944,7 @@ class TestArtifactGalleryApp:
     @pytest.mark.asyncio
     async def test_mcp_artifact_delete_all(self, app_client, monkeypatch):
         """artifact_delete_all(scope="everything") clears the store and empties focus_state."""
-        from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete_all
+        from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete_all
         from osprey.stores.artifact_store import initialize_artifact_store
 
         client, tmp_path = app_client

@@ -46,9 +46,9 @@ Use the `execute` MCP tool to create a **publication-quality matplotlib figure**
 
 Use `plt.subplots()`, apply `plt.style.use("seaborn-v0_8-whitegrid")` or similar, and call `save_artifact(fig, "Title", "description")`.
 
-### 1c. Markdown Report with LaTeX — `artifact_save`
+### 1c. Markdown Report with LaTeX — `artifact_register`
 
-Use the `artifact_save` MCP tool to create a **rich markdown document** that exercises KaTeX rendering and table formatting.
+Use the `artifact_register` MCP tool (`content_type: "markdown"`) to create a **rich markdown document** that exercises KaTeX rendering and table formatting.
 
 The report MUST include:
 
@@ -88,7 +88,7 @@ After all artifacts are created:
 |---|-------|------|---------|
 | 1 | ... | Interactive plot | `create_interactive_plot` |
 | 2 | ... | Static plot | `execute` + matplotlib |
-| 3 | ... | Markdown report | `artifact_save` |
+| 3 | ... | Markdown report | `artifact_register` |
 | 4 | ... | Data table | `execute` + `save_artifact()` |
 
 3. **Note** that additional notebook artifacts were auto-generated from each `execute` call

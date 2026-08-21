@@ -136,10 +136,10 @@ Populate the HTML with:
 
 ### 3b. Save to the gallery
 
-Call the `artifact_save` MCP tool:
+Call the `artifact_register` MCP tool:
 
 ```
-artifact_save(
+artifact_register(
     title="Diagnostic Report — <brief failure description>",
     description="Infrastructure failure investigation: <1-line summary>",
     content=<the HTML string>,

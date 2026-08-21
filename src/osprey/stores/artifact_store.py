@@ -6,8 +6,9 @@ root (``agent_data.base_dir``) in ``artifacts/``, and served by the Artifact
 Server gallery.
 
 Two entry points create artifacts:
-  1. ``save_artifact()`` — injected into ``execute`` namespace
-  2. ``artifact_save`` — standalone MCP tool for files / inline content
+  1. ``save_artifact()`` — injected into execution subprocesses for live
+     Python objects (see :mod:`osprey.stores.artifact_manifest`)
+  2. ``artifact_register`` — MCP tool for files on disk / literal text
 
 This module provides the low-level storage layer used by both.
 """
@@ -419,7 +420,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         title: str,
         description: str = "",
         artifact_type: str | None = None,
-        tool_source: str = "artifact_save",
+        tool_source: str = "artifact_register",
         metadata: dict[str, Any] | None = None,
         category: str = "",
     ) -> ArtifactEntry:
