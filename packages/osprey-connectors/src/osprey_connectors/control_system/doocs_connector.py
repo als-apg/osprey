@@ -182,13 +182,27 @@ class DOOCSConnector(ControlSystemConnector):
                 # Log unexpected errors but don't block (fail-open for non-limit errors)
                 logger.warning(f"Limits validation error (non-blocking): {e}")
 
-        # Step 2: Auto-determine verification config if not provided
-        if verification_level is None:
-            verification_level, auto_tolerance = self._get_verification_config(
-                channel_address, float(value)
+        # Step 2: Resolve verification config.
+        #
+        # The level is auto-determined only when the caller omitted it, but the
+        # tolerance is resolved from the limits DB either way: passing an explicit
+        # level must not silently drop the tolerance configured for the channel.
+        if verification_level is None or tolerance is None:
+            # The value is only used to scale a percentage tolerance. DOOCS also
+            # writes strings, which have no numeric scale, so fall back to 0.0
+            # instead of raising on float().
+            try:
+                tolerance_scale = float(value)
+            except (TypeError, ValueError):
+                tolerance_scale = 0.0
+
+            resolved_level, resolved_tolerance = self._get_verification_config(
+                channel_address, tolerance_scale
             )
+            if verification_level is None:
+                verification_level = resolved_level
             if tolerance is None:
-                tolerance = auto_tolerance
+                tolerance = resolved_tolerance
 
         if verification_level == "callback":
             logger.debug(
@@ -232,7 +246,11 @@ class DOOCSConnector(ControlSystemConnector):
                     value_written=value,
                     success=False,
                     verification=WriteVerification(
-                        level="none", verified=False, notes="Write command failed"
+                        # Readback is the level this arm performs, so report it
+                        # even when the write itself never got that far.
+                        level="readback",
+                        verified=False,
+                        notes="Write command failed",
                     ),
                     error_message=f"Failed to write to '{channel_address}': {e}",
                 )
@@ -296,6 +314,9 @@ class DOOCSConnector(ControlSystemConnector):
                         level="readback",
                         verified=False,
                         notes=f"Readback failed: {str(e)}",
+                        # Machine-readable: the readback read itself raised. A
+                        # plain value mismatch leaves this None.
+                        failure_kind="readback_failed",
                     ),
                     error_message=f"Readback verification failed: {str(e)}",
                 )

@@ -270,3 +270,50 @@ async def test_channel_read_empty_list(tmp_path, monkeypatch):
         await fn(channels=[])
 
     _exc_ctx["envelope"]
+
+
+@pytest.mark.unit
+async def test_channel_access_alarm_renders_as_a_name(tmp_path, monkeypatch):
+    """A CA alarm reaches the tool payload as its EPICS name, not a raw code.
+
+    Driven through a real ``EPICSConnector`` with a fake pyepics rather than a
+    mocked ``ChannelValue``, so this asserts on what the connector actually
+    ships to the tool. PVAccess already emitted names; Channel Access sent the
+    integer, which is what an agent then had to guess at.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: epics\n")
+    initialize_server_context()
+
+    from osprey.connectors.control_system.epics_connector import EPICSConnector
+
+    pv = MagicMock()
+    pv.wait_for_connection.return_value = True
+    pv.connected = True
+    pv.get.return_value = 500.2
+    pv.timestamp = 1_750_000_000.0
+    pv.units = "mA"
+    pv.precision = 3
+    pv.status = 3  # HIHI
+    pv.severity = 2
+    fake_epics = MagicMock()
+    fake_epics.PV.return_value = pv
+
+    connector = EPICSConnector()
+    connector._epics = fake_epics
+    connector._connected = True
+    connector._epics_configured = True
+    connector._timeout = 5.0
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        fn = _get_channel_read()
+        result = await fn(channels=["SR:CURRENT:RB"], include_metadata=True)
+
+    data = extract_response_dict(result)
+    channel = data["summary"]["readings"]["SR:CURRENT:RB"]
+    assert channel["alarm_status"] == "HIHI"
+    assert channel["value"] == 500.2

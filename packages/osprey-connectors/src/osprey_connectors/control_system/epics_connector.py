@@ -52,6 +52,51 @@ def _configure_pyepics_libca() -> None:
         logger.debug("epicscorelibs libca unavailable; using pyepics default libca resolution")
 
 
+def _alarm_name(code: Any) -> str:
+    """Map a Channel Access alarm status code onto its EPICS name.
+
+    Channel Access reports the alarm status as a small integer; the rest of
+    OSPREY (and ``ChannelMetadata.alarm_status``) speaks names, which is what
+    PVAccess already emits. This is the one place codes become names, so the
+    shared connector core stays free of EPICS constants.
+
+    Anything the enum cannot map — an out-of-range code, ``None`` from a PV
+    that has not reported yet — becomes ``"UNKNOWN"``. pyepics' enum already
+    does that itself (verified on 3.5.9), but the guard keeps the read path
+    from failing on a pyepics build that decides otherwise, or one where the
+    import is unavailable.
+    """
+    try:
+        from epics.dbr import AlarmStatus
+
+        return str(AlarmStatus(code).name)
+    except Exception:  # unmappable code, or pyepics unavailable
+        return "UNKNOWN"
+
+
+def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
+    """Alarm name and severity of a readback, or ``(None, None)`` if unreported.
+
+    ``None`` means "the readback carried no alarm metadata" and is deliberately
+    distinct from a reported healthy readback (severity ``0``), so a consumer
+    can tell "no alarm" from "no information".
+    """
+    metadata = getattr(readback, "metadata", None)
+    if metadata is None:
+        return None, None
+
+    status = getattr(metadata, "alarm_status", None)
+    raw = getattr(metadata, "raw_metadata", None) or {}
+    severity = raw.get("severity") if isinstance(raw, dict) else None
+    if severity is not None:
+        try:
+            severity = int(severity)
+        except (TypeError, ValueError):
+            severity = None
+
+    return (str(status) if status is not None else None, severity)
+
+
 # Normative-type identifiers the PVA read path maps specially. Compared with a
 # prefix match so a minor revision ("epics:nt/NTEnum:1.1") keeps its mapping
 # instead of silently degrading to the generic scalar path.
@@ -500,13 +545,16 @@ class EPICSConnector(ControlSystemConnector):
         else:
             timestamp = datetime.now(get_facility_timezone())
 
-        # Extract metadata
+        # Extract metadata. The alarm status is reported by name; the raw CA
+        # code stays in raw_metadata next to the severity so nothing is lost.
+        alarm_code = getattr(pv, "status", None)
         metadata = ChannelMetadata(
             units=getattr(pv, "units", "") or "",
             precision=getattr(pv, "precision", None),
-            alarm_status=pv.status if hasattr(pv, "status") else None,
+            alarm_status=_alarm_name(alarm_code),
             timestamp=timestamp,
             raw_metadata={
+                "status": alarm_code,
                 "severity": getattr(pv, "severity", None),
                 "type": getattr(pv, "type", None),
                 "count": getattr(pv, "count", None),
@@ -794,6 +842,18 @@ class EPICSConnector(ControlSystemConnector):
             )
             if tolerance is None:
                 tolerance = auto_tolerance
+        elif verification_level == "readback" and tolerance is None:
+            # An explicit level must not silently drop the configured tolerance:
+            # resolve it from the same chain (channel limits entry -> limits
+            # defaults -> global config) and keep the caller's level. Without
+            # this, naming "readback" fell back to 0.001 absolute — far tighter
+            # than the percentage tolerances shipped for setpoint channels.
+            try:
+                _, tolerance = self._get_verification_config(channel_address, float(value))
+            except (TypeError, ValueError):
+                # Non-numeric value: no percentage tolerance is computable. The
+                # readback comparison below reports the failure in context.
+                tolerance = None
 
         # Step 2: Validate the verification level up front — reject invalid levels
         # BEFORE issuing any caput (preserves the no-caput-on-invalid-level behavior).
@@ -905,6 +965,7 @@ class EPICSConnector(ControlSystemConnector):
                 # Check tolerance
                 diff = abs(float(readback.value) - float(value))
                 verified = diff <= (tolerance or 0.001)
+                alarm_status, alarm_severity = _readback_alarm_fields(readback)
 
                 logger.debug(
                     f"EPICS write (readback verified={verified}): {channel_address} = {value}, "
@@ -925,6 +986,10 @@ class EPICSConnector(ControlSystemConnector):
                             if verified
                             else f"Readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance})"
                         ),
+                        readback_alarm_status=alarm_status,
+                        readback_alarm_severity=alarm_severity,
+                        # A value mismatch is not a failure *kind*: the readback
+                        # itself worked. Only the except branch below classifies.
                     ),
                 )
 
@@ -935,7 +1000,10 @@ class EPICSConnector(ControlSystemConnector):
                     value_written=value,
                     success=True,  # Write succeeded, but readback failed
                     verification=WriteVerification(
-                        level="readback", verified=False, notes=f"Readback failed: {str(e)}"
+                        level="readback",
+                        verified=False,
+                        notes=f"Readback failed: {str(e)}",
+                        failure_kind="readback_failed",
                     ),
                     error_message=f"Readback verification failed: {str(e)}",
                 )
@@ -978,6 +1046,7 @@ class EPICSConnector(ControlSystemConnector):
 
         def epics_callback(pvname=None, value=None, timestamp=None, **kwargs):
             """Wrapper to convert EPICS callback to our format."""
+            alarm_code = kwargs.get("status")
             pv_value = ChannelValue(
                 value=value,
                 timestamp=(
@@ -986,7 +1055,12 @@ class EPICSConnector(ControlSystemConnector):
                     else datetime.now(get_facility_timezone())
                 ),
                 metadata=ChannelMetadata(
-                    units=kwargs.get("units", ""), alarm_status=kwargs.get("status")
+                    units=kwargs.get("units", ""),
+                    alarm_status=_alarm_name(alarm_code),
+                    raw_metadata={
+                        "status": alarm_code,
+                        "severity": kwargs.get("severity"),
+                    },
                 ),
             )
             # Schedule callback in event loop

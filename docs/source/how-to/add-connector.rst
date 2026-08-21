@@ -386,9 +386,28 @@ All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.b
 ``tolerance_absolute`` takes priority over ``tolerance_percent`` (percentage of value).
 Each channel inherits any field it does not set from the ``defaults`` block, and a
 channel's own value always overrides it. ``writable`` defaults to ``true``; a channel's
-verification falls back to the ``defaults`` block's verification and then to the global
-``control_system.write_verification.default_level``. Set ``"writable": false`` -- on a
-channel, or in ``defaults`` to lock everything down by default -- to block writes.
+verification falls back to the ``defaults`` block's verification. Set ``"writable": false``
+-- on a channel, or in ``defaults`` to lock everything down by default -- to block writes.
+
+**Where the level comes from.** Passing no ``verification_level`` means "no opinion",
+not "no verification". The connector then resolves the level for that channel through
+four layers, using the first one that supplies a value:
+
+1. the channel's own ``verification`` entry in the limits database,
+2. the limits database ``defaults.verification`` block,
+3. ``control_system.write_verification`` in ``config.yml``,
+4. the built-in fallback: ``callback``, with no tolerance.
+
+The tolerance resolves through the same four layers, and it keeps doing so when the
+level was passed explicitly, but a layer only supplies a tolerance when the level it
+resolves to is ``readback``. Asking for ``readback`` on a channel whose limits entry
+declares ``level: readback`` with ``tolerance_percent: 1.0`` verifies at 1%, not at
+the built-in default -- pass ``tolerance`` as well to override that too.
+
+Batch writes resolve the same way. ``write_multiple_channels()`` carries one level for
+the whole batch, so when the caller omits it the keyword is left off each per-channel
+write and every channel resolves its own. This is why ``osprey.runtime.write_channels``
+verifies exactly like ``osprey.runtime.write_channel``.
 
 .. _write-safety-config:
 
@@ -456,6 +475,44 @@ Implementing Custom Connectors
 Subclass :class:`~osprey.connectors.control_system.base.ControlSystemConnector` and implement the abstract methods: ``connect``, ``disconnect``, ``read_channel``, ``write_channel``, ``read_multiple_channels``, ``subscribe``, ``unsubscribe``, ``get_metadata``, ``validate_channel``.
 
 You may also override the non-abstract ``write_multiple_channels()`` method if your backend benefits from atomic batch writes (e.g., disabling lattice recalculation between writes in a simulator). The default implementation writes sequentially via ``write_channel()``.
+
+**The verification arguments are optional.** Declare them as::
+
+   async def write_channel(
+       self,
+       channel_address: str,
+       value: Any,
+       timeout: float | None = None,
+       verification_level: str | None = None,
+       tolerance: float | None = None,
+   ) -> ChannelWriteResult:
+
+``None`` is a sentinel meaning "the caller did not specify a level" -- deliberately
+different from the ``"none"`` level, which means "write, and do not verify". When
+``verification_level`` arrives as ``None``, hand the channel and the value to the
+inherited ``_get_verification_config()`` helper, which walks the four layers described
+under `Write Verification`_ and returns the level and tolerance to use.
+
+A connector written before the sentinel existed -- one declaring a concrete default such
+as ``verification_level: str = "callback"`` -- keeps working unchanged. The batch path
+omits the keyword rather than forwarding ``None``, so that connector's own default still
+applies.
+
+**Three verification fields are optional too.**
+:class:`~osprey.connectors.control_system.base.WriteVerification` accepts, beyond the
+level and the readback value:
+
+- ``readback_alarm_status`` -- the alarm name the readback carried, as the control
+  system spells it (for EPICS, ``"NO_ALARM"``, ``"HIHI"``, and so on).
+- ``readback_alarm_severity`` -- the numeric severity: ``0`` healthy, ``1`` MINOR,
+  ``2`` MAJOR, ``3`` INVALID.
+- ``failure_kind`` -- a short tag for *why* verification failed, when the reason is
+  more specific than "the value did not match". A readback that raised is reported as
+  ``"readback_failed"``; a plain value mismatch leaves the field unset.
+
+Leaving a field at ``None`` means "not reported", which is deliberately different from a
+severity of ``0`` ("reported, and healthy"). A connector whose backend has no alarm
+concept leaves all three unset and remains fully supported.
 
 Your connector must return the standard data models from ``osprey.connectors.control_system.base``: :class:`~osprey.connectors.control_system.base.ChannelValue`, :class:`~osprey.connectors.control_system.base.ChannelMetadata`, :class:`~osprey.connectors.control_system.base.ChannelWriteResult`, and :class:`~osprey.connectors.control_system.base.WriteVerification`.
 
