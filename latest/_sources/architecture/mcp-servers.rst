@@ -104,7 +104,7 @@ tools into several functional areas.
 
 **Artifacts:**
 
-- ``artifact_save`` -- Save a file or generated content as a gallery artifact.
+- ``artifact_register`` -- Register a file on disk, or literal text, as a gallery artifact.
 - ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
 - ``artifact_list`` -- List stored artifacts, optionally narrowed by category, tool or agent.
 - ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).

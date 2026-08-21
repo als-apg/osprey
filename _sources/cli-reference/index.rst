@@ -715,7 +715,7 @@ osprey artifacts
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
 interactive plots, tables, and other outputs produced by the Osprey agent during
 analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact()`` in
-``osprey execute`` or the ``artifact_save`` MCP tool.
+``osprey execute`` or the ``artifact_register`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``
    Launch the Artifact Gallery web interface. Starts a FastAPI server on
