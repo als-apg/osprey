@@ -220,9 +220,9 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides four operations from the
-      terminal — three that manage an OKF bundle, and one that loads the
-      deployed graph store.
+      The ``osprey knowledge`` command group provides five operations from the
+      terminal — three that manage an OKF bundle, one that loads the deployed
+      graph store, and one that generates the corpus it loads.
 
       .. code-block:: console
 
@@ -232,6 +232,7 @@ Working with a Bundle
            Manage OKF facility knowledge bundles.
 
          Commands:
+           build-ttl      Derive a NARAD-convention TTL corpus from the channel...
            regen-index    Regenerate index.md files throughout an OKF bundle.
            seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.
            seed-graph     Load a NARAD/als-ontology TTL into the deployed graph...
@@ -320,6 +321,19 @@ Working with a Bundle
       :doc:`deploy-project`); you need the verb when that step warned, or when
       the corpus changed.  For the full list of outcomes and flags, see
       ``osprey knowledge seed-graph --help``.
+
+      **build-ttl** — generates the corpus ``seed-graph`` loads, deriving it
+      from the project's own hierarchical channel database so the graph and the
+      channel finder describe the same machine:
+
+      .. code-block:: console
+
+         $ osprey knowledge build-ttl data/demo_machine.ttl
+
+      Inputs you do not name come from ``config.yml``, and every run reports
+      which source decided each signal's read/write direction. See
+      :doc:`use-facility-graph` for the inputs, the shipped corpora, and what
+      the agent then does with the graph.
 
 
 Searching the Bundle

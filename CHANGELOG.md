@@ -52,6 +52,33 @@ Compatibility is documented in release notes, not encoded in the version string.
   container, with the same SHA256 check moved to container start. For build
   hosts with no route to the model host.
 
+- A deployment can now run a facility knowledge graph as a service. Add
+  `graphdb` to `deployed_services` alongside a `services.graphdb` block naming
+  the image, host ports and a Turtle corpus (`ttl_path`), and `osprey up`
+  starts the store, mints its `GRAPHDB_PASSWORD` into the project `.env`, and
+  loads the corpus. `osprey knowledge seed-graph` re-seeds or re-checks it
+  later, and `osprey health` reports bolt connectivity and how many resources
+  the graph holds, under a new `graphdb` category. The `control-assistant` and
+  `ariel-standalone` presets ship the block already filled in.
+- Agents can query that graph through a new `graph` MCP server. `read_cypher`
+  runs Cypher in a read-only transaction — writes, extension procedures and
+  `LOAD CSV` are refused — `get_schema` reports the labels, relationship types
+  and properties actually present, and `example_queries` serves a curated,
+  parameterized set covering device rollups, channel bindings and section
+  walks. `services.graphdb.query_timeout_s` (default 15 s) and
+  `services.graphdb.query_max_rows` (default 200) bound a single query. The
+  server is rendered wherever `services.graphdb` is configured, for the main
+  agent and the channel-finder subagent.
+- `osprey knowledge build-ttl` generates a Turtle corpus from a project's
+  hierarchical channel database, deriving devices from the channel-name grammar
+  and each binding's read/write direction from the limits database. The
+  `control-assistant` preset seeds its graph from that corpus, so its graph and
+  channel finder describe the same machine.
+- The `control-assistant-readonly` and `control-assistant-readwrite` operator
+  terminals get the graph tools too, reading the hosting deployment's store
+  over `services.graphdb.port_host`. Move that port on the deployment and move
+  the same number in both preset files.
+
 ### Fixed
 
 - Container builds now hand apt the proxy settings they were given. A facility

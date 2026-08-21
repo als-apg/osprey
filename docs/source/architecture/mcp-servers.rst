@@ -4,7 +4,7 @@ MCP Servers
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. The Osprey agent discovers servers from ``.mcp.json`` at startup and calls
-tools via stdio JSON-RPC. There are **8 in-tree MCP servers**; build profiles
+tools via stdio JSON-RPC. There are **9 in-tree MCP servers**; build profiles
 can inject additional servers beyond the core set below.
 
 
@@ -228,3 +228,29 @@ agent can look up operational know-how and draft new concepts for human review.
 - ``read_concept`` -- Read a concept document by its OKF §2 concept ID.
 - ``search`` -- Search the facility knowledge bundle for a query string.
 - ``draft_concept`` -- Draft a new concept document for human review and approval.
+
+
+Facility Graph
+--------------
+
+``graph``
+~~~~~~~~~
+
+Package: ``osprey.mcp_server.graph``
+
+Read-only Cypher search over the facility knowledge graph -- the
+NARAD-convention RDF corpus held by the ``graphdb`` store. Rendered only where
+``services.graphdb`` is configured. Every query runs in a read transaction, and
+extension procedures, extension functions and ``LOAD CSV`` are refused before
+the store is dialed. See :doc:`/how-to/use-facility-graph`.
+
+**Tools:**
+
+- ``read_cypher`` -- Run one read-only Cypher query and return the matching rows,
+  bounded by ``services.graphdb.query_max_rows`` and
+  ``services.graphdb.query_timeout_s``.
+- ``get_schema`` -- Report the node labels, relationship types, sampled per-label
+  property names and namespace prefixes this graph holds.
+- ``example_queries`` -- Return curated, runnable Cypher examples for the common
+  question shapes, each with per-corpus parameter values.
+- ``capabilities`` -- Report the server description, tool list and operating notes.

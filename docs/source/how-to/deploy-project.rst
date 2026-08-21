@@ -88,6 +88,18 @@ operator opens (``http_port_host``), the Turtle corpus to load (``ttl_path``,
 resolved against the ``config.yml`` directory), and the JVM memory the container
 runs with.
 
+Two more keys bound what one *query* may cost rather than what the container may
+use: ``query_timeout_s`` (15 seconds by default) is the transaction timeout the
+store enforces on a single query, so a runaway traversal is cancelled
+server-side rather than left open by a client that has given up, and
+``query_max_rows`` (200) is how many rows come back before the answer is
+truncated. The OSPREY agent's graph search reads both, and tells you when a
+result was cut short. Raising them spends the agent's context window rather than
+the store's memory — a few thousand rows crowd out the conversation long before
+they trouble Neo4j. For what the agent does with the store once it is up — the
+query tools, the read-only posture, and how to generate a corpus of your own —
+see :doc:`use-facility-graph`.
+
 The block carries **no password**, deliberately — the same convention
 ``postgresql`` follows. ``osprey up`` mints ``GRAPHDB_PASSWORD`` into the
 project ``.env`` when it is unset, and the container reads it from there; a

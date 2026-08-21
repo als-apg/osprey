@@ -166,6 +166,14 @@ Bundled Services & Tutorials
       Search, filter, and explore control system channels using the Channel Finder
       service and its web interface.
 
+   .. grid-item-card:: Search the Facility Graph
+      :link: use-facility-graph
+      :link-type: doc
+
+      Let the Osprey agent answer structure questions — device rollups, section
+      walks, which PVs a device exposes — with read-only Cypher over the
+      facility knowledge graph.
+
    .. grid-item-card:: ARIEL Logbook Search
       :link: ariel/index
       :link-type: doc
@@ -216,6 +224,7 @@ Bundled Services & Tutorials
    use-python-executor
    use-facility-knowledge
    use-channel-finder
+   use-facility-graph
    ariel/index
    use-virtual-accelerator
    bluesky/index
