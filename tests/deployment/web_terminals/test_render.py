@@ -3458,6 +3458,100 @@ def test_render_without_ariel_personas_emits_no_password_line() -> None:
 _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 
 
+# ---------------------------------------------------------------------------
+# Archiver connector -> per-user store password
+#
+# `osprey up` mints the archiver store's password into the deploy `.env` under
+# the name the connector block reads (`archiver.<type>.password_env`, which the
+# control-assistant preset spells MONGO_ROOT_PASSWORD). The agent inside a web
+# terminal authenticates with exactly that variable, and `.env.users` excludes
+# service tokens by design -- so a container that is not handed it per-user
+# reports "Environment variable 'MONGO_ROOT_PASSWORD' is not set" on every
+# archiver read, while the single-user host path (which reads the whole `.env`)
+# works. The grant carries the configured NAME, so a facility-run store under
+# another variable is granted the same way.
+# ---------------------------------------------------------------------------
+
+_ARCHIVER_PASSWORD_LINE = "MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}"
+
+
+def test_archiver_persona_gets_the_store_password() -> None:
+    """A user whose persona reads a store password gets it in its own `environment:`
+    block, interpolated from the deploy `.env` at compose time so the secret is
+    never written into a rendered artifact."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(),
+            archiver_password_personas={"readwrite": "MONGO_ROOT_PASSWORD"},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    assert _ARCHIVER_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_archiver_grant_carries_the_configured_variable_name() -> None:
+    """A persona whose connector names another variable is handed THAT one."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(), archiver_password_personas={"readwrite": "FACILITY_DB_PW"}
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    assert "FACILITY_DB_PW=${FACILITY_DB_PW:-}" in alice_env
+    assert not any("MONGO_ROOT_PASSWORD" in line for line in alice_env)
+
+
+def test_persona_without_an_archiver_password_gets_none() -> None:
+    """A persona whose archiver reads no password needs no store credential."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(),
+            archiver_password_personas={"readwrite": "MONGO_ROOT_PASSWORD"},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("MONGO_ROOT_PASSWORD" in line for line in bob_env)
+
+
+def test_render_without_archiver_personas_emits_no_password_line() -> None:
+    """The no-project-root render path passes no persona map and so emits no
+    credential, exactly as it does for the other three."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        env = compose["services"][service]["environment"]
+        assert not any("MONGO_ROOT_PASSWORD" in line for line in env)
+
+
+def test_persona_less_roster_entry_is_answered_from_the_deploy_config() -> None:
+    """The zero-migration path (no personas; the web image IS the deploy project)
+    reads the grant straight from the deploy config, as the other grants do."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["archiver"] = {
+        "type": "mongodb_archiver",
+        "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+    }
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    assert _ARCHIVER_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
 def test_entitled_persona_gets_the_launch_token() -> None:
     """A user whose persona is entitled to arm a queue start gets the launch token
     in its own `environment:` block, interpolated from the deploy `.env` at compose

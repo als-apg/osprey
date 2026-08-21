@@ -46,6 +46,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Web terminal: session history, memory and transcripts are found inside the
   per-user container again (`CLAUDE_CONFIG_DIR` is honoured; readers no longer
   look one `.claude` too deep).
+- `osprey up`: a persona whose config reads an authenticated archiver now
+  receives the store's password variable in its terminal container.
 
 ### Added
 

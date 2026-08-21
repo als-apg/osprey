@@ -26,6 +26,7 @@ from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     as_dict,
+    config_archiver_password_env,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_facility_bundle,
@@ -197,6 +198,7 @@ def render_web_terminals(
     launch_token_personas: set[str] | None = None,
     facility_bundle_personas: set[str] | None = None,
     facility_bundle_gid: int | None = None,
+    archiver_password_personas: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -278,6 +280,19 @@ def render_web_terminals(
             directory does not exist yet, or a platform with no gids) emits no
             ``group_add``, which is the honest render rather than a guessed
             group.
+        archiver_password_personas: ``{persona_name: env_var_name}`` for the
+            personas whose archiver connector authenticates with a password,
+            resolved from disk by
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_password`.
+            Same placement and same reason as ``dispatcher_personas``; a map
+            rather than a set because the connector reads the variable its own
+            ``archiver.<type>.password_env`` names, and the line emitted into
+            the user's ``environment:`` block carries exactly that name (the
+            control-assistant preset spells it ``MONGO_ROOT_PASSWORD``, which
+            ``osprey up`` mints). Without it the agent's every archiver read
+            fails with "Environment variable '…' is not set" while the same
+            project works on the single-user host path, which reads the whole
+            deploy ``.env``. ``None`` emits no line.
 
     Returns:
         Mapping of output-relative-path to rendered content, for exactly three
@@ -413,6 +428,16 @@ def render_web_terminals(
                     entry["persona"] in (launch_token_personas or set())
                     if entry.get("persona")
                     else config_needs_launch_token(root)
+                ),
+                # The NAME of the variable this user's archiver connector
+                # authenticates with (see the `archiver_password_personas`
+                # arg), or None for no grant. Persona-less entries are
+                # answered from this same config, with no disk read, exactly
+                # as above.
+                "archiver_password_env": (
+                    (archiver_password_personas or {}).get(entry["persona"])
+                    if entry.get("persona")
+                    else config_archiver_password_env(root)
                 ),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the
