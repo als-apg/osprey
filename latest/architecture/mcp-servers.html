@@ -451,7 +451,11 @@ safety-limits enforcement on all write operations.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> – Retrieve historical archived data for one or more channels over a
 time range. <code class="docutils literal notranslate"><span class="pre">processing</span></code> selects the per-bin aggregation (<code class="docutils literal notranslate"><span class="pre">raw</span></code>, <code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>,
 <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">median</span></code>, <code class="docutils literal notranslate"><span class="pre">std</span></code>, <code class="docutils literal notranslate"><span class="pre">count</span></code>) and <code class="docutils literal notranslate"><span class="pre">bin_size</span></code> sets the bin width in seconds;
-<code class="docutils literal notranslate"><span class="pre">bin_size=0</span></code> returns full resolution and is valid only with <code class="docutils literal notranslate"><span class="pre">processing=&quot;raw&quot;</span></code>.</p></li>
+<code class="docutils literal notranslate"><span class="pre">bin_size=0</span></code> returns full resolution and is valid only with <code class="docutils literal notranslate"><span class="pre">processing=&quot;raw&quot;</span></code>.
+When <code class="docutils literal notranslate"><span class="pre">bin_size</span></code> is omitted the bin is derived from the time span so a continuously
+archived channel returns about <code class="docutils literal notranslate"><span class="pre">archiver.auto_bin_points</span></code> (default 10 000) points —
+1 s for anything under ~2.8 hours, ~53 minutes for a year — and the summary reports the
+bin that was used and whether it was requested or chosen automatically.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">channel_limits</span></code> – Query the channel safety limits database (lookup, pattern match, summary).</p></li>
 </ul>
 </section>

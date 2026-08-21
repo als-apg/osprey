@@ -529,6 +529,13 @@ and an optional name badge to tell one deployment from another.</p></li>
 the agent’s own setup and memory files — from the browser, so you rarely need
 to drop back to an editor. Changes prompt you to restart the terminal so the
 agent picks them up.</p>
+<p>Copying text works the way it does in a desktop terminal: drag over the
+agent’s output and the selection is already on your clipboard — no key to
+press. To grab raw screen text instead (say, while the agent is busy), hold
+Option (macOS) or Shift while dragging, then copy with Cmd+C or Ctrl+Shift+C;
+plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
+this to work in every browser — on a plain <code class="docutils literal notranslate"><span class="pre">http://</span></code> page copying falls
+back to an older browser mechanism that Safari may refuse.</p>
 </section>
 <section id="documentation-and-feedback-settings">
 <h2>Documentation and feedback settings<a class="headerlink" href="#documentation-and-feedback-settings" title="Link to this heading">#</a></h2>

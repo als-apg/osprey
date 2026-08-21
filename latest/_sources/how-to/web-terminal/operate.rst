@@ -47,6 +47,14 @@ the agent's own setup and memory files — from the browser, so you rarely need
 to drop back to an editor. Changes prompt you to restart the terminal so the
 agent picks them up.
 
+Copying text works the way it does in a desktop terminal: drag over the
+agent's output and the selection is already on your clipboard — no key to
+press. To grab raw screen text instead (say, while the agent is busy), hold
+Option (macOS) or Shift while dragging, then copy with Cmd+C or Ctrl+Shift+C;
+plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
+this to work in every browser — on a plain ``http://`` page copying falls
+back to an older browser mechanism that Safari may refuse.
+
 Documentation and feedback settings
 -----------------------------------
 
