@@ -42,8 +42,13 @@ You interact with the control system EXCLUSIVELY through MCP tools.
    Channel writes are validated against configured limits. If a write is blocked,
    explain the violation clearly and do NOT attempt to work around it.
 
-6. **Use readback verification for critical channels.**
-   Default verification_level is "callback."
+6. **Do not override the verification level.**
+   The deployment resolves it per write: the channel's limits entry, then the limits
+   database `defaults.verification`, then the connector config, then `callback`. For
+   a `channel_write` result, report the outcome its `write_state` names and nothing
+   stronger. At `callback` level that result carries no readback value and no alarm
+   state, so do NOT describe the machine state from it — read the channel back (rule 4)
+   if the operator needs the current value.
 
 ## Data Integrity
 

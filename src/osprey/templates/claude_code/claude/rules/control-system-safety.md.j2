@@ -119,6 +119,32 @@ readonly script cannot shell out at all. Every refusal is reported to the
 operator and recorded in the deployment's audit log, so working around one is
 never the right move — resubmit with `execution_mode: "readwrite"` and let the
 operator approve it.
+
+## Choosing the Right Tool
+
+Match the request to one tool and stop there. Reaching past the tool the request
+calls for is how a single read turns into a script and a single write turns into
+a sequence nobody approved.
+
+- **One live value** — use `channel_read`. No script is needed.
+- **One live write the operator asked for by name** — use `channel_write`.
+- **Python analysis over data you already retrieved** — use `execute`. It needs
+  no control-system access.
+- **Python that must touch the control system** — use `execute` and reach the
+  machine through the `osprey.runtime` API, never a protocol library directly.
+{%- if "bluesky" in enabled_servers | default([]) %}
+- **Multi-setting measurements** — use the Bluesky queue. Anything that sets the
+  machine to more than one value is a plan; see below.
+{%- else %}
+- **Multi-setting measurements** — no queue is configured in this deployment. Do
+  not stand in for one with a loop of `channel_write` calls or an `execute`
+  script that steps the setpoint — tell the operator what the measurement
+  would require.
+{%- endif %}
+
+The two write paths report an unverified write differently:
+`osprey.runtime.write_channel` raises, while `channel_write` reports it in
+`write_state`.
 {% if "bluesky" in enabled_servers | default([]) %}
 
 ## Measurements Go Through the Queue, Not Through Repeated Writes

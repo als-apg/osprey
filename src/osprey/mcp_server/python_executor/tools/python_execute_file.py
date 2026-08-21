@@ -32,8 +32,9 @@ async def execute_file(
     """Execute an existing Python file with the same safety pipeline as ``execute``.
 
     The file is read, safety-checked, augmented with a script identity preamble
-    (``sys.argv``, ``__file__``), and executed via the same container/subprocess
-    adapter used by the ``execute`` tool.
+    (``sys.argv``, ``__file__``), and run in a subprocess, in the project's own
+    Python environment when the project has one (otherwise OSPREY's own
+    interpreter) — the same execution path used by the ``execute`` tool.
 
     Args:
         file_path: Path to a ``.py`` file.  Absolute paths are used as-is;
@@ -193,7 +194,7 @@ async def execute_file(
     preamble = f"import sys\nsys.argv = {argv_items!r}\n__file__ = {str(resolved)!r}\n"
     augmented_code = preamble + "\n" + code
 
-    # Execute augmented code via adapter (container or subprocess)
+    # Execute augmented code in a subprocess
     from osprey.mcp_server.python_executor.executor import execute_code
 
     exec_result = await execute_code(

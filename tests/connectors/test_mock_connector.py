@@ -6,13 +6,14 @@ import subprocess
 import sys
 import textwrap
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
 from osprey.connectors.control_system.mock_connector import MockConnector
 
 
@@ -640,3 +641,234 @@ class TestKindAwareNoiseFloor:
             await connector.disconnect()
 
         assert len(values) == 1, "noise_level 0.0 must produce identical reads, not just tight ones"
+
+
+class TestMockWriteVerificationContract:
+    """Mock write results must classify readback outcomes structurally.
+
+    Issue #465: consumers decide what happened from ``failure_kind`` and the
+    other structured fields, never by parsing the display-only ``notes``.
+    ``MockConnector.read_channel`` cannot fail on its own — unknown channels
+    fall back to procedural values — so the readback exception path is reached
+    by monkeypatching ``read_channel``.
+    """
+
+    @staticmethod
+    async def _connected_mock(monkeypatch):
+        """A connected mock with writes enabled for the whole test.
+
+        The writes_enabled gate is re-read on every write, so the config patch
+        has to outlive connect().
+        """
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        connector = MockConnector()
+        await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+        return connector
+
+    @staticmethod
+    def _raising_read(message):
+        async def _read(channel_address, timeout=None):
+            raise RuntimeError(message)
+
+        return _read
+
+    @staticmethod
+    def _fixed_read(value):
+        async def _read(channel_address, timeout=None):
+            now = datetime.now(UTC)
+            return ChannelValue(
+                value=value,
+                timestamp=now,
+                metadata=ChannelMetadata(units="A", timestamp=now, description="stub"),
+            )
+
+        return _read
+
+    @pytest.mark.asyncio
+    async def test_readback_exception_sets_failure_kind(self, monkeypatch):
+        """A readback that raises is reported as failure_kind='readback_failed'."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "read_channel", self._raising_read("CA disconnected"))
+
+        result = await connector.write_channel(
+            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
+        )
+
+        verification = result.verification
+        assert verification is not None
+        assert verification.level == "readback"
+        assert verification.verified is False
+        assert verification.failure_kind == "readback_failed"
+        # Mock has no alarm metadata to report; "not reported" stays None.
+        assert verification.readback_alarm_status is None
+        assert verification.readback_alarm_severity is None
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_readback_mismatch_leaves_failure_kind_null(self, monkeypatch):
+        """An ordinary out-of-tolerance readback is not a readback failure."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "read_channel", self._fixed_read(99.0))
+
+        result = await connector.write_channel(
+            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
+        )
+
+        verification = result.verification
+        assert verification is not None
+        assert verification.level == "readback"
+        assert verification.verified is False
+        assert verification.failure_kind is None, "a value mismatch is not a readback failure"
+        assert verification.readback_value == pytest.approx(99.0)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_verified_readback_leaves_failure_kind_null(self, monkeypatch):
+        """A readback inside tolerance carries no failure classification."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "read_channel", self._fixed_read(42.0))
+
+        result = await connector.write_channel(
+            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
+        )
+
+        verification = result.verification
+        assert verification is not None
+        assert verification.verified is True
+        assert verification.failure_kind is None
+        assert verification.readback_alarm_status is None
+        assert verification.readback_alarm_severity is None
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_notes_text_does_not_change_structured_fields(self, monkeypatch):
+        """Two readback failures with different messages classify identically.
+
+        The exception text flows into ``notes`` and nowhere else — the machine-
+        readable fields must be byte-identical across the two runs.
+        """
+        connector = await self._connected_mock(monkeypatch)
+
+        monkeypatch.setattr(connector, "read_channel", self._raising_read("timeout after 3s"))
+        first = await connector.write_channel(
+            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
+        )
+
+        monkeypatch.setattr(connector, "read_channel", self._raising_read("channel not found"))
+        second = await connector.write_channel(
+            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
+        )
+
+        def structured(result):
+            return (
+                result.verification.level,
+                result.verification.verified,
+                result.verification.failure_kind,
+                result.verification.readback_alarm_status,
+                result.verification.readback_alarm_severity,
+                result.success,
+            )
+
+        assert first.verification.notes != second.verification.notes, "notes should differ"
+        assert structured(first) == structured(second)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_explicit_level_still_resolves_limits_db_tolerance(self, tmp_path, monkeypatch):
+        """An explicit level must not drop the per-channel tolerance.
+
+        Before this fix an explicit ``verification_level="readback"`` skipped the
+        limits-database lookup entirely and fell back to a hard-coded 0.001
+        absolute, which is far tighter than the 1 % most :SP channels declare.
+        """
+        limits_file = tmp_path / "limits.json"
+        limits_file.write_text(
+            json.dumps(
+                {
+                    "MAGNET:CURRENT:SP": {
+                        "min_value": 0.0,
+                        "max_value": 100.0,
+                        "verification": {"level": "readback", "tolerance_percent": 1.0},
+                    }
+                }
+            )
+        )
+
+        def _config(key, default=None):
+            return {
+                "control_system.limits_checking.enabled": True,
+                "control_system.limits_checking.database_path": str(limits_file),
+                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.on_violation": "skip",
+                "control_system.writes_enabled": True,
+            }.get(key, default)
+
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config)
+
+        connector = MockConnector()
+        await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+
+        result = await connector.write_channel(
+            "MAGNET:CURRENT:SP", 50.0, verification_level="readback"
+        )
+
+        assert result.verification.level == "readback"
+        assert result.verification.tolerance_used == pytest.approx(0.5)
+
+        # An explicitly passed tolerance still wins over the database.
+        override = await connector.write_channel(
+            "MAGNET:CURRENT:SP", 50.0, verification_level="readback", tolerance=2.0
+        )
+        assert override.verification.tolerance_used == pytest.approx(2.0)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_explicit_none_level_resolves_like_an_omitted_one(self, tmp_path, monkeypatch):
+        """Passing verification_level=None is identical to omitting it.
+
+        The batch path forwards ``None`` rather than dropping the keyword, so
+        the connector must resolve it from the limits database's defaults block.
+        """
+        limits_file = tmp_path / "limits.json"
+        limits_file.write_text(
+            json.dumps(
+                {
+                    "defaults": {
+                        "writable": True,
+                        "verification": {"level": "readback", "tolerance_percent": 1.0},
+                    },
+                    "MAGNET:CURRENT:SP": {"min_value": 0.0, "max_value": 100.0},
+                }
+            )
+        )
+
+        def _config(key, default=None):
+            return {
+                "control_system.limits_checking.enabled": True,
+                "control_system.limits_checking.database_path": str(limits_file),
+                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.on_violation": "skip",
+                "control_system.writes_enabled": True,
+            }.get(key, default)
+
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config)
+
+        connector = MockConnector()
+        await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+
+        explicit_none = await connector.write_channel(
+            "MAGNET:CURRENT:SP", 50.0, verification_level=None
+        )
+        omitted = await connector.write_channel("MAGNET:CURRENT:SP", 50.0)
+
+        assert explicit_none.verification.level == "readback"
+        assert omitted.verification.level == "readback"
+        assert explicit_none.verification.tolerance_used == pytest.approx(0.5)
+        assert omitted.verification.tolerance_used == pytest.approx(0.5)
+
+        await connector.disconnect()

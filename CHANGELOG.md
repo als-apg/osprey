@@ -258,6 +258,54 @@ Compatibility is documented in release notes, not encoded in the version string.
   relates to the others. Existing files are left alone — the header is
   written only when OSPREY creates the file.
 
+- The generated safety rules now name the tool for each kind of request:
+  reading a channel goes to `channel_read`, writing to `channel_write`,
+  analysis to `execute`, Python that itself touches the control system to
+  `osprey.runtime`, and — where the queue is enabled — a scan to Bluesky. A deployment with no queue is told to
+  say so rather than imitate a scan with a loop of writes. The rules describe
+  how a write's verification level is resolved instead of prescribing one.
+
+- The executor tool descriptions now match what the executor does: it runs
+  Python in a subprocess. They no longer claim a container backend.
+
+- Every `channel_write` result now carries one `write_state` word per channel
+  in `summary.results[]` — `blocked`, `write_failed`,
+  `verification_not_reported`, `verification_not_requested`,
+  `verified_with_alarm`, `verified`, `readback_failed`, `unverified_alarm` or
+  `verification_failed` — so a caller can tell a refused write from one that
+  went out unverified. `summary.verification_failed` counts the executed
+  writes that asked for callback or readback verification and did not get it;
+  refused and failed writes are not counted.
+
+- `channel_write.verification_level` is now optional. Omit it and the
+  deployment resolves the level, and any readback tolerance, per write;
+  `access_details.verification_level` is then null. A level you do pass is
+  honored as written — the validator no longer overrides it, and it no longer
+  costs you the tolerance held in the limits database.
+
+- Batch writes and `osprey.runtime.write_channels` now resolve verification
+  per channel the same way single writes do, instead of being pinned to
+  callback. A project whose defaults ask for readback verification will see
+  batch writes verified by readback, and the Python path raise when a readback
+  does not match.
+
+- A readback-verified write now reports the readback's alarm state by name:
+  `readback_alarm_status` and `readback_alarm_severity`. Channel Access reads
+  and subscriptions report alarm names too; the raw numeric code stays in
+  `raw_metadata["status"]`.
+
+- A write whose readback read itself fails is now reported as such —
+  `failure_kind="readback_failed"` on EPICS, DOOCS and Mock — and DOOCS no
+  longer labels a failed `set()` as verification level `none`.
+
+- `WriteVerification` gained three optional fields for connector authors.
+  Connectors that do not set them keep working; see the connector how-to.
+
+- This partially addresses #465. Still open: carrying the post-write readback
+  value at every verification level, flipping `success` when the readback read
+  fails, and labeling an infrastructure failure differently from a
+  control-system failure.
+
 ### Fixed
 
 - The contribute and release skills' CI watch loops no longer treat an empty

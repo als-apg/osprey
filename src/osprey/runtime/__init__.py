@@ -178,7 +178,9 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
         value: Value to write (will be coerced to appropriate type)
         **kwargs: Additional arguments passed to connector
                   - timeout: Operation timeout in seconds
-                  - verification_level: 'none', 'callback', or 'readback'
+                  - verification_level: 'none', 'callback', or 'readback'.
+                    Omit to let each channel resolve its own level (see the
+                    connector's four-layer resolution)
                   - tolerance: Tolerance for readback verification
 
     Raises:
@@ -234,7 +236,10 @@ def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
 
     Args:
         channel_values: Dictionary mapping channel names to values
-        **kwargs: Additional arguments passed to each write
+        **kwargs: Additional arguments passed to each write (timeout,
+                  verification_level, tolerance -- see write_channel).
+                  Omit verification_level to let each channel resolve its
+                  own level (see the connector's four-layer resolution)
 
     Raises:
         ChannelLimitsViolationError: If a value violates channel safety limits

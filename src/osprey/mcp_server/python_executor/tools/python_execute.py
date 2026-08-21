@@ -31,7 +31,8 @@ async def execute(
 ) -> str:
     """Execute Python code with process isolation, limits enforcement, and timeout.
 
-    Code runs in a container or local subprocess (configured via config.yml).
+    Code runs in a subprocess, in the project's own Python environment when the
+    project has one (otherwise OSPREY's own interpreter).
     <<AVAILABLE_PACKAGES>>
 
     Safety layers applied before execution:
@@ -150,7 +151,7 @@ async def execute(
             ],
         )
 
-    # Execute code via adapter (container or subprocess)
+    # Execute code in the subprocess backend
     from osprey.mcp_server.python_executor.executor import execute_code
 
     exec_result = await execute_code(

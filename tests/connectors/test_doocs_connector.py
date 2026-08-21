@@ -51,6 +51,29 @@ def _make_doocs4py(names_result=None, get_data_value=42.0):
 # --------------------------------------------------------------------------------------
 
 
+def _structured_write_facts(result):
+    """The machine-readable half of a write result — everything but ``notes``."""
+    v = result.verification
+    return (
+        result.success,
+        v.level,
+        v.verified,
+        v.failure_kind,
+        v.readback_value,
+        v.tolerance_used,
+        v.readback_alarm_status,
+        v.readback_alarm_severity,
+    )
+
+
+def _make_limits_validator(level="callback", tolerance=0.5):
+    """A limits validator that passes validation and reports a verification config."""
+    validator = MagicMock()
+    validator.validate.return_value = None
+    validator.get_verification_config.return_value = (level, tolerance)
+    return validator
+
+
 def _writes_enabled(key, default=None):
     if key == "control_system.writes_enabled":
         return True
@@ -195,6 +218,8 @@ class TestWriteChannel:
 
         assert result.success is False
         assert "write failed" in result.error_message or "FAC/DEV/LOC/PROP" in result.error_message
+        # The fast path performs no verification, so "none" is the honest level here.
+        assert result.verification.level == "none"
 
     async def test_write_readback_verified(self, connector):
         conn, mock_d4py = connector
@@ -270,6 +295,166 @@ class TestWriteChannel:
         assert result.success is True
         assert result.verification.verified is False
         assert "Readback failed" in result.verification.notes
+
+
+class TestWriteFailureKind:
+    """``failure_kind`` classifies a write without anyone parsing ``notes``."""
+
+    async def test_readback_exception_sets_failure_kind(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.side_effect = RuntimeError("readback error")
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
+        )
+
+        assert result.verification.failure_kind == "readback_failed"
+        # DOOCS has no alarm metadata to report.
+        assert result.verification.readback_alarm_status is None
+        assert result.verification.readback_alarm_severity is None
+
+    async def test_numeric_mismatch_leaves_failure_kind_null(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=99.0)
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
+        )
+
+        assert result.verification.verified is False
+        assert result.verification.failure_kind is None
+
+    async def test_string_mismatch_leaves_failure_kind_null(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value="OTHER")
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", "DESIRED", verification_level="readback", tolerance=0.1
+        )
+
+        assert result.verification.verified is False
+        assert result.verification.failure_kind is None
+
+    async def test_successful_readback_leaves_failure_kind_null(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=10.0)
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
+        )
+
+        assert result.verification.verified is True
+        assert result.verification.failure_kind is None
+
+    async def test_notes_text_does_not_change_structured_fields(self, connector):
+        """Two readback failures with different messages classify identically."""
+        conn, mock_d4py = connector
+
+        results = []
+        for message in ("readback error", "an entirely different failure text"):
+            mock_d4py.get.side_effect = RuntimeError(message)
+            results.append(
+                await conn.write_channel(
+                    "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
+                )
+            )
+
+        first, second = results
+        assert first.verification.notes != second.verification.notes
+        assert _structured_write_facts(first) == _structured_write_facts(second)
+
+
+class TestWriteLevelReporting:
+    """DOOCS reports the verification level it actually performs."""
+
+    async def test_failed_set_at_callback_level_reports_readback(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.set.side_effect = RuntimeError("write failed")
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", 5.0, verification_level="callback", tolerance=0.1
+        )
+
+        assert result.success is False
+        # DOOCS downgrades callback to readback, so the failed set() must not
+        # claim "none" — that would read as "no verification was requested".
+        assert result.verification.level == "readback"
+        assert result.verification.verified is False
+        # The write, not the readback, is what failed.
+        assert result.verification.failure_kind is None
+
+    async def test_failed_set_at_readback_level_reports_readback(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.set.side_effect = RuntimeError("write failed")
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", 5.0, verification_level="readback", tolerance=0.1
+        )
+
+        assert result.success is False
+        assert result.verification.level == "readback"
+
+
+class TestWriteToleranceResolution:
+    """An explicit level must not silently drop the configured tolerance."""
+
+    async def _write(self, validator, **kwargs):
+        mock_d4py = _make_doocs4py()
+        mock_d4py.get.return_value = _make_eq_data(value=10.2)
+
+        with (
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=validator),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+
+            conn = DOOCSConnector()
+            await conn.connect({})
+            result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, **kwargs)
+            await conn.disconnect()
+
+        return result
+
+    async def test_explicit_level_still_resolves_limits_db_tolerance(self):
+        validator = _make_limits_validator(level="callback", tolerance=0.5)
+
+        result = await self._write(validator, verification_level="readback")
+
+        # The caller's explicit level wins over the limits DB entry...
+        assert result.verification.level == "readback"
+        # ...but the channel's configured tolerance is still applied.
+        assert result.verification.tolerance_used == 0.5
+        assert result.verification.verified is True
+        validator.get_verification_config.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
+
+    async def test_explicit_tolerance_beats_limits_db(self):
+        validator = _make_limits_validator(level="callback", tolerance=0.5)
+
+        result = await self._write(validator, verification_level="readback", tolerance=0.05)
+
+        assert result.verification.tolerance_used == 0.05
+        # Nothing left to resolve, so the limits DB is never consulted.
+        validator.get_verification_config.assert_not_called()
+
+    async def test_omitted_level_resolves_both_from_limits_db(self):
+        validator = _make_limits_validator(level="readback", tolerance=0.5)
+
+        result = await self._write(validator)
+
+        assert result.verification.level == "readback"
+        assert result.verification.tolerance_used == 0.5
+
+    async def test_string_write_with_explicit_level_resolves_without_raising(self, connector):
+        """A non-numeric value has no percentage scale — resolution must not raise."""
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value="ON")
+
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", "ON", verification_level="readback")
+
+        assert result.success is True
+        assert result.verification.verified is True
 
 
 # --------------------------------------------------------------------------------------

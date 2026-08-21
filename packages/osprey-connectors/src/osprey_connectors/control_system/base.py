@@ -69,6 +69,18 @@ class WriteVerification:
     - "none": No verification performed (fast write)
     - "callback": Control system confirmed request processing (e.g., EPICS IOC callback)
     - "readback": Full verification with readback comparison
+
+    The alarm and ``failure_kind`` fields are the *machine-readable* half of the
+    result: consumers classify a write from them, never by parsing ``notes``,
+    which stays display-only. All three are optional and default to ``None``,
+    so a connector that cannot report them — and every existing construction —
+    stays valid. ``None`` means "not reported", which is deliberately distinct
+    from a reported healthy value (``readback_alarm_severity=0``).
+
+    Alarm state is carried protocol-agnostically: the *name* as a string and the
+    severity as an int. Mapping a protocol's raw codes to those names is the
+    connector's job (EPICS does it in ``epics_connector.py``), so this shared
+    module imports no control-system constants.
     """
 
     level: str  # "none", "callback", "readback"
@@ -76,6 +88,13 @@ class WriteVerification:
     readback_value: float | None = None  # Actual value read back (for "readback" level)
     tolerance_used: float | None = None  # Tolerance used for comparison (for "readback" level)
     notes: str | None = None  # Additional verification details
+    # Alarm name reported for the readback, e.g. "NO_ALARM"/"HIHI"; None if not reported
+    readback_alarm_status: str | None = None
+    # Alarm severity for the readback: 0 healthy, higher is worse; None if not reported
+    readback_alarm_severity: int | None = None
+    # Structured failure classification, e.g. "readback_failed" when the readback
+    # read itself raised. A plain value mismatch leaves this None.
+    failure_kind: str | None = None
 
 
 @dataclass
@@ -311,10 +330,11 @@ class ControlSystemConnector(ABC):
     ) -> tuple[str, float | None]:
         """Get verification level and tolerance for a channel write.
 
-        Priority:
-        1. Per-channel config from limits database
-        2. Global config from config.yml
-        3. Fallback: callback with no tolerance
+        Priority (the four layers documented on :meth:`write_channel`):
+        1. The channel's own ``verification`` entry in the limits database
+        2. The limits database ``defaults.verification`` block
+        3. Global config from config.yml (``control_system.write_verification``)
+        4. Fallback: callback with no tolerance
 
         Args:
             channel_address: Channel being written
@@ -405,7 +425,7 @@ class ControlSystemConnector(ABC):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str = "callback",
+        verification_level: str | None = None,
         tolerance: float | None = None,
     ) -> ChannelWriteResult:
         """
@@ -415,8 +435,11 @@ class ControlSystemConnector(ABC):
             channel_address: Address/name of the channel
             value: Value to write
             timeout: Optional timeout in seconds
-            verification_level: Verification strategy ("none", "callback", "readback")
-            tolerance: Absolute tolerance for readback verification (only used if verification_level="readback")
+            verification_level: Verification strategy ("none", "callback", "readback"),
+                or ``None`` to let the connector resolve the level for this channel
+            tolerance: Absolute tolerance for readback verification (only used if
+                verification_level resolves to "readback"); ``None`` lets the
+                connector resolve the tolerance for this channel
 
         Returns:
             ChannelWriteResult with write status and verification details
@@ -435,6 +458,32 @@ class ControlSystemConnector(ABC):
 
             Different control systems may interpret these levels differently based on
             their native capabilities.
+
+        Omission sentinel:
+            ``verification_level=None`` means "not specified" — it is NOT a fourth
+            level, and it is not the same as ``"none"``. Callers that have no opinion
+            leave the keyword off entirely; the connector then resolves the level for
+            this specific channel. ``tolerance=None`` works the same way.
+
+        Resolution order (four layers, level and tolerance alike):
+            1. The channel's own ``verification`` entry in the limits database.
+            2. The limits database ``defaults.verification`` block.
+            3. Global connector config: ``control_system.write_verification``
+               (``default_level``, ``default_tolerance_percent``).
+            4. Hard-coded fallback: ``"callback"``, no tolerance.
+
+            The first layer that supplies a value wins, so a facility can set a
+            house default in the limits database and override it per channel.
+            :meth:`_get_verification_config` implements layers 1-4 for the built-in
+            connectors.
+
+            An explicit ``verification_level`` overrides all four layers for the
+            level only. Tolerance still resolves through them, so asking for
+            ``"readback"`` on a channel whose limits entry declares
+            ``level: readback`` with ``tolerance_percent: 1.0`` verifies at 1%,
+            not at some hard-coded default -- the layers supply a tolerance only
+            when the level they resolve to is ``"readback"``. Pass ``tolerance``
+            explicitly to override that too.
 
         Two-layer safety model:
             **Per-write mechanical safety** lives INSIDE the connector and is applied
@@ -506,7 +555,7 @@ class ControlSystemConnector(ABC):
         self,
         operations: list[tuple[str, Any]],
         timeout: float | None = None,
-        verification_level: str = "callback",
+        verification_level: str | None = None,
         tolerance: float | None = None,
     ) -> list[ChannelWriteResult]:
         """
@@ -519,21 +568,36 @@ class ControlSystemConnector(ABC):
         Args:
             operations: List of (channel_address, value) tuples
             timeout: Optional timeout in seconds
-            verification_level: Verification strategy ("none", "callback", "readback")
-            tolerance: Absolute tolerance for readback verification
+            verification_level: Verification strategy ("none", "callback", "readback"),
+                or ``None`` to let each channel resolve its own level
+            tolerance: Absolute tolerance for readback verification, or ``None`` to
+                let each channel resolve its own tolerance
 
         Returns:
             List of ChannelWriteResult in the same order as operations
+
+        Note:
+            A batch carries one scalar level for every channel in it, so an
+            omitted ``verification_level`` is *not* resolved here — the keyword is
+            simply left off each per-channel ``write_channel()`` call. Each channel
+            then resolves its own level and tolerance through the four layers
+            documented on :meth:`write_channel`, which is what makes batch writes
+            behave like single writes. A connector that declares a concrete default
+            of its own (``verification_level: str = "callback"``) keeps that default,
+            because the keyword never reaches it.
+
+            An explicit level, by contrast, is forwarded unchanged to every channel.
         """
         results = []
         for address, value in operations:
-            result = await self.write_channel(
-                address,
-                value,
-                timeout=timeout,
-                verification_level=verification_level,
-                tolerance=tolerance,
-            )
+            kwargs: dict[str, Any] = {"timeout": timeout, "tolerance": tolerance}
+            # Omission is a sentinel, not a value: forwarding None would override a
+            # legacy connector's own default. Leave the keyword off instead. Only
+            # verification_level has a non-None legacy default in practice --
+            # tolerance and timeout are always forwarded above.
+            if verification_level is not None:
+                kwargs["verification_level"] = verification_level
+            result = await self.write_channel(address, value, **kwargs)
             results.append(result)
         return results
 
