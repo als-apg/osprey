@@ -825,6 +825,8 @@ jobs:
           tests/interfaces/web_terminal/test_contract_params.py \
           tests/interfaces/web_terminal/test_logout_resume_browser.py \
           tests/interfaces/web_terminal/test_auth_login_browser.py \
+          tests/interfaces/web_terminal/test_feedback_rail_browser.py \
+          tests/interfaces/web_terminal/test_feedback_modal_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \

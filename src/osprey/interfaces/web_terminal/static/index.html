@@ -76,6 +76,7 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/palette.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/feedback-modal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
@@ -236,8 +237,9 @@
   <div class="shell-body">
 
     <!-- Left icon rail: one entry per enabled panel + the add-panel control,
-         stacked in a single 74px column. Entries are populated by
-         panel-manager.js through panel-rail.js; the "+" menu by panel-add-menu.js. -->
+         stacked in a single 74px column, with the two non-panel controls
+         pinned to the far end. Entries are populated by panel-manager.js
+         through panel-rail.js; the "+" menu by panel-add-menu.js. -->
     <div class="panel-rail-region">
       <nav class="panel-rail" id="panel-rail" role="tablist" aria-label="Panels">
         <!-- Populated by panel-manager.js -->
@@ -247,6 +249,24 @@
                 title="Add panel" aria-label="Add panel"
                 aria-haspopup="true" aria-expanded="false">&#xff0b;</button>
         <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
+      </div>
+      <!-- Utility cluster: the rail's controls that are not panels. A SIBLING
+           of the nav above, because createRail() replaceChildren()s that node
+           on every render. Separated from the tab group by its own rule and
+           pushed to the far end (bottom in the left column, right edge under
+           a top rail) so the two groups never read as one list.
+           The docs href is filled in at boot from GET /api/panels.docs_url;
+           the anchor stays hidden until it has one (rail-utility.js). -->
+      <div class="panel-utility" id="panel-utility">
+        <a class="panel-utility-btn" id="panel-docs-link"
+           target="_blank" rel="noopener"
+           title="Documentation" aria-label="Documentation" hidden>
+          <span class="panel-utility-icon" data-icon="docs" aria-hidden="true"></span>
+        </a>
+        <button class="panel-utility-btn" id="panel-feedback-btn" type="button"
+                title="Send feedback" aria-label="Send feedback">
+          <span class="panel-utility-icon" data-icon="feedback" aria-hidden="true"></span>
+        </button>
       </div>
     </div>
 
@@ -327,8 +347,15 @@
          activity-strip.js via panel-manager's setActivityStripHandler seam. -->
     <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
     <div class="status-right">
-      <a class="status-item status-link" id="docs-link" href="https://als-apg.github.io/osprey/"
-         target="_blank" rel="noopener">Docs</a>
+      <!-- Same destination as the rail's Documentation control, under the same
+           rule and in the same shape: href-less and hidden until boot fills in
+           this deployment's web.docs_url from GET /api/panels
+           (feedback-boot.js). A deployment that blanks the key keeps it hidden,
+           so neither affordance can flash a dead link. `.status-item[hidden]`
+           in files.css is load-bearing — that class's display:flex would
+           otherwise beat the user-agent [hidden] rule. -->
+      <a class="status-item status-link" id="docs-link"
+         target="_blank" rel="noopener" hidden>Docs</a>
       <div class="status-item" id="status-clock">--:--:--</div>
     </div>
   </footer>

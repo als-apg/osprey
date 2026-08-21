@@ -1,0 +1,279 @@
+/* Feedback modal — centered aria-modal dialog over a full-viewport scrim.
+ *
+ * Sibling of the command palette's overlay (palette.css) and layered at the
+ * same --z-modal: only one of the two is ever open, and both must sit above the
+ * settings drawer (z-index 101) and the settings warning modal (--z-sticky).
+ *
+ * Every value here is a design-system token — the interface is in the
+ * zero-tolerance set of tests/interfaces/design_system/test_hygiene.py, and
+ * light/dark comes from the [data-theme] attribute on <html>, never from a
+ * prefers-color-scheme branch.
+ */
+
+.feedback-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay-black-70);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  /* visibility is a discrete property: while it TRANSITIONS the computed value
+   * stays `hidden` through the whole opening frame, which would turn the
+   * same-frame focus() in FeedbackModal.open() into a spec'd no-op. So the flip
+   * is never animated on open (.visible below) and merely DELAYED past the
+   * opacity fade on close (this rule). */
+  transition: opacity var(--wt-transition-fast),
+              visibility 0s linear var(--duration-instant);
+}
+
+.feedback-modal-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity var(--wt-transition-fast),
+              visibility 0s;
+}
+
+.feedback-modal-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-dialog);
+  overflow: hidden;
+  transform: scale(0.98);
+  transition: transform var(--wt-transition-fast);
+}
+
+.feedback-modal-overlay.visible .feedback-modal-dialog {
+  transform: scale(1);
+}
+
+.feedback-modal-dialog:focus {
+  outline: none;
+}
+
+.feedback-modal-dialog:focus-within {
+  border-color: var(--border-accent);
+}
+
+.feedback-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.feedback-modal-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.feedback-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: var(--text-xl);
+  line-height: var(--leading-none);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.feedback-modal-close:hover,
+.feedback-modal-close:focus-visible {
+  color: var(--color-accent-light);
+  background: var(--bg-elevated);
+}
+
+/* Content slot — the feedback form, or whatever a caller renders instead. It
+ * scrolls; the header stays put. */
+.feedback-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow-y: auto;
+  color: var(--text-secondary);
+}
+
+/* ---- Form ---- */
+
+.feedback-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.feedback-text {
+  width: 100%;
+  padding: var(--space-2);
+  font-family: inherit;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  resize: vertical;
+}
+
+.feedback-text:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}
+
+.feedback-channel-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.feedback-channels {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.feedback-channel-option,
+.feedback-check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.feedback-channel-hint,
+.feedback-context-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.feedback-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A checkbox with nothing to attach still explains itself — the hint beside it
+ * carries the reason, so the row must not fade out of readability. */
+.feedback-check-row input:disabled + .feedback-check-label {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.feedback-help-toggle {
+  padding: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-none);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: help;
+}
+
+.feedback-help-toggle:hover,
+.feedback-help-toggle[aria-expanded="true"] {
+  color: var(--color-accent-light);
+}
+
+.feedback-help-popover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.feedback-help-popover p {
+  margin: 0;
+}
+
+/* ---- Action row ---- */
+
+.feedback-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.feedback-action {
+  padding: var(--space-2) var(--space-3);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast),
+    border-color var(--wt-transition-fast);
+}
+
+.feedback-action:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  color: var(--color-accent-light);
+}
+
+.feedback-action.primary {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+}
+
+.feedback-action:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---- Notice ---- */
+
+/* The one line an action leaves behind (feedback-boot.js renders it). Its size
+   and spacing come from .feedback-channel-hint, which the element carries too:
+   an outcome and a hint are the same weight of text in this dialog, and only
+   the kind changes the colour. Colour is the whole point of the kind — a
+   failure that reads as muted grey is a failure the operator scrolls past. */
+.feedback-notice[data-kind="success"] {
+  color: var(--color-success);
+}
+
+.feedback-notice[data-kind="warning"] {
+  color: var(--color-warning);
+}
+
+.feedback-notice[data-kind="error"] {
+  color: var(--color-error);
+}

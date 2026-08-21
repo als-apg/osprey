@@ -443,3 +443,18 @@ export function getTerminalDimensions() {
   if (!term) return null;
   return { cols: term.cols, rows: term.rows };
 }
+
+/**
+ * The live xterm instance, or null before `initTerminal()` has run (or after a
+ * failed init — the boot guards that call).
+ *
+ * The one reader is the feedback dialog, which walks `term.buffer` for the
+ * scrollback it attaches (scrollback-capture.js). Handed out rather than
+ * wrapped because that walk is a read of the buffer's own API and belongs with
+ * the module that defines the capture rules, not here — and the caller
+ * duck-types what it needs, so a null is a legitimate answer it already
+ * handles.
+ */
+export function getTerminalInstance() {
+  return term;
+}

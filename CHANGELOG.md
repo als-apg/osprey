@@ -35,6 +35,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Web Terminal users can now send feedback from the terminal itself. A
+  **Feedback** button in the panel rail (beside a new **Documentation** link)
+  opens a dialog with three channels: **Local** records the report on this
+  deployment, **GitHub** also opens a prefilled new issue, **Email** also opens
+  a prefilled mail draft. Every channel records the report locally, and nothing
+  leaves the browser until an action button is clicked. Two checkboxes decide
+  what is attached: deployment metadata (on by default) and the session's event
+  log, chat history, scrollback and artifact titles (off by default). Read the
+  results back with `osprey feedback list` and `osprey feedback export`, which
+  cover per-user workspaces and single-user deployments alike. Point the
+  controls at your facility with `web.docs_url`,
+  `web.feedback.github_repo`, `web.feedback.email` and
+  `web.feedback.max_store_bytes`; blanking one of the first three retires that
+  affordance for an air-gapped deployment. See the new "Send and Retrieve
+  Feedback" how-to.
+
 - A fresh `profile.yml` now shows its whole menu: every hook, rule, skill,
   agent, output style, and web panel you could opt into appears as a commented
   entry with a one-line description, right in the list it belongs to.

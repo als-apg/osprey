@@ -36,6 +36,7 @@ import { openDrawerTab, revealSetting } from './settings.js';
 import { startNewSession } from './sessions.js';
 import { setRailPosition } from './rail-position.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
+import { isFeedbackModalOpen } from './feedback-modal.js';
 
 /** True on macOS/iPadOS, where the palette hotkey is Cmd+K instead of Ctrl+K. */
 function isMacPlatform() {
@@ -152,6 +153,10 @@ export function initCommandPalette() {
   // before the event reaches the terminal.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'k' && e.key !== 'K') return;
+    // Keyboard arbitration with the feedback modal: while it is open, Cmd/Ctrl+K
+    // is its territory (e.g. a text field inside it), not the palette's. Bail
+    // without preventDefault/stopPropagation so nothing here is consumed.
+    if (isFeedbackModalOpen()) return;
 
     let match;
     if (isMac) {

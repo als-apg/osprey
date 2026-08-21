@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
+import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId, getCurrentSessionId, getTerminalInstance } from './terminal.js';
 import { onConnectionStateChange, withPrefix } from './api.js';
 import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -18,6 +18,7 @@ import { initHeaderContrib } from './tile-header-contrib.js';
 import { initDisplayMenu } from './display-menu.js';
 import { initIdentityMenu } from './identity-menu.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
+import { initFeedback } from './feedback-boot.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -61,6 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initDisplayMenu();
   initIdentityMenu();
   initRailPosition();
+  initFeedbackDialog();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -249,6 +251,34 @@ function initModeToggle() {
     // after applyDockMode so the activation docks into the target layout.
     handleUiModeFlip(mode);
   });
+}
+
+/**
+ * Wire the rail's utility cluster (Documentation + Feedback) and the feedback
+ * dialog — see feedback-boot.js, which owns the whole arrangement.
+ *
+ * Returns as soon as the button is live; the deployment's own config arrives
+ * over HTTP afterwards and fills itself in. Guarded like the other
+ * network-dependent inits above, so a failure costs the two rail controls and
+ * nothing more.
+ *
+ * Both terminal dependencies are injected from here rather than imported
+ * inside the dialog: app.js is already the module that knows about the
+ * terminal, and keeping the dependency pointing this way is what lets the
+ * dialog and its transport be tested without one. They are passed as function
+ * references, not values — the session id changes as the operator switches
+ * sessions, and the terminal does not exist yet when a guarded `initTerminal()`
+ * has failed.
+ */
+function initFeedbackDialog() {
+  try {
+    initFeedback({
+      getSessionId: getCurrentSessionId,
+      getTerminal: getTerminalInstance,
+    });
+  } catch (err) {
+    console.error('Failed to init feedback:', err);
+  }
 }
 
 /**

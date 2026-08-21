@@ -329,6 +329,14 @@
   gap: var(--space-1);
 }
 
+/* Load-bearing: the rule above beats the user-agent's `[hidden]`, so a status
+   item hidden from JS would keep painting. The Docs link ships hidden and is
+   revealed only once a configured docs_url arrives (feedback-boot.js), which
+   is the same contract the rail's Documentation anchor follows. */
+.status-item[hidden] {
+  display: none;
+}
+
 /* External documentation link — the header book icon's home after frame 2a
    stripped it from the hub chrome. Stays visible in both modes. */
 .status-link {

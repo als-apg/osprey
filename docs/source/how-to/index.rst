@@ -76,6 +76,14 @@ Run & Operate the Agent
       containerized Web Terminal per user, in read-only and write-capable
       capability tiers.
 
+   .. grid-item-card:: Send and Retrieve Feedback
+      :link: send-feedback
+      :link-type: doc
+
+      Let operators report problems from the Web Terminal itself — three
+      channels, what each attaches, and the ``osprey feedback`` verbs that read
+      the results back.
+
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
@@ -212,6 +220,7 @@ Bundled Services & Tutorials
    containerize-project
    web-terminal/index
    multi-user
+   send-feedback
    use-cli-chat
    non_interactive_query
    event-dispatch

@@ -329,6 +329,12 @@ server {
 {%- endif %}
         proxy_buffering off;
         proxy_read_timeout 3600s;
+        # Nginx's own default (1m) is smaller than the feedback form's upload
+        # cap — a screenshot attached to a bug report would 413 here before
+        # the request ever reaches {{ svc.user }}'s app. Stated explicitly so
+        # the limit is this proxy's contract, not an inherited default that
+        # would silently shrink if the base image's own default ever changes.
+        client_max_body_size 4m;
     }
 
     # Stable bookmark for {{ svc.user }} without a trailing slash.
