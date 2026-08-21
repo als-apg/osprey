@@ -1,4 +1,7 @@
-"""Render tests for the p4p (pvAccess) block in ``control-system-safety.md.j2``.
+"""Render tests for ``control-system-safety.md.j2``.
+
+Two contracts live here: the p4p (pvAccess) prohibition block, and the routing
+section that tells the agent which tool answers which request shape.
 
 The EPICS connector reads pvAccess channels through ``p4p``, so the shipped
 safety rule has to name that library the same way it names ``pyepics`` --
@@ -34,6 +37,36 @@ P4P_LINES = (
 #: Every p4p marker, including the refusal wording that separates rpc from the
 #: merely-prohibited calls.
 P4P_MARKERS = P4P_LINES + ("Not approvable — refused at runtime",)
+
+#: The routing section's heading and the four protocol-neutral cases. The
+#: multi-setting case is deployment-dependent and pinned separately.
+ROUTING_HEADING = "## Choosing the Right Tool"
+ROUTING_CASES = (
+    "**One live value** — use `channel_read`",
+    "**One live write the operator asked for by name** — use `channel_write`",
+    "**Python analysis over data you already retrieved** — use `execute`",
+    "**Python that must touch the control system** — use `execute`",
+)
+
+#: The one asymmetry the agent has to know: the two write paths report an
+#: unverified write in different shapes.
+WRITE_PATH_SENTENCE = (
+    "`osprey.runtime.write_channel` raises, while `channel_write` reports it in `write_state`."
+)
+
+
+def _render_template_directly(control_system_type: str, enabled_servers: set[str]) -> str:
+    """Render the rule straight from Jinja with an explicit ``enabled_servers``.
+
+    The scaffolded projects the other helper builds never enable ``bluesky``,
+    so the queue branch is unreachable through them. Rendering the template
+    directly is the only way to exercise both sides of that conditional.
+    """
+    manager = TemplateManager()
+    template = manager.jinja_env.get_template(
+        "claude_code/claude/rules/control-system-safety.md.j2"
+    )
+    return template.render(control_system_type=control_system_type, enabled_servers=enabled_servers)
 
 
 def _render_safety_rule(tmp_path, project_name: str, control_system_type: str | None) -> str:
@@ -157,7 +190,13 @@ def test_rule_heading_contract_intact(tmp_path):
     content = _render_safety_rule(tmp_path, "p4p-contract", "epics")
 
     assert content.lstrip().startswith("# Control System Safety — EPICS Channel Access")
-    for heading in ("### Allowed", "### Prohibited", "### Why This Matters", "## Write Operations"):
+    for heading in (
+        "### Allowed",
+        "### Prohibited",
+        "### Why This Matters",
+        "## Write Operations",
+        ROUTING_HEADING,
+    ):
         assert heading in content, f"missing section heading: {heading}"
 
     from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
@@ -167,3 +206,100 @@ def test_rule_heading_contract_intact(tmp_path):
     assert artifact.template_path == "claude/rules/control-system-safety.md.j2"
     assert artifact.output_path == ".claude/rules/control-system-safety.md"
     assert artifact.description
+
+
+def test_routing_section_renders_for_every_control_system_type(tmp_path):
+    """The routing cases are about tools, not protocols, so every render gets
+    them -- a mock deployment routes requests the same way an EPICS one does."""
+    for cs_type in ("epics", "virtual_accelerator", "tango", "opcua", "labview", None):
+        label = cs_type or "mock"
+        content = _render_safety_rule(tmp_path / label, f"route-{label}", cs_type)
+
+        assert ROUTING_HEADING in content, f"{label}: routing section missing"
+        for case in ROUTING_CASES:
+            assert case in content, f"{label}: missing routing case: {case!r}"
+
+
+def test_routing_section_is_protocol_neutral(tmp_path):
+    """The section must carry no protocol-specific text: it renders on every
+    control-system type, and ``epics``/``virtual_accelerator`` are included
+    because those are the only renders where the string ``EPICS`` exists
+    elsewhere in the document -- they are where a leak into the routing
+    section would actually be caught."""
+    for cs_type in ("epics", "virtual_accelerator", "tango", "opcua", "labview", None):
+        label = cs_type or "mock"
+        content = _render_safety_rule(tmp_path / label, f"neutral-{label}", cs_type)
+
+        start = content.index(ROUTING_HEADING)
+        next_heading = content.find("\n## ", start + len(ROUTING_HEADING))
+        end = next_heading if next_heading != -1 else len(content)
+        section = content[start:end]
+        for protocol_marker in ("EPICS", "epics", "Tango", "tango", "OPC-UA", "LabVIEW", "p4p"):
+            assert protocol_marker not in section, (
+                f"{label}: routing section names a protocol: {protocol_marker!r}"
+            )
+
+
+def test_routing_section_states_the_write_path_asymmetry(tmp_path):
+    """The Python path raises; the tool reports. An agent that does not know
+    the difference narrates an unverified write as if it had succeeded."""
+    content = _render_safety_rule(tmp_path, "route-asym", "epics")
+
+    prose = " ".join(content.split())
+    assert WRITE_PATH_SENTENCE in prose
+
+
+def test_routing_section_without_bluesky_refuses_the_write_loop(tmp_path):
+    """The scaffolded control_assistant project runs no ``bluesky`` server, so
+    this is the shape a real queue-less deployment renders: the multi-setting
+    case still appears, and it forbids substituting a loop of writes."""
+    content = _render_safety_rule(tmp_path, "route-no-queue", "epics")
+
+    prose = " ".join(content.split())
+    assert "**Multi-setting measurements** — no queue is configured in this deployment." in prose
+    assert "Do not stand in for one with a loop of `channel_write` calls" in prose
+    assert "an `execute` script that steps the setpoint" in prose
+    assert "tell the operator what the measurement would require" in prose
+
+    # Nothing may point at a queue this deployment does not have.
+    assert "Bluesky" not in content
+    assert "## Measurements Go Through the Queue" not in content
+
+
+def test_routing_section_with_bluesky_points_at_the_queue():
+    """With the server enabled the same bullet routes to the queue instead, and
+    the existing queue sections still render behind it."""
+    content = _render_template_directly("epics", {"controls", "bluesky"})
+
+    prose = " ".join(content.split())
+    assert "**Multi-setting measurements** — use the Bluesky queue." in prose
+    assert "no queue is configured in this deployment" not in prose
+    assert "## Measurements Go Through the Queue, Not Through Repeated Writes" in content
+    assert "## Starting a Bluesky Queue" in content
+
+
+def test_routing_section_renders_exactly_one_multi_setting_case():
+    """Guard against both arms of the conditional escaping at once."""
+    for enabled in ({"controls"}, {"controls", "bluesky"}):
+        content = _render_template_directly("epics", enabled)
+        assert content.count("**Multi-setting measurements**") == 1, enabled
+
+
+def test_execution_mode_write_never_renders(tmp_path):
+    """``write`` is not a recognised execution mode -- ``readonly`` and
+    ``readwrite`` are the only two the executor accepts -- so the rendered rule
+    must never spell it. Regression guard on wording that is already correct."""
+    from osprey.mcp_server.python_executor.tools._execution_gates import VALID_EXECUTION_MODES
+
+    assert "write" not in VALID_EXECUTION_MODES
+
+    for cs_type in ("epics", "tango", None):
+        label = cs_type or "mock"
+        content = _render_safety_rule(tmp_path / label, f"mode-{label}", cs_type)
+
+        assert 'execution_mode: "write"' not in content, f"{label}: rendered an invalid mode"
+        assert 'execution_mode: "readwrite"' in content, f"{label}: lost the readwrite mode"
+
+    for enabled in ({"controls"}, {"controls", "bluesky"}):
+        content = _render_template_directly("epics", enabled)
+        assert 'execution_mode: "write"' not in content, enabled
