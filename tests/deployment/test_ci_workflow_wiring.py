@@ -723,6 +723,121 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_dist_mode() -> None:
     assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == ["--dist loadgroup"]
 
 
+# ---------------------------------------------------------------------------
+# Coverage is measured on a cell where PEP 669 tracing is actually available
+# ---------------------------------------------------------------------------
+
+
+#: Below this, ``coverage.py`` cannot use ``sys.monitoring`` and silently falls
+#: back to the C trace function. See ``coverage/core.py``: ``pep669`` is a bare
+#: ``hasattr(sys, "monitoring")`` check, so the fallback is a warning, not an
+#: error, and the lane just pays ~2x for identical numbers.
+SYSMON_MIN_PYTHON = (3, 12)
+
+#: The env var that opts into PEP 669 tracing. Not self-enabling until 3.14
+#: (``coverage/env.py``: ``SYSMON_DEFAULT``), so on 3.12/3.13 it must be set
+#: explicitly or the slow core is chosen by default.
+SYSMON_ENV = ("COVERAGE_CORE", "sysmon")
+
+CODECOV_STEP = "Upload coverage reports to Codecov"
+
+
+def _coverage_cell_version(wf: dict[str, Any]) -> str:
+    """The Python version whose ubuntu cell builds a non-empty ``COV_ARGS``."""
+    run_text = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")["run"]
+    found = re.findall(
+        r'\[\s+"\$\{\{\s*matrix\.python-version\s*\}\}"\s*=\s*"(\d+\.\d+)"', run_text
+    )
+    assert len(found) == 1, f"expected one coverage-cell guard in the run block; got {found}"
+    return found[0]
+
+
+def _codecov_upload_version(wf: dict[str, Any]) -> str:
+    """The Python version the Codecov upload step is gated on."""
+    condition = _find_named_step(wf, UNIT_TEST_JOB, CODECOV_STEP)["if"]
+    found = re.findall(r"matrix\.python-version\s*==\s*'(\d+\.\d+)'", condition)
+    assert len(found) == 1, f"expected one version gate on {CODECOV_STEP!r}; got {found}"
+    return found[0]
+
+
+def test_coverage_cell_and_codecov_upload_name_the_same_version(
+    workflow: dict[str, Any],
+) -> None:
+    """One cell writes ``coverage.xml``; one cell uploads it. If they drift
+    apart the upload runs on a cell that produced no file, and
+    ``fail_ci_if_error: false`` turns that into a silent coverage blackout --
+    green lane, no report, nobody notified. The two conditions are written out
+    separately in YAML and cannot reference each other, so this is the only
+    thing holding them together."""
+    measured = _coverage_cell_version(workflow)
+    uploaded = _codecov_upload_version(workflow)
+    assert measured == uploaded, (
+        f"the coverage cell measures on Python {measured} but the {CODECOV_STEP!r} step "
+        f"is gated on {uploaded} -- coverage.xml would be written by one cell and looked "
+        f"for by another. Move both, in .github/workflows/ci.yml."
+    )
+
+
+def test_coverage_cell_can_use_pep669_tracing(workflow: dict[str, Any]) -> None:
+    """The coverage cell must sit on an interpreter where ``sys.monitoring``
+    exists. Measuring on the floor version looks tidy and costs ~2x the lane's
+    wall clock: coverage refuses sysmon below 3.12 with a warning and uses the
+    C tracer instead, which is how this lane came to run 36 minutes next to a
+    14-minute sibling running the same tests."""
+    measured = _coverage_cell_version(workflow)
+    parsed = tuple(int(part) for part in measured.split("."))
+    assert parsed >= SYSMON_MIN_PYTHON, (
+        f"coverage is measured on Python {measured}, below the "
+        f"{'.'.join(map(str, SYSMON_MIN_PYTHON))} that `sys.monitoring` requires -- the "
+        f"lane is paying the C tracer's overhead for identical numbers."
+    )
+
+
+def test_coverage_cell_arms_the_sysmon_core(workflow: dict[str, Any]) -> None:
+    """Being eligible for PEP 669 is not the same as using it: coverage only
+    defaults to sysmon at 3.14+, so on 3.12/3.13 the env var is what actually
+    selects it. Dropping it re-buys the 2x without changing a single flag."""
+    env = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests").get("env", {})
+    name, value = SYSMON_ENV
+    assert env.get(name) == value, (
+        f"the 'Run unit tests' step must set {name}: {value} -- without it coverage.py "
+        f"picks the C tracer by default below Python 3.14. Found {env.get(name)!r}."
+    )
+
+
+def test_coverage_cell_is_a_version_the_matrix_actually_runs(workflow: dict[str, Any]) -> None:
+    """A coverage cell naming a version absent from the matrix measures
+    nothing at all, and would fail none of the pins above."""
+    versions = workflow["jobs"][UNIT_TEST_JOB]["strategy"]["matrix"]["python-version"]
+    measured = _coverage_cell_version(workflow)
+    assert measured in versions, (
+        f"coverage is measured on Python {measured}, which the matrix does not run "
+        f"({versions}) -- no cell would produce coverage.xml."
+    )
+
+
+def test_coverage_cell_pins__mutation_versions_drift_apart() -> None:
+    """The failure this set exists for: someone moves one condition and not
+    the other."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, CODECOV_STEP)
+    original = step["if"]
+    step["if"] = original.replace("'3.12'", "'3.11'")
+    assert step["if"] != original, "Codecov version gate not found -- mutation is stale"
+    assert _coverage_cell_version(mutated) != _codecov_upload_version(mutated)
+
+
+def test_coverage_cell_pins__mutation_back_to_the_floor_version() -> None:
+    """Reverting the cell to 3.11 must fail the PEP 669 pin rather than pass
+    quietly -- the whole point is that the slow path is invisible at runtime."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace('}}" = "3.12" ]', '}}" = "3.11" ]')
+    assert step["run"] != original, "coverage-cell guard not found -- mutation is stale"
+    assert _coverage_cell_version(mutated) == "3.11"
+
+
 def _conftest_source() -> str:
     return CONFTEST.read_text(encoding="utf-8")
 

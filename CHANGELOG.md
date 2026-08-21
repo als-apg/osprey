@@ -186,6 +186,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- CI measures coverage on the Python 3.12 cell with PEP 669 tracing
+  (`COVERAGE_CORE=sysmon`) rather than on the 3.11 cell, where coverage.py
+  falls back to the C tracer. Same coverage numbers, roughly half the unit
+  lane's runtime — it had grown to ~36 minutes against its own 40-minute cap.
+
 - The agent's telemetry no longer authenticates to the local OpenObserve store
   as root. `osprey up` starts the store, creates a dedicated ingest service
   account, and saves the token the store issues into the project `.env`
