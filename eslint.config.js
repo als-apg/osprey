@@ -23,6 +23,7 @@ export default [
         Terminal: 'readonly',
         FitAddon: 'readonly',
         WebLinksAddon: 'readonly',
+        ClipboardAddon: 'readonly',
       },
     },
     rules: {

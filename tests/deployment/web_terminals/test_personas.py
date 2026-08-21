@@ -9,6 +9,7 @@ import pytest
 
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
+    config_archiver_password_env,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
@@ -18,6 +19,7 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix_collisions,
     freeze_user_indices,
     normalize_users,
+    personas_needing_archiver_password,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_launch_token,
@@ -1869,3 +1871,118 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
 
     # Act / Assert
     assert settings_json_denies_bash(tmp_path / "bommed") is True
+
+
+# ---------------------------------------------------------------------------
+# Archiver connector -> per-user store password
+#
+# The archiver connector authenticates with the variable its own config block
+# names (`archiver.<type>.password_env`); `osprey up` mints it into the deploy
+# `.env` for a store the project deploys. `.env.users` excludes service tokens
+# by design and cannot say "the personas whose archiver reads this", so the
+# grant is per-user, and it carries the configured NAME because the block may
+# point at a facility-run store under any variable.
+# ---------------------------------------------------------------------------
+
+_MONGO_ARCHIVER = {
+    "type": "mongodb_archiver",
+    "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+}
+
+
+def test_config_archiver_password_env_reads_the_selected_connector_block() -> None:
+    """The variable named by the SELECTED connector's block is the entitlement."""
+    assert config_archiver_password_env({"archiver": _MONGO_ARCHIVER}) == "MONGO_ROOT_PASSWORD"
+
+
+def test_config_archiver_password_env_ignores_an_unselected_connector_block() -> None:
+    """The shipped config carries a `mongodb_archiver:` block under `type: mock_archiver`;
+    a block the selected type never reads entitles nothing."""
+    archiver = {**_MONGO_ARCHIVER, "type": "mock_archiver"}
+
+    assert config_archiver_password_env({"archiver": archiver}) is None
+
+
+def test_config_archiver_password_env_follows_any_connector_that_names_one() -> None:
+    """The key, not the connector name, is what is read: a future connector with a
+    `password_env` is granted exactly like MongoDB's."""
+    archiver = {"type": "facility_db", "facility_db": {"password_env": "FACILITY_DB_PW"}}
+
+    assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
+
+
+@pytest.mark.parametrize(
+    "missing", [{}, {"archiver": None}, {"archiver": {"type": "mock_archiver"}}]
+)
+def test_config_archiver_password_env_is_none_without_a_named_variable(missing: dict) -> None:
+    assert config_archiver_password_env(missing) is None
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None, 7])
+def test_config_archiver_password_env_treats_a_blank_name_as_unset(blank: Any) -> None:
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": blank}}
+
+    assert config_archiver_password_env({"archiver": archiver}) is None
+
+
+@pytest.mark.parametrize("bad", ["MONGO PASSWORD", "1PASS", "PW=x", "${PW}", "pw-name"])
+def test_config_archiver_password_env_refuses_a_name_compose_cannot_carry(bad: str) -> None:
+    """The name is emitted into a compose `environment:` line verbatim, so anything
+    that is not a plain identifier is refused here rather than rendered broken."""
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": bad}}
+
+    with pytest.raises(ValueError, match="password_env"):
+        config_archiver_password_env({"archiver": archiver})
+
+
+def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tmp_path) -> None:
+    """The grant is a persona -> variable-name map, so two personas reading two
+    different stores each get their own line and a persona with no archiver gets none."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path, "rw", {"archiver": _MONGO_ARCHIVER}
+            ),
+        },
+        "facility": {
+            "project": "fac",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "fac",
+                {"archiver": {"type": "other_db", "other_db": {"password_env": "OTHER_DB_PW"}}},
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path, "ro", {"archiver": {"type": "mock_archiver"}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+            {"name": "carol", "index": 2, "persona": "facility"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_archiver_password(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite": "MONGO_ROOT_PASSWORD", "facility": "OTHER_DB_PW"}
+
+
+def test_personas_needing_archiver_password_skips_unrendered_persona_projects(tmp_path) -> None:
+    """A persona whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    assert personas_needing_archiver_password(config, tmp_path) == {}

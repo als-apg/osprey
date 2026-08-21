@@ -138,6 +138,16 @@
       ]
     },
     {
+      "name": "xterm addon-clipboard",
+      "filename": "addon-clipboard.min.js",
+      "version": "0.1.0",
+      "url": "https://cdn.jsdelivr.net/npm/@xterm/addon-clipboard@0.1.0/lib/addon-clipboard.min.js",
+      "sha256": "2a4fbd8c4dd8466b31dbc509d7d5db01dc8a0163725add6d6b885d6657e8b14f",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
       "name": "Plotly.js",
       "filename": "plotly-3.3.1.min.js",
       "version": "3.3.1",

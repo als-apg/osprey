@@ -86,6 +86,98 @@ export function clearStoredSessionId() {
 }
 
 /**
+ * Put `text` on the system clipboard on behalf of the agent.
+ *
+ * The agent's full-screen renderer owns the mouse: a plain click-drag is its
+ * own text selection, which it finishes by asking the terminal to copy the
+ * text (OSC 52) — the same thing it does in a desktop terminal, where the
+ * copy happens through `pbcopy`/`xclip` and the user never notices that
+ * "select" already meant "copy". The clipboard addon routes that request
+ * here.
+ *
+ * Browsers only expose the async clipboard API on secure pages (https or
+ * localhost). Elsewhere the legacy `execCommand('copy')` path still works in
+ * Chromium and Firefox while the drag's user activation is fresh, which it
+ * is: the request is one PTY round-trip behind the mouse-up.
+ *
+ * @param {string} text
+ * @returns {Promise<void>}
+ */
+export async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const scratch = document.createElement('textarea');
+  scratch.value = text;
+  scratch.setAttribute('readonly', '');
+  scratch.style.position = 'fixed';
+  scratch.style.opacity = '0';
+  document.body.appendChild(scratch);
+  scratch.select();
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } finally {
+    scratch.remove();
+  }
+  if (!copied) {
+    throw new Error('clipboard write refused: the page is not a secure context and the legacy copy command was rejected');
+  }
+}
+
+/**
+ * The clipboard the agent is allowed to see: write-only.
+ *
+ * OSC 52 can also *query* the clipboard. Nothing the agent does needs that,
+ * and granting it would let any program in the terminal pull whatever the
+ * user last copied — so reads always answer empty, without touching the
+ * browser API (which would prompt for permission).
+ *
+ * @returns {{ readText: () => string, writeText: (selection: string, text: string) => Promise<void> }}
+ */
+export function agentClipboardProvider() {
+  return {
+    readText: () => '',
+    writeText: (_selection, text) =>
+      writeClipboard(text).catch((err) => {
+        console.warn('The agent asked to copy text but the browser refused:', err);
+      }),
+  };
+}
+
+/**
+ * Claim Ctrl+Shift+C as "copy the selection" before xterm sees it.
+ *
+ * This is for the terminal's OWN selection — the one a modifier-drag makes
+ * (see `macOptionClickForcesSelection` below). Plain Ctrl+C must keep
+ * interrupting the agent, and on macOS Cmd+C is the browser's own copy
+ * (xterm leaves Meta chords to it), so the only chord that needs claiming is
+ * Ctrl+Shift+C — the convention every desktop terminal uses. It is swallowed
+ * whether or not anything is selected: xterm would otherwise encode it as ^C
+ * and interrupt the agent.
+ *
+ * Returning `false` tells xterm the event is handled; anything else returns
+ * `true` and is processed as usual.
+ *
+ * @param {KeyboardEvent} event
+ * @returns {boolean}
+ */
+function copyKeyHandler(event) {
+  if (event.type !== 'keydown') return true;
+  if (!(event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey)) return true;
+  if (event.key !== 'c' && event.key !== 'C') return true;
+
+  if (term && term.hasSelection()) {
+    // A refusal surfaces in the console rather than as a pasted ^C.
+    writeClipboard(term.getSelection()).catch((err) => {
+      console.error('Could not copy the terminal selection:', err);
+    });
+  }
+  return false;
+}
+
+/**
  * Initialize xterm.js terminal in the given container.
  * @param {string} containerId
  */
@@ -100,6 +192,12 @@ export function initTerminal(containerId) {
     fontSize: 14,
     lineHeight: 1.2,
     theme: xtermPalette(),
+    // The agent switches mouse tracking on (DECSET 1000/1002/1003/1006): a
+    // plain click-drag is ITS selection, copied through the clipboard addon
+    // below. For the rare raw-screen grab (agent hung, text it won't select)
+    // xterm lets a modifier force its own selection — Shift on Linux/Windows
+    // unconditionally, Option on macOS only with this flag.
+    macOptionClickForcesSelection: true,
   });
 
   // Live theme switching: re-read the palette from computed style on every
@@ -111,9 +209,20 @@ export function initTerminal(containerId) {
 
   fitAddon = new FitAddon.FitAddon();
   const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+  // Honour the agent's "copy this" requests (OSC 52) — without this addon
+  // xterm drops them and "select" silently stops meaning "copy". The shipped
+  // 0.1.0 constructor is (base64Codec, provider) — its typings claim
+  // (provider) alone, and passing the provider first makes every request
+  // hang in the codec slot.
+  const clipboardAddon = new ClipboardAddon.ClipboardAddon(
+    new ClipboardAddon.Base64(),
+    agentClipboardProvider(),
+  );
 
   term.loadAddon(fitAddon);
   term.loadAddon(webLinksAddon);
+  term.loadAddon(clipboardAddon);
+  term.attachCustomKeyEventHandler(copyKeyHandler);
   term.open(container);
 
   // Initial fit — run once now and again after fonts finish loading, since

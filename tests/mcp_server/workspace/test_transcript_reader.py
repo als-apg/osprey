@@ -126,6 +126,23 @@ class TestFindTranscriptDir:
             result = reader.find_transcript_dir()
         assert result is None
 
+    def test_honours_claude_config_dir(self, tmp_path, monkeypatch):
+        """Transcripts live under ``$CLAUDE_CONFIG_DIR/projects``, not ``~/.claude``.
+
+        Inside a per-user web-terminal container both variables point at the
+        same mounted volume, so the ``~/.claude`` spelling names a directory
+        that does not exist and every session reads as "no transcript".
+        """
+        project_dir = tmp_path / "app" / "build"
+        project_dir.mkdir(parents=True)
+        config_dir = tmp_path / "data" / "claude-config"
+        claude_dir = config_dir / "projects" / encode_claude_project_path(project_dir)
+        claude_dir.mkdir(parents=True)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: config_dir))
+
+        assert TranscriptReader(project_dir).find_transcript_dir() == claude_dir
+
     def test_preserves_leading_dash_for_absolute_paths(self, tmp_path):
         """Encoding of absolute paths must keep the leading dash.
 

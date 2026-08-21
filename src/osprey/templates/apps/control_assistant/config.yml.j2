@@ -524,6 +524,11 @@ archiver:
   # arrives as an `archiver.type` override at build time.
   type: mock_archiver  # <-- 'epics_archiver' for production
 
+  # When a read names no bin size, the bin is chosen from the time span so a
+  # continuously archived channel returns about this many points (1 s bins up
+  # to ~2.8 h, ~53 min bins for a year). The agent is told which bin was used.
+  auto_bin_points: 10000
+
   # Mock archiver (development mode) — synthesizes history from the same
   # simulation machine model as the control-system connector above, so live
   # reads and archiver data stay consistent. The machine file is derived from

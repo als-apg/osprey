@@ -185,6 +185,10 @@ control_system:
 # plus an `epics_archiver.url` — the control-assistant preset shows it).
 archiver:
   type: mock_archiver
+  # When a read names no bin size, the bin is chosen from the time span so a
+  # continuously archived channel returns about this many points (1 s bins up
+  # to ~2.8 h, ~53 min bins for a year). The agent is told which bin was used.
+  auto_bin_points: 10000
 
 # ============================================================
 # HUMAN-IN-THE-LOOP APPROVAL

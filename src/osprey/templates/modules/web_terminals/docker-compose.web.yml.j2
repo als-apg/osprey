@@ -528,6 +528,28 @@ services:
          same fail-closed outcome as never emitting this line at all. #}
       - BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}
 {%- endif %}
+{%- if svc.archiver_password_env %}
+      {#- The archiver store's password, for a persona whose archiver connector
+         authenticates with one. The consumer is the connector inside this
+         container — the `control_system` MCP server's archiver tools and the
+         Python executor's `read_archiver` both open it — and it reads the
+         variable its own `archiver.<type>.password_env` names, which is why
+         this line carries a per-persona NAME rather than a fixed one: the
+         control-assistant preset spells it MONGO_ROOT_PASSWORD (minted by
+         `osprey up`), a facility-run store may spell it anything.
+
+         Per-user for the same reason as the three credentials above: a
+         shared `.env.users` cannot say "the personas whose archiver reads
+         this", and it excludes service tokens by design.
+
+         `${VAR:-}` is resolved by compose from the deploy `.env`, so the
+         secret is never written into this rendered file. The `:-` default
+         keeps compose from warning, and an empty value is refused by the
+         connector exactly as an unset one is — "Environment variable '…' is
+         not set" — so a deploy that never minted it fails where it is visible
+         rather than half-authenticating. #}
+      - {{ svc.archiver_password_env }}={{ "${" ~ svc.archiver_password_env ~ ":-}" }}
+{%- endif %}
     volumes:
       - {{ svc.user }}-claude-config:/data/claude-config
       {#- Mount target comes from render.py's _container_agent_data_dir, which

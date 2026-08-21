@@ -689,12 +689,14 @@ def _build_env_production_subset(
     that can distinguish users, and that is the per-user ``environment:`` block
     in ``docker-compose.web.yml``. See
     :func:`osprey.deployment.web_terminals.render.render_web_terminals`, whose
-    ``dispatcher_personas``, ``ariel_personas`` and ``launch_token_personas``
-    arguments each carry the subset of the roster entitled to one credential —
-    ``EVENT_DISPATCHER_TOKEN``, ``ARIEL_DB_PASSWORD`` and
-    ``BLUESKY_LAUNCH_TOKEN`` respectively — emitted into that user's own
-    ``environment:`` block and interpolated by compose from the deploy ``.env``,
-    so the secret never lands in a rendered artifact either.
+    ``dispatcher_personas``, ``ariel_personas``, ``launch_token_personas`` and
+    ``archiver_password_personas`` arguments each carry the subset of the
+    roster entitled to one credential — ``EVENT_DISPATCHER_TOKEN``,
+    ``ARIEL_DB_PASSWORD``, ``BLUESKY_LAUNCH_TOKEN`` and the archiver store's
+    ``password_env`` (``MONGO_ROOT_PASSWORD`` on the shipped preset)
+    respectively — emitted into that user's own ``environment:`` block and
+    interpolated by compose from the deploy ``.env``, so the secret never lands
+    in a rendered artifact either.
 
     So this is NOT the claim that no web terminal ever presents a service token —
     the EVENTS panel's proxy presents the dispatcher token server-side, so the
