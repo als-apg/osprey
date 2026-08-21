@@ -40,6 +40,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   and existing QMD mirrors backfill automatically after the renderer changes.
 - The pyAT specialist now saves and confirms a structured lattice-analysis
   JSON artifact before returning computed optics results.
+- Web terminal: selecting text now copies it, as in a desktop terminal. The
+  agent's copy requests were being dropped by the browser terminal; Option/
+  Shift-drag plus Cmd+C or Ctrl+Shift+C grabs raw screen text.
 
 ### Added
 

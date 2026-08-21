@@ -394,6 +394,7 @@ describe('post-logout: a fresh load does not auto-resume', () => {
     write() {}
     reset() {}
     focus() {}
+    attachCustomKeyEventHandler() {}
   }
 
   class FakeAddon {
@@ -427,6 +428,7 @@ describe('post-logout: a fresh load does not auto-resume', () => {
     vi.stubGlobal('Terminal', FakeTerminal);
     vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
     vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
+    vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
     vi.stubGlobal('WebSocket', FakeWebSocket);
     // xtermPalette() logs a console.error when the CSS custom properties it
     // reads are absent, which they are in this bare happy-dom document.
