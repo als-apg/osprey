@@ -9327,4 +9327,3 @@ narad_sem:SemanticSignal a owl:Class .
 
 narad_sem:ChannelBinding a owl:Class ;
     rdfs:subClassOf owl:Thing .
-
