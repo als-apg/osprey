@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
@@ -35,6 +36,30 @@ class TestResolveSessionsDir:
         sessions_dir = discovery._resolve_sessions_dir()
         assert "_" not in sessions_dir.name, sessions_dir.name
         assert sessions_dir.name.endswith("-my-proj")
+
+    def test_honours_claude_config_dir(self, tmp_path, monkeypatch):
+        """``CLAUDE_CONFIG_DIR`` names the state root; ``~/.claude`` is only the fallback.
+
+        The per-user web-terminal container sets both ``CLAUDE_CONFIG_DIR``
+        and ``HOME`` to the mounted volume, so a ``~/.claude/projects`` spelling
+        looks one ``.claude`` too deep, never sees the session Claude Code
+        writes, and the terminal never learns its own session id.
+        """
+        config_dir = tmp_path / "data" / "claude-config"
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: config_dir))
+
+        sessions_dir = SessionDiscovery("/app/project/build")._resolve_sessions_dir()
+
+        assert sessions_dir == config_dir / "projects" / "-app-project-build"
+
+    def test_falls_back_to_home_without_claude_config_dir(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+        sessions_dir = SessionDiscovery("/app/project/build")._resolve_sessions_dir()
+
+        assert sessions_dir == tmp_path / ".claude" / "projects" / "-app-project-build"
 
 
 class TestListSessions:

@@ -64,6 +64,7 @@ _SYSTEM_VARS = (
 # ``config_path`` argument, never inherited.
 _HOOK_VARS = (
     "CLAUDE_PROJECT_DIR",
+    "CLAUDE_CONFIG_DIR",
     "OSPREY_HOOK_CONFIG",
     "OSPREY_HOOK_DEBUG",
     "OSPREY_DISPATCH_RUN",
@@ -223,6 +224,10 @@ def _isolated_home(hook_home, monkeypatch):
     """
     monkeypatch.setenv("HOME", str(hook_home))
     monkeypatch.setenv("USERPROFILE", str(hook_home))
+    # The state root Claude Code actually honours. Unset here so the default
+    # ``$HOME/.claude`` path is what the tests exercise; a test that wants the
+    # container layout sets it explicitly.
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     yield
 
 

@@ -49,6 +49,46 @@ def test_memory_dir_is_home_relative(tmp_path, memory_guard, hook_home):
 
 
 @pytest.mark.unit
+def test_memory_dir_honours_claude_config_dir(tmp_path, memory_guard, monkeypatch):
+    """``CLAUDE_CONFIG_DIR`` is the state root; ``$HOME/.claude`` is only the fallback.
+
+    The per-user web-terminal container sets ``CLAUDE_CONFIG_DIR`` and ``HOME``
+    to one mounted volume. Claude Code then keeps memory under
+    ``$CLAUDE_CONFIG_DIR/projects/<encoded>/memory`` — a hook that still spells
+    ``$HOME/.claude`` names a directory nothing writes to, and denies every
+    memory write in the container.
+    """
+    config_dir = tmp_path / "data" / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    encoded = encode_claude_project_path(tmp_path)
+
+    assert memory_guard.resolve_memory_dir(str(tmp_path)) == (
+        config_dir / "projects" / encoded / "memory"
+    )
+
+
+@pytest.mark.unit
+def test_allows_memory_write_under_claude_config_dir(tmp_path, hook_runner, monkeypatch):
+    """End to end: a write into the ``$CLAUDE_CONFIG_DIR`` memory dir is allowed."""
+    config_dir = tmp_path / "data" / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    project_dir = tmp_path / "build"
+    project_dir.mkdir()
+    memory_dir = config_dir / "projects" / encode_claude_project_path(project_dir) / "memory"
+    memory_dir.mkdir(parents=True)
+
+    result = hook_runner(
+        "osprey_memory_guard.py",
+        "Write",
+        {"file_path": str(memory_dir / "notes.md"), "content": "# Notes"},
+        cwd=project_dir,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "project_name",
     ["plain", "with spaces", "dotted.name.v2", "under_score+plus@sign"],

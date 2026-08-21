@@ -43,6 +43,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Web terminal: selecting text now copies it, as in a desktop terminal. The
   agent's copy requests were being dropped by the browser terminal; Option/
   Shift-drag plus Cmd+C or Ctrl+Shift+C grabs raw screen text.
+- Web terminal: session history, memory and transcripts are found inside the
+  per-user container again (`CLAUDE_CONFIG_DIR` is honoured; readers no longer
+  look one `.claude` too deep).
 
 ### Added
 

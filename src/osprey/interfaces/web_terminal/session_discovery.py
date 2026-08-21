@@ -1,6 +1,6 @@
 """Session discovery for Claude Code JSONL conversation files.
 
-Scans ``~/.claude/projects/<encoded-path>/`` for JSONL session files,
+Scans ``<config-dir>/projects/<encoded-path>/`` for JSONL session files,
 extracting metadata (first message, modification time, message count)
 for the session picker UI.
 """
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from osprey.agent_runner.project_paths import encode_claude_project_path
+from osprey.agent_runner.project_paths import claude_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +38,11 @@ class SessionDiscovery:
     def _resolve_sessions_dir(self) -> Path:
         """Return the Claude projects directory for this project.
 
-        Claude Code stores sessions in ``~/.claude/projects/<encoded>/``;
-        see :func:`osprey.cli.project_utils.encode_claude_project_path`
-        for the encoding rule.
+        Claude Code stores sessions in ``<config-dir>/projects/<encoded>/``;
+        see :func:`osprey.agent_runner.project_paths.claude_project_dir` for
+        how the root and the encoded name are resolved.
         """
-        encoded = encode_claude_project_path(self._project_dir)
-        return Path.home() / ".claude" / "projects" / encoded
+        return claude_project_dir(self._project_dir)
 
     def list_sessions(self, allowed_ids: set[str] | None = None) -> list[SessionInfo]:
         """Return sessions sorted newest-first.
