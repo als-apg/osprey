@@ -50,6 +50,8 @@ EXPECTED_KEYS = {
     "heap_initial_size",
     "heap_max_size",
     "pagecache_size",
+    "query_timeout_s",
+    "query_max_rows",
 }
 
 
@@ -79,14 +81,27 @@ def test_block_carries_exactly_the_expected_keys(template_path: str):
     assert set(block) == EXPECTED_KEYS
 
 
+#: The corpus each preset seeds, keyed by template. The two deliberately
+#: differ: control_assistant seeds the demo machine generated from its own
+#: channel database — the same devices the agent's channel search returns, so
+#: its graph answers and its channel answers describe one machine — while
+#: ariel_standalone seeds the ALS corpus. Both files ship; the key is only
+#: which one a preset points at, and pointing control_assistant back at
+#: `./services/graphdb/als_gtb.ttl` is a supported edit, not a repair.
+EXPECTED_TTL_PATHS = {
+    "apps/control_assistant/config.yml.j2": "./data/demo_machine.ttl",
+    "apps/ariel_standalone/config.yml.j2": "./services/graphdb/als_gtb.ttl",
+}
+
+
 @pytest.mark.parametrize("template_path", TEMPLATE_PATHS)
 def test_paths_are_the_ones_nothing_defaults(template_path: str):
     """`path` and `ttl_path` have no fallback in code, so the template is the
     only thing that supplies them — `path` points the compose generator at the
-    service fragment, `ttl_path` at the corpus shipped beside it."""
+    service fragment, `ttl_path` at the corpus that preset seeds from."""
     block = _render(template_path)["services"][GRAPHDB_SERVICE_NAME]
     assert block["path"] == "./services/graphdb"
-    assert block["ttl_path"] == "./services/graphdb/als_gtb.ttl"
+    assert block["ttl_path"] == EXPECTED_TTL_PATHS[template_path]
 
 
 @pytest.mark.parametrize("template_path", TEMPLATE_PATHS)

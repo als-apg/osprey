@@ -152,10 +152,13 @@ keys:
   # templates (block and `deployed_services` entry always emitted together — a
   # deployed graphdb without a block is refused pre-compose). Every regex below
   # — except `path`, which cites the generic compose-generator read shared with
-  # its three neighbours — anchors on deployment/graphdb_service.py, the single
-  # resolver the compose render, the port-conflict sweep, the health category
-  # and the seeder all read through, so deleting it fails the guard rather than
-  # rotting quietly.
+  # its three neighbours, and the two query bounds at the end of the block —
+  # anchors on deployment/graphdb_service.py, the single resolver the compose
+  # render, the port-conflict sweep, the health category and the seeder all
+  # read through, so deleting it fails the guard rather than rotting quietly.
+  # The query bounds are the one pair the deploy path never sees: they shape a
+  # single agent query, so the graph MCP server reads them at query time and
+  # their evidence anchors there instead.
   services.graphdb:
     evidence: '_graphdb_block\(config\)'
   services.graphdb.path:
@@ -211,6 +214,23 @@ keys:
       Off-heap cache for graph data and indexes. Separate from the heap and not
       taken out of it: the container's memory budget is roughly heap max plus
       this plus about half a gigabyte of JVM overhead.
+  services.graphdb.query_timeout_s:
+    evidence: 'get_config_value\(QUERY_TIMEOUT_CONFIG_KEY'
+    note: >-
+      Transaction timeout the graph MCP server hands to the store for one
+      `read_cypher` call, so a runaway traversal is cancelled server-side
+      instead of being held open by a client that has already given up. Read in
+      mcp_server/graph/server_context.py rather than by the deploy resolver —
+      the value never reaches compose, so this is the first graphdb key whose
+      evidence sits outside deployment/graphdb_service.py.
+  services.graphdb.query_max_rows:
+    evidence: 'get_config_value\(QUERY_MAX_ROWS_CONFIG_KEY'
+    note: >-
+      Rows one `read_cypher` call returns before the result is truncated; the
+      tool reports the truncation, so a partial answer is never mistaken for a
+      complete one. Bounds what a question costs the AGENT's context window
+      rather than what it costs the store, which is why it is a query-time key
+      and not a container one.
   # `services.graphdb.bind_address` is deliberately absent for the same reason
   # qmd's is — every service publishes on the project-wide
   # `deployment.bind_address`, and graphdb reuses that one reading.
@@ -881,7 +901,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 285
+  expected_union_size: 287
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
@@ -890,7 +910,10 @@ render_contexts:
     blocks landed, which is exactly how a soft counter stops being a signal.
     Re-derived at 285 when the `services.graphdb` block landed: 9 of those 12
     are the graphdb keys, the other 3 were drift that had accumulated since the
-    previous re-derivation.
+    previous re-derivation. Re-derived again at 287 when the graph MCP server
+    added `services.graphdb.query_timeout_s` and `query_max_rows` to the same
+    block — exactly two keys, both in the two app templates that already
+    carried the block, so no other template's key set moved.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no

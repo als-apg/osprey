@@ -381,10 +381,10 @@
             "CONTROL": {
               "_description": "Valve Control Commands: Commands to actuate valve.",
               "OPEN": {
-                "_description": "Open Command (write): Command to open valve."
+                "_description": "Open Command: Command channel to open valve."
               },
               "CLOSE": {
-                "_description": "Close Command (write): Command to close valve."
+                "_description": "Close Command: Command channel to close valve."
               }
             },
             "STATUS": {

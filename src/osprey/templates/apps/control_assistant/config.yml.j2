@@ -272,12 +272,26 @@ services:
                           # which is what its remedies name. Both ports publish
                           # on the project-wide `deployment.bind_address`
                           # (default 127.0.0.1); no per-service bind_address.
-    ttl_path: ./services/graphdb/als_gtb.ttl
+    ttl_path: ./data/demo_machine.ttl
                           # Corpus to seed the store from, resolved against this
                           # file's directory (the same rule as
-                          # `facility_knowledge.bundle_path`). Ships with the
-                          # example graph; point it at your own TTL. Comment it
-                          # out to bring the store up bootstrapped but empty.
+                          # `facility_knowledge.bundle_path`). This one is the
+                          # demo machine — the same devices and channels the
+                          # channel database in `data/` describes, rebuilt as a
+                          # graph, so the agent's graph answers and its channel
+                          # search agree. Regenerate it after editing the
+                          # channel database with:
+                          #   osprey knowledge build-ttl data/demo_machine.ttl
+                          # (in a four-zone repo the render under build/ is
+                          # disposable — regenerate into your profile's data
+                          # tree and rebuild). A build profile that ships its
+                          # own `data:` tree replaces this directory wholesale,
+                          # so it must set this key in its `config:` overlay.
+                          # The ALS corpus stays available at
+                          # ./services/graphdb/als_gtb.ttl — point this key
+                          # there, or at your own TTL, to seed that instead.
+                          # Comment it out to bring the store up bootstrapped
+                          # but empty.
     # JVM memory. Neo4j sizes nothing automatically inside a container — left
     # unset it reads the HOST's memory and picks numbers the container's own
     # limit will not honour — so all three are spelled out. Budget roughly
@@ -287,6 +301,16 @@ services:
     heap_max_size: 1G         # Ceiling the heap may grow to
     pagecache_size: 512m      # Off-heap cache for graph data and indexes,
                               # separate from the heap and NOT taken out of it
+    # Query bounds, read by the agent's `read_cypher` tool. Both cap a SINGLE
+    # question rather than the store: the timeout is handed to the server,
+    # which cancels the transaction itself, and the row cap decides how much of
+    # a broad match comes back. Raising them spends the agent's context window,
+    # not the store's memory — a few thousand rows crowd out the conversation
+    # long before they trouble Neo4j.
+    query_timeout_s: 15   # Server-side transaction timeout for one agent
+                          # query, in seconds.
+    query_max_rows: 200   # Rows returned per query before truncation; the tool
+                          # says when it cut.
 
 # Services to deploy with `osprey up`
 deployed_services:
