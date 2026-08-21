@@ -35,6 +35,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `save_artifact()` inside `execute` now stores a Bokeh layout as a dashboard
+  rather than as its text representation, and a `category` passed from
+  visualization code stays on the artifact.
+- The pyAT specialist and data visualizer no longer carry the
+  file-registration tool; the specialist's results artifact is saved as JSON
+  from the code that computed it.
 - ARIEL keyword search now keeps raw and semantic full-text indexes in sync;
   semantic summaries and keywords reach keyword and hybrid retrieval immediately,
   and existing QMD mirrors backfill automatically after the renderer changes.
@@ -185,6 +191,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   deployment says a variable is mandatory.
 
 ### Changed
+
+- The workspace tool that registers a file on disk, or literal text, as a
+  gallery artifact is now `artifact_register` (was `artifact_save`), and
+  inline `content` must name its `content_type`. `save_artifact()` inside
+  `execute` is unchanged and remains the way to save a live Python object.
 
 - CI measures coverage on the Python 3.12 cell with PEP 669 tracing
   (`COVERAGE_CORE=sysmon`) rather than on the 3.11 cell, where coverage.py

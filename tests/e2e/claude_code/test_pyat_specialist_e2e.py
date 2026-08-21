@@ -348,6 +348,10 @@ def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowRe
 
 
 @pytest.mark.asyncio
+# The retries absorb the LLM's turn-to-turn variance and nothing else. The
+# results-artifact assertion below is a contract: when it fails on every
+# attempt, the subagent's save path has regressed — widen neither the retries
+# nor the match.
 @pytest.mark.flaky(reruns=2)
 async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     """The subagent's saved numbers match ground truth; prose carries provenance.
