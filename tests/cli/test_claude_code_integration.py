@@ -1383,5 +1383,243 @@ class TestRenderContextDoesNotFork:
         assert derived["control_system_type"] == "epics"
 
 
+class TestConfigDerivedKeysPrecedeServerResolution:
+    """A server gated on a config-derived key resolves enabled on BOTH paths.
+
+    ``ServerDefinition.condition`` is a plain truthiness test on a context KEY
+    NAME — ``ctx.get(sdef.condition)`` — and a key that is not in the context
+    yet reads as absent. The build path used to merge
+    ``config_derived_context`` *after* ``resolve_servers``, so a server gated on
+    one of those keys came out disabled, silently and with no warning, while the
+    create_project path (which merges before resolving) enabled the same server.
+    Both merges now precede resolution; these two tests are what say so.
+
+    The probe server is synthetic on purpose: no shipped server is gated on a
+    config-derived key today, and pinning the ordering must not wait for one.
+    """
+
+    @staticmethod
+    def _framework_servers_with_probe():
+        import copy
+
+        from osprey.registry.mcp import FRAMEWORK_SERVERS, ServerDefinition
+
+        servers = copy.deepcopy(FRAMEWORK_SERVERS)
+        servers["ctx-probe"] = ServerDefinition(
+            name="ctx-probe",
+            module="osprey.mcp_server.health",
+            # Always truthy out of config_derived_context: it defaults to "mock".
+            condition="control_system_type",
+            env={},
+        )
+        return servers
+
+    def test_build_context_resolves_a_config_derived_condition(self, tmp_path, monkeypatch):
+        from osprey.cli.templates import claude_code
+        from osprey.registry import mcp as registry_mcp
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-probe-build",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        monkeypatch.setattr(registry_mcp, "FRAMEWORK_SERVERS", self._framework_servers_with_probe())
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+
+        assert ctx["control_system_type"], (
+            "the condition key must be truthy for this to mean anything"
+        )
+        assert "ctx-probe" in ctx["enabled_servers"]
+
+    def test_create_project_resolves_a_config_derived_condition(self, tmp_path, monkeypatch):
+        from osprey.cli.templates import claude_code
+        from osprey.registry import mcp as registry_mcp
+
+        monkeypatch.setattr(registry_mcp, "FRAMEWORK_SERVERS", self._framework_servers_with_probe())
+
+        captured: dict = {}
+        real_integration = claude_code.create_claude_code_integration
+
+        def _capture(template_root, jinja_env, project_dir, ctx, allowed_outputs=None):
+            captured.update(ctx)
+            return real_integration(template_root, jinja_env, project_dir, ctx, allowed_outputs)
+
+        monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
+
+        TemplateManager().create_project(
+            project_name="ctx-probe-create",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        assert captured["control_system_type"]
+        assert "ctx-probe" in captured["enabled_servers"]
+
+
+class TestGraphdbConfiguredContextKey:
+    """``graphdb_configured`` and ``graph_tools``, the graph server's two gates.
+
+    ``graphdb_configured`` is the ``condition=`` of the ``graph``
+    ``ServerDefinition``: truthy exactly when the project declares a
+    ``services.graphdb`` block, so a project without a store never renders a
+    server whose every tool could only fail. It borrows
+    ``resolve_graphdb_service_config``'s reading of the block rather than
+    re-implementing it, which is what these tests pin — mapping-valued vs bare
+    ``null`` vs absent, and a malformed block warned about instead of raised.
+    """
+
+    @staticmethod
+    def _derive(config):
+        from pathlib import Path
+
+        from osprey.cli.templates import claude_code
+
+        return claude_code.config_derived_context(config, Path("."))
+
+    @staticmethod
+    def _expected_graph_tools():
+        from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+        return [f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow]
+
+    def test_graphdb_configured_true_for_a_present_block(self):
+        derived = self._derive({"services": {"graphdb": {"port_host": 7687}}})
+        assert derived["graphdb_configured"] is True
+
+    def test_graphdb_configured_false_when_the_block_is_absent(self):
+        assert self._derive({"services": {"postgresql": {}}})["graphdb_configured"] is False
+        assert self._derive({})["graphdb_configured"] is False
+
+    def test_graphdb_configured_true_for_an_empty_mapping(self):
+        """``graphdb: {}`` is a fully-defaulted store, not an absent one."""
+        assert self._derive({"services": {"graphdb": {}}})["graphdb_configured"] is True
+
+    def test_graphdb_configured_false_for_a_bare_null_block(self):
+        """``graphdb:`` with no value parses as ``None`` — the block is not there."""
+        config = yaml.safe_load("services:\n  graphdb:\n")
+        assert config["services"]["graphdb"] is None, "the YAML shape under test"
+        assert self._derive(config)["graphdb_configured"] is False
+
+    def test_graphdb_configured_warns_and_falls_back_on_a_malformed_block(self, caplog):
+        """A bad key costs the graph tools and a loud warning, never the render."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="osprey.cli.templates"):
+            derived = self._derive({"services": {"graphdb": {"port_host": "seven-thousand"}}})
+
+        assert derived["graphdb_configured"] is False
+        assert derived["graph_tools"] == self._expected_graph_tools()
+        assert len(caplog.records) == 1
+        message = caplog.records[0].getMessage()
+        assert "services.graphdb.port_host" in message, "the warning must name the offending key"
+        assert "seven-thousand" in message, "and repeat the resolver's own account of why"
+
+    def test_graphdb_configured_render_completes_with_a_malformed_block(self, tmp_path):
+        """The build path renders every artifact even when the block is bad."""
+        from osprey.cli.templates import claude_code
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graphdb-malformed",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("services", {})["graphdb"] = {"heap_max_size": "enormous"}
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+
+        assert ctx["graphdb_configured"] is False
+        assert "graph" not in ctx["enabled_servers"]
+        assert ctx["project_name"] == "graphdb-malformed", "the rest of the context is intact"
+
+    def test_graphdb_configured_ships_the_registry_graph_tools(self):
+        """``graph_tools`` is the registry's list, qualified, and never guessed."""
+        expected = self._expected_graph_tools()
+        assert expected == [
+            "mcp__graph__capabilities",
+            "mcp__graph__example_queries",
+            "mcp__graph__get_schema",
+            "mcp__graph__read_cypher",
+        ]
+        for config in ({"services": {"graphdb": {}}}, {}):
+            assert self._derive(config)["graph_tools"] == expected
+
+    def test_graphdb_configured_gates_the_graph_server_on_the_build_path(self, tmp_path):
+        from osprey.cli.templates import claude_code
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graphdb-build-path",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+
+        config.setdefault("services", {})["graphdb"] = {"port_host": 7687}
+        with_store = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        assert with_store["graphdb_configured"] is True
+        assert "graph" in with_store["enabled_servers"]
+
+        config["services"].pop("graphdb")
+        without_store = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        assert without_store["graphdb_configured"] is False
+        assert "graph" not in without_store["enabled_servers"]
+
+    @pytest.mark.parametrize("deploy_services", [True, False])
+    def test_graphdb_configured_gates_the_graph_server_on_the_create_path(
+        self, tmp_path, monkeypatch, deploy_services
+    ):
+        """create_project agrees with the build path, block present or not.
+
+        ``deploy_services: false`` renders ``services: {}`` — the attached-project
+        arm of the app template — which is how this path gets a project with no
+        graph store without editing the rendered config after the fact.
+        """
+        from osprey.cli.templates import claude_code
+
+        captured: dict = {}
+        real_integration = claude_code.create_claude_code_integration
+
+        def _capture(template_root, jinja_env, project_dir, ctx, allowed_outputs=None):
+            captured.update(ctx)
+            return real_integration(template_root, jinja_env, project_dir, ctx, allowed_outputs)
+
+        monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
+
+        project_dir = TemplateManager().create_project(
+            project_name=f"graphdb-create-{str(deploy_services).lower()}",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={
+                "channel_finder_mode": "hierarchical",
+                "deploy_services": deploy_services,
+            },
+        )
+
+        rendered = yaml.safe_load((project_dir / "config.yml").read_text())
+        block = (rendered.get("services") or {}).get("graphdb")
+        assert (block is not None) is deploy_services, "the config shape under test"
+
+        assert captured["graphdb_configured"] is deploy_services
+        assert ("graph" in captured["enabled_servers"]) is deploy_services
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

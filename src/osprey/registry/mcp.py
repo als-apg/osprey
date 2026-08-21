@@ -439,6 +439,31 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
     ),
+    "graph": ServerDefinition(
+        name="graph",
+        module="osprey.mcp_server.graph",
+        env={
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
+        # Conditional on a declared graph store: ``graphdb_configured`` is a
+        # config-derived context key that is truthy only when the project
+        # configures ``services.graphdb``. Without the store there is nothing to
+        # query, so the server is left out of the render entirely rather than
+        # shipped as a tool that can only fail.
+        condition="graphdb_configured",
+        # Read-only knowledge-graph search — every tool reads and nothing the
+        # agent passes at call time can mutate the store, so there is no
+        # approval / writes-check hook here and permissions_ask stays empty:
+        # read_cypher runs inside a read-mode transaction that the store itself
+        # rejects writes in, and its Cypher gate refuses extension procedures /
+        # functions and LOAD CSV before dialing; get_schema and example_queries
+        # serve metadata, and capabilities is a static manifest.
+        permissions_allow=["capabilities", "example_queries", "get_schema", "read_cypher"],
+        permissions_ask=[],
+        hooks_post=[_post_error("mcp__graph__.*")],
+    ),
 }
 
 

@@ -214,6 +214,68 @@ def _derive_runtime_interpreter(
     return sys.executable
 
 
+def _graphdb_configured(config: dict) -> bool:
+    """Whether this project declares a graph store to query.
+
+    Truthy exactly when ``services.graphdb`` is a mapping — including the
+    fully-defaulted ``graphdb: {}`` — and falsy when the key is absent or is the
+    bare ``graphdb:`` that YAML parses as ``None``. That is
+    :func:`~osprey.deployment.graphdb_service.resolve_graphdb_service_config`'s
+    own reading of the block, borrowed rather than re-implemented so the render
+    and the deploy cannot disagree about whether a store exists.
+
+    A malformed block is *warned* about and treated as absent. The resolver
+    raises on one, because a deploy that publishes a port nobody dials is worse
+    than a refusal — but this caller is a render, and aborting it over a bad
+    heap size would take out every unrelated artifact in the build. Dropping the
+    graph server instead costs the agent its graph tools and says so loudly.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+
+    Returns:
+        Whether the graph MCP server has a store to point at.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+
+    try:
+        return resolve_graphdb_service_config(config) is not None
+    except ValueError as exc:
+        logger.warning(
+            "services.graphdb is malformed (%s) — rendering as if no graph store were "
+            "configured, so the graph MCP server and its tools are left out of this "
+            "project. Fix the key named above in config.yml and re-render.",
+            exc,
+        )
+        return False
+
+
+def _graph_tool_names() -> list[str]:
+    """Fully-qualified names of the graph server's tools, in registry order.
+
+    Derived from the ``graph`` :class:`~osprey.registry.mcp.ServerDefinition`'s
+    ``permissions_allow`` — the same list the server's permission rules render
+    from — so a tool added to or dropped from the server reaches every consumer
+    of this key without a second spelling of the tool names anywhere.
+
+    The registry holds BARE names (``settings.json.j2`` splices the prefix on);
+    the names are qualified here because the consumer is an agent's frontmatter
+    ``tools:`` list, which mixes tools from several servers and so has no single
+    prefix to splice. Qualifying at the one place that already knows the server
+    name keeps ``mcp__graph__`` out of the templates entirely.
+
+    Returns:
+        ``["mcp__graph__capabilities", ...]``, or ``[]`` if the registry carries
+        no ``graph`` server.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    graph = FRAMEWORK_SERVERS.get("graph")
+    if graph is None:
+        return []
+    return [f"mcp__{graph.name}__{tool}" for tool in graph.permissions_allow]
+
+
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read straight out of a project's ``config.yml``.
 
@@ -258,6 +320,19 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "control_system_write_tools": control_system.get("write_tools", []),
         # Control system type for protocol-aware safety rules
         "control_system_type": control_system.get("type", "mock"),
+        # Gate for the `graph` MCP server: a ServerDefinition condition is a
+        # plain truthiness test on this key, so it must be merged into the
+        # context BEFORE resolve_servers runs (both render paths do — see
+        # build_claude_code_context). Without a configured store the server is
+        # left out of the render entirely rather than shipped as a tool that
+        # can only fail.
+        "graphdb_configured": _graphdb_configured(config),
+        # The graph server's tools, fully qualified, for the agent frontmatter
+        # that splices them into a `tools:` list. Written unconditionally — an
+        # agent template must be able to iterate it without a `| default([])`,
+        # which is what let the channel-finder list render as empty on a path
+        # that forgot to set it.
+        "graph_tools": _graph_tool_names(),
     }
 
 
@@ -359,6 +434,17 @@ def build_claude_code_context(
         "selected_hooks": selected_hooks,
     }
 
+    # Everything the templates read straight out of config.yml, in the one
+    # spelling the create_project render path shares (see config_derived_context).
+    #
+    # Merged HERE, before the registry resolves servers and agents, because a
+    # `condition=` on a ServerDefinition is a plain truthiness test on a ctx key:
+    # a key that lands after resolution reads as absent, and the server is
+    # silently disabled with no warning. create_project merges the same helper
+    # before its own resolve_servers call, so this is also what keeps the two
+    # paths from forking on any server gated by a config-derived key.
+    ctx.update(config_derived_context(config, project_dir))
+
     # Derive channel finder configuration
     channel_finder = config.get("channel_finder")
     if channel_finder and "channel-finder" in artifacts.get("agents", []):
@@ -418,10 +504,6 @@ def build_claude_code_context(
                         _tool,
                         _srv["name"],
                     )
-
-    # Everything the templates read straight out of config.yml, in the one
-    # spelling the create_project render path shares (see config_derived_context).
-    ctx.update(config_derived_context(config, project_dir))
 
     apply_textbooks_root(ctx, project_dir)
 
