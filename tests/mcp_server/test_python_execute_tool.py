@@ -1305,14 +1305,28 @@ async def test_execute_tool_description_has_no_hardcoded_list():
     """The registered tool description is generated, not the old literal list."""
     from osprey.mcp_server.python_executor.server import mcp
     from osprey.mcp_server.python_executor.tools import python_execute  # noqa: F401
+    from osprey.mcp_server.python_executor.tools._package_inventory import PACKAGE_LINE_PREFIX
 
     description = (await mcp.get_tool("execute")).description
 
     assert "(e.g. numpy, pandas, scipy, at, matplotlib, plotly)" not in description
     assert "<<AVAILABLE_PACKAGES>>" not in description
     assert (
-        "Packages importable in the execution environment include:" in description
+        PACKAGE_LINE_PREFIX in description
         or "The set of installed packages could not be determined" in description
+    )
+
+    # The backend is subprocess-only. The rendered package line is excluded from
+    # the container check: it names whatever the environment installed, and a
+    # package name is not a backend claim.
+    prose = "\n".join(
+        line
+        for line in description.splitlines()
+        if not line.strip().startswith(PACKAGE_LINE_PREFIX)
+    )
+    assert "subprocess" in prose.lower(), "description must say code runs in a subprocess"
+    assert "container" not in prose.lower(), (
+        "description must not claim a container backend; execution is subprocess-only"
     )
 
 

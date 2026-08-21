@@ -533,3 +533,25 @@ async def test_execute_file_readonly_refuses_epics_import(tmp_path, monkeypatch)
 
     assert any("epics" in s for s in _exc_ctx["envelope"]["suggestions"])
     mock_exec.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_execute_file_tool_description_has_no_container_claim():
+    """The registered tool description says subprocess, not the old container claim."""
+    from osprey.mcp_server.python_executor.server import mcp
+    from osprey.mcp_server.python_executor.tools import python_execute_file  # noqa: F401
+    from osprey.mcp_server.python_executor.tools._package_inventory import PACKAGE_LINE_PREFIX
+
+    description = (await mcp.get_tool("execute_file")).description
+
+    # execute_file has no package placeholder today, but filter the same way
+    # execute's test does for symmetry, so this stays safe if one is ever added.
+    prose = "\n".join(
+        line
+        for line in description.splitlines()
+        if not line.strip().startswith(PACKAGE_LINE_PREFIX)
+    )
+    assert "subprocess" in prose.lower(), "description must say code runs in a subprocess"
+    assert "container" not in prose.lower(), (
+        "description must not claim a container backend; execution is subprocess-only"
+    )
