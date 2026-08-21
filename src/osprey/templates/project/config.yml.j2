@@ -304,6 +304,10 @@ archiver:
   #   - mock_archiver: Development mode (generates synthetic data)
   #   - epics_archiver: EPICS Archiver Appliance (add an `epics_archiver.url`)
   type: mock_archiver  # Change to 'epics_archiver' for production
+  # When a read names no bin size, the bin is chosen from the time span so a
+  # continuously archived channel returns about this many points (1 s bins up
+  # to ~2.8 h, ~53 min bins for a year). The agent is told which bin was used.
+  auto_bin_points: 10000
   # epics_archiver:
   #   url: https://archiver.example.com  # Replace with your archiver address
   #   timeout: 60

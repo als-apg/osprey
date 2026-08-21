@@ -48,6 +48,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   look one `.claude` too deep).
 - `osprey up`: a persona whose config reads an authenticated archiver now
   receives the store's password variable in its terminal container.
+- `archiver_read` no longer defaults to 1-second bins regardless of span
+  (#117): without an explicit `bin_size` the bin is derived from the time
+  range to target `archiver.auto_bin_points` (default 10 000) per channel, and
+  the summary reports the bin used. Reads under ~2.8 hours are unchanged.
 
 ### Added
 
