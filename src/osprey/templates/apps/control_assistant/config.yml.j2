@@ -332,22 +332,25 @@ control_system:
     allow_unlisted_channels: true  # Permissive mode for tutorial
 
   # Write Verification Configuration
-  # How the connector confirms a write took effect. The level below applies only when
-  # the caller does not name one: osprey.runtime.write_channel scripts and direct
-  # connector calls. The channel_write MCP tool, multi-channel writes, and Bluesky
-  # device writes pass an explicit level ("callback"); for those, only a per-channel
-  # "verification" entry in channel_limits.json changes the level, and only on
-  # single-channel tool writes.
-  # A failed verification is not a hard stop. The channel_write MCP tool reports it in
-  # its result (verification.verified: false); osprey.runtime.write_channel discards it
-  # (a readback mismatch is logged at debug level only); only write_channel_checked
-  # raises (plans, which write through the Bluesky bridge's connector-backed
-  # devices). A write the CA layer could not deliver at all - for example a PV that
-  # never connects - is different: it sets success: false, which does raise from
-  # osprey.runtime.write_channel and shows up as a failed write in the MCP tool.
+  # How the connector confirms a write took effect. Every write - single or batch,
+  # from the channel_write MCP tool or from osprey.runtime - resolves its level and
+  # its tolerance through the same four layers, most specific first: the channel's
+  # "verification" entry in channel_limits.json, then that database's "defaults"
+  # block, then the connector config below, then "callback".
+  # The keys below are that third layer: control_system.write_verification.default_level
+  # and control_system.write_verification.default_tolerance_percent.
+  # A caller that names a level explicitly gets exactly that level, and the
+  # per-channel tolerance still applies to it. The channel_write MCP tool names one
+  # only when asked, and a batch write names one only when asked, so each channel in
+  # a batch resolves its own entry exactly as a single write does.
+  # A failed verification is a hard stop on the Python path: osprey.runtime.write_channel
+  # routes through write_channel_checked and raises ChannelWriteFailedError. The
+  # channel_write MCP tool does not raise; it reports the outcome in write_state and
+  # verification.verified. A write the CA layer could not deliver at all - for example
+  # a PV that never connects - sets success: false on both paths.
   write_verification:
     default_level: callback  # Options: none, callback, readback
-                            # - none: Fast write, no verification (off, on the paths above)
+                            # - none: Fast write, no verification
                             # - callback: Control system confirms processing (e.g., EPICS IOC callback)
                             # - readback: Full verification with readback comparison
     default_tolerance_percent: 0.1  # Default tolerance: 0.1% (one per mil)
