@@ -2,15 +2,16 @@
 
 Scenarios 9-10: Master kill switch (writes_enabled: false) blocks all writes.
 
-Uses run_sdk_query_with_hooks to exercise the full hook chain. Kill switch
-returns "deny" (not "ask"), so hook_events should be EMPTY.
+Uses run_sdk_query_with_hooks to exercise the full hook chain. The kill switch
+must deny write paths before they reach approval; unrelated tool hooks may fire.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
+from osprey.agent_runner.write_tools import load_write_tools
+from tests.e2e.sdk_helpers import render_dir, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
 
@@ -88,10 +89,25 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
         f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
-    # Kill switch returns "deny" (not "ask"), so no approval callback fires
-    assert len(result.hook_events) == 0, (
-        f"Expected no hook_events (kill switch denies before ask) "
-        f"but got {len(result.hook_events)}: "
+    # ``hook_events`` records every can_use_tool callback, not only hardware
+    # write approvals. Read-only preparation (for example, channel_limits) may
+    # legitimately produce an allow event. The kill-switch invariant is that no
+    # write-gated invocation reaches approval. ``execute`` is a mixed read/write
+    # tool, so its default readonly mode is not a write attempt.
+    write_tool_names = set(load_write_tools(render_dir(safety_project_writes_off)))
+    write_approval_events = [
+        event
+        for event in result.hook_events
+        if event.tool_name in write_tool_names
+        and (
+            event.tool_name != "mcp__python__execute"
+            or event.tool_input.get("execution_mode", "readonly") != "readonly"
+        )
+    ]
+    assert not write_approval_events, (
+        "Kill switch breached: write path reached the approval callback: "
+        f"{[(e.tool_name, e.tool_input, e.decision) for e in write_approval_events]}. "
+        f"All hook events: "
         f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
     )
 
