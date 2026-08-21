@@ -45,7 +45,14 @@ def make_row(
 
 def render(rows, *, phase_open=False, elapsed=0.0, now=0.0, width=100, styles=False) -> str:
     """Render the region at ``width`` and return what a terminal would show."""
-    console = Console(theme=osprey_theme, width=width, record=True, force_terminal=True)
+    console = Console(
+        theme=osprey_theme,
+        width=width,
+        record=True,
+        force_terminal=True,
+        color_system="standard",
+        no_color=False,
+    )
     console.print(
         render_live_region(rows, phase_open=phase_open, elapsed=elapsed, now=now, width=width)
     )
@@ -279,7 +286,12 @@ def test_region_follows_the_active_theme() -> None:
 
     def styled(theme: ColorTheme) -> str:
         console = Console(
-            theme=_build_rich_theme(theme), width=100, record=True, force_terminal=True
+            theme=_build_rich_theme(theme),
+            width=100,
+            record=True,
+            force_terminal=True,
+            color_system="standard",
+            no_color=False,
         )
         console.print(render_live_region(rows, phase_open=True, elapsed=1.0, now=1.0, width=100))
         return console.export_text(styles=True)

@@ -902,7 +902,7 @@ class TestSearchQueries:
         ]
         sql, params = pool.calls[0]
         body = _sql_body(sql)
-        assert "ts_headline('english', raw_text" in body
+        assert "ts_headline('english', raw_text || ' ' || COALESCE(summary, '')" in body
         assert "WHERE author = %s" in body
         assert params == ["beam lost", "beam lost", "operator", 5]
 
@@ -926,6 +926,25 @@ class TestSearchQueries:
         assert "NULL AS headline" in body
         assert "WHERE TRUE" in body
         assert params == ["quench", 10]
+
+    async def test_keyword_search_without_semantic_processor_uses_core_fts(self, fake_pool) -> None:
+        """Default-off semantic processing leaves keyword search on the core raw_text index."""
+        config = _make_config(enhancement_modules={"semantic_processor": {"enabled": False}})
+        repo = ARIELRepository(fake_pool, config)
+
+        assert (
+            await repo.keyword_search(
+                where_clauses=[],
+                params=[],
+                search_text="quench",
+                include_highlights=False,
+            )
+            == []
+        )
+
+        body = _sql_body(fake_pool.calls[0][0])
+        assert "to_tsvector('english', raw_text)" in body
+        assert "COALESCE(summary, '')" not in body
 
     async def test_fuzzy_search_without_date_filters(self, fake_pool_factory) -> None:
         """Similarity threshold is the only filter when no dates are given."""

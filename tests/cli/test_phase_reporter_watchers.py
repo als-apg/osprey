@@ -92,7 +92,14 @@ def sink(monkeypatch):
     monkeypatch.setattr(
         phase_reporter,
         "console",
-        Console(file=buffer, theme=osprey_theme, force_terminal=True, width=200),
+        Console(
+            file=buffer,
+            theme=osprey_theme,
+            force_terminal=True,
+            color_system="standard",
+            no_color=False,
+            width=200,
+        ),
     )
     return buffer
 

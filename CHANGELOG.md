@@ -33,6 +33,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   `selective` policy, independent of whether the write-pattern scanner
   recognises the code's spelling.
 
+### Fixed
+
+- ARIEL keyword search now keeps raw and semantic full-text indexes in sync;
+  semantic summaries and keywords reach keyword and hybrid retrieval immediately,
+  and existing QMD mirrors backfill automatically after the renderer changes.
+- The pyAT specialist now saves and confirms a structured lattice-analysis
+  JSON artifact before returning computed optics results.
+
 ### Added
 
 - Web Terminal users can now send feedback from the terminal itself. A

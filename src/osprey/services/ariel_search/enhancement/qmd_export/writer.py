@@ -192,6 +192,8 @@ def render_entry(entry: Mapping[str, Any]) -> str:
     author = sanitize_text(entry.get("author")).strip()
     source = sanitize_text(entry.get("source_system")).strip()
     raw_text = sanitize_text(entry.get("raw_text")).strip()
+    summary = sanitize_text(entry.get("summary")).strip()
+    keywords = _render_keywords(entry.get("keywords"))
     stamp = _format_timestamp(entry.get("timestamp"))
 
     lines = [
@@ -203,6 +205,10 @@ def render_entry(entry: Mapping[str, Any]) -> str:
     metadata_line = _render_metadata(entry.get("metadata"))
     if metadata_line:
         lines.append(metadata_line)
+    if summary:
+        lines.append(f"Summary: {_sentence(summary)}")
+    if keywords:
+        lines.append(f"Keywords: {_sentence(keywords)}")
     lines.extend(["", raw_text])
 
     document = "\n".join(lines).rstrip("\n") + "\n"
@@ -382,6 +388,26 @@ def _render_metadata(metadata: Any) -> str:
             continue
         fragments.append(f"{sanitize_text(key).strip()}: {text}.")
     return " ".join(fragments)
+
+
+def _render_keywords(keywords: Any) -> str:
+    """Render semantic keywords as deterministic searchable prose."""
+    if not isinstance(keywords, list | tuple):
+        return ""
+
+    rendered = []
+    for keyword in keywords:
+        text = sanitize_text(keyword).strip()
+        if text:
+            rendered.append(text)
+    if not rendered:
+        return ""
+    return f"{', '.join(rendered)}"
+
+
+def _sentence(text: str) -> str:
+    """End rendered enrichment prose with exactly one sentence terminator."""
+    return text if text.endswith((".", "!", "?")) else f"{text}."
 
 
 def _apply_cap(document: str) -> str:

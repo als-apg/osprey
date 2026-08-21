@@ -44,11 +44,22 @@ def recording_console(*, terminal: bool = False) -> tuple[Console, io.StringIO]:
 
     The theme is not optional: the card's heading and labels are semantic
     tokens, and a bare ``Console()`` raises ``MissingStyle`` on the first one.
-    ``terminal`` asks for the styled rendering; the default plain one is what
-    every line assertion here reads.
+    Explicit color settings keep the terminal rendering independent of
+    ``NO_COLOR`` and ``TERM``; the default non-terminal rendering stays plain
+    for every line assertion here.
     """
     buffer = io.StringIO()
-    return Console(file=buffer, theme=osprey_theme, force_terminal=terminal, width=200), buffer
+    return (
+        Console(
+            file=buffer,
+            theme=osprey_theme,
+            force_terminal=terminal,
+            color_system="standard" if terminal else None,
+            no_color=not terminal,
+            width=200,
+        ),
+        buffer,
+    )
 
 
 class RecordingReporter(PhaseReporter):

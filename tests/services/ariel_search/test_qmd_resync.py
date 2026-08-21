@@ -210,8 +210,7 @@ class TestIncrementalResync:
         assert result is not None
         assert (result.scanned, result.written, result.unchanged, result.failed) == (1, 1, 0, 0)
         assert _mirrored(tmp_path, "42").read_text(encoding="utf-8").startswith("# Entry 42")
-        watermark = (tmp_path / ops.QMD_WATERMARK_NAME).read_text(encoding="utf-8").strip()
-        assert datetime.fromisoformat(watermark) == _EARLIER
+        assert ops._read_qmd_watermark(tmp_path) == _EARLIER
         assert result.watermark == _EARLIER
 
     @pytest.mark.asyncio
@@ -237,7 +236,7 @@ class TestIncrementalResync:
 
     @pytest.mark.asyncio
     async def test_stored_watermark_bounds_the_next_scan(self, monkeypatch, tmp_path) -> None:
-        (tmp_path / ops.QMD_WATERMARK_NAME).write_text(f"{_EARLIER.isoformat()}\n", "utf-8")
+        ops._write_qmd_watermark(tmp_path, _EARLIER)
         pool = _FakePool(rows_for={"FROM enhanced_entries": []})
         _patch_pool(monkeypatch, pool)
 
@@ -246,6 +245,18 @@ class TestIncrementalResync:
         sql, params = pool.calls[0]
         assert "updated_at >= %s" in " ".join(sql.split())
         assert params == [_EARLIER, ops.QMD_RESYNC_PAGE_SIZE]
+
+    @pytest.mark.asyncio
+    async def test_legacy_watermark_forces_renderer_backfill(self, monkeypatch, tmp_path) -> None:
+        """A pre-version marker cannot suppress rows needing the new document format."""
+        marker = tmp_path / ops.QMD_WATERMARK_NAME
+        marker.write_text(f"{_EARLIER.isoformat()}\n", encoding="utf-8")
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(_config(tmp_path))
+
+        assert "WHERE" not in pool.calls[0][0]
 
     @pytest.mark.asyncio
     async def test_unparsable_watermark_falls_back_to_a_full_scan(
@@ -262,15 +273,14 @@ class TestIncrementalResync:
 
     @pytest.mark.asyncio
     async def test_empty_scan_leaves_the_watermark_alone(self, monkeypatch, tmp_path) -> None:
-        (tmp_path / ops.QMD_WATERMARK_NAME).write_text(f"{_EARLIER.isoformat()}\n", "utf-8")
+        ops._write_qmd_watermark(tmp_path, _EARLIER)
         _patch_pool(monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": []}))
 
         result = await ops.run_qmd_resync(_config(tmp_path))
 
         assert result is not None
         assert result.scanned == 0
-        stored = (tmp_path / ops.QMD_WATERMARK_NAME).read_text(encoding="utf-8").strip()
-        assert datetime.fromisoformat(stored) == _EARLIER
+        assert ops._read_qmd_watermark(tmp_path) == _EARLIER
 
     @pytest.mark.asyncio
     async def test_watermark_takes_the_highest_updated_at(self, monkeypatch, tmp_path) -> None:
