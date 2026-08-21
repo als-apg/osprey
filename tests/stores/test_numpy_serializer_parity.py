@@ -1,11 +1,12 @@
-"""The numpy branch in the two object serializers, and their parity.
+"""The object serializer, reached in-process and from the executor subprocess.
 
-Osprey serializes "save this object" twice, by design: once in-process
-(``ArtifactStore._serialize_object``) and once as *source text* injected into
-the python-executor subprocess (``ExecutionWrapper._get_save_artifact_injection``).
-The two are duplicated on purpose and drift silently, so the numpy branch is
-pinned on both sides here, plus a behavioural parity check — the same array
-must reach the same ``.npy`` decision whichever path saved it.
+"Save this object" has one serializer (``artifact_store.serialize_object``)
+and two callers: ``ArtifactStore.save_object`` in-process, and the
+``save_artifact()`` *source text* injected into the python-executor subprocess
+(``ExecutionWrapper._get_save_artifact_injection``), which imports it. The
+branches are pinned through both callers, plus a behavioural parity check —
+the same object must reach the same decision whichever path saved it — so a
+subprocess shim that stopped delegating would fail here, not in a gallery.
 
 Parity is asserted behaviourally (run both, compare the outcome), never by
 matching source strings, because a string match would pass on a branch that is
@@ -23,11 +24,21 @@ import numpy as np
 import pytest
 
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-from osprey.stores.artifact_store import ArtifactStore, _serialize_object
+from osprey.stores.artifact_store import ArtifactStore, serialize_object
 
 pytestmark = pytest.mark.unit
 
 ARRAY = np.arange(12, dtype=np.uint16).reshape(3, 4)
+
+
+def _bokeh_layout():
+    from bokeh.layouts import column
+    from bokeh.plotting import figure
+
+    p = figure(title="t", width=200, height=150)
+    p.line([1, 2, 3], [4, 5, 6])
+    return column(p)
+
 
 NPY_MIME = "application/octet-stream"
 NPY_TYPE = "file"
@@ -96,7 +107,7 @@ class TestInProcessSerializer:
         assert loaded.dtype == ARRAY.dtype
 
     def test_ndarray_never_reaches_the_repr_fallback(self):
-        _content, artifact_type, filename, mime = _serialize_object(ARRAY, "frame")
+        _content, artifact_type, filename, mime = serialize_object(ARRAY, "frame")
 
         assert (artifact_type, Path(filename).suffix, mime) != ("text", ".txt", "text/plain")
 
@@ -113,7 +124,7 @@ class TestInProcessSerializer:
         """``np.save`` cannot write object dtypes without pickle, which stays off."""
         obj_array = np.array([{"a": 1}, None], dtype=object)
 
-        _content, artifact_type, filename, mime = _serialize_object(obj_array, "weird")
+        _content, artifact_type, filename, mime = serialize_object(obj_array, "weird")
 
         assert (artifact_type, Path(filename).suffix, mime) == ("text", ".txt", "text/plain")
 
@@ -130,9 +141,20 @@ class TestInProcessSerializer:
     )
     def test_existing_types_are_unchanged(self, obj, expected):
         """Scope guard: the numpy branch must not perturb any existing sniffing."""
-        _content, artifact_type, filename, mime = _serialize_object(obj, "thing")
+        _content, artifact_type, filename, mime = serialize_object(obj, "thing")
 
         assert (artifact_type, Path(filename).suffix, mime) == expected
+
+    def test_bokeh_model_saves_as_dashboard_html(self):
+        """A Bokeh layout is a dashboard, never the repr() text fallback."""
+        content, artifact_type, filename, mime = serialize_object(_bokeh_layout(), "dash")
+
+        assert (artifact_type, Path(filename).suffix, mime) == (
+            "dashboard_html",
+            ".html",
+            "text/html",
+        )
+        assert b"<html" in content.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +184,21 @@ class TestGeneratedSaveArtifact:
 
         assert entry["filename"].endswith(".txt")
         assert entry["artifact_type"] == "text"
+
+    def test_bokeh_model_saves_as_dashboard_html(self, tmp_path):
+        entry = _run_generated_save_artifact(tmp_path, _bokeh_layout())
+
+        assert entry["artifact_type"] == "dashboard_html"
+        assert entry["filename"].endswith(".html")
+
+    def test_explicit_type_and_category_reach_the_manifest(self, tmp_path):
+        """What the caller names wins over detection and rides along to the collector."""
+        entry = _run_generated_save_artifact(
+            tmp_path, {"tune_x": 0.1}, artifact_type="json", category="lattice_analysis"
+        )
+
+        assert entry["artifact_type"] == "json"
+        assert entry["category"] == "lattice_analysis"
 
     @pytest.mark.parametrize(
         ("obj", "expected"),

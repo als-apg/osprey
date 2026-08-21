@@ -372,6 +372,41 @@ class TestCollectAndRegisterArtifacts:
         assert entry.category == ""
         assert entry.source_agent == ""
 
+    def test_category_named_in_save_artifact_wins_over_the_tools(self, art_store, tmp_path: Path):
+        """save_artifact(..., category=) in the code is the more specific claim."""
+        from osprey.mcp_server.workspace.tools._viz_common import collect_and_register_artifacts
+
+        png = tmp_path / "orbit.png"
+        png.write_bytes(b"\x89PNG fake")
+        result = self._exec_result(png)
+        result.artifacts[0]["category"] = "lattice_analysis"
+
+        ids = collect_and_register_artifacts(
+            result, title="t", description="d", tool_source="create_static_plot", category="plot"
+        )
+
+        entry = art_store.get_entry(ids[0])
+        assert entry.category == "lattice_analysis"
+        assert entry.source_agent == "data-visualizer"
+
+    def test_tool_category_is_the_fallback(self, art_store, tmp_path: Path):
+        from osprey.mcp_server.workspace.tools._viz_common import collect_and_register_artifacts
+
+        png = tmp_path / "orbit.png"
+        png.write_bytes(b"\x89PNG fake")
+
+        ids = collect_and_register_artifacts(
+            self._exec_result(png),
+            title="t",
+            description="d",
+            tool_source="create_static_plot",
+            category="plot",
+        )
+
+        entry = art_store.get_entry(ids[0])
+        assert entry.category == "plot"
+        assert entry.source_agent == "data-visualizer"
+
 
 class TestBuildVizResponse:
     """The response dict assembled after artifact registration."""

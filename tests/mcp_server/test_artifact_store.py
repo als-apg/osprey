@@ -2,7 +2,7 @@
 
 Covers:
   - ArtifactStore: save_file, save_object, save_from_path, list/get
-  - Smart serialization (_serialize_object)
+  - Smart serialization (serialize_object)
   - save_artifact() injection into execute tool namespace
   - artifact_save MCP tool (file_path and content modes)
   - Artifact Gallery app routes
