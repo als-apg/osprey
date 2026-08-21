@@ -8,6 +8,7 @@ objects. To call the original async function in tests, use the `.fn` attribute:
     tool.fn(channels=["SR:CURRENT:RB"])
 """
 
+import asyncio
 import json
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock
@@ -109,6 +110,20 @@ def extract_response_dict(result) -> dict:
                 continue
         raise AssertionError(f"CallToolResult had no JSON-decodable text content: {result!r}")
     raise AssertionError(f"Unexpected tool result type: {type(result).__name__}: {result!r}")
+
+
+def registered_tool_names(mcp) -> list[str]:
+    """Tool names registered on a FastMCP server, across FastMCP versions.
+
+    ``get_tools()`` is a coroutine on newer FastMCP releases and a plain call on
+    older ones, and its result is a dict on some and a list of tools on others.
+    """
+    tools = mcp.get_tools() if hasattr(mcp, "get_tools") else mcp.list_tools()
+    if asyncio.iscoroutine(tools):
+        tools = asyncio.run(tools)
+    if isinstance(tools, dict):
+        return list(tools)
+    return [t.name for t in tools]
 
 
 @pytest.fixture(autouse=True)
