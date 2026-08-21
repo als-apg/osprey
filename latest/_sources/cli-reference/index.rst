@@ -33,6 +33,7 @@ names another one explicitly.
    osprey config             # Show the deployment configuration
    osprey chat               # Talk to this deployment's agent
    osprey users              # Manage web-terminal users
+   osprey feedback           # Read feedback sent from the web terminals
    osprey profile            # Validate and inspect build profiles
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
@@ -479,6 +480,79 @@ CI, pass it: without ``--output`` the assembled secrets go to the job log.
 
 See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
 verbs end to end.
+
+osprey feedback
+===============
+
+Read the feedback this deployment's web terminals collected. People using a web
+terminal can send a report from the terminal itself; each submission is stored
+with the session it was sent from, in the sender's own workspace, and these
+verbs read it back. Every verb takes ``--repo DIRECTORY``.
+
+A multi-user deployment keeps one store per person, and reading it starts a
+short-lived read-only container on each person's workspace — so the
+deployment's container runtime has to be up. A single-user deployment keeps one
+store on this machine, read straight off disk.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 46 32
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``list``
+     - One line per submission, newest first: id, who sent it, when (UTC),
+       which channel it went out on, and the start of the message. Headers
+       only.
+     - —
+   * - ``export``
+     - Every submission's whole record plus the session captured with it, as
+       one JSON array. Written a record at a time, so a large store never has
+       to fit in memory.
+     - ``-o/--output``
+
+``-o, --output PATH`` -- Write the export to this file instead of stdout. Naming
+a directory, or a file inside a directory that does not exist, is a usage error
+at parse time, before any workspace is read.
+
+With no ``--output``, ``export`` puts the JSON document on stdout and nothing
+else, so it can be redirected straight into a file; errors and the closing
+summary go to standard error. With ``--output``, the human output stays on the
+terminal and the file holds the export. An empty store exports ``[]``.
+
+A workspace that cannot be read is reported and the rest of the deployment is
+still listed or exported; the export's closing summary distinguishes a workspace
+that contributed nothing from one that was only partly readable. If nothing at
+all could be read, both verbs stop rather than reporting a deployment with no
+feedback in it. A submission whose session was dropped to keep the store inside
+``web.feedback.max_store_bytes`` carries ``context_pruned``; one missing its
+session for any other reason carries ``context_missing``. The submission is
+exported either way.
+
+Exit status: ``0`` on success, including a deployment nobody has sent feedback
+from. Non-zero when the repository has no build, when every workspace failed to
+read, and when an export stopped part-way — in which case the file still parses
+and holds what was read.
+
+``agent_data.base_dir`` is checked on the **single-user** path only, and a
+``~``-relative value there is non-zero with the explanation (the data lands
+where the verb cannot reach it). The multi-user path never consults the key: it
+mounts each person's volume and reads a fixed path inside it, so a rostered
+deployment with a ``~``-relative ``agent_data.base_dir`` writes its feedback to
+a volume these verbs do not mount and simply reads as having none. Nothing
+detects that, so do not read an empty multi-user listing as proof. See
+:doc:`/how-to/send-feedback`.
+
+.. code-block:: bash
+
+   osprey feedback list
+   osprey feedback list --repo ../other-deployment
+   osprey feedback export --output feedback.json
+   osprey feedback export > feedback.json
+
+See :doc:`/how-to/send-feedback` for the dialog these records come from and what
+each submission carries.
 
 osprey health
 =============

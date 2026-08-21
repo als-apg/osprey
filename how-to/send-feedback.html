@@ -1,0 +1,882 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Send and Retrieve Feedback &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/send-feedback';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Use the CLI Chat Interface" href="use-cli-chat.html" />
+    <link rel="prev" title="Multi-User Support" href="multi-user.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Aug 21, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Send and Retrieve Feedback</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Send and Retrieve Feedback</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="send-and-retrieve-feedback">
+<h1>Send and Retrieve Feedback<a class="headerlink" href="#send-and-retrieve-feedback" title="Link to this heading">#</a></h1>
+<p>Anyone using the Web Terminal can report a problem, or ask for something, from
+the terminal itself — no bug tracker account, no separate form. The <strong>Feedback</strong>
+control sits in the utility cluster at the far end of the panel rail (bottom in
+the default left-hand rail, right-hand end when the rail runs along the top),
+next to the <strong>Documentation</strong> link. Clicking it opens a dialog with a text box,
+a channel picker, and two attachment checkboxes.</p>
+<p>Every submission is recorded on the deployment it was sent from, whichever
+channel the sender picks. Facility staff read those records back with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">export</span></code> — see
+<a class="reference internal" href="#feedback-retrieval"><span class="std std-ref">Read the feedback a deployment collected</span></a> below.</p>
+<section id="choose-a-channel">
+<h2>Choose a channel<a class="headerlink" href="#choose-a-channel" title="Link to this heading">#</a></h2>
+<p>The dialog offers three ways out. The choice is the sender’s, and switching
+between them keeps the typed text and both checkboxes as they were.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 14.0%" />
+<col style="width: 40.0%" />
+<col style="width: 46.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Channel</p></th>
+<th class="head"><p>What it does</p></th>
+<th class="head"><p>Use it when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Local</strong></p></td>
+<td><p>Writes the report to this deployment and nothing else. <strong>Send</strong> is the
+only button.</p></td>
+<td><p>The report is for the people who run this deployment — the usual case in
+a control room, and the only one that works with outbound access
+blocked.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>GitHub</strong></p></td>
+<td><p>Also opens a prefilled new-issue tab on the configured repository, and
+puts the whole report — the text plus the session context — on the
+clipboard to paste in.</p></td>
+<td><p>The report belongs upstream, and the sender has a GitHub account.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Email</strong></p></td>
+<td><p>Also opens a prefilled mail draft to the configured address, again with
+the whole report on the clipboard.</p></td>
+<td><p>There is a maintainer address to write to and no issue tracker in the
+loop.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>GitHub and Email never send anything by themselves. OSPREY prefills a tab or a
+draft in the sender’s own browser and mail client; the sender still reviews it
+and presses send. The server posts nothing off the host, on any channel.</p>
+<p>Both outbound channels write the same record on the deployment as a Local send
+does, so the facility keeps its own copy of every report even when the
+conversation continues in a public issue.</p>
+<p>If a channel is not configured for the deployment, its radio button still
+appears but the action is refused with a short explanation rather than aiming
+the report somewhere nobody reads. See <a class="reference internal" href="#feedback-configuration"><span class="std std-ref">Point the channels at your facility</span></a>.</p>
+</section>
+<section id="what-gets-attached">
+<h2>What gets attached<a class="headerlink" href="#what-gets-attached" title="Link to this heading">#</a></h2>
+<p>The dialog’s <code class="docutils literal notranslate"><span class="pre">(?)</span></code> control opens a plain-language disclosure of exactly what
+leaves the page. It says the same thing this section does, and it is the
+authority the sender sees at the moment of deciding.</p>
+<p><strong>Always sent</strong>, with no checkbox to turn it off:</p>
+<ul class="simple">
+<li><p>the feedback text that was typed,</p></li>
+<li><p>a timestamp,</p></li>
+<li><p>the sender’s username, when the deployment knows it (in a single-user or
+development setup this falls back to the account the server runs under).</p></li>
+</ul>
+<p><strong>Deployment metadata</strong> — the checkbox is <strong>on</strong> by default. It adds the OSPREY
+version and the application name, and that is all it governs: turning it off
+does not remove the text, the timestamp, or the username, which travel either
+way.</p>
+<p><strong>Session context</strong> — the checkbox is <strong>off</strong> by default, and is greyed out with
+“no session yet” when there is no live session to attach. It adds:</p>
+<ul class="simple">
+<li><p>the session’s tool-call and agent event log,</p></li>
+<li><p>its chat history,</p></li>
+<li><p>the terminal scrollback,</p></li>
+<li><p>an artifact inventory listing <strong>titles and ids only</strong> — artifacts tagged to
+this session, plus artifacts created on this deployment during the same time
+window, which may include work from other terminal tabs or the chat panel.</p></li>
+</ul>
+<p>That last clause is worth reading twice, and the dialog states it in those
+words. OSPREY does not tag every artifact with the session that produced it, so
+the inventory falls back to a time window: an artifact somebody else made in a
+different tab during the same minutes can be listed. Only its title and id
+appear — never its contents — but a sender attaching context to a <strong>public</strong>
+GitHub issue should know that the list is not strictly their own work.</p>
+<p>Session context is triaged newest-first and truncated to fit a size budget, so a
+long session is attached in part rather than in full. The copy destined for a
+GitHub issue or a mail draft is trimmed harder than the copy kept on the
+deployment: the clipboard payload has to stay pasteable, while the local record
+holds a much larger version.</p>
+<p>Where the session had no readable transcript, the dialog says so and the
+<strong>outbound</strong> copy — the clipboard payload behind a GitHub issue or a mail draft
+— carries the text, the metadata and a one-line note in place of the four
+context tiers, never a silently empty context. The deployment’s own record is
+not so trimmed: the terminal scrollback the browser uploaded is stored with it
+either way. On-disk and outbound are two different things, and a sender deciding
+what to attach should read the checkbox as governing both.</p>
+</section>
+<section id="copy-session-context">
+<h2>Copy session context<a class="headerlink" href="#copy-session-context" title="Link to this heading">#</a></h2>
+<p>On the GitHub and Email channels a second button, <strong>Copy session context</strong>,
+puts the same trimmed context on the clipboard without sending anything and
+without writing a record. It is enabled only when the session-context checkbox
+is ticked and a session exists; otherwise it stays visible but greyed, so it
+never looks like a control that disappeared.</p>
+<p>Use it when the prefilled issue or draft is too small to carry the context
+inline: the prefilled body already contains a <code class="docutils literal notranslate"><span class="pre">paste</span> <span class="pre">the</span> <span class="pre">copied</span> <span class="pre">session</span> <span class="pre">context</span>
+<span class="pre">here</span></code> placeholder to drop it into.</p>
+</section>
+<section id="read-the-feedback-a-deployment-collected">
+<span id="feedback-retrieval"></span><h2>Read the feedback a deployment collected<a class="headerlink" href="#read-the-feedback-a-deployment-collected" title="Link to this heading">#</a></h2>
+<p>Feedback is stored where the sender’s own data lives, not in a central inbox.
+Two verbs read it back, both run from the deployment repository (or with
+<code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> naming another one):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>feedback<span class="w"> </span>list<span class="w">                        </span><span class="c1"># one line per submission, newest first</span>
+osprey<span class="w"> </span>feedback<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--output<span class="w"> </span>feedback.json
+osprey<span class="w"> </span>feedback<span class="w"> </span><span class="nb">export</span><span class="w"> </span>&gt;<span class="w"> </span>feedback.json<span class="w">      </span><span class="c1"># same document, redirected</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">list</span></code> prints one row per submission: the record id, who sent it, when (UTC),
+which channel it went out on, and the start of the message. It reads submission
+headers only, so it stays quick on a large store. A deployment nobody has
+written to yet prints one sentence rather than an empty table.</p>
+<p><code class="docutils literal notranslate"><span class="pre">export</span></code> writes the whole record — who sent it, when, from which session and
+which version of the application, how it went out, where it was truncated — and
+the captured session alongside it, as one JSON array with one object per
+submission. Records are written as they are read, so a large store never has to
+fit in memory. With <code class="docutils literal notranslate"><span class="pre">--output</span></code> the file holds the export and everything else
+stays on the terminal; without it, stdout carries the JSON document and nothing
+else, with errors and the closing summary on standard error.</p>
+<section id="where-the-records-live">
+<h3>Where the records live<a class="headerlink" href="#where-the-records-live" title="Link to this heading">#</a></h3>
+<p>The two deployment shapes are read in two different ways, and the command picks
+the right one for you. What decides is whether the deployment has a web-terminal
+roster — a non-empty <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.users</span></code> list:</p>
+<p><strong>Multi-user deployment.</strong> Each person on the roster has their own web terminal
+and their own workspace volume, and their feedback stays in it. Reading the
+deployment’s feedback starts a short-lived, read-only container on each person’s
+workspace in turn and reads the store through it. <strong>The deployment’s container
+runtime has to be running</strong>; with it stopped the command fails loudly instead of
+reporting a deployment with no feedback in it. A workspace that cannot be read
+is named on screen and the rest of the deployment is still listed or exported,
+so one broken volume never hides everybody else’s reports. The export’s closing
+summary distinguishes a workspace that contributed nothing from one that was
+only partly readable. If <em>nothing at all</em> could be read, the command stops
+rather than printing “no feedback”.</p>
+<p>A roster user’s workspace volume is created when their web terminal container
+first starts, so a repository that has been built but never brought up with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> has no volumes to read. Every user then reads as unreadable, and
+the command stops with that rather than reporting an empty deployment.</p>
+<p><strong>Single-user deployment.</strong> There is one store, on this machine, under the
+deployment’s own agent-data directory, and it is read straight off disk — no
+container, nothing to start first. This is also the shape a development setup
+has.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> is honoured differently by the two branches, and only
+one of them can warn you.</p>
+<p>The <strong>single-user</strong> reader resolves the store through that key, so relocating
+it relocates the store and the reader together — and a <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative value,
+which puts the data where the reader cannot follow, is refused loudly with
+that explanation.</p>
+<p>The <strong>multi-user</strong> reader never consults the key at all: it mounts each
+person’s workspace volume and reads a fixed path inside it. A rostered
+deployment whose <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> is <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative writes its
+feedback into a different volume — one these commands do not mount — and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">list</span></code> then exits <code class="docutils literal notranslate"><span class="pre">0</span></code> reporting that no feedback has been
+sent. Nothing detects that case, so on a multi-user deployment give
+<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> a path relative to the deployment repo, or an
+absolute one — anything but <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative — and do not read an empty listing
+as proof that nobody has written in.</p>
+</div>
+<p>Exit status is <code class="docutils literal notranslate"><span class="pre">0</span></code> when the read succeeded — including a deployment that has
+collected no feedback — and non-zero when the repository has no build, when
+every workspace failed to read, and when an export stopped part-way. A part-way
+export still parses: it holds what was read, and the summary says how much that
+was. On a single-user deployment a <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> is
+also non-zero; on a multi-user one it is not detected at all, per the warning
+above.</p>
+</section>
+<section id="keeping-the-store-bounded">
+<h3>Keeping the store bounded<a class="headerlink" href="#keeping-the-store-bounded" title="Link to this heading">#</a></h3>
+<p>Session contexts are much larger than the reports they belong to, so the store
+has a ceiling (<code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code>, 256 MB by default). When it is
+exceeded, the oldest saved <strong>contexts</strong> are dropped; their submissions are
+never dropped. An export marks a submission whose context was dropped this way
+with <code class="docutils literal notranslate"><span class="pre">context_pruned</span></code>, and one missing its context for any other reason with
+<code class="docutils literal notranslate"><span class="pre">context_missing</span></code> — the submission itself is exported either way, so the
+history of what people reported stays complete.</p>
+</section>
+</section>
+<section id="point-the-channels-at-your-facility">
+<span id="feedback-configuration"></span><h2>Point the channels at your facility<a class="headerlink" href="#point-the-channels-at-your-facility" title="Link to this heading">#</a></h2>
+<p>Three string keys under <code class="docutils literal notranslate"><span class="pre">web</span></code> aim the two rail controls, and a fourth bounds
+the store they fill:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">docs_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://als-apg.github.io/osprey</span><span class="w">   </span><span class="c1"># the Documentation control</span>
+<span class="w">  </span><span class="nt">feedback</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">github_repo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">als-apg/osprey</span><span class="w">                </span><span class="c1"># owner/repo for the GitHub channel</span>
+<span class="w">    </span><span class="nt">email</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">thellert@lbl.gov</span><span class="w">                    </span><span class="c1"># recipient of the mail draft</span>
+<span class="w">    </span><span class="nt">max_store_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span><span class="w">                 </span><span class="c1"># 256 MB store ceiling</span>
+</pre></div>
+</div>
+<p>Leaving a key out gives you the shipped default above. Setting one of the three
+<strong>string</strong> keys to an <strong>explicitly blank</strong> value (<code class="docutils literal notranslate"><span class="pre">docs_url:</span> <span class="pre">&quot;&quot;</span></code>) means “this
+deployment has no such target” and removes the affordance: an air-gapped control
+room blanks <code class="docutils literal notranslate"><span class="pre">web.docs_url</span></code> and gets no documentation link rather than one that
+opens a dead tab, and blanking <code class="docutils literal notranslate"><span class="pre">web.feedback.github_repo</span></code> retires the GitHub
+channel instead of aiming reports at the upstream maintainers’ tracker.
+<code class="docutils literal notranslate"><span class="pre">max_store_bytes</span></code> has no such posture — it wants a positive byte count, and
+anything else (blank included) is logged and replaced by the default. The Local
+channel is always available and needs no configuration.</p>
+<p><a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> carries the full table, including what a key written
+with no value at all does.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The Web Terminal has <strong>no application-level login</strong>, and neither has the
+feedback dialog. Anyone who can reach the terminal can send a report and have
+it recorded. That is right for the intended single-operator, local setup; a
+facility that exposes the terminal more widely should put its own
+authentication in front of it, as it would for the terminal itself.</p>
+</div>
+</section>
+<section id="named-future-work">
+<h2>Named future work<a class="headerlink" href="#named-future-work" title="Link to this heading">#</a></h2>
+<p>Two deliberate gaps, both recorded so nobody has to rediscover them:</p>
+<ul class="simple">
+<li><p><strong>Downloadable ``.txt`` context attachments.</strong> The session context travels as
+a trimmed clipboard payload today. If teams report that the trimmed bundle is
+not enough for a maintainer to act on, a downloadable full attachment is the
+planned next step.</p></li>
+<li><p><strong>Locally hosted documentation.</strong> <code class="docutils literal notranslate"><span class="pre">web.docs_url</span></code> points at whatever site you
+give it, so a facility can already host its own copy — but OSPREY does not yet
+<em>build and serve</em> a local documentation bundle for you. That key is the
+plug-in point when it does.</p></li>
+</ul>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a></dt><dd><p>Running the terminal the feedback dialog lives in, and the full <code class="docutils literal notranslate"><span class="pre">web</span></code>
+settings table.</p>
+</dd>
+<dt><a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a></dt><dd><p>Per-user web terminals and the roster that decides how feedback is stored
+and read.</p>
+</dd>
+<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">export</span></code> with every option.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="multi-user.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Multi-User Support</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="use-cli-chat.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Use the CLI Chat Interface</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-channel">Choose a channel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-attached">What gets attached</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#copy-session-context">Copy session context</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-the-feedback-a-deployment-collected">Read the feedback a deployment collected</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-records-live">Where the records live</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-the-store-bounded">Keeping the store bounded</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-channels-at-your-facility">Point the channels at your facility</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#named-future-work">Named future work</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/send-feedback.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
