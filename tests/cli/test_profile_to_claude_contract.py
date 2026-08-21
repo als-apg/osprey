@@ -288,7 +288,6 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "mcp__osprey_workspace__create_interactive_plot",
             "mcp__osprey_workspace__create_dashboard",
             "mcp__osprey_workspace__create_document",
-            "mcp__osprey_workspace__artifact_save",
             "mcp__osprey_workspace__artifact_get",
             "mcp__osprey_workspace__artifact_list",
             "mcp__osprey_workspace__artifact_read",
@@ -313,7 +312,6 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
         "tools": [
             "mcp__python__execute",
             "mcp__osprey_workspace__submit_response",
-            "mcp__osprey_workspace__artifact_save",
             "mcp__osprey_workspace__artifact_list",
             "mcp__osprey_workspace__artifact_read",
             "Read",

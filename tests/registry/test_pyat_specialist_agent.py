@@ -186,13 +186,12 @@ class TestPyatSpecialistAgentTemplate:
         assert "name: pyat-specialist" in rendered
 
     def test_frontmatter_tools_exact(self, template_manager):
-        """The tools: line pins exactly the six allowed tools, in order."""
+        """The tools: line pins exactly the five allowed tools, in order."""
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         expected = (
             "tools: mcp__python__execute, mcp__osprey_workspace__submit_response, "
-            "mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__artifact_list, "
-            "mcp__osprey_workspace__artifact_read, Read"
+            "mcp__osprey_workspace__artifact_list, mcp__osprey_workspace__artifact_read, Read"
         )
         assert expected in rendered
 
