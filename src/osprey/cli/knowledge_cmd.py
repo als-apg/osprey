@@ -6,6 +6,10 @@ bundle: a directory of markdown documents on disk.  ``seed-graph`` operates on
 the deployed Neo4j graph store, loading the same NARAD TTL into it through
 neosemantics.  One TTL, two destinations.
 
+``build-ttl`` stands upstream of both: it derives that TTL from the project's
+channel database, so a facility with no hand-written corpus still has one to
+seed.
+
 Note: this module is intentionally importable WITHOUT the ``knowledge``
 extra (rdflib) installed, and without the ``neo4j`` driver.  Any rdflib or
 neo4j usage must be guarded by a lazy import inside the command body.
@@ -517,3 +521,280 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
         # An operator who cannot reach their store is not helped by a stack of
         # frames from inside the driver.
         raise _connection_failure(exc, connection.uri) from exc
+
+
+# ---------------------------------------------------------------------------
+# build-ttl
+# ---------------------------------------------------------------------------
+
+
+CHANNEL_DB_CONFIG_KEY = "channel_finder.pipelines.hierarchical.database.path"
+"""Config key naming the hierarchical channel database ``build-ttl`` reads."""
+
+
+def _paradigm_databases(directory: Path) -> str:
+    """Say which channel databases *directory* actually holds.
+
+    A project is rendered for one channel-finder paradigm and ships only that
+    paradigm's database — the others are pruned at build time.  So "the file
+    is not there" is nearly always "this project is an in-context project",
+    and naming what *is* there turns a dead end into a diagnosis.
+
+    Args:
+        directory: Where the missing database was looked for.
+
+    Returns:
+        One sentence, ready to drop into an error message.
+    """
+    try:
+        names = sorted(item.name for item in directory.iterdir() if item.suffix == ".json")
+    except OSError:
+        names = []
+    if not names:
+        return f"There are no channel databases in {directory}."
+    return f"{directory} holds {', '.join(names)}."
+
+
+def _resolve_channel_db(channel_db: Path | None) -> Path:
+    """Return *channel_db*, or the one the project's config names.
+
+    A path typed on the command line is used as typed.  A path read from
+    config follows the same rule every other configured path in this module
+    follows: ``~`` expanded, relative values taken against the directory
+    holding ``config.yml``.  In a rendered project that lands on
+    ``data/channel_databases/hierarchical.json``.
+
+    Args:
+        channel_db: The ``--channel-db`` value, or ``None``.
+
+    Returns:
+        The database file to read.
+
+    Raises:
+        click.UsageError: When nothing was given and the config key is unset.
+        click.ClickException: When the configured path names no file.
+    """
+    if channel_db is not None:
+        return channel_db
+
+    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+    from osprey.utils.config import get_config_value
+
+    raw = get_config_value(CHANNEL_DB_CONFIG_KEY, None)
+    if not isinstance(raw, str) or not raw:
+        raise click.UsageError(
+            f"No channel database given and {CHANNEL_DB_CONFIG_KEY} is not set in config.\n"
+            "Name the database with --channel-db PATH, or run this inside a project whose "
+            "config sets that key."
+        )
+
+    path = resolve_bundle_path(raw)
+    if not path.is_file():
+        raise click.ClickException(
+            f"No channel database at {path}.\n"
+            f"That is {CHANNEL_DB_CONFIG_KEY} ('{raw}') resolved against the config file's "
+            f"directory. {_paradigm_databases(path.parent)}\n"
+            "build-ttl reads the hierarchical-paradigm database, the one whose addresses "
+            "are RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD; a project built for another "
+            "paradigm does not ship it. Name a hierarchical database with --channel-db PATH."
+        )
+    return path
+
+
+def _load_channel_map(db_path: Path) -> Mapping[str, Any]:
+    """Expand *db_path* into its flat address map.
+
+    Args:
+        db_path: A hierarchical channel database.
+
+    Returns:
+        The expanded map, keyed by colon-grammar address.
+
+    Raises:
+        click.ClickException: When the file cannot be read or expanded.
+    """
+    from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
+
+    try:
+        return HierarchicalChannelDatabase(str(db_path)).channel_map
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise click.ClickException(
+            f"Cannot read the channel database at {db_path}: {exc}\n"
+            "build-ttl expects a hierarchical database: a 'hierarchy' block naming the "
+            "levels, and a 'tree' block holding them."
+        ) from exc
+
+
+def _load_ontology_table(ontology: Path | None) -> Any:
+    """Return the FAMILY-to-class table to emit against.
+
+    Args:
+        ontology: The ``--ontology`` value, or ``None`` for the shipped table.
+
+    Returns:
+        The validated table.
+
+    Raises:
+        click.ClickException: When a given table is malformed or unreadable.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.ontology_map import (
+        OntologyMapError,
+        load_demo_ontology,
+        load_ontology,
+    )
+
+    if ontology is None:
+        return load_demo_ontology()
+    try:
+        return load_ontology(ontology)
+    except OntologyMapError as exc:
+        raise click.ClickException(f"Cannot use the ontology table {ontology}: {exc}") from exc
+    except OSError as exc:
+        raise click.ClickException(f"Cannot read the ontology table {ontology}: {exc}") from exc
+
+
+def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]:
+    """Stamp every signal with a direction, and say where it came from.
+
+    Args:
+        graph_model: The model built from the channel database.
+        limits: The ``--limits`` value, or ``None`` to resolve from config.
+
+    Returns:
+        Tuple of (annotated model, direction report).
+
+    Raises:
+        click.ClickException: When the limits file is missing, unreadable, or
+            disagrees with itself about a signal.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.direction import (
+        LIMITS_DATABASE_CONFIG_KEY,
+        DirectionConflictError,
+        LimitsFileMissing,
+        resolve_and_assign,
+    )
+
+    try:
+        return resolve_and_assign(graph_model, limits)
+    except LimitsFileMissing as exc:
+        raise click.ClickException(
+            f"The --limits file is not there: {exc.path}\n"
+            "Give the path to a channel_limits.json, or drop --limits to read "
+            f"{LIMITS_DATABASE_CONFIG_KEY} from the config instead — and when that names "
+            "no file either, the PV grammar decides."
+        ) from exc
+    except DirectionConflictError as exc:
+        raise click.ClickException(
+            f"The channel limits disagree about one signal: {exc}\n"
+            "Every address in a signal group must be writable or none of them, because "
+            "the corpus records the direction once per signal rather than once per address."
+        ) from exc
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(f"Cannot read the channel limits: {exc}") from exc
+
+
+@knowledge.command("build-ttl")
+@click.argument("output", type=click.Path(dir_okay=False, writable=True, path_type=Path))
+@click.option(
+    "--channel-db",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Hierarchical channel database to read. Defaults to the one the project's config names.",
+)
+@click.option(
+    # Deliberately not exists=True: when the file is absent this verb says what
+    # the fallback would have been, which click's own "does not exist" cannot.
+    "--limits",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="channel_limits.json deciding which signals are written. Defaults to the config's.",
+)
+@click.option(
+    "--ontology",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="FAMILY-to-class table. Defaults to the demo-machine table shipped with OSPREY.",
+)
+def build_ttl(
+    output: Path, channel_db: Path | None, limits: Path | None, ontology: Path | None
+) -> None:
+    """Derive a NARAD-convention TTL corpus from the channel database.
+
+    OUTPUT is the Turtle file to write. Missing parent directories are
+    created, and an existing file is overwritten.
+
+    The corpus describes the machine the channel database already describes:
+    one device node per device, one channel binding per address, one class per
+    device family, and a read or write direction on every signal. It is what
+    'osprey knowledge seed-graph' loads into the deployed graph store, and
+    what the OSPREY agent searches once it is in there.
+
+    Where each input comes from when you do not name it:
+
+    \b
+      --channel-db  channel_finder.pipelines.hierarchical.database.path from
+                    the OSPREY config, resolved against the config file's own
+                    directory. In a rendered project that is
+                    data/channel_databases/hierarchical.json.
+      --limits      control_system.limits_checking.database_path from the
+                    config. This file is what tells a readback from a
+                    setpoint, so the corpus and the write-safety layer agree
+                    on which channels are written. When it names no file, the
+                    PV grammar decides instead: a :SP subfield writes and
+                    everything else reads. Every run reports which of the two
+                    it used.
+      --ontology    The demo-machine table shipped with OSPREY. Give your own
+                    when your device families are not the demo machine's.
+
+    Then load the file into the store:
+
+    \b
+      osprey knowledge seed-graph <output>
+
+    To have every deployment seed this corpus, point services.graphdb.ttl_path at
+    the file you wrote. That key is deliberately not where OUTPUT defaults to:
+    it usually names a hand-curated corpus, and a bare run of this verb would
+    overwrite it.
+    """
+    from osprey.services.facility_knowledge.ttl_generator import emitter
+    from osprey.services.facility_knowledge.ttl_generator.model import build_model
+    from osprey.services.facility_knowledge.ttl_generator.ontology_map import UnknownFamilyError
+
+    db_path = _resolve_channel_db(channel_db)
+    channel_map = _load_channel_map(db_path)
+
+    try:
+        graph_model = build_model(channel_map)
+    except ValueError as exc:
+        raise click.ClickException(
+            f"The channel database at {db_path} holds an address build-ttl cannot read: {exc}\n"
+            "Every address must be six colon-separated tokens: "
+            "RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD."
+        ) from exc
+
+    ontology_table = _load_ontology_table(ontology)
+
+    # Directions first: the emitter refuses a model whose signals have none,
+    # rather than writing a corpus that reads every setpoint as a readback.
+    graph_model, direction_report = _assign_directions(graph_model, limits)
+
+    try:
+        written = emitter.write_turtle(graph_model, ontology_table, output)
+    except emitter.UndirectedSignalError as exc:
+        raise click.ClickException(
+            f"The corpus was not written because a signal has no direction: {exc}"
+        ) from exc
+    except UnknownFamilyError as exc:
+        raise click.ClickException(
+            f"{exc}\nOr point --ontology at a table that covers this machine's families."
+        ) from exc
+    except OSError as exc:
+        raise click.ClickException(f"Cannot write {output}: {exc}") from exc
+
+    report(f"Wrote {written}.")
+    note(
+        f"{len(graph_model.devices)} devices, {len(graph_model.bindings)} channel bindings, "
+        f"{len(graph_model.signal_groups)} signals."
+    )
+    note(direction_report.message)
+    note(f"Load it with: osprey knowledge seed-graph {written}")
