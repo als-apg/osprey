@@ -848,9 +848,26 @@ loop will then grow the gallery without bound.</p>
 <p><code class="docutils literal notranslate"><span class="pre">tolerance_absolute</span></code> takes priority over <code class="docutils literal notranslate"><span class="pre">tolerance_percent</span></code> (percentage of value).
 Each channel inherits any field it does not set from the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block, and a
 channel’s own value always overrides it. <code class="docutils literal notranslate"><span class="pre">writable</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">true</span></code>; a channel’s
-verification falls back to the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block’s verification and then to the global
-<code class="docutils literal notranslate"><span class="pre">control_system.write_verification.default_level</span></code>. Set <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> – on a
-channel, or in <code class="docutils literal notranslate"><span class="pre">defaults</span></code> to lock everything down by default – to block writes.</p>
+verification falls back to the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block’s verification. Set <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code>
+– on a channel, or in <code class="docutils literal notranslate"><span class="pre">defaults</span></code> to lock everything down by default – to block writes.</p>
+<p><strong>Where the level comes from.</strong> Passing no <code class="docutils literal notranslate"><span class="pre">verification_level</span></code> means “no opinion”,
+not “no verification”. The connector then resolves the level for that channel through
+four layers, using the first one that supplies a value:</p>
+<ol class="arabic simple">
+<li><p>the channel’s own <code class="docutils literal notranslate"><span class="pre">verification</span></code> entry in the limits database,</p></li>
+<li><p>the limits database <code class="docutils literal notranslate"><span class="pre">defaults.verification</span></code> block,</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">control_system.write_verification</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>,</p></li>
+<li><p>the built-in fallback: <code class="docutils literal notranslate"><span class="pre">callback</span></code>, with no tolerance.</p></li>
+</ol>
+<p>The tolerance resolves through the same four layers, and it keeps doing so when the
+level was passed explicitly, but a layer only supplies a tolerance when the level it
+resolves to is <code class="docutils literal notranslate"><span class="pre">readback</span></code>. Asking for <code class="docutils literal notranslate"><span class="pre">readback</span></code> on a channel whose limits entry
+declares <code class="docutils literal notranslate"><span class="pre">level:</span> <span class="pre">readback</span></code> with <code class="docutils literal notranslate"><span class="pre">tolerance_percent:</span> <span class="pre">1.0</span></code> verifies at 1%, not at
+the built-in default – pass <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> as well to override that too.</p>
+<p>Batch writes resolve the same way. <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> carries one level for
+the whole batch, so when the caller omits it the keyword is left off each per-channel
+write and every channel resolves its own. This is why <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channels</span></code>
+verifies exactly like <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code>.</p>
 <section id="write-safety-configuration">
 <span id="write-safety-config"></span><h3>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h3>
 <p>Write operations are disabled by default and must be explicitly enabled at two levels:</p>
@@ -902,6 +919,41 @@ database format.</p>
 <h2>Implementing Custom Connectors<a class="headerlink" href="#implementing-custom-connectors" title="Link to this heading">#</a></h2>
 <p>Subclass <code class="xref py py-class docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> and implement the abstract methods: <code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">read_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">read_multiple_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">subscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">unsubscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">validate_channel</span></code>.</p>
 <p>You may also override the non-abstract <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> method if your backend benefits from atomic batch writes (e.g., disabling lattice recalculation between writes in a simulator). The default implementation writes sequentially via <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code>.</p>
+<p><strong>The verification arguments are optional.</strong> Declare them as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_channel</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">verification_level</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tolerance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">None</span></code> is a sentinel meaning “the caller did not specify a level” – deliberately
+different from the <code class="docutils literal notranslate"><span class="pre">&quot;none&quot;</span></code> level, which means “write, and do not verify”. When
+<code class="docutils literal notranslate"><span class="pre">verification_level</span></code> arrives as <code class="docutils literal notranslate"><span class="pre">None</span></code>, hand the channel and the value to the
+inherited <code class="docutils literal notranslate"><span class="pre">_get_verification_config()</span></code> helper, which walks the four layers described
+under <a class="reference internal" href="#write-verification">Write Verification</a> and returns the level and tolerance to use.</p>
+<p>A connector written before the sentinel existed – one declaring a concrete default such
+as <code class="docutils literal notranslate"><span class="pre">verification_level:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">&quot;callback&quot;</span></code> – keeps working unchanged. The batch path
+omits the keyword rather than forwarding <code class="docutils literal notranslate"><span class="pre">None</span></code>, so that connector’s own default still
+applies.</p>
+<p><strong>Three verification fields are optional too.</strong>
+<code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code> accepts, beyond the
+level and the readback value:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">readback_alarm_status</span></code> – the alarm name the readback carried, as the control
+system spells it (for EPICS, <code class="docutils literal notranslate"><span class="pre">&quot;NO_ALARM&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;HIHI&quot;</span></code>, and so on).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">readback_alarm_severity</span></code> – the numeric severity: <code class="docutils literal notranslate"><span class="pre">0</span></code> healthy, <code class="docutils literal notranslate"><span class="pre">1</span></code> MINOR,
+<code class="docutils literal notranslate"><span class="pre">2</span></code> MAJOR, <code class="docutils literal notranslate"><span class="pre">3</span></code> INVALID.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">failure_kind</span></code> – a short tag for <em>why</em> verification failed, when the reason is
+more specific than “the value did not match”. A readback that raised is reported as
+<code class="docutils literal notranslate"><span class="pre">&quot;readback_failed&quot;</span></code>; a plain value mismatch leaves the field unset.</p></li>
+</ul>
+<p>Leaving a field at <code class="docutils literal notranslate"><span class="pre">None</span></code> means “not reported”, which is deliberately different from a
+severity of <code class="docutils literal notranslate"><span class="pre">0</span></code> (“reported, and healthy”). A connector whose backend has no alarm
+concept leaves all three unset and remains fully supported.</p>
 <p>Your connector must return the standard data models from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.control_system.base</span></code>: <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelMetadata</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, and <code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code>.</p>
 <section id="archiver-connectors">
 <h3>Archiver Connectors<a class="headerlink" href="#archiver-connectors" title="Link to this heading">#</a></h3>
