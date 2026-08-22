@@ -41,7 +41,7 @@ async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
     (``gallery_unreachable`` / ``gallery_error``) — never as success.
 
     Args:
-        artifact_id: ID of the artifact to select (from artifact_save response).
+        artifact_id: ID of the artifact to select (from artifact_register response).
         fullscreen: If True, open the artifact in immersive fullscreen mode
             (hides sidebar, header, filters). Defaults to False.
 
@@ -56,7 +56,7 @@ async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
         return make_error(
             "not_found",
             f"Artifact '{artifact_id}' not found.",
-            ["Check the artifact_id from a previous artifact_save response."],
+            ["Check the artifact_id from a previous artifact_register response."],
         )
 
     base_url = gallery_url()
@@ -132,7 +132,7 @@ async def artifact_pin(artifact_id: str, pinned: bool = True) -> str:
         return make_error(
             "not_found",
             f"Artifact '{artifact_id}' not found.",
-            ["Check the artifact_id from a previous artifact_save response."],
+            ["Check the artifact_id from a previous artifact_register response."],
         )
 
     # Notify the gallery; never raise — the durable state is already set.

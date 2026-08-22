@@ -1,0 +1,85 @@
+# The event-dispatcher runs a locally-built image (see ./Dockerfile).
+# `osprey up` builds it on first run; subsequent runs reuse the local
+# tag, which is project-prefixed (golden-project-dispatch:local)
+# so two OSPREY projects on one host never race to tag one shared image.
+# To use a prebuilt/published image instead, set OSPREY_DISPATCH_IMAGE
+# (e.g. OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev).
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+services:
+  event-dispatcher:
+    image: ${OSPREY_DISPATCH_IMAGE:-registry.example.org/physics/osprey/golden-project-dispatch:v1.2.3}
+    build:
+      # EVERY relative path in this file — build contexts and bind-mount sources
+      # alike — resolves against the pinned compose project directory, which is
+      # the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd), never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env). Same convention in the volumes below.
+      context: ./build/services/event_dispatcher
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the dispatcher on one host without
+    # colliding on one name. In-network consumers reach this service by its
+    # compose service key `event-dispatcher` (the worker's depends_on) —
+    # unchanged here — so this rename needs no network alias.
+    container_name: golden-project-event-dispatcher
+    command: ["python", "-m", "osprey.dispatch"]
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8020:8020"
+    environment:
+      # FastMCP reads transport/host/port from FASTMCP_* (env prefix "FASTMCP_").
+      # `python -m osprey.dispatch` -> run_mcp_server -> server.run() honors these;
+      # plain MCP_* vars are NOT read by the dispatcher entrypoint.
+      FASTMCP_TRANSPORT: http
+      FASTMCP_HOST: 0.0.0.0
+      FASTMCP_PORT: "8020"
+      # No :-default — an unset token must stay EMPTY so the server fails closed
+      # (HTTP 503) rather than booting with a guessable secret. `osprey up`
+      # auto-generates strong random tokens into the project .env when unset.
+      EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      TRIGGERS_YML: /app/triggers.yml
+      OSPREY_FACILITY_NAME: ""
+      PV_STRIP_PREFIX: ""
+
+      TZ: UTC
+    # Bind-mount sources are relative to the compose *project directory*
+    # (build/services/), which is the first -f file's location — not this
+    # service's subdir — so they must be prefixed with event_dispatcher/.
+    volumes:
+      - ./build/services/event_dispatcher/triggers.yml:/app/triggers.yml:ro
+      - ./build/services/event_dispatcher/config.yml:/app/config.yml:ro
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8020/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — the first run also provisions
+      # Claude artifacts and injects provider env, which takes a few seconds.
+      start_period: 30s
+
+networks:
+  osprey-network:

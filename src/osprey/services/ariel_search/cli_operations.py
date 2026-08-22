@@ -509,9 +509,17 @@ async def run_watch(
 # qmd markdown-mirror resync
 # ---------------------------------------------------------------------------
 
-#: File at the mirror root holding the last resync watermark, as an ISO-8601
-#: UTC timestamp. Dot-prefixed so the sidecar skips it as a corpus document.
+#: File at the mirror root holding the last resync watermark. Dot-prefixed so
+#: the sidecar skips it as a corpus document.
 QMD_WATERMARK_NAME = ".qmd-resync-watermark"
+
+#: Serialization schema for the watermark marker itself.
+QMD_WATERMARK_FORMAT_VERSION = 1
+
+#: Markdown renderer format represented by a current watermark. Bump this when
+#: existing rows must be re-rendered even though their database values did not
+#: change; old markers will then force one full backfill scan.
+QMD_RENDERER_VERSION = 1
 
 #: Rows fetched per page while scanning for changed entries. Bounds the memory
 #: a rebuild of a large logbook needs without making the scan chatty.
@@ -585,19 +593,41 @@ def _read_qmd_watermark(mirror_root: Path) -> datetime | None:
 
     Returns:
         The stored timestamp as an aware UTC ``datetime``, or ``None`` when no
-        watermark exists or the stored value cannot be parsed. Both cases fall
-        back to a full scan, which is correct but slower -- never wrong.
+        current, valid watermark exists. Missing, legacy, corrupt, and
+        version-mismatched markers all fall back to a full scan, which is
+        correct but slower -- never wrong.
     """
+    import json
     from datetime import UTC, datetime
 
     marker = mirror_root / QMD_WATERMARK_NAME
     try:
-        raw = marker.read_text(encoding="utf-8").strip()
-    except OSError:
+        raw = marker.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
         return None
 
     try:
-        moment = datetime.fromisoformat(raw)
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    format_version = payload.get("format_version")
+    renderer_version = payload.get("renderer_version")
+    if (
+        type(format_version) is not int
+        or format_version != QMD_WATERMARK_FORMAT_VERSION
+        or type(renderer_version) is not int
+        or renderer_version != QMD_RENDERER_VERSION
+    ):
+        return None
+
+    raw_moment = payload.get("updated_at")
+    if not isinstance(raw_moment, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(raw_moment)
     except ValueError:
         return None
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
@@ -615,8 +645,18 @@ def _write_qmd_watermark(mirror_root: Path, moment: datetime) -> None:
             but could not record where it stopped must fail loudly, because the
             silent alternative is re-exporting from the old watermark forever.
     """
+    import json
+    from datetime import UTC
+
+    normalized = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
+    payload = {
+        "format_version": QMD_WATERMARK_FORMAT_VERSION,
+        "renderer_version": QMD_RENDERER_VERSION,
+        "updated_at": normalized.isoformat(),
+    }
+    serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     mirror_root.mkdir(parents=True, exist_ok=True)
-    _atomic_write_text(mirror_root / QMD_WATERMARK_NAME, f"{moment.isoformat()}\n")
+    _atomic_write_text(mirror_root / QMD_WATERMARK_NAME, f"{serialized}\n")
 
 
 def _touch_qmd_marker(mirror_root: Path) -> bool:
@@ -1014,7 +1054,7 @@ def _entry_summary(entry: dict) -> dict:
     }
 
 
-async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> dict:
+async def run_search(config_dict: dict, query: str, mode: str | None, limit: int) -> dict:
     """Execute a search query and return the result as a dict.
 
     Args:
@@ -1022,7 +1062,8 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
         query: Search query text.
         mode: Search module name, e.g. ``"keyword"``. Case and surrounding
             whitespace are normalized; whether the name is registered and
-            enabled is decided by the search service.
+            enabled is decided by the search service. ``None`` leaves the
+            choice to the deployment's ``ariel.default_search_mode``.
         limit: Maximum number of entries to return.
 
     Returns:
@@ -1036,10 +1077,12 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
 
     config = _ariel_config(config_dict)
 
-    try:
-        search_mode = normalize_search_mode(mode)
-    except ValueError as e:
-        return {"error": str(e)}
+    search_mode: str | None = None
+    if mode is not None:
+        try:
+            search_mode = normalize_search_mode(mode)
+        except ValueError as e:
+            return {"error": str(e)}
 
     try:
         service = await create_ariel_service(config)

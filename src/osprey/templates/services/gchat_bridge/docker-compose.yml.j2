@@ -5,6 +5,12 @@
     `network:` declared the macros emit exactly the blocks this file carried
     before, byte for byte. -#}
 {%- import "services/_network_axis.j2" as net -%}
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing and this file renders exactly
+    as it did before the axis existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 # The gchat-bridge service pulls Google Chat events from a Pub/Sub subscription
 # and dispatches mentions of the Chat app through the osprey.dispatch pair (see
 # src/osprey/bridges/google_chat/). It is a subscriber, not a server: it opens
@@ -55,7 +61,7 @@
 
 services:
   gchat-bridge:
-    image: ${OSPREY_GCHAT_BRIDGE_IMAGE:-{{ services.gchat_bridge.image | default(osprey_labels.project_name ~ '-gchat-bridge:local') }}}
+    image: ${OSPREY_GCHAT_BRIDGE_IMAGE:-{{ services.gchat_bridge.image | default(osprey_images.gchat_bridge) }}}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -253,6 +259,7 @@ services:
       DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
       HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.gchat_bridge) }}
     volumes:
       # The service-account key, read-only. Mounted at the SAME path it carries
       # on the host so GCHAT_SA_KEY above names one file on both sides: a second

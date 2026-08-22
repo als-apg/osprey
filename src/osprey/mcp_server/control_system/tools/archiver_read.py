@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
@@ -15,6 +16,32 @@ from osprey.mcp_server.errors import make_error
 from osprey.utils.config import get_facility_timezone
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
+
+#: Points per channel the default bin aims for when the caller names no
+#: ``bin_size``; ``archiver.auto_bin_points`` in config.yml overrides it.
+DEFAULT_AUTO_BIN_POINTS = 10_000
+
+
+def auto_bin_seconds(span: timedelta, target_points: int) -> int:
+    """The whole-second bin that keeps a continuously archived channel near *target_points*.
+
+    ``ceil(span / target_points)``, never below one second: 1 s for anything
+    up to the budget (2.8 h at 10 000), 9 s for a day, ~53 min for a year. A
+    degenerate or inverted window gets the smallest legal bin rather than an
+    exception — the read itself reports the empty window honestly.
+
+    Whole seconds because the EPICS Archiver Appliance only bins in whole
+    seconds (``lastSample_N``); a sub-second width would be refused there.
+    Rounding up, never down, keeps the result under budget.
+
+    Widening the bin loses nothing on a slowly or intermittently archived
+    channel: ``raw`` keeps one real sample per bin and an empty bin yields no
+    row, so the channels issue #117 was filed about come back exactly as before.
+    """
+    seconds = span.total_seconds()
+    if seconds <= 0:
+        return 1
+    return max(1, math.ceil(seconds / target_points))
 
 
 def _parse_time(time_str: str) -> datetime:
@@ -200,19 +227,24 @@ async def archiver_read(
         end_time: End of the time range (default "now").
         processing: Aggregation within each bin — one of "raw", "mean", "min",
             "max", "median", "std", "count".
-        bin_size: Bin size in seconds when using a processing mode other than
-            "raw". ``0`` requests full resolution — every real archived sample
-            in range, with no per-bin decimation — and is only valid with
-            processing="raw" (an aggregate has no bin to aggregate over).
-            ``None`` (the default) uses a 1-second bin. Negative values are
-            rejected.
+        bin_size: Bin size in seconds. ``None`` (the default) picks a
+            whole-second bin from the span so a continuously archived channel
+            returns at most about 10 000 points (``archiver.auto_bin_points``
+            in config.yml): 1 s for anything under ~2.8 hours, 9 s for a day,
+            ~53 minutes for a year. The bin actually used is reported as
+            ``summary.bin_size`` with ``summary.bin_size_source`` ``"auto"``;
+            pass ``bin_size`` explicitly to override it. ``0`` requests full
+            resolution — every real archived sample in range, with no per-bin
+            decimation — and is only valid with processing="raw" (an aggregate
+            has no bin to aggregate over). Negative values are rejected.
 
     Returns:
-        JSON summary with per-channel point counts and stats, and the data
-        file path. When a requested channel has zero points in the window,
-        ``summary.coverage`` explains why — the window precedes/follows the
-        archive's real bounds, the channel was never recorded, or the window
-        holds an honest gap — so an empty answer is never a silent one.
+        JSON summary with per-channel point counts and stats, the bin that was
+        used and whether it was requested or chosen automatically, and the
+        data file path. When a requested channel has zero points in the
+        window, ``summary.coverage`` explains why — the window precedes/follows
+        the archive's real bounds, the channel was never recorded, or the
+        window holds an honest gap — so an empty answer is never a silent one.
     """
     if not channels:
         return make_error(
@@ -268,17 +300,43 @@ async def archiver_read(
         from osprey.mcp_server.control_system.server_context import get_server_context
 
         registry = get_server_context()
+
+        # The connector contract forbids a backend from serving a width other
+        # than the one asked for, so the tool — the only layer that knows the
+        # span — is where a default bin gets chosen. Having chosen it, it says
+        # so in the summary: an auto-picked parameter the agent cannot see
+        # would be the dishonest version of this feature.
+        if bin_size is None:
+            target_points = registry.get("archiver.auto_bin_points", DEFAULT_AUTO_BIN_POINTS)
+            if (
+                isinstance(target_points, bool)
+                or not isinstance(target_points, int)
+                or target_points < 1
+            ):
+                return make_error(
+                    "configuration_error",
+                    f"archiver.auto_bin_points must be a positive integer (got {target_points!r}).",
+                    [
+                        "Fix archiver.auto_bin_points in config.yml, or remove it to use "
+                        f"the default of {DEFAULT_AUTO_BIN_POINTS}.",
+                    ],
+                )
+            resolved_bin = auto_bin_seconds(end_dt - start_dt, target_points)
+            bin_source = "auto"
+        else:
+            resolved_bin = bin_size
+            bin_source = "requested"
+
         connector = await registry.archiver()
 
         # Deduplicate: all counts below must describe what was actually queried.
         unique_channels = list(dict.fromkeys(channels))
 
-        precision_ms = 1000 if bin_size is None else bin_size * 1000
         df = await connector.get_data(
             unique_channels,
             start_dt,
             end_dt,
-            precision_ms=precision_ms,
+            precision_ms=resolved_bin * 1000,
             processing=processing,
         )
 
@@ -325,7 +383,8 @@ async def archiver_read(
                 "start_time": str(start_dt),
                 "end_time": str(end_dt),
                 "processing": processing,
-                "bin_size": bin_size,
+                "bin_size": resolved_bin,
+                "bin_size_source": bin_source,
             },
             "series": series,
         }
@@ -334,6 +393,8 @@ async def archiver_read(
             "channels_queried": len(unique_channels),
             "total_points": total_points,
             "time_range": {"start": str(start_dt), "end": str(end_dt)},
+            "bin_size": resolved_bin,
+            "bin_size_source": bin_source,
             "per_channel": per_channel,
         }
         if coverage is not None:

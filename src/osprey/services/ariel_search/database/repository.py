@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from osprey.services.ariel_search.database.search_fts import keyword_search_expressions
 from osprey.services.ariel_search.exceptions import (
     DatabaseQueryError,
     ModuleNotEnabledError,
@@ -806,15 +807,15 @@ class ARIELRepository:
                 async with conn.cursor(row_factory=dict_row) as cur:
                     where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
 
-                    # raw_text contains subject + details merged by adapter
+                    fts_expression, headline_document = keyword_search_expressions(self.config)
                     if include_highlights:
                         query = f"""
                             SELECT e.*,
                                    ts_rank(
-                                       to_tsvector('english', raw_text),
+                                       {fts_expression},
                                        plainto_tsquery('english', %s)
                                    ) AS rank,
-                                   ts_headline('english', raw_text, plainto_tsquery('english', %s),
+                                   ts_headline('english', {headline_document}, plainto_tsquery('english', %s),
                                        'StartSel=<b>, StopSel=</b>, MaxFragments=3'
                                    ) AS headline
                             FROM enhanced_entries e
@@ -827,7 +828,7 @@ class ARIELRepository:
                         query = f"""
                             SELECT e.*,
                                    ts_rank(
-                                       to_tsvector('english', raw_text),
+                                       {fts_expression},
                                        plainto_tsquery('english', %s)
                                    ) AS rank,
                                    NULL AS headline

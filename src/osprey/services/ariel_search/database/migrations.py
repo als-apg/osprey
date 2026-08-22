@@ -175,9 +175,21 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         None,
     ),
     (
+        "keyword_search_fts_index",
+        "osprey.services.ariel_search.database.keyword_search_migration",
+        "KeywordSearchFtsMigration",
+        None,
+    ),
+    (
         "semantic_processor",
         "osprey.services.ariel_search.enhancement.semantic_processor.migration",
         "SemanticProcessorMigration",
+        "semantic_processor",
+    ),
+    (
+        "semantic_processor_search_index",
+        "osprey.services.ariel_search.enhancement.semantic_processor.search_migration",
+        "SemanticProcessorSearchMigration",
         "semantic_processor",
     ),
     (

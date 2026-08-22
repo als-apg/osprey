@@ -1,7 +1,7 @@
 """Read Claude Code native transcripts to extract OSPREY tool-call and agent events.
 
 No audit hook is needed for this: Claude Code already logs every tool call to
-``~/.claude/projects/<encoded>/`` as JSONL, and this module reads those
+``<config-dir>/projects/<encoded>/`` as JSONL, and this module reads those
 transcripts on demand.
 """
 
@@ -9,7 +9,7 @@ import json
 import logging
 from pathlib import Path
 
-from osprey.agent_runner.project_paths import encode_claude_project_path
+from osprey.agent_runner.project_paths import claude_project_dir
 
 logger = logging.getLogger("osprey.mcp_server.workspace.transcript_reader")
 
@@ -78,12 +78,11 @@ class TranscriptReader:
     def find_transcript_dir(self) -> Path | None:
         """Locate the Claude Code transcript directory for this project.
 
-        Claude Code stores transcripts in ``~/.claude/projects/<encoded>/``;
-        see :func:`osprey.cli.project_utils.encode_claude_project_path` for
-        the encoding rule.
+        Claude Code stores transcripts in ``<config-dir>/projects/<encoded>/``;
+        see :func:`osprey.agent_runner.project_paths.claude_project_dir` for
+        how the root and the encoded name are resolved.
         """
-        encoded = encode_claude_project_path(self.project_dir)
-        transcript_dir = Path.home() / ".claude" / "projects" / encoded
+        transcript_dir = claude_project_dir(self.project_dir)
         if transcript_dir.is_dir():
             return transcript_dir
         return None

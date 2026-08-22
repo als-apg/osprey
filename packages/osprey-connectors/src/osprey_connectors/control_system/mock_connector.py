@@ -167,12 +167,17 @@ class MockConnector(ControlSystemConnector):
         2. Determines verification level from per-channel or global config
         3. Executes write with appropriate verification
 
+        An explicitly passed ``verification_level`` wins over the configured one,
+        but the tolerance is still resolved from the limits database, so an
+        explicit ``"readback"`` keeps the channel's configured tolerance.
+
         Args:
             channel_address: Any channel name
             value: Value to write
             timeout: Ignored for mock connector
             verification_level: Optional override for verification level (auto-determined if None)
-            tolerance: Optional override for tolerance (auto-calculated if None)
+            tolerance: Optional override for tolerance. Resolved from the limits
+                database when None, including when verification_level was given.
 
         Returns:
             ChannelWriteResult with write status and verification details
@@ -196,11 +201,19 @@ class MockConnector(ControlSystemConnector):
                 # Log unexpected errors but don't block (fail-open for non-limit errors)
                 logger.warning(f"Limits validation error (non-blocking): {e}")
 
-        # Step 2: Auto-determine verification config if not provided
-        if verification_level is None:
-            verification_level, auto_tolerance = self._get_verification_config(
+        # Step 2: Resolve verification config.
+        # An explicit level wins, but the tolerance is still resolved from the
+        # limits database: passing verification_level="readback" must not
+        # silently drop the channel's configured tolerance and fall back to the
+        # hard-coded 0.001. Only look it up when it is actually needed, so an
+        # explicit "none"/"callback" write of a non-numeric value never has to
+        # be coerced with float().
+        if verification_level is None or (tolerance is None and verification_level == "readback"):
+            auto_level, auto_tolerance = self._get_verification_config(
                 channel_address, float(value)
             )
+            if verification_level is None:
+                verification_level = auto_level
             if tolerance is None:
                 tolerance = auto_tolerance
 
@@ -290,6 +303,7 @@ class MockConnector(ControlSystemConnector):
                         level="readback",
                         verified=False,
                         notes=f"Simulated readback failed: {str(e)} (mock)",
+                        failure_kind="readback_failed",
                     ),
                     error_message=f"Mock readback verification failed: {str(e)}",
                 )

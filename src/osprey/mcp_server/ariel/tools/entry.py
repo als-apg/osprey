@@ -241,7 +241,7 @@ async def entry_create(
             return make_error(
                 "validation_error",
                 str(exc),
-                ["Check artifact IDs via the gallery or artifact_save output."],
+                ["Check artifact IDs via the gallery or artifact_register output."],
             )
         except ToolError:
             raise

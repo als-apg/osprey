@@ -194,6 +194,9 @@ async def get_panels(request: Request):
             "open_tiles": [...]|None,   # last-reported service tiles, reading order
             "open_tiles_age_s": float|None,   # seconds since that report (None = never)
             "open_tiles_dock": bool|None,     # reporting client had a dock shell (None = never)
+            "docs_url": str,            # target of the rail's Documentation control
+            "feedback_github_repo": str,   # "owner/repo" for the prefilled new-issue URL
+            "feedback_email": str,      # recipient of the prefilled mailto: draft
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -262,6 +265,14 @@ async def get_panels(request: Request):
 
     So ``[]`` always means known-empty and ``null`` always means unknown; the
     age tells the two flavours of unknown apart.
+
+    ``docs_url``, ``feedback_github_repo`` and ``feedback_email`` are the
+    resolved ``web.docs_url`` / ``web.feedback.*`` values that address the two
+    utility controls at the far end of the rail: the Documentation link target,
+    and the two outbound channels the feedback dialog offers (a prefilled
+    GitHub issue and a prefilled ``mailto:`` draft). The store ceiling
+    (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
+    server-side pruning and nothing in the browser acts on it.
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
@@ -297,6 +308,12 @@ async def get_panels(request: Request):
     open_tiles_ts = getattr(request.app.state, "open_tiles_ts", None)
     open_tiles_age = None if open_tiles_ts is None else time.time() - open_tiles_ts
     open_tiles_dock = getattr(request.app.state, "open_tiles_dock", None)
+    # Utility-cluster targets. The defaults mirror app.DEFAULT_DOCS_URL /
+    # DEFAULT_FEEDBACK_GITHUB_REPO / DEFAULT_FEEDBACK_EMAIL, spelled as
+    # literals here for the same routes->app import-cycle reason as above.
+    docs_url = getattr(request.app.state, "docs_url", "https://als-apg.github.io/osprey")
+    feedback_github_repo = getattr(request.app.state, "feedback_github_repo", "als-apg/osprey")
+    feedback_email = getattr(request.app.state, "feedback_email", "thellert@lbl.gov")
     return {
         "enabled": enabled,
         "custom": custom,
@@ -315,6 +332,9 @@ async def get_panels(request: Request):
         "open_tiles": open_tiles,
         "open_tiles_age_s": open_tiles_age,
         "open_tiles_dock": open_tiles_dock,
+        "docs_url": docs_url,
+        "feedback_github_repo": feedback_github_repo,
+        "feedback_email": feedback_email,
     }
 
 

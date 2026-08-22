@@ -1506,12 +1506,12 @@ def _artifact_trigger(directory: Path) -> dict[str, Any]:
         "action": {
             "prompt": (
                 "A Google Chat end-to-end test needs exactly one image artifact "
-                "registered. Call the tool mcp__osprey_workspace__artifact_save exactly "
+                "registered. Call the tool mcp__osprey_workspace__artifact_register exactly "
                 f"once, with file_path set to {source} and title set to 'Chat bridge "
                 "e2e image'. Use no other tool and register no other file. Then reply "
                 "with the single word SAVED and nothing else."
             ),
-            "allowed_tools": ["mcp__osprey_workspace__artifact_save"],
+            "allowed_tools": ["mcp__osprey_workspace__artifact_register"],
         },
     }
 

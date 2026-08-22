@@ -213,7 +213,7 @@ async def channel_limits(
                 "description": "Channel limits checking is not enabled in this configuration.",
                 "summary": {"limits_enabled": False},
                 "access_details": {
-                    "note": "Enable limits_checking in config.yml to use this tool."
+                    "note": "Enable limits_checking in the build profile (profile.yml on the host), then rebuild and redeploy to use this tool."
                 },
             }
         )

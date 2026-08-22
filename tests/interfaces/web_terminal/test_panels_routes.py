@@ -121,7 +121,33 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "open_tiles",
         "open_tiles_age_s",
         "open_tiles_dock",
+        "docs_url",
+        "feedback_github_repo",
+        "feedback_email",
     }
+
+
+def test_blank_utility_targets_reach_the_browser_as_blank(tmp_path):
+    """A blanked key must survive the route, not be re-defaulted on the way out.
+
+    This is the second half of the blank posture: ``coerce_config_str`` keeps an
+    explicitly blank ``web.docs_url`` / ``web.feedback.*`` blank on ``app.state``,
+    and the payload has to carry it through. A ``getattr`` default that fired on
+    an empty string here would hand the browser the upstream targets and quietly
+    re-enable a channel the deployment retired — the rail would show a docs link
+    the control room cannot reach, and the dialog would aim feedback at the
+    OSPREY maintainers' tracker.
+    """
+    app = _make_app(tmp_path)
+    app.state.docs_url = ""
+    app.state.feedback_github_repo = ""
+    app.state.feedback_email = ""
+
+    body = _panels(app)
+
+    assert body["docs_url"] == ""
+    assert body["feedback_github_repo"] == ""
+    assert body["feedback_email"] == ""
 
 
 def test_project_key_matches_documented_construction(tmp_path):

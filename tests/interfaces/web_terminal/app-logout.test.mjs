@@ -165,6 +165,40 @@ describe('initLogoutButton: click flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  test('binds the display-menu copy too, and locks only the clicked button', async () => {
+    // Log out renders twice — `#logout-btn` in the header identity menu and
+    // `#display-menu-logout-btn` in the display menu's action row — and one
+    // initLogoutButton() call wires both to the same flow.
+    document.body.innerHTML =
+      '<button id="logout-btn" data-landing-url="/landing"></button>' +
+      '<button id="display-menu-logout-btn" data-landing-url="/landing"></button>';
+    const chipBtn = /** @type {HTMLButtonElement} */ (document.getElementById('logout-btn'));
+    const menuBtn = /** @type {HTMLButtonElement} */ (
+      document.getElementById('display-menu-logout-btn')
+    );
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ status: 'ok' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const assign = vi.fn();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
+
+    initLogoutButton();
+    menuBtn.click();
+
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith('/api/terminal/logout', { method: 'POST' });
+    // The in-flight lock lands on the control the operator clicked; the other
+    // copy is left alone (every path navigates away regardless).
+    expect(menuBtn.disabled).toBe(true);
+    expect(menuBtn.getAttribute('aria-busy')).toBe('true');
+    expect(chipBtn.disabled).toBe(false);
+  });
+
   test('a failed logout request still clears storage and navigates (best effort)', async () => {
     localStorage.setItem(STORAGE_KEY, 'warm-session-id');
     const btn = renderLogoutButton('/landing');
@@ -360,6 +394,7 @@ describe('post-logout: a fresh load does not auto-resume', () => {
     write() {}
     reset() {}
     focus() {}
+    attachCustomKeyEventHandler() {}
   }
 
   class FakeAddon {
@@ -393,6 +428,7 @@ describe('post-logout: a fresh load does not auto-resume', () => {
     vi.stubGlobal('Terminal', FakeTerminal);
     vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
     vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
+    vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
     vi.stubGlobal('WebSocket', FakeWebSocket);
     // xtermPalette() logs a console.error when the CSS custom properties it
     // reads are absent, which they are in this bare happy-dom document.

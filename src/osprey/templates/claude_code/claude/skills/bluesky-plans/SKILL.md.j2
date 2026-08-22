@@ -1,0 +1,125 @@
+{% if "bluesky" in enabled_servers | default([]) %}---
+name: bluesky-plans
+description: >
+  Orient in this deployment's Bluesky plan subsystem and settle which path a
+  request takes: does a plan that is already registered here cover it, or does
+  none, so that one has to be authored first? Holds a build-time index of the
+  plans this deployment ships with, plus a one-screen map of the pieces —
+  the plan catalog, the shared draft, the queue, and stored run results — and
+  then hands the work to whichever of the two Bluesky skills owns that path.
+  Use when it is unclear which of those two applies, or when someone asks what
+  this deployment can already do. This skill routes; it carries no procedure of
+  its own.
+summary: Route between reusing a registered plan and authoring a new one
+---
+
+# Bluesky Plans — What Exists Here, and Which Path to Take
+
+This skill answers one question: **is there already a plan for this, or must
+one be written?** Once that is settled it steps aside. The two skills it routes
+to hold the actual procedures, and nothing here restates them.
+
+---
+
+## What the subsystem holds
+
+- **Plans.** Named, reusable measurement procedures. Each one declares the
+  parameters it takes, the channels it reads, and the channels (if any) it
+  moves. `list_plans` is the catalog; `list_devices` is the set of names a
+  plan's channel parameters must be filled from.
+- **The shared draft.** One server-side staging area holding a plan name and
+  its arguments. The OSPREY agent edits it with `set_draft`, and the human sees
+  every edit live in their plan panel. Editing the draft runs nothing.
+  `get_draft` reads it back; `clear_draft` discards it.
+- **The queue.** `queue_add(draft_revision)` puts exactly the draft the human
+  can see — pinned at that revision — into the queue and stops there.
+  `queue_start` is what begins real motion. `queue_list` and `queue_status`
+  are the reads; `queue_stop` halts the queue after the running item finishes,
+  and `stop_run` aborts the plan already in motion.
+- **Run results.** `list_runs` lists the runs the queue knows about — queued,
+  running and recent. `get_run` reports one run's lifecycle status,
+  `get_run_data` reads a bounded window of its data, and `get_run_figure`
+  returns the plan's own view of what it measured.
+
+So a plan reaches the machine along exactly one path: `set_draft` → the human
+reviews it in the plan panel → `queue_add(draft_revision)` → `queue_start` →
+read the result back. There is no shortcut through that sequence, and stepping
+a setpoint by hand is not a substitute for it.
+
+---
+
+## The plans this deployment was built with
+
+{% set index = bluesky_plan_index | default(none) -%}
+{% if index is none -%}
+This build recorded no plan listing. Call `list_plans` to see what is
+registered.
+{% elif not index.rows -%}
+No plans were visible when this deployment was built. That does **not** mean
+there are none now — call `list_plans`, which is the live catalog and the only
+authority on what can be run here.
+{% else -%}
+| Plan | What it does | Moves the machine | Tier |
+|------|--------------|-------------------|------|
+{% for row in index.rows %}| `{{ row.name }}` | {{ row.description }} | {{ "yes" if row.writes else "no" }} | {{ row.provenance }} |
+{% endfor %}{% if index.overflow %}| {{ index.overflow }} further plans — call `list_plans` | | | |
+{% endif %}
+Tier is the trust layer the plan file was found in — `shipped` < `preset` <
+`facility` — assigned by where the file lives, never claimed by the file.
+{% endif %}
+{%- if index is not none and index.unreadable_dirs %}
+**A configured plan directory could not be read when this deployment was
+built**, so any plans in it are missing from this listing. Do not conclude from
+the listing above that this deployment has no facility plans.
+{% endif %}
+**Whatever this listing shows, `list_plans` is the authority.** Call it before
+any `set_draft`. The listing is for choosing a plan, never for acting on one,
+and it can be both incomplete and stale:
+
+- The listing is a **snapshot taken at build time**. Plans registered since the
+  build, plans authored during this session, and plans supplied through the
+  older `bluesky.plan_module` configuration are all absent from it.
+- The listing is **metadata-level**. It reads each plan file's declared
+  metadata and nothing more, while the bridge's loader also rejects a plan
+  whose `build_plan` is missing or not callable, whose `PARAMS` are malformed,
+  or that declares it moves the machine without naming a movable channel. A
+  plan listed here may therefore be quarantined at load and never appear in
+  `list_plans` at all.
+- The deployed bridge may run a **pinned image** whose plan files differ from
+  the ones the build host saw.
+
+---
+
+## Reuse first; author only when nothing fits
+
+1. **Look for a registered plan.** Call `list_plans` and read what comes back.
+   If a plan covers the request — even approximately, since most plans are
+   parameterised — that is the path.
+   → Use the **`operating-bluesky-plans`** skill. It owns staging, queuing,
+   starting, and watching the run.
+2. **Author only when nothing fits.** A new plan is warranted when no
+   registered plan expresses the measurement at all, not when an existing one
+   would need unfamiliar arguments.
+   → Use the **`writing-bluesky-plans`** skill. It owns the plan-file format,
+   validation, and how a newly written plan becomes runnable.
+
+A plan written this session is session-tier and inert until it validates, so
+authoring is the longer road. Take it deliberately, not by default.
+
+---
+
+## Checking what a plan actually does
+
+When the question is what a specific parameter means, which channels a plan
+touches, or whether it really matches what was asked for, **read the plan**:
+`get_plan_source(name)` returns the file's own text. It is a read — it starts
+nothing.
+
+Prefer it to paraphrasing a one-line catalog description. Those descriptions
+are written to help someone pick a plan, not to settle what an argument does,
+and guessing at a parameter's meaning is how the wrong value reaches the
+machine. If the response comes back `truncated`, ask again with a larger
+`max_chars`, up to the 200000 ceiling, rather than describing an ending you
+have not read. At that ceiling the rest of the file is simply not retrievable
+through this tool, and must not be described at all.
+{% endif %}

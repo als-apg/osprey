@@ -102,6 +102,45 @@ class TestSemanticProcessorMigration:
 
         assert len(rows) == 1
 
+    async def test_keyword_search_matches_summary_and_keywords(
+        self, migrated_pool, repository, integration_ariel_config
+    ):
+        """The real PostgreSQL path retrieves terms absent from raw_text."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        entry_id = "test-semantic-fts-001"
+        async with migrated_pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO enhanced_entries (
+                    entry_id, source_system, timestamp, author, raw_text,
+                    attachments, metadata, enhancement_status, summary, keywords
+                ) VALUES (
+                    %s, 'test', NOW(), 'tester', 'Routine operator note',
+                    '[]'::jsonb, '{}'::jsonb, '{}'::jsonb,
+                    'Xylophonic vacuum condition', ARRAY['quenchmarker']
+                )
+                ON CONFLICT (entry_id) DO UPDATE SET
+                    raw_text = EXCLUDED.raw_text,
+                    summary = EXCLUDED.summary,
+                    keywords = EXCLUDED.keywords
+                """,
+                [entry_id],
+            )
+
+        try:
+            for query in ("xylophonic", "quenchmarker"):
+                results = await keyword_search(
+                    query,
+                    repository,
+                    integration_ariel_config,
+                    fuzzy_fallback=False,
+                )
+                assert entry_id in {entry["entry_id"] for entry, _score, _highlights in results}
+        finally:
+            async with migrated_pool.connection() as conn:
+                await conn.execute("DELETE FROM enhanced_entries WHERE entry_id = %s", [entry_id])
+
 
 class TestTextEmbeddingMigration:
     """Test text embedding migration."""
@@ -278,8 +317,8 @@ class TestMigrationSQLExecution:
             # Clean up
             await conn.execute("DELETE FROM enhanced_entries WHERE entry_id = 'test-fts-func-001'")
 
-        # The query plan should reference the index
-        assert "idx_entries_text_search" in plan or "Seq Scan" in plan
+        # The query plan should reference the core raw-text FTS index
+        assert "idx_entries_raw_text_fts" in plan or "Seq Scan" in plan
 
     async def test_primary_key_constraint_exists(self, migrated_pool):
         """Verify primary key constraint exists on enhanced_entries.

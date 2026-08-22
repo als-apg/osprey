@@ -43,6 +43,62 @@ export const DEFAULT_DEBOUNCE_MS = 150;
 let comboboxSeq = 0;
 
 /**
+ * Tallest the popup may grow, and the gap it keeps from its input. Shared by
+ * the initial style block and the per-open placement pass.
+ *
+ * @type {number}
+ */
+const MAX_POPUP_HEIGHT_PX = 240;
+const POPUP_GAP_PX = 2;
+
+/**
+ * Below this many pixels of room, opening downward is not worth it and the
+ * popup flips above the input instead.
+ *
+ * @type {number}
+ */
+const MIN_POPUP_HEIGHT_PX = 96;
+
+/**
+ * Row backgrounds for the arrow-armed option and for plain hover.
+ *
+ * Accent tints rather than a surface token: the popup already sits on
+ * `--bg-elevated`, and in the `light` theme `--bg-secondary` is defined to the
+ * very same colour, so painting the armed row with it left keyboard users no
+ * visible cursor at all. A tint is an alpha overlay, so it reads against every
+ * theme's popup surface by construction. Arming is also the stronger of the
+ * two states -- hover explicitly never arms -- so it gets the stronger tint,
+ * and the two states stay tellable apart when the pointer rests on a row that
+ * is not the armed one.
+ *
+ * @type {string}
+ */
+const ARMED_BACKGROUND = 'var(--accent-tint-12)';
+const HOVER_BACKGROUND = 'var(--accent-tint-06)';
+
+/**
+ * Whether the browser can promote the popup into the top layer.
+ *
+ * The popup is laid out `position: fixed` either way, which already escapes an
+ * ancestor's `overflow: clip`/`hidden` (a fixed box's containing block is the
+ * viewport, so those ancestors never clip it). The top layer additionally
+ * makes it immune to ancestor stacking contexts and to the `transform`/
+ * `filter`/`will-change` ancestors that would otherwise capture a fixed box's
+ * containing block. Where `popover` is missing the component degrades to plain
+ * fixed positioning rather than losing the popup.
+ *
+ * @type {boolean}
+ */
+// Probe the METHODS, not `'popover' in HTMLElement.prototype`: jsdom reflects
+// the popover attribute without implementing the top layer, so the property
+// test passes there and showPopover() then throws at the first keystroke.
+const SUPPORTS_POPOVER =
+  typeof HTMLElement !== 'undefined' &&
+  !!HTMLElement.prototype &&
+  typeof HTMLElement.prototype.showPopover === 'function' &&
+  typeof HTMLElement.prototype.hidePopover === 'function';
+
+/**
  * @typedef {Object} ChannelComboboxOptions
  * @property {number} [debounceMs] - override for DEFAULT_DEBOUNCE_MS
  * @property {(value: string) => void} [onSelect] - called after a suggestion
@@ -86,7 +142,14 @@ function appendHighlighted(container, text, spans) {
  * Attach a channel-suggestion combobox to a text input.
  *
  * Wraps the input in a position:relative `.channel-combobox` container and
- * anchors a listbox popover under it. The component only ever *suggests*:
+ * floats a listbox popover at the input's viewport rect. The popup is a
+ * top-layer `popover` laid out `position: fixed`, deliberately NOT an
+ * absolutely-positioned child of the wrapper: several of the containers these
+ * fields render into clip their overflow for rounded corners (`.channel-list`
+ * with `overflow: hidden`, `.obj-table` with `overflow: clip`), which cropped
+ * an in-flow popup down to a few pixels while every DOM-level signal —
+ * aria-expanded, computed visibility, the option children — still read as a
+ * healthy open popup. The component only ever *suggests*:
  * it rewrites `input.value` solely when the user accepts a suggestion, and a
  * programmatic accept re-dispatches a bubbling `input` event so form-level
  * listeners (e.g. schema-form model sync) observe the new value.
@@ -120,14 +183,24 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
   const listbox = el('div', 'channel-combobox-list');
   listbox.id = listId;
   listbox.setAttribute('role', 'listbox');
+  // No inline `display`: an inline declaration outranks the UA rule that hides
+  // a closed popover (`[popover]:not(:popover-open) { display: none }`), so
+  // setting it here would leave the popup permanently on screen. Visibility is
+  // owned by showPopover()/hidePopover(), or by open()/close() in the
+  // no-popover fallback.
+  if (SUPPORTS_POPOVER) listbox.setAttribute('popover', 'manual');
   Object.assign(listbox.style, {
-    display: 'none',
-    position: 'absolute',
-    top: '100%',
-    left: '0',
-    right: '0',
-    marginTop: '2px',
-    maxHeight: '240px',
+    // Fixed, not absolute: anchoring inside the wrapper meant any ancestor
+    // that clips (`.channel-list` has `overflow: hidden` and `.obj-table`
+    // `overflow: clip`, both for their rounded corners) cropped the popup to
+    // an unusable sliver. Coordinates are written by place() on every open.
+    position: 'fixed',
+    // Neutralize the UA popover box, which otherwise centres itself in the
+    // viewport with `inset: 0` and `margin: auto`.
+    inset: 'auto',
+    margin: '0',
+    padding: '0',
+    maxHeight: `${MAX_POPUP_HEIGHT_PX}px`,
     overflowY: 'auto',
     zIndex: 'var(--z-dropdown)',
     background: 'var(--bg-elevated)',
@@ -138,6 +211,7 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
     fontSize: 'var(--text-sm)',
     color: 'var(--text-primary)',
   });
+  if (!SUPPORTS_POPOVER) listbox.style.display = 'none';
   wrapper.appendChild(listbox);
 
   input.setAttribute('role', 'combobox');
@@ -175,7 +249,7 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
    */
   function paintRow(index, on) {
     const opt = options[index];
-    if (opt) opt.row.style.background = on ? 'var(--bg-secondary)' : 'transparent';
+    if (opt) opt.row.style.background = on ? ARMED_BACKGROUND : 'transparent';
   }
 
   /**
@@ -228,14 +302,64 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
     if (!(e.target instanceof Node) || !wrapper.contains(e.target)) dismiss();
   }
 
+  /**
+   * Pin the popup to the input's current viewport rect.
+   *
+   * Runs on every open and again whenever the viewport moves under an open
+   * popup, because a fixed box does not travel with the scroller its input
+   * lives in. The popup flips above the input when the room below cannot seat
+   * a usable list — these fields sit in a scrollable panel, so a field near
+   * the bottom edge would otherwise open a popup off-screen, which reads to
+   * the user exactly like the clipping bug this replaced.
+   *
+   * @returns {void}
+   */
+  function place() {
+    const rect = input.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - POPUP_GAP_PX;
+    const above = rect.top - POPUP_GAP_PX;
+    const flip = below < MIN_POPUP_HEIGHT_PX && above > below;
+    const room = Math.max(MIN_POPUP_HEIGHT_PX, Math.min(MAX_POPUP_HEIGHT_PX, flip ? above : below));
+
+    listbox.style.left = `${rect.left}px`;
+    listbox.style.width = `${rect.width}px`;
+    listbox.style.maxHeight = `${room}px`;
+    if (flip) {
+      listbox.style.top = 'auto';
+      listbox.style.bottom = `${window.innerHeight - rect.top + POPUP_GAP_PX}px`;
+    } else {
+      listbox.style.bottom = 'auto';
+      listbox.style.top = `${rect.bottom + POPUP_GAP_PX}px`;
+    }
+  }
+
+  /**
+   * Re-place an open popup. Scroll is observed in the capture phase because
+   * scroll events on an inner scroller do not bubble to window.
+   *
+   * @returns {void}
+   */
+  function onViewportChange() {
+    if (isOpen) place();
+  }
+
   /** @returns {void} */
   function open() {
     if (isOpen) return;
+    // A debounced query can land after a form re-render detached this
+    // combobox: showPopover() on a disconnected element throws, and a popup
+    // for a field that is gone has nothing to point at anyway.
+    if (!listbox.isConnected) return;
     isOpen = true;
     wrapper.classList.add('open');
-    listbox.style.display = 'block';
+    place();
+    if (SUPPORTS_POPOVER) {
+      if (!listbox.matches(':popover-open')) listbox.showPopover();
+    } else listbox.style.display = 'block';
     input.setAttribute('aria-expanded', 'true');
     document.addEventListener('mousedown', onDocMousedown, true);
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
   }
 
   /** @returns {void} */
@@ -244,9 +368,15 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
     isOpen = false;
     setArmed(-1);
     wrapper.classList.remove('open');
-    listbox.style.display = 'none';
+    if (SUPPORTS_POPOVER) {
+      // Removing a showing popover from the DOM already hides it, so a
+      // close() on the way out of a re-render must not call hidePopover again.
+      if (listbox.isConnected && listbox.matches(':popover-open')) listbox.hidePopover();
+    } else listbox.style.display = 'none';
     input.setAttribute('aria-expanded', 'false');
     document.removeEventListener('mousedown', onDocMousedown, true);
+    window.removeEventListener('scroll', onViewportChange, true);
+    window.removeEventListener('resize', onViewportChange);
   }
 
   /**
@@ -296,7 +426,7 @@ export function attachChannelCombobox(input, catalog, opts = {}) {
     row.addEventListener('mousedown', (e) => e.preventDefault());
     row.addEventListener('click', () => select(match.value));
     row.addEventListener('mouseenter', () => {
-      if (index !== armed) row.style.background = 'var(--bg-secondary)';
+      if (index !== armed) row.style.background = HOVER_BACKGROUND;
     });
     row.addEventListener('mouseleave', () => {
       if (index !== armed) row.style.background = 'transparent';

@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+_ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
 NetworkMode = Literal["bridge", "host"]
 """How a deployed service attaches to the network."""
 
@@ -59,6 +61,50 @@ def network_mode_errors(value: Any, key: str) -> list[str]:
         # re-read the same line looking for a typo that is not there.
         message += ". A bare yes/no/on/off in YAML parses as a boolean — quote the value."
     return [message]
+
+
+def env_names_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``env:`` name list (empty when valid).
+
+    The ``env:`` axis names HOST variables a service passes through to its
+    container; it carries names, never values, so a declaration is well-formed
+    exactly when it is a list of environment-variable names. Like
+    :func:`network_mode_errors` it accumulates rather than raises, and reports
+    every bad entry rather than the first, so an author fixes the whole list in
+    one pass.
+
+    Args:
+        value: The declared list, exactly as it came out of the YAML.
+        key: Dotted path of the declaration (e.g. ``"services.gchat_bridge.env"``),
+            used verbatim in the messages so the author can find it.
+
+    Returns:
+        Human-readable error messages; empty when ``value`` is a list of names
+        matching :data:`_ENV_VAR_RE`.
+    """
+    if not isinstance(value, list):
+        message = f"{key} must be a list of environment variable names (got {type(value).__name__})"
+        if isinstance(value, bool):
+            message += ". A bare yes/no/on/off in YAML parses as a boolean — quote the value."
+        elif isinstance(value, str):
+            message += f". A single name is still a list — write it as [{value}]."
+        return [message]
+
+    errors: list[str] = []
+    for index, name in enumerate(value):
+        if isinstance(name, str) and _ENV_VAR_RE.match(name):
+            continue
+        message = (
+            f"{key}[{index}] must be an environment variable name matching "
+            f"[A-Z_][A-Z0-9_]* (got {name!r})"
+        )
+        if isinstance(name, bool):
+            # A bare `- on` entry is read on the YAML 1.1 resolver as a bool,
+            # so the author sees a value they never wrote. Name the resolver
+            # rather than let them hunt for a typo that is not there.
+            message += ". A bare yes/no/on/off in YAML parses as a boolean — quote the name."
+        errors.append(message)
+    return errors
 
 
 @dataclass
@@ -125,6 +171,12 @@ class EnvConfig:
     """Environment variable template configuration."""
 
     required: list[str] = field(default_factory=list)
+    # Names the deployment's own env chain owns outright. `required` says a
+    # variable must be set somewhere; `pinned` says where — the chain under the
+    # repo root, and nowhere else. Deploy-side probes read this back off the
+    # repo's profile.yml to judge whether a value reaching the stack came from
+    # the store or from around it. Same upper-snake names as `required`.
+    pinned: list[str] = field(default_factory=list)
     defaults: dict[str, str] = field(default_factory=dict)
     file: str | None = None  # Profile-relative path to copy as .env
 
@@ -206,11 +258,15 @@ class ServiceDef:
 
     :attr:`config` is a free-form pass-through: whatever a profile declares
     under ``services.<name>.config`` is written to the rendered ``config.yml``
-    and is visible to the service's compose template. One key in it is
-    understood by the build itself — ``network:``, the service's attachment,
-    one of :data:`VALID_NETWORK_MODES` and defaulting to
-    :data:`DEFAULT_NETWORK_MODE`. It is validated by
-    :meth:`BuildProfile.validate` and read through :meth:`network_mode`.
+    and is visible to the service's compose template. Two keys in it are
+    understood by the build itself, each validated by
+    :meth:`BuildProfile.validate` and read through its own accessor:
+
+    - ``network:`` — the service's attachment, one of
+      :data:`VALID_NETWORK_MODES` and defaulting to
+      :data:`DEFAULT_NETWORK_MODE`; read through :meth:`network_mode`.
+    - ``env:`` — host environment variable NAMES the service passes through to
+      its container, defaulting to none; read through :meth:`env_names`.
     """
 
     template: str  # Path to template dir (relative to profile dir)
@@ -235,6 +291,27 @@ class ServiceDef:
         # `network: on` reaches this as a bool); fall back rather than hand a
         # consumer a value it would compare against the vocabulary and miss.
         return mode if isinstance(mode, str) else DEFAULT_NETWORK_MODE
+
+    def env_names(self) -> list[str]:
+        """Return the host variable names the service passes through, in order.
+
+        The single place the axis default is applied for a declared service, so
+        a renderer never has to spell the empty case itself. Order is the
+        author's, because it is what the rendered ``environment:`` block shows.
+
+        Returns:
+            The declared names, or an empty list when the service declares
+            none. Every entry is guaranteed to match :data:`_ENV_VAR_RE` for
+            any profile that passed :meth:`BuildProfile.validate`.
+        """
+        if not isinstance(self.config, dict):
+            return []
+        names = self.config.get("env", [])
+        # A non-list here means the profile never passed validation; hand a
+        # consumer nothing rather than something it would iterate as characters.
+        if not isinstance(names, list):
+            return []
+        return [name for name in names if isinstance(name, str)]
 
 
 @dataclass
@@ -391,6 +468,3 @@ class GChatBridgeProfileConfig:
     rather than silently firing a name nobody declared. The value must name a
     trigger declared in the ``dispatch.triggers`` file.
     """
-
-
-_ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")

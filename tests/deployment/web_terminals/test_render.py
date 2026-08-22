@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -3457,6 +3458,100 @@ def test_render_without_ariel_personas_emits_no_password_line() -> None:
 _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 
 
+# ---------------------------------------------------------------------------
+# Archiver connector -> per-user store password
+#
+# `osprey up` mints the archiver store's password into the deploy `.env` under
+# the name the connector block reads (`archiver.<type>.password_env`, which the
+# control-assistant preset spells MONGO_ROOT_PASSWORD). The agent inside a web
+# terminal authenticates with exactly that variable, and `.env.users` excludes
+# service tokens by design -- so a container that is not handed it per-user
+# reports "Environment variable 'MONGO_ROOT_PASSWORD' is not set" on every
+# archiver read, while the single-user host path (which reads the whole `.env`)
+# works. The grant carries the configured NAME, so a facility-run store under
+# another variable is granted the same way.
+# ---------------------------------------------------------------------------
+
+_ARCHIVER_PASSWORD_LINE = "MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}"
+
+
+def test_archiver_persona_gets_the_store_password() -> None:
+    """A user whose persona reads a store password gets it in its own `environment:`
+    block, interpolated from the deploy `.env` at compose time so the secret is
+    never written into a rendered artifact."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(),
+            archiver_password_personas={"readwrite": "MONGO_ROOT_PASSWORD"},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    assert _ARCHIVER_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_archiver_grant_carries_the_configured_variable_name() -> None:
+    """A persona whose connector names another variable is handed THAT one."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(), archiver_password_personas={"readwrite": "FACILITY_DB_PW"}
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    assert "FACILITY_DB_PW=${FACILITY_DB_PW:-}" in alice_env
+    assert not any("MONGO_ROOT_PASSWORD" in line for line in alice_env)
+
+
+def test_persona_without_an_archiver_password_gets_none() -> None:
+    """A persona whose archiver reads no password needs no store credential."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(),
+            archiver_password_personas={"readwrite": "MONGO_ROOT_PASSWORD"},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("MONGO_ROOT_PASSWORD" in line for line in bob_env)
+
+
+def test_render_without_archiver_personas_emits_no_password_line() -> None:
+    """The no-project-root render path passes no persona map and so emits no
+    credential, exactly as it does for the other three."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        env = compose["services"][service]["environment"]
+        assert not any("MONGO_ROOT_PASSWORD" in line for line in env)
+
+
+def test_persona_less_roster_entry_is_answered_from_the_deploy_config() -> None:
+    """The zero-migration path (no personas; the web image IS the deploy project)
+    reads the grant straight from the deploy config, as the other grants do."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["archiver"] = {
+        "type": "mongodb_archiver",
+        "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+    }
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    assert _ARCHIVER_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
 def test_entitled_persona_gets_the_launch_token() -> None:
     """A user whose persona is entitled to arm a queue start gets the launch token
     in its own `environment:` block, interpolated from the deploy `.env` at compose
@@ -3619,3 +3714,85 @@ def test_persona_less_roster_without_graphdb_gets_no_password() -> None:
     # Assert
     env = compose["services"]["web-alice"]["environment"]
     assert not any("GRAPHDB_PASSWORD" in line for line in env)
+
+
+# ---------------------------------------------------------------------------
+# Telemetry ingest token -> EVERY per-user container
+#
+# The one telemetry credential a web terminal must hold, and the one place it
+# can arrive. Each persona's rendered config.yml carries the ingest token
+# reference verbatim -- the build defers it, because the STORE mints the value
+# -- and the agent re-resolves it against the container's own environment at
+# spawn. `.env.users` deliberately does not carry it
+# (`env_production._build_env_production_subset`), so without this line the
+# placeholder is still a placeholder inside the container and the terminal's
+# strict startup check refuses to run: a crash-loop behind the proxy, on every
+# deploy, for every user.
+#
+# Unconditional, unlike the four credentials above: every terminal runs an
+# agent that emits telemetry as the same account, so there is no tier to
+# express -- gating it on a persona set would only produce terminals that
+# cannot start.
+# ---------------------------------------------------------------------------
+
+_INGEST_TOKEN_LINE = "ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}"
+
+
+def test_every_user_container_receives_the_telemetry_ingest_token() -> None:
+    """Both users, whatever their persona: the token is not an entitlement."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        assert _INGEST_TOKEN_LINE in compose["services"][service]["environment"]
+
+
+def test_the_ingest_token_is_emitted_without_any_persona_set() -> None:
+    """The no-project-root render path (`osprey scaffold web-terminals render`)
+    passes no persona sets at all. The four entitlement credentials are omitted
+    there; this one must not be, or that render produces a stack whose terminals
+    cannot start."""
+    # Act
+    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
+
+    # Assert
+    assert _INGEST_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_the_ingest_token_is_interpolated_never_written_into_the_artifact() -> None:
+    """The secret itself never lands in a rendered file: compose resolves the
+    reference at container-create time from the deploy `.env`, which is where
+    `osprey up` harvests the token to."""
+    # Act
+    rendered = render_web_terminals(_config(["alice"]))["docker-compose.web.yml"]
+
+    # Assert
+    assert "${ZO_INGEST_SA_TOKEN" in rendered
+
+
+def test_the_shipped_config_and_the_container_env_name_the_same_variable() -> None:
+    """The end of the chain, pinned across the two files that have to agree.
+
+    A persona's telemetry block names the variable; this compose service is the
+    only thing that puts it in the container. Repoint one without the other --
+    exactly what happened when the shipped configs moved off the store's root
+    credential -- and every web terminal starts naming a variable nothing sets.
+    """
+    # Arrange
+    import osprey
+
+    shipped_config = Path(osprey.__file__).parent / "templates" / "project" / "config.yml.j2"
+    shipped = shipped_config.read_text(encoding="utf-8")
+    declared = re.search(r"^ *password: \$\{([A-Za-z_][A-Za-z0-9_]*)\}$", shipped, re.MULTILINE)
+    assert declared, "the shipped telemetry block no longer names a bare ${VAR} password"
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
+
+    # Assert
+    environment = compose["services"]["web-alice"]["environment"]
+    delivered = {entry.split("=", 1)[0] for entry in environment}
+    assert declared.group(1) in delivered

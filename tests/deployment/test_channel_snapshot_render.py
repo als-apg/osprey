@@ -36,6 +36,11 @@ def repo(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     packaged = resources.files(osprey).joinpath("templates", "services")
     shutil.copytree(str(packaged / "bluesky_web"), repo / "services" / "bluesky_web")
+    # The shared macro partials travel with the template that imports them, by
+    # the same glob the build copies them with (_copy_shared_service_partials) —
+    # naming one here would leave the next partial to fail as a TemplateNotFound.
+    for partial in sorted(Path(str(packaged)).glob("_*.j2")):
+        shutil.copy2(partial, repo / "services" / partial.name)
     monkeypatch.chdir(repo)
     return repo
 

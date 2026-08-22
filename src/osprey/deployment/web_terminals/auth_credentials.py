@@ -60,7 +60,12 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix_collisions,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey.utils.dotenv import compose_unsafe_vars, dotenv_line_var, parse_dotenv_file
+from osprey.utils.dotenv import (
+    ENV_AUTH_BANNER,
+    compose_unsafe_vars,
+    dotenv_line_var,
+    parse_dotenv_file,
+)
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -166,6 +171,12 @@ def _mint_password() -> str:
 def _append_entries(env_auth_path: Path, entries: dict[str, str], header: str) -> None:
     """Append ``entries`` to ``.env.auth`` under ``header``, creating it 0600.
 
+    A file created here is stamped with
+    :data:`~osprey.utils.dotenv.ENV_AUTH_BANNER` at the top, ahead of the first
+    per-block ``header`` — creation is the only moment the file-top readme can
+    be added, since every later write appends below it and the rewrite paths
+    preserve existing lines.
+
     The file is opened with an explicit 0600 creation mode rather than being
     created and then chmod'ed, so a hash is never briefly world-readable.
 
@@ -181,14 +192,17 @@ def _append_entries(env_auth_path: Path, entries: dict[str, str], header: str) -
         OSError: If the file or its directory cannot be written.
     """
     prefix = ""
+    file_banner = ""
     if env_auth_path.is_file():
         text = env_auth_path.read_text(encoding="utf-8")
         if text and not text.endswith("\n"):
             prefix = "\n"
+    else:
+        file_banner = ENV_AUTH_BANNER
     block = "".join(f"{key}={value}\n" for key, value in entries.items())
     fd = os.open(env_auth_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a", encoding="utf-8") as fh:
-        fh.write(f"{prefix}{header}\n{block}")
+        fh.write(f"{prefix}{file_banner}{header}\n{block}")
 
 
 def _normalize_mode(env_auth_path: Path) -> None:

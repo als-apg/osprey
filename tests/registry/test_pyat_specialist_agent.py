@@ -186,13 +186,12 @@ class TestPyatSpecialistAgentTemplate:
         assert "name: pyat-specialist" in rendered
 
     def test_frontmatter_tools_exact(self, template_manager):
-        """The tools: line pins exactly the six allowed tools, in order."""
+        """The tools: line pins exactly the five allowed tools, in order."""
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         expected = (
             "tools: mcp__python__execute, mcp__osprey_workspace__submit_response, "
-            "mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__artifact_list, "
-            "mcp__osprey_workspace__artifact_read, Read"
+            "mcp__osprey_workspace__artifact_list, mcp__osprey_workspace__artifact_read, Read"
         )
         assert expected in rendered
 
@@ -271,6 +270,26 @@ class TestPyatSpecialistAgentTemplate:
         normalized = " ".join(rendered.split())
         assert "convert every computed quantity to a NATIVE Python type" in normalized
         assert "lossily stringifies" in rendered
+
+    def test_body_requires_results_json_before_submit_response(self, template_manager):
+        """Successful compute must save a distinct lattice-analysis JSON before handoff."""
+        ctx = self._full_ctx(enabled=True)
+        rendered = self._render(template_manager, ctx)
+        normalized = " ".join(rendered.split())
+
+        assert (
+            'save_artifact( result, title="AR Optics Result", description='
+            '"Computed from the simulated ALS-U AR design lattice.", '
+            'artifact_type="json", category="lattice_analysis", )'
+        ) in normalized
+        assert "A successful computation is not complete until this artifact exists" in normalized
+        assert (
+            "The automatic notebook, the automatic `code_output` JSON, and the Markdown "
+            "from `submit_response` do **not** satisfy this requirement"
+        ) in normalized
+        assert '`artifact_list(category="lattice_analysis", last_n=1)`' in rendered
+        assert "Do **not** call `submit_response` until" in normalized
+        assert rendered.index('artifact_type="json"') < rendered.index("**Call `submit_response`**")
 
 
 # ---------------------------------------------------------------------------

@@ -193,7 +193,11 @@ Three success signals:
 - `https://github.com/als-apg/osprey/releases/tag/vYYYY.M.P` has the CHANGELOG
   entries as the body.
 
-If any fail, stop and investigate before announcing the release.
+If any fail, stop and investigate before announcing the release. An empty
+answer — `gh run watch` finding no matching run, or a command returning
+nothing on an API hiccup — is neither success nor failure: re-query with an
+explicit run selector (`gh run watch <run-id>`) before treating anything as
+green.
 
 ---
 

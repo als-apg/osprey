@@ -28,7 +28,10 @@ belong to a dead-code sweep, not to this module.
 
 from pathlib import Path
 
-from osprey.agent_runner.project_paths import encode_claude_project_path
+from osprey.agent_runner.project_paths import (
+    claude_project_dir,
+    encode_claude_project_path,  # noqa: F401 — re-export
+)
 
 from .output import report
 from .styles import Styles
@@ -39,7 +42,7 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
 
     Claude Code stores trust decisions and session data in two places:
     - ~/.claude.json  →  projects.<absolute-path>.hasTrustDialogAccepted
-    - ~/.claude/projects/<encoded-path>/  →  session transcripts & memory
+    - <config-dir>/projects/<encoded-path>/  →  session transcripts & memory
 
     Removing both ensures the trust prompt appears on next launch.
     """
@@ -61,11 +64,10 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
         except (json.JSONDecodeError, OSError):
             pass  # Don't fail init over this
 
-    # 2. Remove session/memory directory from ~/.claude/projects/
-    encoded_key = encode_claude_project_path(project_path)
-    claude_project_dir = Path.home() / ".claude" / "projects" / encoded_key
-    if claude_project_dir.exists():
-        shutil.rmtree(claude_project_dir)
+    # 2. Remove session/memory directory from <config-dir>/projects/
+    project_state_dir = claude_project_dir(project_path)
+    if project_state_dir.exists():
+        shutil.rmtree(project_state_dir)
         cleared = True
 
     if cleared:

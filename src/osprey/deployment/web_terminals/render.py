@@ -26,6 +26,7 @@ from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     as_dict,
+    config_archiver_password_env,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_facility_bundle,
@@ -199,6 +200,7 @@ def render_web_terminals(
     graphdb_personas: set[str] | None = None,
     facility_bundle_personas: set[str] | None = None,
     facility_bundle_gid: int | None = None,
+    archiver_password_personas: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -296,6 +298,19 @@ def render_web_terminals(
             directory does not exist yet, or a platform with no gids) emits no
             ``group_add``, which is the honest render rather than a guessed
             group.
+        archiver_password_personas: ``{persona_name: env_var_name}`` for the
+            personas whose archiver connector authenticates with a password,
+            resolved from disk by
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_password`.
+            Same placement and same reason as ``dispatcher_personas``; a map
+            rather than a set because the connector reads the variable its own
+            ``archiver.<type>.password_env`` names, and the line emitted into
+            the user's ``environment:`` block carries exactly that name (the
+            control-assistant preset spells it ``MONGO_ROOT_PASSWORD``, which
+            ``osprey up`` mints). Without it the agent's every archiver read
+            fails with "Environment variable '…' is not set" while the same
+            project works on the single-user host path, which reads the whole
+            deploy ``.env``. ``None`` emits no line.
 
     Returns:
         Mapping of output-relative-path to rendered content, for exactly three
@@ -441,6 +456,16 @@ def render_web_terminals(
                     if entry.get("persona")
                     else config_needs_graphdb_password(root)
                 ),
+                # The NAME of the variable this user's archiver connector
+                # authenticates with (see the `archiver_password_personas`
+                # arg), or None for no grant. Persona-less entries are
+                # answered from this same config, with no disk read, exactly
+                # as above.
+                "archiver_password_env": (
+                    (archiver_password_personas or {}).get(entry["persona"])
+                    if entry.get("persona")
+                    else config_archiver_password_env(root)
+                ),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the
                 # deployment configures no bundle. One key rather than a
@@ -563,10 +588,13 @@ def render_web_terminals(
         "external_origin": external_origin,
         **auth_tls_ctx,
     }
+    landing_cfg = as_dict(web_terminals.get("landing"))
     landing_ctx = {
         "facility_name": resolve_facility_name(root, ""),
-        "groups": _build_groups(as_dict(web_terminals.get("landing")), resolved_users),
+        "groups": _build_groups(landing_cfg, resolved_users),
         "theme_blocks": _landing_theme_blocks(root),
+        "notices": _build_notices(landing_cfg, root),
+        "footer": _landing_footer(landing_cfg),
     }
 
     template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
@@ -1175,3 +1203,112 @@ def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:
             "`url` entries are a separate, already-supported path and are "
             "unaffected by this restriction)."
         )
+
+
+#: Landing footer used when ``landing.footer`` is unset. A deployment that wants
+#: no footer at all sets it to an empty string — absence means "we did not say",
+#: which is different from "we said none".
+_DEFAULT_LANDING_FOOTER = (
+    "OSPREY multi-user web terminal stack. Experimental system. Proceed with caution."
+)
+
+#: Package-relative notice rendered when ``landing.notices`` is absent entirely.
+#: Shipped inside the wheel so a config that says nothing about notices still
+#: carries the safety copy; ``notices: []`` is how a deployment asks for none.
+_PACKAGED_NOTICE = "notices/working-safely.md"
+
+#: Markdown extensions enabled for notice documents. Deliberately empty: notices
+#: are prose with headings, lists and emphasis, and every extension is another
+#: syntax a facility author has to know about before their file renders the way
+#: they meant it to.
+_NOTICE_MD_EXTENSIONS: list[str] = []
+
+
+def _notice_slug(stem: str) -> str:
+    """Element id for a notice, derived from its filename stem.
+
+    Gives each section a stable deep-link (``…/#local-procedures``) so an
+    operator can be pointed at one notice rather than at the page.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
+    return slug or "notice"
+
+
+def _split_notice(text: str, fallback_title: str) -> tuple[str, str]:
+    """Split a notice document into its ``<summary>`` label and its body.
+
+    The document's leading ``# H1`` is the label, so adding a notice needs no
+    config beyond the path — the file names itself. A document with no H1 keeps
+    all of its text as body and falls back to the filename-derived title, which
+    is wrong-looking enough to be noticed without dropping content.
+    """
+    lines = text.lstrip("\n").splitlines()
+    if lines and lines[0].startswith("# "):
+        return lines[0][2:].strip(), "\n".join(lines[1:])
+    return fallback_title, text
+
+
+def _render_notice(text: str, *, stem: str) -> dict[str, str]:
+    """Convert one notice document to the template's notice shape."""
+    import markdown as md
+
+    title, body = _split_notice(text, stem.replace("-", " ").replace("_", " ").strip())
+    return {
+        "id": _notice_slug(stem),
+        "title": title,
+        # HTML by construction, so landing.html.j2 emits it with `|safe`. The
+        # author of a notice already controls config.yml, so this is not a trust
+        # boundary being crossed — but it IS the one value on the page that is
+        # not escaped, which is why notices are files a deployment opts into
+        # rather than strings anything else can reach.
+        "body_html": md.markdown(body, extensions=_NOTICE_MD_EXTENSIONS),
+    }
+
+
+def _packaged_notice() -> dict[str, str]:
+    """The shipped default notice, read from package data."""
+    notice_path = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH, _PACKAGED_NOTICE)
+    return _render_notice(
+        notice_path.read_text(encoding="utf-8"),
+        stem=PurePosixPath(_PACKAGED_NOTICE).stem,
+    )
+
+
+def _build_notices(landing_cfg: dict[str, Any], root: dict[str, Any]) -> list[dict[str, str]]:
+    """Build the landing page's collapsible notice sections.
+
+    Three cases, deliberately distinct:
+
+    * ``notices`` absent — render the packaged default, so a config that says
+      nothing still ships the safety copy.
+    * ``notices: []`` — render none. The deployment said so explicitly.
+    * ``notices: [path, ...]`` — render those, in order. A listed path that does
+      not exist is SKIPPED and reported by :mod:`.lint`, never silently replaced
+      with the packaged default: substituting OSPREY's safety text for a
+      facility's missing ``local-procedures.md`` would be worse than a gap.
+    """
+    if "notices" not in landing_cfg:
+        return [_packaged_notice()]
+
+    raw = landing_cfg.get("notices")
+    if not isinstance(raw, list):
+        return []
+
+    repo_root = resolve_repo_root(root)
+    notices: list[dict[str, str]] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        doc = repo_root / entry
+        if not doc.is_file():
+            continue
+        notices.append(_render_notice(doc.read_text(encoding="utf-8"), stem=doc.stem))
+    return notices
+
+
+def _landing_footer(landing_cfg: dict[str, Any]) -> str:
+    """The landing footer line. Absent means the shipped default; empty means none."""
+    footer = landing_cfg.get("footer")
+    if footer is None:
+        return _DEFAULT_LANDING_FOOTER
+    return str(footer)

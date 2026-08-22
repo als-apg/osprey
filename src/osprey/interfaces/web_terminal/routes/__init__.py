@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from osprey.interfaces.web_terminal.routes.agent_activity import router as agent_activity_router
 from osprey.interfaces.web_terminal.routes.chat import router as chat_router
 from osprey.interfaces.web_terminal.routes.config import router as config_router
+from osprey.interfaces.web_terminal.routes.feedback import router as feedback_router
 from osprey.interfaces.web_terminal.routes.files import router as files_router
 from osprey.interfaces.web_terminal.routes.memory import router as memory_router
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
@@ -26,6 +27,7 @@ router.include_router(agent_activity_router)
 router.include_router(session_router)
 router.include_router(config_router)
 router.include_router(files_router)
+router.include_router(feedback_router)
 router.include_router(memory_router)
 router.include_router(scaffold_router)
 router.include_router(websocket_router)

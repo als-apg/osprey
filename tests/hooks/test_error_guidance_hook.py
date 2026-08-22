@@ -99,7 +99,7 @@ def test_validation_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_register",
         {"content": "test"},
         config_path=config,
         tool_response=_make_error_response(
@@ -205,7 +205,7 @@ def test_file_not_found_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_register",
         {"path": "missing.h5"},
         config_path=config,
         tool_response=_make_error_response(
@@ -491,7 +491,7 @@ def test_data_no_results_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_register",
         {"query": "nonexistent artifact"},
         config_path=config,
         tool_response=_make_error_response(

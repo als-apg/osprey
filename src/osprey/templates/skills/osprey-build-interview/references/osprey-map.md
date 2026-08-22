@@ -10,6 +10,7 @@ providers), run the command and read the live output instead of recalling one.
 | --- | --- |
 | Which presets ship with this version? | `osprey profile presets` |
 | Which build artifacts does the framework manage? | `osprey scaffold list` |
+| Which artifacts can the six profile lists name? | `osprey profile artifacts` — the emitted profile also offers unselected ones as commented entries in each list |
 | What is the whole config surface, with defaults? | `osprey config --defaults` |
 | What does a command accept? | `osprey <command> --help` |
 | Is this profile or project safe? | `osprey audit <profile.yml\|project-dir>` |

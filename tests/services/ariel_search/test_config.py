@@ -349,6 +349,50 @@ class TestARIELConfig:
         errors = config.validate()
         assert any("semantic.model" in e for e in errors)
 
+    def test_default_search_mode_unset_prefers_hybrid(self, minimal_config_dict: dict) -> None:
+        """With no configured default, an enabled hybrid module is preferred."""
+        minimal_config_dict["search_modules"] = {
+            "keyword": {"enabled": True},
+            "hybrid": {"enabled": True},
+        }
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        assert config.default_search_mode is None
+        assert config.resolve_default_search_mode() == "hybrid"
+
+    def test_default_search_mode_unset_falls_back_to_keyword(
+        self, minimal_config_dict: dict
+    ) -> None:
+        """Without hybrid, the implicit default is the dependency-free mode."""
+        minimal_config_dict["search_modules"] = {"keyword": {"enabled": True}}
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        assert config.resolve_default_search_mode() == "keyword"
+
+    def test_default_search_mode_is_normalized(self, minimal_config_dict: dict) -> None:
+        """The configured name is case- and whitespace-normalized like any mode."""
+        minimal_config_dict["search_modules"] = {"keyword": {"enabled": True}}
+        minimal_config_dict["default_search_mode"] = "  KEYWORD  "
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        assert config.default_search_mode == "keyword"
+        assert config.resolve_default_search_mode() == "keyword"
+
+    def test_validate_default_search_mode_not_enabled(self, minimal_config_dict: dict) -> None:
+        """A default naming a disabled module is a config error, not a fallback."""
+        minimal_config_dict["search_modules"] = {"keyword": {"enabled": True}}
+        minimal_config_dict["default_search_mode"] = "hybrid"
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        errors = config.validate()
+        assert any("default_search_mode" in e for e in errors)
+
+    def test_validate_default_search_mode_enabled(self, minimal_config_dict: dict) -> None:
+        """A default naming an enabled module validates clean."""
+        minimal_config_dict["search_modules"] = {
+            "keyword": {"enabled": True},
+            "hybrid": {"enabled": True},
+        }
+        minimal_config_dict["default_search_mode"] = "hybrid"
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        assert not [e for e in config.validate() if "default_search_mode" in e]
+
     def test_validate_text_embedding_without_models(self, minimal_config_dict: dict) -> None:
         """Test validate() catches text_embedding without models."""
         minimal_config_dict["enhancement_modules"] = {"text_embedding": {"enabled": True}}

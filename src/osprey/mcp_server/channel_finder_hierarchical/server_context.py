@@ -108,8 +108,9 @@ class ChannelFinderHierContext:
         """
         if self._database is None:
             raise RuntimeError(
-                "Channel finder database not configured. Check that config.yml "
-                "has channel_finder.pipelines.hierarchical.database.path set."
+                "Channel finder database not configured. Set "
+                "channel_finder.pipelines.hierarchical.database.path in the build "
+                "profile (profile.yml on the host), then rebuild and redeploy."
             )
         return self._database
 

@@ -27,6 +27,7 @@ from typing import Any
 from osprey.deployment.errors import DeploymentError
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import (
+    personas_needing_archiver_password,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_facility_bundle,
@@ -332,6 +333,7 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
         ariel_personas=personas_needing_ariel_password(config, root),
         launch_token_personas=launch_token_personas,
         graphdb_personas=personas_needing_graphdb_password(config, root),
+        archiver_password_personas=personas_needing_archiver_password(config, root),
         facility_bundle_personas=personas_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see

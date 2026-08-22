@@ -1031,7 +1031,10 @@ class TestUsersEnv:
 
     def test_stdout_carries_the_file_and_nothing_else(self, cli_runner, tmp_path, monkeypatch):
         """`osprey users env > .env.users` has to produce a usable file, so
-        nothing but assignments may reach stdout — no banner, no summary."""
+        only file content may reach stdout — the readme header (comment lines
+        are valid dotenv) and assignments, never a CLI banner or summary."""
+        from osprey.utils.dotenv import ENV_USERS_BANNER
+
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
@@ -1039,7 +1042,10 @@ class TestUsersEnv:
         result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
+        assert result.stdout.startswith(ENV_USERS_BANNER)
         for line in result.stdout.splitlines():
+            if not line or line.startswith("#"):
+                continue
             assert "=" in line, f"non-assignment line on stdout: {line!r}"
 
     def test_long_values_are_not_wrapped(self, cli_runner, tmp_path, monkeypatch):
@@ -1104,12 +1110,20 @@ class TestUsersEnv:
     ):
         """The render and a deploy share one builder, so what the deploy copies
         this verb copies too — no rule of its own on either side. Pinned on the
-        pair that must not travel together: the store's account name is not a
-        secret and reaches the terminals, while its admin password is a single
-        credential for a store holding every transcript and never does."""
+        pair that must not travel together: the store's INGEST account name is
+        not a secret and reaches the terminals, while every credential that can
+        read the store — the root admin password and the ingest account's own
+        token alike — never does.
+
+        The root account NAME does not cross either. Nothing a web terminal
+        runs authenticates as root, so shipping the name of the account whose
+        only password is the admin credential would name a door this file
+        deliberately holds no key to."""
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text(
             "CBORG_API_KEY=llm-secret\n"
+            "ZO_INGEST_USER_EMAIL=ingest-account@example.org\n"
+            "ZO_INGEST_SA_TOKEN=Fak3T0kenFak3T0k\n"
             "ZO_ROOT_USER_EMAIL=store-account@example.org\n"
             "ZO_ROOT_USER_PASSWORD=store-admin-secret\n",
             encoding="utf-8",
@@ -1119,9 +1133,12 @@ class TestUsersEnv:
         result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
-        assert "ZO_ROOT_USER_EMAIL=store-account@example.org" in result.stdout.splitlines()
+        assert "ZO_INGEST_USER_EMAIL=ingest-account@example.org" in result.stdout.splitlines()
+        assert "ZO_ROOT_USER_EMAIL" not in result.stdout
         assert "ZO_ROOT_USER_PASSWORD" not in result.stdout
         assert "store-admin-secret" not in result.stdout
+        assert "ZO_INGEST_SA_TOKEN" not in result.stdout
+        assert "Fak3T0kenFak3T0k" not in result.stdout
 
     def test_a_missing_secrets_file_aborts(self, cli_runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)

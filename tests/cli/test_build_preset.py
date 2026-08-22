@@ -188,10 +188,17 @@ def test_preset_control_assistant_ships_live_openobserve_telemetry(
     # hardcoded localhost endpoint would make the in-container worker emit to its
     # own loopback and silently drop everything, so it must be absent.
     assert "endpoint" not in tel
-    # Creds carry the ${VAR:-default} form (mirrors the compose template) so the
-    # resolver never hits its fail-loud path before the first deploy mints them.
-    assert tel["openobserve"]["password"] == "${ZO_ROOT_USER_PASSWORD:-Complexpass#123}"
-    assert tel["openobserve"]["user"] == "${ZO_ROOT_USER_EMAIL:-root@example.com}"
+    # The agent authenticates as the store's dedicated INGEST service account,
+    # never as root: the store still initializes itself from ZO_ROOT_USER_*, but
+    # that pair stays in the compose file and the root password never reaches
+    # the agent's config.
+    assert tel["openobserve"]["user"] == "${ZO_INGEST_USER_EMAIL:-ingest@example.com}"
+    # The token carries NO ${VAR:-default}, and that absence is the point: a
+    # literal default token in a shipped template would be a published
+    # credential. `osprey up` provisions the account and writes the token the
+    # store issues into .env; the preflights defer this one variable rather
+    # than refusing a start that has not reached that step yet.
+    assert tel["openobserve"]["password"] == "${ZO_INGEST_SA_TOKEN}"
 
 
 def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
@@ -829,29 +836,27 @@ class TestDeployServicesKnob:
         assert not (_project(tmp_path, "op") / "services").exists()
 
 
-def test_set_unservable_model_fails_build(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A model the selected provider cannot serve must fail the build itself.
+def test_set_free_form_model_builds(runner: CliRunner, tmp_path: Path) -> None:
+    """A model ID outside the provider's tier map builds — it passes through.
 
-    The web-terminal container runs the same resolver strict at startup, so a
-    build that merely warns here ships a deploy whose per-user terminals
-    crash-loop behind the reverse proxy (502). The build is the checkpoint the
-    operator actually watches — it must stop the `build && deploy` chain.
+    Refusing here kept every model the tier map did not name (a newly released
+    ID, a gateway-only alias) unusable until the map caught up. The resolver
+    now trusts the provider to serve the ID and puts it in ANTHROPIC_MODEL
+    verbatim; a misspelt ID fails at the provider, naming the ID.
     """
-    with caplog.at_level(logging.ERROR):
-        result = _materialize(
-            runner,
-            str(tmp_path),
-            "smoke",
-            "hello-world",
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=anthropic/claude-opus",
-        )
-    assert result.exit_code != 0, result.output
-    _assert_build_error_logged(caplog, "neither a model tier nor a model id")
+    result = _materialize(
+        runner,
+        str(tmp_path),
+        "smoke",
+        "hello-world",
+        "--set",
+        "provider=als-apg",
+        "--set",
+        "model=anthropic/claude-opus",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = _config_yaml(_project(tmp_path, "smoke"))
+    assert cfg["claude_code"]["default_model"] == "anthropic/claude-opus"
 
 
 def test_set_value_invalid_yaml_raises() -> None:

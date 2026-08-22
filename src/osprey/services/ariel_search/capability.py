@@ -39,7 +39,8 @@ async def get_ariel_search_service() -> ARIELSearchService:
 
         if not config:
             raise ConfigurationError(
-                "ARIEL not configured. Add 'ariel:' section to config.yml",
+                "ARIEL not configured. Add an 'ariel:' section in the build profile "
+                "(profile.yml on the host), then rebuild and redeploy",
                 config_key="ariel",
             )
 

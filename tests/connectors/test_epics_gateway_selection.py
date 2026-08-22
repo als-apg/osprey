@@ -90,3 +90,32 @@ async def test_warns_when_writes_enabled_but_no_write_gateway(monkeypatch, clean
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
     assert any("write" in w.lower() for w in warnings), warnings
+
+
+@pytest.mark.asyncio
+async def test_readonly_run_stays_on_read_only_gateway(monkeypatch, clean_epics_env):
+    """A readonly sandbox run never routes through the write gateway.
+
+    ``writes_enabled`` is the deployment posture; ``OSPREY_EXECUTION_MODE`` is
+    the per-run claim the executor exports into the sandbox. A readonly run on a
+    write-enabled deployment must still land on the read_only gateway so a raw
+    ``caput`` issued after ``read_channel()`` is rejected at the network layer."""
+    _patch_writes_enabled(monkeypatch, True)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+
+    connector = EPICSConnector()
+    await connector.connect({"gateways": _both_gateways()})
+
+    assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
+    assert os.environ["EPICS_CA_SERVER_PORT"] == "5064"
+
+
+@pytest.mark.asyncio
+async def test_readwrite_run_uses_write_gateway(monkeypatch, clean_epics_env):
+    _patch_writes_enabled(monkeypatch, True)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readwrite")
+
+    connector = EPICSConnector()
+    await connector.connect({"gateways": _both_gateways()})
+
+    assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"

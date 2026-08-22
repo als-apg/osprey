@@ -435,6 +435,38 @@ def test_apt_runs_deliver_the_proxy_settings(dockerfile):
     )
 
 
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_manifest_installing_recipes_constrain_setuptools(dockerfile):
+    """Every recipe that installs the local manifest pins setuptools below 84.
+
+    setuptools 84.0.0 broke ``setuptools_dso``'s compile-probe error handling,
+    so any source build of the EPICS toolchain (p4p pulls
+    pvxslibs/epicscorelibs) dies where no binary wheel exists — every
+    linux/arm64 image. p4p is a base framework dependency, so it is in the
+    manifest, so this is not optional for any recipe that installs it.
+
+    Parametrized over the discovered set rather than a list on purpose: the
+    single-recipe guard in :mod:`tests.deployment.test_arm64_p4p_image_build`
+    covers only the rendered project image, which is how the sidecar spent a
+    release without the constraint and only failed on a cold arm64 build.
+    """
+    text = dockerfile.read_text()
+    if MANIFEST_INSTALL not in text:
+        pytest.skip("recipe does not install the local-requirements manifest")
+
+    deps_run = next(body for body in _run_bodies(text) if MANIFEST_INSTALL in body)
+    assert "setuptools<84" in deps_run, (
+        f"{dockerfile.parent.name}: deps layer does not pin setuptools below 84.0.0, "
+        f"which breaks setuptools_dso's compile probe and fails every EPICS "
+        f"source build (linux/arm64):\n{deps_run}"
+    )
+    assert "PIP_CONSTRAINT" in deps_run, (
+        f"{dockerfile.parent.name}: the setuptools pin must be exported as "
+        f"PIP_CONSTRAINT — a plain requirement pin does not reach pip's "
+        f"isolated build environments:\n{deps_run}"
+    )
+
+
 def test_shipped_dockerfiles_are_all_discovered():
     """Floor on the discovery glob: a typo that finds nothing would make the
     parametrization above vacuous rather than red."""

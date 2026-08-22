@@ -164,11 +164,11 @@ class TestAuditObservability:
             f"execute code doesn't appear to create a plot. Code: {py_code_combined[:500]}"
         )
 
-        # At least one PNG artifact exists (or artifact_save was called)
+        # At least one PNG artifact exists (or artifact_register was called)
         png_files = find_png_files(repo)
-        artifact_saves = result.tools_matching("artifact_save")
-        assert len(png_files) >= 1 or len(artifact_saves) >= 1, (
-            "No PNG files found and no artifact_save calls. The plot may not have been persisted."
+        registrations = result.tools_matching("artifact_register")
+        assert len(png_files) >= 1 or len(registrations) >= 1, (
+            "No PNG files found and no artifact_register calls. The plot may not have been persisted."
         )
 
         # NOTE: We intentionally do NOT assert chronological tool ordering.

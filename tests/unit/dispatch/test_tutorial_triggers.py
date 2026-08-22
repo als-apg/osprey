@@ -33,7 +33,7 @@ _EXPECTED_TRIGGERS: dict[str, list[str]] = {
     "save-report": [
         "Glob",
         "Read",
-        "mcp__osprey_workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_register",
         "mcp__osprey_workspace__create_document",
     ],
     "denied-tool-demo": ["WebFetch"],

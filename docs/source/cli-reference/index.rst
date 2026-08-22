@@ -33,6 +33,7 @@ names another one explicitly.
    osprey config             # Show the deployment configuration
    osprey chat               # Talk to this deployment's agent
    osprey users              # Manage web-terminal users
+   osprey feedback           # Read feedback sent from the web terminals
    osprey profile            # Validate and inspect build profiles
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
@@ -42,7 +43,7 @@ names another one explicitly.
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
-   osprey scaffold           # CI files and build artifact overrides
+   osprey scaffold           # CI files, boot unit, build artifact overrides
    osprey audit              # Audit project or profile safety
    osprey skills             # Manage bundled Osprey skills
    osprey vendor             # Manage locally bundled vendor assets
@@ -221,6 +222,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 
    osprey profile validate TARGET
    osprey profile presets
+   osprey profile artifacts
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -233,6 +235,11 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 ``osprey profile presets``
    List bundled preset names, one per line. Every name printed is usable as
    ``--preset NAME`` for ``osprey init``.
+
+``osprey profile artifacts``
+   List every artifact the six profile lists can name — hooks, rules, skills,
+   agents, output styles, and web panels — with a one-line description of
+   each. The same menu appears as commented entries in an emitted profile.
 
 .. code-block:: bash
 
@@ -481,6 +488,79 @@ CI, pass it: without ``--output`` the assembled secrets go to the job log.
 See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
 verbs end to end.
 
+osprey feedback
+===============
+
+Read the feedback this deployment's web terminals collected. People using a web
+terminal can send a report from the terminal itself; each submission is stored
+with the session it was sent from, in the sender's own workspace, and these
+verbs read it back. Every verb takes ``--repo DIRECTORY``.
+
+A multi-user deployment keeps one store per person, and reading it starts a
+short-lived read-only container on each person's workspace — so the
+deployment's container runtime has to be up. A single-user deployment keeps one
+store on this machine, read straight off disk.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 46 32
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``list``
+     - One line per submission, newest first: id, who sent it, when (UTC),
+       which channel it went out on, and the start of the message. Headers
+       only.
+     - —
+   * - ``export``
+     - Every submission's whole record plus the session captured with it, as
+       one JSON array. Written a record at a time, so a large store never has
+       to fit in memory.
+     - ``-o/--output``
+
+``-o, --output PATH`` -- Write the export to this file instead of stdout. Naming
+a directory, or a file inside a directory that does not exist, is a usage error
+at parse time, before any workspace is read.
+
+With no ``--output``, ``export`` puts the JSON document on stdout and nothing
+else, so it can be redirected straight into a file; errors and the closing
+summary go to standard error. With ``--output``, the human output stays on the
+terminal and the file holds the export. An empty store exports ``[]``.
+
+A workspace that cannot be read is reported and the rest of the deployment is
+still listed or exported; the export's closing summary distinguishes a workspace
+that contributed nothing from one that was only partly readable. If nothing at
+all could be read, both verbs stop rather than reporting a deployment with no
+feedback in it. A submission whose session was dropped to keep the store inside
+``web.feedback.max_store_bytes`` carries ``context_pruned``; one missing its
+session for any other reason carries ``context_missing``. The submission is
+exported either way.
+
+Exit status: ``0`` on success, including a deployment nobody has sent feedback
+from. Non-zero when the repository has no build, when every workspace failed to
+read, and when an export stopped part-way — in which case the file still parses
+and holds what was read.
+
+``agent_data.base_dir`` is checked on the **single-user** path only, and a
+``~``-relative value there is non-zero with the explanation (the data lands
+where the verb cannot reach it). The multi-user path never consults the key: it
+mounts each person's volume and reads a fixed path inside it, so a rostered
+deployment with a ``~``-relative ``agent_data.base_dir`` writes its feedback to
+a volume these verbs do not mount and simply reads as having none. Nothing
+detects that, so do not read an empty multi-user listing as proof. See
+:doc:`/how-to/send-feedback`.
+
+.. code-block:: bash
+
+   osprey feedback list
+   osprey feedback list --repo ../other-deployment
+   osprey feedback export --output feedback.json
+   osprey feedback export > feedback.json
+
+See :doc:`/how-to/send-feedback` for the dialog these records come from and what
+each submission carries.
+
 osprey health
 =============
 
@@ -499,6 +579,12 @@ Run comprehensive system health check.
 ``--category NAME`` -- Run only the named category (repeatable).
 
 ``--full`` -- Also run on-demand categories (live model chat, pinned CLI download).
+
+Exit codes: ``0`` healthy, ``1`` warnings only, ``2`` one or more errors,
+``3`` the command itself failed, ``130`` interrupted. See
+:doc:`/how-to/health-json-contract` for the ``--json`` document's shape and the
+``jq`` patterns for consuming it, and :doc:`/how-to/configure-health-checks` for
+the ``health:`` config block.
 
 osprey chat
 ===========
@@ -669,8 +755,9 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
 ``models`` -- List embedding models and tables.
 
-``search QUERY [--mode keyword|semantic] [--limit N] [--json]``
-   Execute a search query (default mode: ``keyword``).
+``search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
+   Execute a search query. Without ``--mode``, the deployment's
+   ``ariel.default_search_mode`` decides.
 
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.
@@ -691,7 +778,7 @@ osprey artifacts
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
 interactive plots, tables, and other outputs produced by the Osprey agent during
 analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact()`` in
-``osprey execute`` or the ``artifact_save`` MCP tool.
+``osprey execute`` or the ``artifact_register`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``
    Launch the Artifact Gallery web interface. Starts a FastAPI server on
@@ -796,7 +883,8 @@ directories, and lifecycle scripts.
 osprey scaffold
 ===============
 
-Emit the repository's CI files and manage build artifact ownership.
+Emit the repository's CI files and boot unit, and manage build artifact
+ownership.
 Framework-managed build artifacts (agents, rules, etc.) can be claimed
 per-facility for in-place editing. A claim moves the artifact out of the build
 zone and into the profile beside it; the next build copies it back and registers
@@ -816,6 +904,19 @@ All subcommands accept a common flag:
    file the scaffolder did not write is reported and left alone unless
    ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
    pipeline includes it.
+
+``osprey scaffold systemd [--force]``
+   Emit a systemd user unit that starts this deployment at boot: ``osprey.service``
+   at the repository root, plus the commands to install it. The unit runs
+   ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
+   the repository and the ``osprey`` program written in as full paths — systemd
+   starts a unit with no working directory and a short ``PATH``. Run it on the
+   machine that will run the deployment, and again after the repository moves or
+   OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
+   ``ci``: a matching file is left untouched, and a file the scaffolder did not
+   write needs ``--force``. Refuses when no ``osprey`` program can be found to
+   name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
+   see :doc:`../how-to/deploy-a-facility`.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
@@ -864,6 +965,7 @@ All subcommands accept a common flag:
 .. code-block:: bash
 
    osprey scaffold ci                             # Re-emit the CI files
+   osprey scaffold systemd                        # Write the boot unit
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template
@@ -893,9 +995,10 @@ can be installed either globally or into a specific project's
 
    Currently supported skills:
 
-   * ``osprey-build-interview`` — guided facility-repository generation (see
-     :doc:`/getting-started/osprey-build-interview`). Typically installed globally
-     so it is available in any Osprey agent session.
+   * ``osprey-build-interview`` — set up or migrate an OSPREY deployment
+     through a guided conversation anchored on the live deployment repo (see
+     :doc:`/getting-started/osprey-build-interview`). Typically installed
+     globally so it is available in any Osprey agent session.
    * ``osprey-contribute`` — walks a contributor through the GitHub Flow
      journey from a working-tree change to a merged PR on ``main`` (branching,
      atomic commits, push, PR, rebase, merge).
@@ -931,10 +1034,24 @@ switch the interfaces over to local bundles.
 
    ``-q, --quiet`` — Suppress per-file output.
 
-   ``-k, --insecure`` — Skip TLS cert verification. Every asset is still
-   checked against its manifest SHA256, so this is safe behind corporate
-   proxies (e.g. Squid) that intercept TLS. Also enabled via
-   ``OSPREY_VENDOR_INSECURE=1``.
+   Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
+   fails cert verification until it is pointed at the site's CA bundle.
+   That is the first remedy to reach for — verification stays on:
+
+   .. code-block:: bash
+
+      OSPREY_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+        osprey vendor fetch
+
+   ``SSL_CERT_FILE`` works too (Python's default SSL context honors it);
+   ``OSPREY_CA_BUNDLE`` wins when both are set. The path above is the
+   RHEL-family system bundle — on Debian-family hosts it is
+   ``/etc/ssl/certs/ca-certificates.crt``.
+
+   ``-k, --insecure`` — The fallback when no CA bundle is at hand: skip TLS
+   cert verification. Every asset is still checked against its manifest
+   SHA256, so this is safe behind corporate proxies that intercept TLS.
+   Also enabled via ``OSPREY_VENDOR_INSECURE=1``.
 
 ``osprey vendor verify``
    Verify all vendor assets exist on disk with correct SHA256 checksums.
@@ -942,7 +1059,8 @@ switch the interfaces over to local bundles.
 .. code-block:: bash
 
    osprey vendor fetch                    # Download all assets
-   osprey vendor fetch --insecure         # Behind a TLS-intercepting proxy
+   OSPREY_CA_BUNDLE=/path/to/ca.pem osprey vendor fetch   # TLS-intercepting proxy, verified
+   osprey vendor fetch --insecure         # Fallback: no CA bundle at hand
    osprey vendor verify                   # Check checksums
 
 Environment Variables

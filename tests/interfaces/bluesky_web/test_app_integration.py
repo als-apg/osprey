@@ -32,6 +32,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.bluesky_web.app import app
+from osprey.interfaces.vendor import asset_cdn_url
 
 TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
 RUN_ID = "run-xyz789"
@@ -328,3 +329,80 @@ def test_every_response_forbids_browser_caching() -> None:
             response = client.get(path)
             assert response.status_code == 200, path
             assert response.headers["cache-control"] == "no-cache, no-store, must-revalidate", path
+
+
+# ---------------------------------------------------------------------------
+# Panel index rendering (highlight.js wiring for the plan Source tab)
+# ---------------------------------------------------------------------------
+
+
+def test_panel_index_is_rendered_not_served_verbatim() -> None:
+    """The index must reach the browser with every ``vendor_url()`` resolved.
+
+    Served verbatim it would ship literal Jinja as a stylesheet href, and the
+    Source tab would silently lose its colouring. This also guards the hazard
+    templating introduced in the other direction: any ``{{`` or ``{%`` a later
+    edit adds to the bundle's inline scripts is now Jinja syntax, and an
+    accidental one fails here rather than in a browser.
+    """
+    with TestClient(app) as client:
+        body = client.get("/bluesky/").text
+
+    assert "{{" not in body
+    assert "{%" not in body
+    assert 'id="hljs-theme"' in body
+    # theme-manager.js swaps the stylesheet by reading these two attributes.
+    assert "data-href-dark=" in body
+    assert "data-href-light=" in body
+    # The grammar is named, so hljs never falls back to highlightAuto's guess.
+    assert 'class="source language-python"' in body
+
+
+def test_panel_index_serves_cdn_urls_by_default() -> None:
+    """Default (non-offline) deployments load highlight.js straight from the CDN."""
+    with TestClient(app) as client:
+        body = client.get("/bluesky/").text
+
+    for name in (
+        "highlight.js",
+        "highlight.js atom-one-dark theme",
+        "highlight.js atom-one-light theme",
+    ):
+        assert asset_cdn_url(name) in body, name
+
+
+def test_panel_index_serves_relative_local_paths_when_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Offline mode swaps in the copies ``osprey vendor fetch`` wrote.
+
+    Those paths must stay RELATIVE. The panel is reached through the web
+    terminal's ``/panel/{id}/`` reverse proxy, which rewrites only the
+    root-absolute ``/design-system/`` and ``/static/fonts/`` prefixes -- a
+    root-absolute vendor path would resolve against the terminal's own origin
+    and 404 behind the proxy.
+    """
+    monkeypatch.setenv("OSPREY_OFFLINE", "1")
+    with TestClient(app) as client:
+        body = client.get("/bluesky/").text
+
+    assert 'src="vendor/highlight.min.js"' in body
+    assert 'href="vendor/atom-one-dark.min.css"' in body
+    assert "vendor/atom-one-light.min.css" in body
+    assert "cdn.jsdelivr.net" not in body
+
+
+def test_panel_index_renders_at_every_bundle_root_spelling() -> None:
+    """All three spellings of the bundle root render, not just the canonical one.
+
+    ``StaticFiles(html=True)`` answers a bare directory with the raw file, so
+    each spelling needs its own route registered ahead of the mount. Missing
+    one would serve unrendered Jinja on that path alone -- a failure invisible
+    from the path everyone actually links to.
+    """
+    with TestClient(app) as client:
+        for path in ("/bluesky", "/bluesky/", "/bluesky/index.html"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert "{{" not in response.text, path
+            assert 'id="hljs-theme"' in response.text, path

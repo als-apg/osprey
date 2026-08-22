@@ -9,7 +9,13 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_deployment_writes_gate,
+    refuse_readonly_write,
+    report_runtime_refusal,
     require_known_execution_mode,
+)
+from osprey.services.python_executor.refusal_audit import (
+    LAYER_IMPORT_DENYLIST,
+    LAYER_PATTERN_DETECTION,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute_file")
@@ -26,8 +32,9 @@ async def execute_file(
     """Execute an existing Python file with the same safety pipeline as ``execute``.
 
     The file is read, safety-checked, augmented with a script identity preamble
-    (``sys.argv``, ``__file__``), and executed via the same container/subprocess
-    adapter used by the ``execute`` tool.
+    (``sys.argv``, ``__file__``), and run in a subprocess, in the project's own
+    Python environment when the project has one (otherwise OSPREY's own
+    interpreter) — the same execution path used by the ``execute`` tool.
 
     Args:
         file_path: Path to a ``.py`` file.  Absolute paths are used as-is;
@@ -124,6 +131,34 @@ async def execute_file(
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
 
+    # Readonly runs may not import control-system clients at all. This is the
+    # pre-execution half of the readonly contract; the runtime half (the
+    # wrapper's readonly guard and the connector refusal) catches what no
+    # static check can.
+    if execution_mode == "readonly":
+        try:
+            from osprey.services.python_executor.analysis.safety_checks import (
+                check_readonly_imports,
+            )
+
+            import_issues = check_readonly_imports(code)
+        except ImportError:
+            import_issues = []
+        if import_issues:
+            await refuse_readonly_write(
+                tool="execute_file",
+                layer=LAYER_IMPORT_DENYLIST,
+                trigger=import_issues,
+                code=code,
+                description=description,
+                message="Control-system client libraries cannot be imported in readonly mode.",
+                suggestions=[
+                    *import_issues,
+                    "Use read_channel() from osprey.runtime for reads.",
+                    "Set execution_mode to 'readwrite' if writes are intentional.",
+                ],
+            )
+
     # Pattern detection (block writes in readonly mode)
     try:
         from osprey.services.python_executor.analysis.pattern_detection import (
@@ -139,10 +174,14 @@ async def execute_file(
     enforce_deployment_writes_gate(execution_mode)
 
     if patterns.get("has_writes") and execution_mode == "readonly":
-        return make_error(
-            "safety_error",
-            "Control-system write patterns detected in readonly mode.",
-            [
+        await refuse_readonly_write(
+            tool="execute_file",
+            layer=LAYER_PATTERN_DETECTION,
+            trigger=patterns.get("detected_patterns", {}),
+            code=code,
+            description=description,
+            message="Control-system write patterns detected in readonly mode.",
+            suggestions=[
                 "Set execution_mode to 'readwrite' if writes are intentional.",
                 "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
             ],
@@ -155,7 +194,7 @@ async def execute_file(
     preamble = f"import sys\nsys.argv = {argv_items!r}\n__file__ = {str(resolved)!r}\n"
     augmented_code = preamble + "\n" + code
 
-    # Execute augmented code via adapter (container or subprocess)
+    # Execute augmented code in a subprocess
     from osprey.mcp_server.python_executor.executor import execute_code
 
     exec_result = await execute_code(
@@ -175,6 +214,16 @@ async def execute_file(
         await notify_agent_activity_async(
             "execute_file", "channel", detail="ran a script with control-system writes"
         )
+
+    # Same runtime-refusal reporting as the ``execute`` tool — see the comment
+    # there. The original file contents are recorded, not the argv preamble the
+    # executor prepends, so the audit trail shows what the operator would read.
+    await report_runtime_refusal(
+        tool="execute_file",
+        stderr=exec_result.stderr,
+        code=code,
+        description=description,
+    )
 
     # Build response using original code (not augmented) for metadata/notebook
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response

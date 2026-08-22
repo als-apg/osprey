@@ -1,0 +1,144 @@
+# The virtual-accelerator service owns the PyAT-backed EPICS soft-IOC (see
+# src/osprey/services/virtual_accelerator/). `osprey up` builds its
+# image locally on first run; subsequent runs reuse the local tag. To use a
+# prebuilt/published image instead, set OSPREY_VA_IMAGE (e.g.
+# OSPREY_VA_IMAGE=my-registry/osprey-va:dev).
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+#
+# ARCHITECTURE: linux/amd64, and on Apple Silicon that means emulation.
+#
+# The image is amd64-only by construction — Dockerfile pins
+# `FROM --platform=linux/amd64` and hard-fails any other build arch, because
+# pcaspy (the Channel Access server behind the serving stack) publishes no
+# linux/aarch64 wheel at any interpreter. An arm64 image would build cleanly
+# and then have no CA server at all, so the pin is a correctness guard, not a
+# packaging shortcut. Read that Dockerfile's header before touching it.
+#
+# `platform:` below states that out loud rather than leaving it implicit. It
+# is what the build already produces; declaring it means compose stops warning
+# "the requested image's platform (linux/amd64) does not match the detected
+# host platform (linux/arm64/v8)" on every single `osprey up` from an arm64
+# machine — a warning that read as a defect when it was in fact the design.
+# The cost it names is real and unchanged: on Apple Silicon the virtual
+# accelerator runs under QEMU emulation and is correspondingly slower.
+#
+# OSPREY_VA_PLATFORM overrides it, for the one case the pin would otherwise
+# get wrong: a published multi-arch OSPREY_VA_IMAGE that does have a native
+# arm64 variant worth resolving to (`OSPREY_VA_PLATFORM=linux/arm64`).
+
+services:
+  virtual-accelerator:
+    image: ${OSPREY_VA_IMAGE:-registry.example.org/physics/osprey/golden-project-va:v1.2.3}
+    platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
+    build:
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env).
+      context: ./build/services/virtual_accelerator
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the VA on one host without colliding on
+    # one name. In-network consumers reach this service by its compose service
+    # key `virtual-accelerator` (EPICS_CA_NAME_SERVERS, depends_on) — unchanged
+    # here — so unlike postgres this rename needs no network alias.
+    container_name: golden-project-virtual-accelerator
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5064:5064/tcp"
+    environment:
+      # EPICS_CA_SERVER_PORT is the standard EPICS server-side CA port
+      # override, read directly by the CA library at iocInit — no
+      # entrypoint.py change needed to make services.virtual_accelerator.port
+      # actually control what the IOC binds to.
+      EPICS_CA_SERVER_PORT: "5064"
+      # Build-time stuck-readback apply fault (entrypoint.py reads it): a
+      # comma-separated list of :SP addresses whose readback is frozen (SP still
+      # latches, RB never follows). Passthrough from the project .env; unset →
+      # no fault. Quoted so a value is never YAML-coerced.
+      VA_STUCK_SETPOINTS: "${VA_STUCK_SETPOINTS:-}"
+      # FR4 physics-fault apply faults (entrypoint.py parses and bounds each):
+      # a per-BPM readout error and per-corrector calibration gain.
+      # Passthrough from the project .env; unset -> no fault.
+      VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"
+      VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
+      # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD
+      # read these; empty means default): the entrypoint module to run, the
+      # file-backed channel manifest, and whether the PyAT lattice is
+      # constructed. Passthrough from the project .env; unset -> the
+      # historical built-in behavior.
+      VA_ENTRYPOINT_MODULE: "${VA_ENTRYPOINT_MODULE:-}"
+      VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"
+      VA_LATTICE: "${VA_LATTICE:-}"
+      # Where the IOC polls active_scenarios — the second mount below, not the
+      # build-owned data dir.
+      VA_STATE_DIR: /state/simulation
+      TZ: UTC
+    # Bind-mount sources are relative to the pinned compose project directory —
+    # the deployment repo root — so each is spelled from there. Both read-only:
+    # the IOC only ever reads.
+    #
+    # The simulation model comes from the OUTPUT zone, `build/data/simulation`,
+    # and not from a source `data/` tree, for two reasons. Only the rendered
+    # copy is the whole model: the build writes the generated channel manifest
+    # and its drive limits in beside machine.json, and points VA_CHANNELS_FILE
+    # above at that manifest — a pointer the source tree cannot satisfy, and
+    # the entrypoint RAISES on a manifest file it cannot find rather than
+    # falling back, so a container aimed at the source tree would not boot at
+    # all. And a source tree is not even guaranteed: a profile with no `data:`
+    # key takes the bundle's tree, which is copied into the render and exists
+    # nowhere else in the repo. See entrypoint.py's run contract: the IOC
+    # SystemExits without a machine.json in the data dir.
+    #
+    # Two mounts because the two directories have different owners: the model
+    # is build-owned (re-rendered and checksummed every build), while the
+    # active-scenario state under the agent-data root is written at run time by
+    # `osprey sim apply` on the host and polled here. That second source is
+    # rendered from agent_data.base_dir rather than hardcoded, so it follows a
+    # project that relocates its agent-data root.
+    volumes:
+      - ./build/data/simulation:/data/simulation:ro
+      - ./var/agent_data/simulation:/state/simulation:ro
+    networks:
+      - osprey-network
+    healthcheck:
+      # The IOC serves Channel Access on the configured port, not HTTP, so this
+      # can't be an HTTP /health probe like the other services. A real `caget`
+      # isn't available either: the CA server's base install pulls in
+      # epicscorelibs/pvxslibs (C libraries only), not a Python CA *client*,
+      # and adding one just for this probe would be exactly the kind of
+      # extra-package drift the service's dependency set is meant to avoid.
+      # So: a raw TCP
+      # connect to the CA port — enough to prove the IOC's listener is up and
+      # accepting connections, short of an actual PV read.
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', 5064)); sys.exit(0 if r == 0 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — generous because a first-time
+      # native-arch image build (source-compiling the native deps) plus boot
+      # (PyAT lattice load + CA server startup) takes a few seconds longer
+      # than the framework's other native-arch services.
+      start_period: 20s
+
+networks:
+  osprey-network:

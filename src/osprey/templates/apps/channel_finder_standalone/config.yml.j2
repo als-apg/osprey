@@ -311,11 +311,31 @@ claude_code:
 # ============================================================
 # WEB PANEL CONFIGURATION
 # ============================================================
-# Controls which panel tabs appear in the web terminal (osprey web).
-# The Workspace panel is always shown; the Activity log is a separate page,
-# not a tab.
+# Controls the web terminal UI (osprey web): its Documentation and Feedback
+# controls, and which panel tabs appear. The Workspace panel is always shown;
+# the Activity log is a separate page, not a tab.
 
 web:
+  # Target of the Documentation button in the web terminal's utility cluster.
+  # Point it at a locally hosted copy of the docs when the control room has no
+  # route to the public site.
+  docs_url: https://als-apg.github.io/osprey
+
+  # Where the Feedback dialog's two outbound channels send a user. Nothing is
+  # ever posted for them: the browser opens a prefilled GitHub issue form or a
+  # prefilled mail draft, and the user decides whether to send it. Every
+  # submission is also recorded on this deployment, readable with
+  # `osprey feedback list` / `osprey feedback export`.
+  feedback:
+    # owner/repo whose new-issue form the GitHub channel prefills. Point it at
+    # the repository your users' reports should land in.
+    github_repo: als-apg/osprey
+    # Recipient of the prefilled mailto: draft the Email channel opens.
+    email: thellert@lbl.gov
+    # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+    # OLDEST saved session contexts are deleted; the small submission headers
+    # are always kept, so the submission history stays complete.
+    max_store_bytes: 268435456
 {%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}

@@ -65,7 +65,7 @@ from osprey_hook_log import (
 )
 
 # Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
-# Must stay in sync with get_framework_standard_patterns()["write"] (15 patterns).
+# Must stay in sync with get_framework_standard_patterns()["write"] (19 patterns).
 # The parity test in test_approval_hook.py enforces this.
 _FALLBACK_WRITE_PATTERNS = [
     # osprey.runtime unified API
@@ -78,6 +78,12 @@ _FALLBACK_WRITE_PATTERNS = [
     r"\.set_value\s*\(",
     r"PV\([^)]*\)\.put",
     r"epics\.PV\([^)]*\)\.put",
+    # PVAccess (p4p) - anchored to p4p; a bare r"\.post\s*\(" would flag
+    # every requests.post() in ordinary analysis code
+    r"\bp4p\b[\s\S]*?\.put\s*\(",
+    r"\bp4p\b[\s\S]*?\.post\s*\(",
+    r"\.rpc\s*\(",
+    r"\bSharedPV\b",
     # Tango (PyTango)
     r"DeviceProxy\([^)]*\)\.write_attribute\(",
     r"\.write_attribute\s*\(",
@@ -90,7 +96,7 @@ _FALLBACK_WRITE_PATTERNS = [
     r"connector\.write_channel\(",
 ]
 
-# Pattern detection: prefer framework module (regex-based, config-driven, 15 patterns)
+# Pattern detection: prefer framework module (regex-based, config-driven, 19 patterns)
 # with graceful fallback to regex matching against _FALLBACK_WRITE_PATTERNS
 try:
     from osprey.services.python_executor.analysis.pattern_detection import (
@@ -981,7 +987,9 @@ def main():
             code = tool_input.get("code", "")
 
             writes_detected = has_write_patterns(code, config)
-            needs_approval = exec_mode == "write" or writes_detected
+            # The agent asking for write mode is itself the signal: approval must not
+            # rest on the regex recognising the spelling of the write.
+            needs_approval = exec_mode == "readwrite" or writes_detected
             if needs_approval:
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:

@@ -12,6 +12,13 @@ to key them off.
 time. One engine, called twice, so a repo created today and a repo
 re-scaffolded a year later carry the same two files.
 
+``osprey scaffold systemd`` emits a third file through the same engine: the
+boot unit at :data:`SYSTEMD_OUTPUT_NAME`. It is not part of what ``init``
+writes, because it is rendered for a HOST rather than for the repo — the two
+absolute paths in it are properties of the machine that will run the
+deployment, so it is emitted when an operator is standing on that machine and
+asks for it.
+
 Re-emission is the whole difficulty. A generated file that lands in a git
 repository is read, diffed and eventually edited by people, so the engine has
 to answer two questions before it writes anything:
@@ -47,10 +54,14 @@ from .build_profile_merge import resolve_profile_document
 from .deploy_scaffold_templates import (
     CI_MARKER,
     CI_TEMPLATES,
+    SYSTEMD_MARKER,
+    SYSTEMD_TEMPLATE,
+    SYSTEMD_UNIT_NAME,
     VERIFY_MARKER,
     VERIFY_PATH,
     VERIFY_TEMPLATE,
     build_ci_context,
+    build_systemd_context,
     build_verify_context,
     render,
 )
@@ -75,6 +86,14 @@ CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": ".gitlab-ci.yml"}
 #: for after a deploy. A second literal here could move the file out from under
 #: both without a single test noticing.
 VERIFY_OUTPUT_PATH: tuple[str, ...] = tuple(VERIFY_PATH.split("/"))
+
+#: Where the boot unit is emitted, relative to the repo root. Not the directory
+#: it is installed in: a unit takes effect from ``~/.config/systemd/user/``, and
+#: writing there directly would put a generated file outside the repo and
+#: outside review, in a directory the operator's other units live in. It lands
+#: beside the profile instead, under the name ``systemctl`` will know it by, and
+#: the emitted header plus the verb's own output say to copy it across.
+SYSTEMD_OUTPUT_NAME: str = SYSTEMD_UNIT_NAME
 
 #: The health check is meant to be runnable by hand (``./scripts/verify.sh``),
 #: as its own header advertises. The post-up hook runs it through ``bash`` and
@@ -182,33 +201,98 @@ def scaffold_deploy_files(
     verify_text = render(VERIFY_TEMPLATE, build_verify_context(profile, osprey_version))
 
     return [
-        _emit(repo_root / ci_name, ci_text, CI_MARKER, mode=_REGULAR_MODE, force=force),
+        _emit(
+            repo_root / ci_name,
+            ci_text,
+            CI_MARKER,
+            mode=_REGULAR_MODE,
+            force=force,
+            command="osprey scaffold ci",
+        ),
         _emit(
             repo_root.joinpath(*VERIFY_OUTPUT_PATH),
             verify_text,
             VERIFY_MARKER,
             mode=_EXECUTABLE_MODE,
             force=force,
+            command="osprey scaffold ci",
         ),
     ]
 
 
-def _load_deploy_profile(profile_file: Path) -> tuple[dict[str, Any], Path, DeployConfig]:
-    """Read the profile the scaffolding renders from.
+def scaffold_systemd_unit(
+    repo_root: Path,
+    *,
+    force: bool = False,
+    osprey_bin: str | None = None,
+    osprey_version: str | None = None,
+) -> ScaffoldedFile:
+    """Emit the boot unit that brings this deployment up after a reboot.
+
+    Rendered from the profile's ``name:`` and from two paths on the machine the
+    unit will run on: the repo, and the ``osprey`` executable. No ``deploy:``
+    block is read, because none of it applies — a unit runs the deployment where
+    it already is, rather than shipping it anywhere.
+
+    Args:
+        repo_root: The deployment repo. Also the unit's ``WorkingDirectory``,
+            resolved absolute.
+        force: Overwrite a file that carries no marker of ours.
+        osprey_bin: Absolute path to the ``osprey`` executable the unit invokes.
+            Defaults to the one resolvable here.
+        osprey_version: Version for the provenance stamp. Defaults to the
+            installed framework's; tests pass a frozen value.
+
+    Returns:
+        What the emission did to the one file it writes.
+
+    Raises:
+        ConfigurationError: If the repo holds no profile, or holds one that is
+            not a YAML mapping.
+        FileNotFoundError: If no ``osprey`` executable can be found and none was
+            given. A unit naming a command that is not there fails at boot,
+            where nobody is watching, so it is not written.
+    """
+    repo_root = repo_root.resolve()
+    profile, _ = _load_profile(repo_root / PROFILE_FILENAME, command="osprey scaffold systemd")
+
+    text = render(
+        SYSTEMD_TEMPLATE,
+        build_systemd_context(profile, repo_root, osprey_bin, osprey_version),
+    )
+    return _emit(
+        repo_root / SYSTEMD_OUTPUT_NAME,
+        text,
+        SYSTEMD_MARKER,
+        mode=_REGULAR_MODE,
+        force=force,
+        command="osprey scaffold systemd",
+    )
+
+
+def _load_profile(profile_file: Path, *, command: str) -> tuple[dict[str, Any], Path]:
+    """Read the profile a scaffolding verb renders from.
 
     Resolved the same way a build resolves it — aliases normalized, ``extends:``
-    followed, a persona delta anchored at its root — so the pipeline is rendered
-    from what the profile *means* rather than from what one file happens to say.
+    followed, a persona delta anchored at its root — so a file is rendered from
+    what the profile *means* rather than from what one file happens to say.
 
     The profile is not otherwise validated: ``osprey validate`` is that check,
     and the emitted pipeline runs it as its first job. Scaffolding a repo whose
     data tree is not yet populated is a normal thing to do.
+
+    Args:
+        profile_file: The repo's ``profile.yml``.
+        command: The verb asking, named in the message an operator sees when
+            there is no profile there. The two verbs render different files from
+            the same profile, and "run it from a repo holding profile.yml" is
+            only actionable if it says which command to re-run.
     """
     if not profile_file.is_file():
         raise ConfigurationError(
-            f"No profile at {profile_file}. 'osprey scaffold ci' emits a "
-            f"deployment repo's CI files from its profile — run it from a repo "
-            f"holding {PROFILE_FILENAME}, or create one with 'osprey init'."
+            f"No profile at {profile_file}. '{command}' renders from a "
+            f"deployment repo's profile — run it from a repo holding "
+            f"{PROFILE_FILENAME}, or create one with 'osprey init'."
         )
 
     raw = _read_profile_document(profile_file)
@@ -217,8 +301,14 @@ def _load_deploy_profile(profile_file: Path) -> tuple[dict[str, Any], Path, Depl
             f"{profile_file} must be a YAML mapping, got {type(raw).__name__}."
         )
     document = resolve_profile_document(raw, profile_file.resolve())
+    return document.raw, document.root_dir
 
-    deploy = parse_deploy_block(document.raw)
+
+def _load_deploy_profile(profile_file: Path) -> tuple[dict[str, Any], Path, DeployConfig]:
+    """Read the profile, and the deployment coordinates the CI files need."""
+    raw, root_dir = _load_profile(profile_file, command="osprey scaffold ci")
+
+    deploy = parse_deploy_block(raw)
     if deploy is None:
         raise ConfigurationError(
             f"{profile_file} declares no 'deploy:' block, so there are no "
@@ -227,10 +317,12 @@ def _load_deploy_profile(profile_file: Path) -> tuple[dict[str, Any], Path, Depl
             f"blocks at the end of the file — uncomment it, fill in the CI "
             f"platform, the registry and the deploy host, then re-run."
         )
-    return document.raw, document.root_dir, deploy
+    return raw, root_dir, deploy
 
 
-def _emit(path: Path, text: str, marker: str, *, mode: int, force: bool) -> ScaffoldedFile:
+def _emit(
+    path: Path, text: str, marker: str, *, mode: int, force: bool, command: str
+) -> ScaffoldedFile:
     """Write one emitted file, unless what is already there says not to."""
     existing = _read_existing(path)
 
@@ -238,7 +330,7 @@ def _emit(path: Path, text: str, marker: str, *, mode: int, force: bool) -> Scaf
         if _marker_of(existing) != marker and not force:
             reason = (
                 f"carries no '{marker}' marker, so it was not written by the "
-                f"scaffolder. Re-run with 'osprey scaffold ci --force' to replace it."
+                f"scaffolder. Re-run with '{command} --force' to replace it."
             )
             return ScaffoldedFile(path, marker, "refused", reason)
         if _normalized(existing) == _normalized(text):

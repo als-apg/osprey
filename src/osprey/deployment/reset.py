@@ -58,10 +58,11 @@ in). Both conditions, never one:
   deploy*, so an unlabelled volume can only ever be removed by hand.
 
 Images are the one class this scoping cannot cover, and the plan says why.
-``<project>:local`` and the persona tags are host-global and derived from the
-project name alone: two same-named checkouts do not have one image each, they
-share one image. There is no identity label to check because there is no
-per-checkout image to put it on. Each candidate tag is instead individually
+The project image (``<project>:local``, or whatever the image axes renamed it
+to) and the persona tags are host-global and derived from the project name
+alone: two same-named checkouts do not have one image each, they share one
+image. There is no identity label to check because there is no per-checkout
+image to put it on. Each candidate tag is instead individually
 ``image inspect``-verified against its own ``com.osprey.project`` label — the
 same check ``nuke`` uses — so a same-named tag belonging to something that is
 not an OSPREY deployment is never touched. The residual exposure is bounded and
@@ -104,6 +105,7 @@ from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
     repo_identity,
+    resolve_image_defaults,
     resolve_project_name,
 )
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
@@ -213,6 +215,15 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     # test_lifecycle_invariants' retired-spelling scan grandfathers exactly the
     # older three and nothing else, which is what keeps this from drifting back.
     "Service account names (osprey up) — not secrets",
+    # The one credential in this list the deploy did not choose: OpenObserve
+    # issues its service account's token, and `osprey up` only records it. It
+    # belongs here for a sharper reason than the rest. A reset destroys the
+    # store's data volume, and the account lives INSIDE that volume — so a token
+    # left behind in `.env` is not merely stale, it names an account that no
+    # longer exists, and the next deploy's telemetry would be refused by a store
+    # that is otherwise brand new. Stripping it is what lets the provisioner
+    # create the account again and write the token the new store issued.
+    "Harvested OpenObserve ingest token (osprey up)",
 )
 
 
@@ -1045,20 +1056,55 @@ def resolve_agent_data_target(repo_root: Path, config: dict | None) -> tuple[Pat
     return target, target.is_relative_to(repo_root) and target != repo_root
 
 
+def _as_built_config(repo_root: Path) -> dict:
+    """The rendered ``build/config.yml``, or ``{}`` when there is none to read.
+
+    Leniently: a deployment with no build, and one whose build cannot be parsed,
+    both resolve to "nothing configured" rather than to an exception. Reset must
+    still be able to remove what it can name from the project name alone.
+    """
+    config_path = as_built_config_path(repo_root)
+    if not config_path.is_file():
+        return {}
+    try:
+        from osprey.utils.config import ConfigBuilder
+
+        return ConfigBuilder(str(config_path)).raw_config or {}
+    except Exception as exc:  # noqa: BLE001 - an unreadable build must not block a reset
+        logger.warning(
+            "Could not read this deployment's rendered config from %s (%s). Reset will "
+            "fall back to the image names derivable from the project name alone.",
+            config_path,
+            exc,
+        )
+        return {}
+
+
 def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
     """Every locally-built tag this deployment could own, deduplicated.
 
-    ``<project>:local`` is the project image ``osprey up`` builds for the
-    dispatch worker. The rest are the web-terminal persona images and the auth
-    sidecar, resolved from the rendered config exactly as ``nuke`` resolves them
-    — leniently, so a stale persona reference degrades to "not a candidate"
-    rather than blocking the reset. A deployment with no build, or no web
-    terminals, contributes only the project tag.
-    """
-    tags = [f"{project}:local"]
+    The project image ``osprey up`` builds for the dispatch worker is named by
+    :func:`~osprey.deployment.compose_generator.resolve_image_defaults`, the same
+    function the compose render and the build itself consume, so the tag reset
+    looks for is the tag the build produced. It is ``<project>:local`` until the
+    registry or tag axis moves it (``OSPREY_IMAGE_REGISTRY`` / ``OSPREY_IMAGE_TAG``
+    over ``images.registry`` / ``images.tag``); restating the ``:local`` literal
+    here would leave an axis-set deployment's image behind on every reset.
 
-    config_path = as_built_config_path(repo_root)
-    if not config_path.is_file():
+    The rest are the web-terminal persona images and the auth sidecar, resolved
+    from the rendered config exactly as ``nuke`` resolves them — leniently, so a
+    stale persona reference degrades to "not a candidate" rather than blocking
+    the reset. A deployment with no build, or no web terminals, contributes only
+    the project tag.
+    """
+    config = _as_built_config(repo_root)
+    # The caller already resolved the project name (from the build, else from the
+    # directory), and the labels being matched carry THAT name — so it is pinned
+    # here rather than re-derived, while the axes still come off the config.
+    image_defaults = resolve_image_defaults({**config, "project_name": project})
+    tags = [image_defaults["worker"]]
+
+    if not config:
         return tags
 
     try:
@@ -1067,9 +1113,7 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
             effective_image_source,
             resolve_personas,
         )
-        from osprey.utils.config import ConfigBuilder
 
-        config = ConfigBuilder(str(config_path)).raw_config
         web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
         if not web_terminals:
             return tags
@@ -1079,9 +1123,20 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
             as_dict(config.get("facility")).get("prefix") or "",
             strict=False,
         )
+        built_here = set(image_defaults.values())
         for entry in personas:
             image = entry.get("image")
-            if isinstance(image, str) and image.endswith(":local") and image not in tags:
+            if not isinstance(image, str) or image in tags:
+                continue
+            # ``:local`` is the persona/auth naming convention, which the image
+            # axes do not move. Membership in the axis-derived defaults is the
+            # other half: a roster naming one of THIS project's built images
+            # carries the registry prefix and tag the axes resolved, so the
+            # suffix test alone would walk past it. Exact membership, never a
+            # bare tag match — a registry-mode persona image is PULLED, and
+            # matching ``:<tag>`` alone would put an upstream image on the
+            # removal list the moment the axis tag and ``image_tag`` agreed.
+            if image.endswith(":local") or image in built_here:
                 tags.append(image)
 
         from osprey.deployment.web_terminals.provision import auth_sidecar_local_tag
@@ -1101,7 +1156,7 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
             "Could not resolve this deployment's web-terminal image tags from %s (%s). "
             "Reset will remove the project image only; any persona image is left in "
             "place and can be removed by hand.",
-            config_path,
+            as_built_config_path(repo_root),
             exc,
         )
     return tags

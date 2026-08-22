@@ -32,7 +32,7 @@ Build & Deploy a Project
       :link-type: doc
 
       Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
-      CBORG, AMSC i2, Ollama, and others — via ``config.yml``.
+      CBORG, AMSC i2, Ollama, and others — via the build profile (``profile.yml``).
 
    .. grid-item-card:: Run Open & Local Models
       :link: run-open-models
@@ -76,6 +76,14 @@ Run & Operate the Agent
       containerized Web Terminal per user, in read-only and write-capable
       capability tiers.
 
+   .. grid-item-card:: Send and Retrieve Feedback
+      :link: send-feedback
+      :link-type: doc
+
+      Let operators report problems from the Web Terminal itself — three
+      channels, what each attaches, and the ``osprey feedback`` verbs that read
+      the results back.
+
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
@@ -117,6 +125,13 @@ Run & Operate the Agent
 
       Extend ``osprey health`` with facility probe checks and plugins, and tune
       the suite's cost classes and timeouts via the ``health:`` config block.
+
+   .. grid-item-card:: The ``osprey health --json`` Contract
+      :link: health-json-contract
+      :link-type: doc
+
+      The report envelope, the per-check row shape, the exit codes, and the
+      ``jq`` patterns for consuming all of it from a CI job.
 
 Extend & Integrate
 ------------------
@@ -213,12 +228,14 @@ Bundled Services & Tutorials
    containerize-project
    web-terminal/index
    multi-user
+   send-feedback
    use-cli-chat
    non_interactive_query
    event-dispatch
    chat-bridges/index
    monitor-agent
    configure-health-checks
+   health-json-contract
    add-connector
    add-mcp-server
    use-python-executor

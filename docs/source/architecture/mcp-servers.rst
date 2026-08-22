@@ -29,6 +29,10 @@ safety-limits enforcement on all write operations.
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
   ``bin_size=0`` returns full resolution and is valid only with ``processing="raw"``.
+  When ``bin_size`` is omitted the bin is derived from the time span so a continuously
+  archived channel returns about ``archiver.auto_bin_points`` (default 10 000) points —
+  1 s for anything under ~2.8 hours, ~53 minutes for a year — and the summary reports the
+  bin that was used and whether it was requested or chosen automatically.
 - ``channel_limits`` -- Query the channel safety limits database (lookup, pattern match, summary).
 
 
@@ -133,7 +137,7 @@ tools into several functional areas.
 
 **Artifacts:**
 
-- ``artifact_save`` -- Save a file or generated content as a gallery artifact.
+- ``artifact_register`` -- Register a file on disk, or literal text, as a gallery artifact.
 - ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
 - ``artifact_list`` -- List stored artifacts, optionally narrowed by category, tool or agent.
 - ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).

@@ -33,6 +33,8 @@ from typing import Any
 
 import yaml
 
+from tests import ci_diagnostics
+
 # SDK imports — skip entire module if not installed
 try:
     from claude_agent_sdk import (
@@ -1091,3 +1093,87 @@ async def run_sdk_query_with_hooks(
     workflow.hook_events = hook_events
     _persist_mcp_sidecar(workflow, repo)
     return workflow
+
+
+# ---------------------------------------------------------------------------
+# Agent transcripts as CI artifacts
+# ---------------------------------------------------------------------------
+
+
+#: Sub-directory of ``OSPREY_CI_DIAG_DIR`` that transcripts are written to.
+#: Separate from the records :mod:`tests.ci_diagnostics` keeps in the same
+#: directory, so a per-worker event log and a per-test transcript can never
+#: collide on a name.
+TRANSCRIPT_SUBDIR = "agent"
+
+
+def _transcript_payload(name: str, result: SDKWorkflowResult) -> dict[str, Any]:
+    """The serialisable form of one agent run — deliberately UNTRUNCATED.
+
+    Truncation is the whole reason this exists. ``_to_workflow_result``
+    previews every tool result at 300 characters before the judge ever sees
+    it, and a ``get_run_data`` payload spends its first 300 characters on
+    ``run_uid`` and ``columns``, so not one measured value survives into the
+    judge's view. When the judge then reports that a response's numbers
+    "cannot be verified from the execution trace", nothing anywhere records
+    what the tools actually returned, and the verdict text is left as the only
+    account of a response nobody can re-read.
+
+    ``mcp_server_status`` is included because it is the infra-vs-model
+    discriminator: a tool the agent never called means one thing if the
+    handshake offered it and quite another if it never registered.
+    """
+    return {
+        "name": name,
+        # Every turn's prose, joined the way the judge is given it, but whole.
+        "response": "\n".join(result.text_blocks).strip(),
+        "text_blocks": list(result.text_blocks),
+        "tool_traces": [
+            {
+                "name": t.name,
+                "input": t.input,
+                "result": t.result,
+                "is_error": t.is_error,
+                "tool_use_id": t.tool_use_id,
+                "parent_tool_use_id": t.parent_tool_use_id,
+            }
+            for t in result.tool_traces
+        ],
+        "mcp_server_status": result.mcp_server_status,
+        "registered_tools": result.registered_tools,
+    }
+
+
+def dump_agent_transcript(name: str, result: SDKWorkflowResult) -> Path | None:
+    """Persist one agent run's full response and tool traces as a CI artifact.
+
+    Gated on ``OSPREY_CI_DIAG_DIR`` exactly like :mod:`tests.ci_diagnostics`:
+    unset — which is every local run — writes nothing and returns ``None``.
+    The lanes that set it already upload that directory, and
+    ``capture-ci-diagnostics`` creates its own subdirectory rather than
+    clearing the tree, so what is written here survives into the artifact.
+
+    Call this BEFORE the assertions, never after. The runs worth reading are
+    the ones that fail, and a dump placed below a judge assertion never
+    executes on exactly those.
+
+    Never raises. A diagnostic that can fail the test it was only meant to
+    observe would mask the very failure it exists to explain — the same reason
+    every probe in the capture action ends in ``|| true``.
+    """
+    directory = os.environ.get(ci_diagnostics.ENV_DIR)
+    if not directory:
+        return None
+    try:
+        target_dir = Path(directory) / TRANSCRIPT_SUBDIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+        # Test ids carry ``[]`` from parametrisation and ``/`` from paths.
+        safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "transcript"
+        target = target_dir / f"{safe}.json"
+        target.write_text(
+            json.dumps(_transcript_payload(name, result), indent=2, default=str),
+            encoding="utf-8",
+        )
+        return target
+    except Exception:
+        return None

@@ -7,6 +7,11 @@ generates rather than authors:
   check from the profile's ``deploy:`` block — the same engine
   ``osprey init`` runs at creation, so a repo scaffolded years apart carries
   the same two files.
+* ``osprey scaffold systemd`` emits the boot unit for the host the operator is
+  standing on, through the same engine. It is a separate verb rather than a
+  third file under ``ci`` because it is rendered from that machine's paths
+  rather than from the profile alone, and because a repo deployed by hand or by
+  the pipeline needs no unit at all.
 * ``osprey scaffold list|claim|diff|unclaim`` inspect and take over the build
   artifacts a build renders into ``build/``.
 
@@ -768,10 +773,11 @@ def profile_slot_for(project_dir: Path, name: str) -> Path | None:
 @click.group(name="scaffold", invoke_without_command=True)
 @click.pass_context
 def scaffold(ctx):
-    """Emit CI files and manage artifact ownership.
+    """Emit generated files and manage artifact ownership.
 
     The ci verb regenerates the repo's pipeline and health check from the
-    profile's deploy: block. The other verbs cover build artifacts, which can
+    profile's deploy: block, and the systemd verb writes a unit that starts
+    this deployment at boot. The other verbs cover build artifacts, which can
     be claimed per-facility: claiming moves the artifact out of the build zone
     and into the profile beside it, which is where you then edit it. Every
     build copies it back and marks it yours.
@@ -780,6 +786,7 @@ def scaffold(ctx):
 
     \b
       osprey scaffold ci                          # Re-emit the CI files
+      osprey scaffold systemd                     # Write the boot unit
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile
       osprey scaffold diff agents/channel-finder  # Compare yours vs framework
@@ -843,6 +850,83 @@ def ci(repo: Path | None, force: bool) -> None:
         # Non-zero, because an operator who asked for a re-emission did not get
         # one. The reason above already names the flag that overrides it.
         raise SystemExit(1)
+
+
+@scaffold.command(name="systemd")
+@repo_option
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace an existing file that the scaffolder did not write.",
+)
+def systemd(repo: Path | None, force: bool) -> None:
+    """Emit a systemd unit that starts this deployment at boot.
+
+    Writes osprey.service at the repo root and prints how to install it. The
+    unit runs 'osprey up -d' from this repo and 'osprey down' on stop; both the
+    repo and the osprey program are written into it as full paths, because
+    systemd starts a unit with no working directory and a short PATH. Run it on
+    the machine that will run the deployment, and again after the repo moves or
+    OSPREY is reinstalled somewhere else.
+
+    Re-running is safe. A file whose content already matches is left untouched,
+    stamp included, so an OSPREY upgrade alone produces no diff. A file the
+    scaffolder did not write is reported and left alone; --force replaces it.
+
+    Examples:
+
+    \b
+      $ osprey scaffold systemd
+      $ osprey scaffold systemd --repo ~/deployments/als-exemplar
+      $ osprey scaffold systemd --force
+    """
+    # Imported here for the same reason `ci` does it: the build-profile chain
+    # behind these two verbs is not loaded for any of the ownership ones.
+    from .deploy_scaffold import scaffold_systemd_unit
+    from .deploy_scaffold_templates import SYSTEMD_UNIT_NAME
+
+    repo_root = find_repo_root(repo)
+
+    try:
+        result = scaffold_systemd_unit(repo_root, force=force)
+    except ConfigurationError as exc:
+        raise click.ClickException(str(exc)) from None
+    except FileNotFoundError as exc:
+        # The unit names the program in full, so there is nothing to write
+        # until one can be found. Reported as a refusal rather than a
+        # traceback: on a deploy host this is a PATH that a login shell sets
+        # and a scaffolding run did not inherit, which the operator fixes.
+        raise click.ClickException(
+            f"{exc}\n\n"
+            "A systemd unit starts with a short PATH, so 'osprey up' has to be "
+            "written into it as a full path, and no osprey program was found "
+            "to name. Run 'command -v osprey' here: it has to answer before "
+            "this unit can be written. If OSPREY lives in a virtual "
+            "environment, activate it and re-run."
+        ) from None
+
+    shown = result.path.relative_to(repo_root)
+    if result.refused:
+        console.print(f"  [error]✗[/error] {shown} not written: {result.reason}")
+        # Non-zero for the same reason `ci` exits non-zero on a refusal: the
+        # operator asked for a file and did not get one.
+        raise SystemExit(1)
+    if result.action == "unchanged":
+        console.print(f"  [dim]= {shown} (unchanged)[/dim]")
+    else:
+        console.print(f"  [success]✓[/success] {shown} ({result.action})")
+
+    console.print()
+    console.print("  Install it on this machine:")
+    # The full path, not the one reported above: --repo and any subdirectory
+    # both put the operator somewhere this line has to work from anyway. Soft
+    # wrapped, so a deep repo path stays one line for whoever copies it.
+    console.print(f"    cp {result.path} ~/.config/systemd/user/", soft_wrap=True)
+    console.print("    systemctl --user daemon-reload")
+    console.print(f"    systemctl --user enable --now {SYSTEMD_UNIT_NAME}")
+    console.print()
+    console.print("  For it to start at boot, the account also needs:")
+    console.print("    loginctl enable-linger $USER")
 
 
 def _owned_row(profile_root: Path | None, name: str) -> tuple[str, str, str]:

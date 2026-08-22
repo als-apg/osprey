@@ -22,7 +22,6 @@ from osprey.services.ariel_search.exceptions import (
     SearchTimeoutError,
 )
 from osprey.services.ariel_search.models import (
-    DEFAULT_SEARCH_MODE,
     ARIELSearchRequest,
     ARIELSearchResult,
     ARIELStatusResult,
@@ -184,7 +183,8 @@ class ARIELSearchService:
             query: Natural language query
             max_results: Maximum results (default: ``ARIELSearchRequest``'s)
             time_range: Optional (start, end) datetime tuple
-            mode: Optional search module name (default: ``"keyword"``)
+            mode: Optional search module name. Omitted, the deployment's
+                ``ariel.default_search_mode`` decides.
             advanced_params: Mode-specific advanced parameters from the frontend
 
         Returns:
@@ -197,7 +197,7 @@ class ARIELSearchService:
                 max_results if max_results is not None else ARIELSearchRequest.max_results
             ),
             time_range=time_range,
-            modes=[mode] if mode else [DEFAULT_SEARCH_MODE],
+            modes=[mode] if mode else [self.config.resolve_default_search_mode()],
             advanced_params=advanced_params or {},
         )
 
@@ -226,7 +226,7 @@ class ARIELSearchService:
             if self.config.is_search_module_enabled("semantic"):
                 await self._validate_search_model()
 
-            mode = request.modes[0] if request.modes else DEFAULT_SEARCH_MODE
+            mode = request.modes[0] if request.modes else self.config.resolve_default_search_mode()
 
             return await self._run_module(mode, request)
 
@@ -246,7 +246,7 @@ class ARIELSearchService:
             raise
         except Exception as e:
             logger.exception(f"Search failed: {e}")
-            mode = request.modes[0] if request.modes else DEFAULT_SEARCH_MODE
+            mode = request.modes[0] if request.modes else self.config.resolve_default_search_mode()
             raise SearchExecutionError(
                 f"Search execution failed: {e}",
                 search_mode=mode,

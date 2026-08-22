@@ -409,27 +409,56 @@ control_system:
     allow_unlisted_channels: true  # Permissive mode for tutorial
 
   # Write Verification Configuration
-  # How the connector confirms a write took effect. The level below applies only when
-  # the caller does not name one: osprey.runtime.write_channel scripts and direct
-  # connector calls. The channel_write MCP tool, multi-channel writes, and Bluesky
-  # device writes pass an explicit level ("callback"); for those, only a per-channel
-  # "verification" entry in channel_limits.json changes the level, and only on
-  # single-channel tool writes.
-  # A failed verification is not a hard stop. The channel_write MCP tool reports it in
-  # its result (verification.verified: false); osprey.runtime.write_channel discards it
-  # (a readback mismatch is logged at debug level only); only write_channel_checked
-  # raises (plans, which write through the Bluesky bridge's connector-backed
-  # devices). A write the CA layer could not deliver at all - for example a PV that
-  # never connects - is different: it sets success: false, which does raise from
-  # osprey.runtime.write_channel and shows up as a failed write in the MCP tool.
+  # How the connector confirms a write took effect. Every write - single or batch,
+  # from the channel_write MCP tool or from osprey.runtime - resolves its level and
+  # its tolerance through the same four layers, most specific first: the channel's
+  # "verification" entry in channel_limits.json, then that database's "defaults"
+  # block, then the connector config below, then "callback".
+  # The keys below are that third layer: control_system.write_verification.default_level
+  # and control_system.write_verification.default_tolerance_percent.
+  # A caller that names a level explicitly gets exactly that level, and the
+  # per-channel tolerance still applies to it. The channel_write MCP tool names one
+  # only when asked, and a batch write names one only when asked, so each channel in
+  # a batch resolves its own entry exactly as a single write does.
+  # A failed verification is a hard stop on the Python path: osprey.runtime.write_channel
+  # routes through write_channel_checked and raises ChannelWriteFailedError. The
+  # channel_write MCP tool does not raise; it reports the outcome in write_state and
+  # verification.verified. A write the CA layer could not deliver at all - for example
+  # a PV that never connects - sets success: false on both paths.
   write_verification:
     default_level: callback  # Options: none, callback, readback
-                            # - none: Fast write, no verification (off, on the paths above)
+                            # - none: Fast write, no verification
                             # - callback: Control system confirms processing (e.g., EPICS IOC callback)
                             # - readback: Full verification with readback comparison
     default_tolerance_percent: 0.1  # Default tolerance: 0.1% (one per mil)
                                     # Only used for "readback" verification level
                                     # Can be overridden per-channel in channel_limits.json
+
+  # Channel-read response size
+  # Array channels (waveforms, camera frames) can be far larger than an agent's
+  # context can hold. channel_read returns an array inline only while it fits the
+  # budget below; anything larger is saved as an artifact and reported as a
+  # summary (shape, dtype, element count, numeric stats) plus a handle to the
+  # stored data. Strings and scalars are always inline, whatever their length.
+  #
+  # The default matches the repo's calibrated inline-plot budget
+  # (DEFAULT_MAX_POINTS = 2000 in the Bluesky bridge figure builder): ordinary
+  # waveforms and orbit vectors stay inline, camera frames take the artifact path.
+  read_inline_max_elements: 2000  # Per-value element count (arrays only).
+                                  # One channel_read call also inlines at most 4x
+                                  # this many elements in TOTAL across the channels
+                                  # it was asked for, consumed in request order;
+                                  # channels past that aggregate budget take the
+                                  # artifact path even when individually small, and
+                                  # say so (artifact_reason: aggregate_budget), so
+                                  # re-reading fewer channels inlines them.
+
+  # Per-channel rolling window for those read artifacts: only the newest N
+  # UNPINNED entries per channel are kept, older ones are pruned when a new one
+  # is saved. Pinned entries never count against the window and are never pruned,
+  # so pinning a frame keeps it for good. 0 = keep everything, which lets an
+  # unattended polling loop grow the gallery without bound.
+  channel_read_artifact_retention: 20
 
   # Pattern Detection (Layer 1 - Security)
   # Purpose: Detect ALL control system operations in generated code for approval workflows
@@ -514,8 +543,34 @@ control_system:
           use_name_server: true
 
     # EPICS connector (production mode) — ALS production values.
+    #
+    # PVAccess (PVA) read routing: addresses matching any glob in `pva_channels`
+    # are read through the p4p client — the transport NTNDArray camera frames
+    # arrive on — and every other address stays on Channel Access. Absent or
+    # empty (the default) means pure CA, exactly as before. Addresses stay raw:
+    # no pva:// prefixes anywhere, so channel limits, the :SP writability
+    # contract and audit records keep matching the same strings. PVA is
+    # read-only here — a write to a matching address is refused before any
+    # network operation.
+    #
+    # `pva_gateway` is ONE flat block, not the read_only/write_access pair the
+    # CA `gateways` below uses, precisely because there is no PVA write path.
+    # It is read only when pva_channels is non-empty, and maps to
+    # EPICS_PVA_ADDR_LIST — or to EPICS_PVA_NAME_SERVERS when use_name_server is
+    # true (TCP instead of UDP search: what SSH tunnels need). Whenever the block
+    # is present, EPICS_PVA_AUTO_ADDR_LIST is forced to "NO", mirroring the
+    # EPICS_CA_AUTO_ADDR_LIST containment the CA path applies: a deployment
+    # deliberately pinned to a gateway must not also broadcast-discover servers
+    # on its local subnet.
     epics:
       timeout: 5.0
+      # pva_channels:
+      #   - "*:IMAGE*"
+      #   - "*:ARRAY*"
+      # pva_gateway:
+      #   address: your-pva-gateway.example.com  # Replace with your PVA gateway
+      #   port: 5075
+      #   use_name_server: false  # Set true for SSH tunnels
       gateways:
         read_only:
           address: cagw-alsdmz.als.lbl.gov
@@ -548,6 +603,11 @@ archiver:
   # with the block that makes the archive exist, which is the preset's job and
   # arrives as an `archiver.type` override at build time.
   type: mock_archiver  # <-- 'epics_archiver' for production
+
+  # When a read names no bin size, the bin is chosen from the time span so a
+  # continuously archived channel returns about this many points (1 s bins up
+  # to ~2.8 h, ~53 min bins for a year). The agent is told which bin was used.
+  auto_bin_points: 10000
 
   # Mock archiver (development mode) — synthesizes history from the same
   # simulation machine model as the control-system connector above, so live
@@ -873,19 +933,28 @@ ariel:
   #   port: 8085
   #   auto_launch: true
 
+  # Which module answers a search that names no mode — the web interface's
+  # opening tab, `osprey ariel search` without `--mode`, and the service API.
+  # Naming a module that is not enabled below is refused at startup rather
+  # than quietly answered by a different one. Unset, this resolves to `hybrid`
+  # where that module is enabled and `keyword` everywhere else.
+  default_search_mode: hybrid
+
   # Search modules (leaf-level search functions)
   # provider: references api.providers for credentials (api_key, base_url)
   # Both keyword and semantic are enabled by default.
   # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
-  # NOTE: entries seeded by `osprey sim apply` are keyword-only. Seeding skips
-  # the enhancement passes AND drops the embedding tables outright, so
+  # NOTE: entries seeded by `osprey sim apply` carry no embeddings. Seeding
+  # skips the enhancement passes AND drops the embedding tables outright, so
   # recovering semantic search takes two steps: `osprey ariel migrate` to
   # recreate the tables, then `osprey ariel enhance` to fill them. (`osprey
   # ariel sync` is not a shortcut here: it migrates, but then polls an
   # ingestion adapter this preset has none of, and fails before it enhances.)
   # Until then a semantic query disables itself at runtime and returns a notice
   # telling you to use keyword search — it does not silently return zero hits,
-  # and it does not run the keyword search for you.
+  # and it does not run the keyword search for you. Hybrid search is NOT
+  # affected: seeding exports the qmd markdown mirror on its way out, so the
+  # sidecar indexes the seeded narrative and `hybrid` answers immediately.
   search_modules:
     keyword:
       enabled: true
@@ -1164,15 +1233,18 @@ claude_code:
     # (Hardcoding localhost would make the in-container dispatch worker emit to
     # its own loopback and silently drop everything.)
     #
-    # OpenObserve auth + org routing. user/password read the OpenObserve root
-    # credentials from the project .env — the SAME values the openobserve
-    # service reads — so container and agent auth stay in sync (single source of
-    # truth). `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env;
-    # the ${VAR:-default} fallbacks (mirroring the openobserve compose defaults)
-    # keep the agent launchable before the first deploy.
+    # OpenObserve auth + org routing. These are the store's dedicated INGEST
+    # account, not its root credentials: `osprey up` creates a service account
+    # named ZO_INGEST_USER_EMAIL and writes the token the store issues for it
+    # to the project .env as ZO_INGEST_SA_TOKEN. The store itself still
+    # initializes from ZO_ROOT_USER_* — that stays in the compose file, and the
+    # root password never reaches the agent's config.
+    # The token reference carries NO ${VAR:-default} on purpose: a literal
+    # default would be a published credential, and there is nothing to fall
+    # back to before the first deploy provisions the account.
     openobserve:
-      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
-      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+      password: ${ZO_INGEST_SA_TOKEN}
       org: default
     # Content gates — all default ON. This store captures full transcripts; it
     # is local and air-gapped, so full capture is the default posture. Set any
@@ -1210,10 +1282,10 @@ claude_code:
 # ============================================================
 # WEB PANEL CONFIGURATION
 # ============================================================
-# Controls the web terminal UI (osprey web): its theme and which panel tabs
-# appear. The Workspace panel is always shown; the Activity log is a separate
-# page, not a tab. Domain-specific panels are listed here — remove or disable
-# as needed.
+# Controls the web terminal UI (osprey web): its theme, its Documentation and
+# Feedback controls, and which panel tabs appear. The Workspace panel is always
+# shown; the Activity log is a separate page, not a tab. Domain-specific panels
+# are listed here — remove or disable as needed.
 
 web:
   # Default web UI theme. Two forms, and the difference matters:
@@ -1228,6 +1300,27 @@ web:
   # overrides this per user. Independent of `cli.theme` above (console-only) —
   # the two never share a value.
   # theme: main
+
+  # Target of the Documentation button in the web terminal's utility cluster.
+  # Point it at a locally hosted copy of the docs when the control room has no
+  # route to the public site.
+  docs_url: https://als-apg.github.io/osprey
+
+  # Where the Feedback dialog's two outbound channels send a user. Nothing is
+  # ever posted for them: the browser opens a prefilled GitHub issue form or a
+  # prefilled mail draft, and the user decides whether to send it. Every
+  # submission is also recorded on this deployment, readable with
+  # `osprey feedback list` / `osprey feedback export`.
+  feedback:
+    # owner/repo whose new-issue form the GitHub channel prefills. Point it at
+    # the repository your users' reports should land in.
+    github_repo: als-apg/osprey
+    # Recipient of the prefilled mailto: draft the Email channel opens.
+    email: thellert@lbl.gov
+    # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+    # OLDEST saved session contexts are deleted; the small submission headers
+    # are always kept, so the submission history stays complete.
+    max_store_bytes: 268435456
 {%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}
@@ -1340,6 +1433,14 @@ web:
 #       per-user port families, and the user list. Per-user containers share
 #       the host network namespace, so each companion panel needs its own port
 #       family; families left unset fall back to the registry defaults.
+#   modules.web_terminals.landing.notices
+#       Markdown files shown as collapsible sections on the landing page —
+#       what operators read before opening a terminal. Each file's first
+#       heading is its section label. `data/landing/working-safely.md` ships
+#       with the multi-user presets and is yours to rewrite; add your own for
+#       local procedures or contacts. Omit the key for OSPREY's built-in
+#       safety notice, or set it to [] for none. `landing.footer` sets the
+#       line underneath.
 #
 # See docs/how-to/web-terminal/multi-user.rst for the full schema. The build
 # interview (/osprey-build-interview) fills these in when you tell it the

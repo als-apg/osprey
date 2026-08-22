@@ -34,14 +34,17 @@ persistence (config overrides, convention artifacts, MCP servers, git init) in
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shlex
 import shutil
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
+from uuid import uuid4
 
 import click
 
@@ -178,6 +181,28 @@ _CONTAINER_INTERPRETER = "/usr/local/bin/python"
 _INCOMING_DIRNAME = ".osprey-build-incoming"
 _OUTGOING_DIRNAME = ".osprey-build-outgoing"
 
+#: The errnos that mean "the filesystem will not let go of this yet", as opposed
+#: to "this code is wrong about the path". ENOTEMPTY is what a directory reports
+#: once a sweep has taken everything it could and an NFS ``.nfs*`` sillyrename
+#: is all that is left; EBUSY is the same story for a mount or an open file;
+#: EACCES/EPERM is a subtree written by another user, which for a deployment
+#: repo is usually a container that ran as root. Every one of them can clear on
+#: its own — the client drops its reference, the mount goes — so they are worth
+#: one retry. Anything else is re-raised.
+_LEFTOVER_ERRNOS: frozenset[int] = frozenset(
+    {errno.ENOTEMPTY, errno.EBUSY, errno.EACCES, errno.EPERM}
+)
+
+#: How long to wait before the single retry. Long enough for an NFS client to
+#: release a sillyrenamed file, short enough that a build nobody can fix anyway
+#: still fails promptly.
+_LEFTOVER_RETRY_SECONDS = 1.0
+
+#: Marks a leftover that could not be deleted and was renamed out of the way
+#: instead. Carries a unique suffix, because a second stuck build must not
+#: collide with the first one's rescue.
+_HELD_ASIDE_SUFFIX = ".undeletable"
+
 #: The STATE zone a build guarantees exists — created empty, and otherwise the
 #: agent's to write, not the build's. Imported from the conventions module that
 #: owns the zone layout rather than spelled again: ``osprey init`` emits the
@@ -259,6 +284,87 @@ def _ensure_state_zone(repo_root: Path) -> None:
         (repo_root / relative).mkdir(parents=True, exist_ok=True)
 
 
+def _is_leftover_stuck(error: OSError) -> bool:
+    """Whether *error* is the filesystem holding on, rather than a wrong path.
+
+    NFS reports its sillyrenamed files by name rather than by errno on some
+    clients, so the message is checked too.
+    """
+    return error.errno in _LEFTOVER_ERRNOS or "nfs" in str(error).lower()
+
+
+def _clear_leftover(path: Path, *, aside_root: Path) -> None:
+    """Free the name *path* occupies — by deleting it, or by moving it aside.
+
+    Every caller is about to ``rename`` something onto this path, and
+    ``rename(2)`` onto a non-empty directory fails. So the name has to end up
+    free, and "we tried to delete it" is not the same thing: the failure mode
+    this replaces was a swallowed ``rmtree`` whose leftover surfaced as a bare
+    ENOTEMPTY from a rename several hundred lines away, on this build and on
+    every build after it, with nothing in the message about which path or why.
+
+    Three attempts at freeing the name, in order:
+
+    1. Delete it. The overwhelmingly common case, and the only one with no
+       trace left behind.
+    2. Delete it again, after :data:`_LEFTOVER_RETRY_SECONDS`, if it is still
+       standing — for one of the reasons in :data:`_LEFTOVER_ERRNOS`, which are
+       the ones that clear on their own, or for no stated reason at all. Any
+       other ``OSError`` is this code being wrong about the path, and is
+       re-raised untouched.
+    3. Rename it aside, under *aside_root*, with a unique suffix. The tree is
+       still on disk and still undeletable, but it is no longer in the way, so
+       the build proceeds and the operator is told where it went.
+
+    Only if the rename aside fails too does the caller fail — and then with the
+    path, the reason it could not be deleted, and the reason it could not be
+    moved, all named.
+
+    :param path: The file or directory to clear. Absent is success.
+    :param aside_root: Where an undeletable tree is parked. Must be on the same
+        filesystem as *path*, since step 3 is a rename; both callers pass a
+        directory inside the same repo.
+    :raises click.ClickException: When the name could not be freed at all.
+    """
+    reason: OSError | None = None
+    for attempt in (1, 2):
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            if not _is_leftover_stuck(error):
+                raise
+            reason = error
+        # The gone-ness is checked rather than inferred from a call that
+        # returned: what the name looks like now is the whole question, and a
+        # removal that reports success over a tree that is still standing is
+        # exactly the silence this function replaces.
+        if not path.exists() and not path.is_symlink():
+            return
+        if attempt == 1:
+            time.sleep(_LEFTOVER_RETRY_SECONDS)
+
+    detail = reason if reason is not None else "it is still there afterwards"
+    aside = aside_root / f"{path.name}{_HELD_ASIDE_SUFFIX}.{uuid4().hex[:8]}"
+    try:
+        aside_root.mkdir(parents=True, exist_ok=True)
+        os.replace(path, aside)
+    except OSError as error:
+        raise click.ClickException(
+            f"Could not clear {path}: {detail}\n"
+            f"Nor move it aside to {aside}: {error}\n"
+            "Remove that path yourself — as its owner, or once whatever holds "
+            "it open has stopped — and run the command again."
+        ) from error
+
+    logger.warning("  Could not delete %s (%s)", path, detail)
+    logger.warning("  Moved it aside to %s — delete it when you can", aside)
+
+
 def _repair_interrupted_swap(zones: _RenderZones) -> None:
     """Restore a ``build/`` left missing by an interrupted swap, then clean up.
 
@@ -273,6 +379,13 @@ def _repair_interrupted_swap(zones: _RenderZones) -> None:
     success never happened, so an incoming render found *beside* a present
     ``build/`` is discarded rather than adopted — the last render an operator
     was told about is the one they keep.
+
+    The sweep afterwards is what makes the repair self-healing rather than
+    self-defeating. Each of the three names it clears is a name the NEXT
+    :func:`_swap_in_render` renames onto, so a leftover left standing does not
+    stay quiet — it fails that rename with a bare ENOTEMPTY, and keeps failing
+    it forever. :func:`_clear_leftover` therefore frees each name or says why
+    it could not.
     """
     if not zones.build_dir.exists():
         for candidate in (zones.incoming, zones.outgoing):
@@ -281,9 +394,14 @@ def _repair_interrupted_swap(zones: _RenderZones) -> None:
                 os.replace(candidate, zones.build_dir)
                 break
 
+    # Parked in the STATE zone rather than beside each leftover: `var/` is
+    # git-ignored, is on the same filesystem as all three, and is the one of
+    # the four zones a build never rewrites — so a tree parked there survives
+    # the swap that is about to replace `build/` instead of riding along inside
+    # it and coming back as the next build's leftover.
+    aside_root = zones.repo_root / STATE_DIR_NAME
     for leftover in (zones.incoming, zones.outgoing, zones.stage_root):
-        if leftover.exists():
-            shutil.rmtree(leftover, ignore_errors=True)
+        _clear_leftover(leftover, aside_root=aside_root)
 
 
 def _swap_in_render(zones: _RenderZones) -> None:
@@ -440,9 +558,13 @@ def _stamp_repo_manifest(
     The drift fingerprint's per-key digests are added to the DEPLOYMENT's
     manifest only. The fingerprint itself — ``creation.preset_hash``, a
     :func:`~osprey.cli.build_profile.compute_profile_hash` of the resolved
-    profile and the file material it names — is stamped by the manifest
-    generator on every render, and on ``build/.osprey-manifest.json`` it is the
-    *only* thing the drift verdict reads. What is added here is commentary on
+    profile, the file material it names, and the host overlay ``.env.variant``
+    selects — is stamped by the manifest generator on every render, and on
+    ``build/.osprey-manifest.json`` it is the *only* thing the drift verdict
+    reads. The variant is read off the profile's own directory by the hash, not
+    passed in from here: this build already resolved a selection, and a second
+    resolution at the stamp could disagree with the one ``osprey up`` makes,
+    which is precisely how a build goes stale without anyone noticing. What is added here is commentary on
     it: the per-top-level-key digests that let
     :func:`osprey.deployment.staleness.check_drift` name which part of
     ``profile.yml`` moved when it refuses to start a stale build. Deliberately
@@ -1112,6 +1234,18 @@ class _SharedRenderInputs(NamedTuple):
     inputs that decide it, so a delta that *does* move either still gets its own.
     """
 
+    profile_overlays: tuple[Path, ...] = ()
+    """Profile layers merged over EVERY profile this build resolves.
+
+    The host-variant overlay (:mod:`~osprey.cli.variant_selection`), or empty
+    when this host builds the tracked profile. It belongs here for the same
+    reason ``--runtime-root`` does: it is a property of the build, not of a
+    profile, so the deployment's render and each persona's must see the same
+    one. A variant that reached only the deployment would leave every persona
+    project — and every persona image — rendered for a different host than the
+    stack they ship in.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -1496,7 +1630,7 @@ def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -
         rendered.append(
             _render_project(
                 shared,
-                resolve_build_document(delta, None),
+                resolve_build_document(delta, None, shared.profile_overlays),
                 profile_path=delta,
                 project_name=project_name,
                 output_dir=zones.stage,
@@ -1940,7 +2074,7 @@ def _render_container_projects(
         contexts.append(
             _render_container_project(
                 shared,
-                resolve_build_document(delta, None),
+                resolve_build_document(delta, None, shared.profile_overlays),
                 zones,
                 profile_path=delta,
                 project_name=f"{shared.repo_root.name}-{delta.stem}",
@@ -2071,6 +2205,13 @@ def _build_repo(
     ``build/.tmp`` and replaces ``build/`` only once every step below has
     succeeded; see :func:`_swap_in_render`.
 
+    *Which* profile it renders is the one thing the host gets a say in. A
+    ``.env.variant`` at the repo root may name an overlay under ``profiles/``
+    (:func:`~osprey.cli.variant_selection.resolve_variant_selection`); when it
+    does, that overlay is merged over ``profile.yml`` as a profile layer before
+    resolution, for the deployment and for every persona alike. One repo, one
+    tracked profile, and as many host renders as the repo has variants.
+
     Args:
         repo: ``--repo``, or ``None`` to walk up from the working directory.
         stream: Stream lifecycle-phase output as it is produced.
@@ -2094,6 +2235,7 @@ def _build_repo(
     from .build_profile import resolve_build_document
     from .build_profile_deploy import deploy_aware_config_errors
     from .phase_reporter import current_reporter
+    from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
     # Whatever the verb at the top of this run installed — this build's own
     # reporter under `osprey build`, and the one `init --up` or `up --build`
@@ -2123,7 +2265,17 @@ def _build_repo(
     config: dict[str, Any] | None = None
 
     try:
-        resolved = resolve_build_document(profile_path, None)
+        # Which profile this HOST builds, decided before anything is resolved.
+        # The overlay is a profile layer like a `-O` file: it merges over
+        # `profile.yml` by the same deep merge, ahead of `extends:` resolution,
+        # and anchors at the repo root — so the render reads the merged result
+        # and every profile-relative path still points at this repo. A future
+        # `osprey build --variant` would win over the file; nothing in the
+        # command line names a variant today.
+        variant = resolve_variant_selection(repo_root)
+        profile_overlays: tuple[Path, ...] = (variant.path,) if variant.path is not None else ()
+
+        resolved = resolve_build_document(profile_path, None, profile_overlays)
         build_profile = resolved.profile
 
         # The profile's own checks first, then the ones that need the config
@@ -2135,7 +2287,8 @@ def _build_repo(
         if not build_profile.provider:
             raise click.UsageError(
                 f"{PROFILE_FILENAME} names no provider. Add `provider: "
-                "<als-apg|cborg|anthropic|amsc-i2|argo>`, or run "
+                "<als-apg|cborg|anthropic|amsc-i2|argo>` — or any custom "
+                "provider you declare under `config:` api.providers — or run "
                 "`osprey set provider=<...>`."
             )
         _check_osprey_version_requirement(build_profile)
@@ -2152,6 +2305,14 @@ def _build_repo(
             f"profile {build_profile.name} (bundle {build_profile.data_bundle}, "
             f"tier {build_profile.resolved_tier()})"
         )
+        # Said out loud whenever a variant is in force: the same repo builds
+        # differently on this host than on the next one, and an operator
+        # reading a render has to be told which of the two they are looking at.
+        if variant.selected:
+            output.note(
+                f"host variant {variant.name} "
+                f"({VARIANT_DIRNAME}/{variant.name}.yml over {PROFILE_FILENAME})"
+            )
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the
@@ -2195,6 +2356,7 @@ def _build_repo(
             skip_deps=skip_deps,
             manager=TemplateManager(),
             va_manifests={},
+            profile_overlays=profile_overlays,
         )
 
         # One reported phase over every render pass this build makes — the

@@ -406,7 +406,9 @@ class ConfigBuilder:
             if default is self._REQUIRED:
                 # No default provided - this is a required configuration
                 raise ValueError(
-                    f"Missing required configuration: '{path}'. Set this value in config.yml."
+                    f"Missing required configuration: '{path}'. For profile-built "
+                    f"projects, set it under `config:` in profile.yml and run "
+                    f"`osprey build`; otherwise add it to your config file."
                 )
             else:
                 # Default provided - use it but warn for visibility
@@ -444,7 +446,10 @@ class ConfigBuilder:
                     f"No config.yml found in current directory: {Path.cwd()}\n\n"
                     f"Please run this command from a project directory containing config.yml,\n"
                     f"or set CONFIG_FILE environment variable to point to your config file.\n\n"
-                    f"Example: export CONFIG_FILE=/path/to/your/config.yml"
+                    f"Example: export CONFIG_FILE=/path/to/your/config.yml\n\n"
+                    f"For profile-built projects, config.yml is rendered to build/config.yml —\n"
+                    f"run from the built deployment directory, or run `osprey build` first if\n"
+                    f"build/config.yml does not exist yet."
                 )
 
         self.config_path = Path(config_path)

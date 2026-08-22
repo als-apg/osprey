@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.database.search_fts import keyword_fts_expression
 from osprey.services.ariel_search.search.base import ParameterDescriptor, SearchToolDescriptor
 from osprey.utils.logger import get_logger
 
@@ -198,10 +199,8 @@ async def keyword_search(
         for phrase in phrases:
             params.append(phrase)
 
-        # Search is performed on raw_text which contains subject + details
-        where_clauses.append(
-            f"to_tsvector('english', raw_text) @@ ({build_tsquery(search_text, phrases)})"
-        )
+        fts_expression = keyword_fts_expression(config)
+        where_clauses.append(f"{fts_expression} @@ ({build_tsquery(search_text, phrases)})")
 
     if "author" in field_filters:
         where_clauses.append("author ILIKE %s")

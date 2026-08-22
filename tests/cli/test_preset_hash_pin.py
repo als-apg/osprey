@@ -44,9 +44,17 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt project — pymongo still lands in its venv, now from the base
     # install rather than the profile — but the generated pyproject.toml no
     # longer names it, so the advisory firing is correct.
-    "control-assistant": "sha256:7410d74d603fefa04d8ad79e042782da32b01a9acb0ca8871786e93ad3d65f13",
+    # Moved twice in one release window. The control-assistant tier gained the
+    # `bluesky-plans` skill, so a rebuilt project grows a
+    # `.claude/skills/bluesky-plans/` directory; and it gained
+    # `landing.notices` and `landing.footer`, so its landing page grows a
+    # collapsible "working safely" section and a footer line. Both are
+    # deploy-visible, so the staleness advisory firing on already-deployed
+    # projects is correct. `control-assistant-ariel` excludes the skill by
+    # name, so only the notices moved its digest.
+    "control-assistant": "sha256:5ef6bbfb2b06cdba889a5c0484eedb9d885a89c5148c00f6f89bca31034beceb",
     "control-assistant-ariel": (
-        "sha256:9e71eaa1c45afcf201a12a1722fab5b80ffcb059ff45b0d602785c7e37a1cea5"
+        "sha256:db36e1df06e55b0fd47d9e93ccb84101f2b9868152ba922d2827c8fa133a9db5"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -59,11 +67,17 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt operator terminal gains the `graph` MCP server and its tools, so
     # the deploy-side staleness advisory firing on already-deployed
     # operator-tier projects is the correct signal.
+    # Moved once more where the graph work met main: these two leaves already
+    # carried the `services.graphdb.port_host` key above, and main independently
+    # re-recorded them for the landing notices. Both edits are in the resolved
+    # content, so the digest here is neither branch's recorded value but the one
+    # the merged preset actually hashes to. Deploy-visible for both reasons at
+    # once, which is what the advisory should say.
     "control-assistant-readonly": (
-        "sha256:7ecd21a4eee57c7aa370f9434538007c835d81d457b13a8b067c396af8c79ac7"
+        "sha256:bef792eb7f56823b2798a3a219756c8c5d7b75b1de0111bc1466f40b503d0ce5"
     ),
     "control-assistant-readwrite": (
-        "sha256:17f8d92db053ce23154e0a97f42902223fbd84397e735a32534ba5255b64670f"
+        "sha256:73ef8f73136498e971ef2b9c65abc8ce418702431c071f80f7308d1a4fa7d172"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

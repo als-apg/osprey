@@ -208,20 +208,43 @@ control_system:
     allow_unlisted_channels: true
 
   # Write Verification Configuration
-  # How the connector confirms a write took effect. Applies only when the caller does
-  # not name a level: osprey.runtime.write_channel scripts and direct connector calls.
-  # The channel_write MCP tool, multi-channel writes, and Bluesky device writes pass an
-  # explicit level ("callback"); for those, only a per-channel "verification" entry in
-  # channel_limits.json changes the level, and only on single-channel tool writes.
-  # A failed verification is not a hard stop: the channel_write MCP tool reports it
-  # (verification.verified: false), osprey.runtime.write_channel discards it (a readback
-  # mismatch is logged at debug level only), and only write_channel_checked raises (plans,
-  # which write through the Bluesky bridge's connector-backed devices). A write
-  # the CA layer could not deliver at all - for example a PV that never connects -
-  # sets success: false, which does raise from osprey.runtime.write_channel.
+  # How the connector confirms a write took effect. Every write - single or batch,
+  # from the channel_write MCP tool or from osprey.runtime - resolves its level and
+  # its tolerance through the same four layers, most specific first: the channel's
+  # "verification" entry in channel_limits.json, then that database's "defaults"
+  # block, then the connector config below, then "callback".
+  # The keys below are that third layer: control_system.write_verification.default_level
+  # and control_system.write_verification.default_tolerance_percent.
+  # A caller that names a level explicitly gets exactly that level, and the
+  # per-channel tolerance still applies to it. The channel_write MCP tool names one
+  # only when asked, and a batch write names one only when asked, so each channel in
+  # a batch resolves its own entry exactly as a single write does.
+  # A failed verification is a hard stop on the Python path: osprey.runtime.write_channel
+  # routes through write_channel_checked and raises ChannelWriteFailedError. The
+  # channel_write MCP tool does not raise; it reports the outcome in write_state and
+  # verification.verified. A write the CA layer could not deliver at all - for example
+  # a PV that never connects - sets success: false on both paths.
   write_verification:
     default_level: "callback"  # Options: none | callback | readback ("none" = no verification)
     default_tolerance_percent: 0.1  # "readback" only; per-channel override in channel_limits.json
+
+  # Channel-read response size
+  # Array channels (waveforms, camera frames) can be far larger than an agent's
+  # context can hold. channel_read returns an array inline only while it fits the
+  # budget below; anything larger is saved as an artifact and reported as a
+  # summary plus a handle. Strings and scalars are always inline.
+  # The default matches the repo's calibrated inline-plot budget
+  # (DEFAULT_MAX_POINTS = 2000 in the Bluesky bridge figure builder), so ordinary
+  # waveforms and orbit vectors stay inline and camera frames do not.
+  read_inline_max_elements: 2000  # Per-value element count. One channel_read call
+                                  # also inlines at most 4x this many elements in
+                                  # total, consumed in request order; channels past
+                                  # that aggregate budget take the artifact path.
+  # Per-channel rolling window for those read artifacts: only the newest N
+  # UNPINNED entries per channel are kept, older ones are pruned on save. Pinned
+  # entries never count against the window and are never pruned. 0 = keep
+  # everything (an unattended polling loop then grows the gallery without bound).
+  channel_read_artifact_retention: 20
 
   # Connector-specific configuration
   connector:
@@ -230,6 +253,26 @@ control_system:
       noise_level: 0.01       # Relative noise on generated values (0-1)
     epics:
       timeout: 5.0
+      # PVAccess (PVA) read routing. Addresses matching any glob below are read
+      # through the p4p client (needed for NTNDArray camera frames); every other
+      # address stays on Channel Access. Absent or empty means pure CA, exactly
+      # as before. Addresses stay raw - no pva:// prefixes anywhere. PVA here is
+      # read-only: a write to a matching address is refused.
+      # pva_channels:
+      #   - "*:IMAGE*"
+      #   - "*:ARRAY*"
+      # PVA gateway - one flat block, unlike the CA read_only/write_access pair
+      # below, because PVA is read-only in this deployment. Read only when
+      # pva_channels is non-empty. Maps to EPICS_PVA_ADDR_LIST, or to
+      # EPICS_PVA_NAME_SERVERS when use_name_server is true (SSH tunnels).
+      # Whenever this block is present, EPICS_PVA_AUTO_ADDR_LIST is forced to
+      # "NO" - the same containment the CA side applies with
+      # EPICS_CA_AUTO_ADDR_LIST, so a deployment pinned to a gateway cannot also
+      # broadcast-discover servers on the local subnet.
+      # pva_gateway:
+      #   address: your-gateway.example.com  # Replace with your PVA gateway address
+      #   port: 5075
+      #   use_name_server: false  # Set true for SSH tunnels
       gateways:
         read_only:
           address: your-gateway.example.com  # Replace with your EPICS gateway address
@@ -266,6 +309,10 @@ archiver:
   #   - mock_archiver: Development mode (generates synthetic data)
   #   - epics_archiver: EPICS Archiver Appliance (add an `epics_archiver.url`)
   type: mock_archiver  # Change to 'epics_archiver' for production
+  # When a read names no bin size, the bin is chosen from the time span so a
+  # continuously archived channel returns about this many points (1 s bins up
+  # to ~2.8 h, ~53 min bins for a year). The agent is told which bin was used.
+  auto_bin_points: 10000
   # epics_archiver:
   #   url: https://archiver.example.com  # Replace with your archiver address
   #   timeout: 60
@@ -348,14 +395,18 @@ claude_code:
     # its own loopback and silently drop everything. For a GENERIC OTLP backend
     # instead, set backend: generic and endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}.)
     #
-    # OpenObserve auth + org routing. user/password read the OpenObserve root
-    # credentials from the project .env — the SAME values the openobserve service
-    # reads — so container and agent auth stay in sync (single source of truth).
-    # `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env; the
-    # ${VAR:-default} fallbacks keep the agent launchable before the first deploy.
+    # OpenObserve auth + org routing. These are the store's dedicated INGEST
+    # account, not its root credentials: `osprey up` creates a service account
+    # named ZO_INGEST_USER_EMAIL and writes the token the store issues for it
+    # to the project .env as ZO_INGEST_SA_TOKEN. The store itself still
+    # initializes from ZO_ROOT_USER_* — that stays in the compose file, and the
+    # root password never reaches the agent's config.
+    # The token reference carries NO ${VAR:-default} on purpose: a literal
+    # default would be a published credential, and there is nothing to fall
+    # back to before the first deploy provisions the account.
     openobserve:
-      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
-      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+      password: ${ZO_INGEST_SA_TOKEN}
       org: default
     # Content gates — all default ON. The store is local and loopback-bound, so
     # full capture is the default posture; set any to false to suppress that
@@ -406,6 +457,27 @@ web:
   # In a multi-user deployment, a roster entry's `theme:` (rendered as
   # OSPREY_WEB_THEME) overrides this per user.
   theme: main
+
+  # Target of the Documentation button in the web terminal's utility cluster.
+  # Point it at a locally hosted copy of the docs when the control room has no
+  # route to the public site.
+  docs_url: https://als-apg.github.io/osprey
+
+  # Where the Feedback dialog's two outbound channels send a user. Nothing is
+  # ever posted for them: the browser opens a prefilled GitHub issue form or a
+  # prefilled mail draft, and the user decides whether to send it. Every
+  # submission is also recorded on this deployment, readable with
+  # `osprey feedback list` / `osprey feedback export`.
+  feedback:
+    # owner/repo whose new-issue form the GitHub channel prefills. Point it at
+    # the repository your users' reports should land in.
+    github_repo: als-apg/osprey
+    # Recipient of the prefilled mailto: draft the Email channel opens.
+    email: thellert@lbl.gov
+    # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+    # OLDEST saved session contexts are deleted; the small submission headers
+    # are always kept, so the submission history stays complete.
+    max_store_bytes: 268435456
 
 # ============================================================
 # CLI CONFIGURATION

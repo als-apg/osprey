@@ -101,6 +101,8 @@ def recording_console() -> tuple[Console, io.StringIO]:
             file=buffer,
             theme=osprey_theme,
             force_terminal=True,
+            color_system="standard",
+            no_color=False,
             width=100,
             get_time=lambda: 1000.0,
         ),
@@ -939,7 +941,9 @@ def log_handler():
     outlive the buffer it points at.
     """
     stream = io.StringIO()
-    own_console = Console(file=stream, force_terminal=True, width=100)
+    own_console = Console(
+        file=stream, force_terminal=True, color_system="standard", no_color=False, width=100
+    )
     handler = RichHandler(
         console=own_console,
         show_time=False,

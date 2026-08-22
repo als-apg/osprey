@@ -6,8 +6,9 @@ root (``agent_data.base_dir``) in ``artifacts/``, and served by the Artifact
 Server gallery.
 
 Two entry points create artifacts:
-  1. ``save_artifact()`` — injected into ``execute`` namespace
-  2. ``artifact_save`` — standalone MCP tool for files / inline content
+  1. ``save_artifact()`` — injected into execution subprocesses for live
+     Python objects (see :mod:`osprey.stores.artifact_manifest`)
+  2. ``artifact_register`` — MCP tool for files on disk / literal text
 
 This module provides the low-level storage layer used by both.
 """
@@ -21,7 +22,7 @@ import mimetypes
 import os
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -151,11 +152,15 @@ class ArtifactEntry:
         return resp
 
 
-def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
+def serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
     """Detect the type of *obj* and serialise it to bytes.
 
+    The one serializer behind every "save this object" path: the in-process
+    :meth:`ArtifactStore.save_object` and the ``save_artifact()`` injected into
+    execution subprocesses (:mod:`osprey.stores.artifact_manifest`).
+
     Returns:
-        (content_bytes, artifact_type, filename_ext, mime_type)
+        (content_bytes, artifact_type, filename, mime_type)
     """
     slug = _slugify(title)
 
@@ -166,6 +171,19 @@ def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
         if isinstance(obj, go.Figure):
             html = obj.to_html(include_plotlyjs=False, full_html=True)
             return html.encode(), "plot_html", f"{slug}.html", "text/html"
+    except ImportError:
+        pass
+
+    # --- Bokeh Model (layout, figure, widget, ...) ---
+    try:
+        import bokeh.model  # type: ignore[import-untyped]
+
+        if isinstance(obj, bokeh.model.Model):
+            from bokeh.embed import file_html
+            from bokeh.resources import INLINE
+
+            html = file_html(obj, resources=INLINE, title=title)
+            return html.encode(), "dashboard_html", f"{slug}.html", "text/html"
     except ImportError:
         pass
 
@@ -211,6 +229,27 @@ def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
     # --- bytes ---
     if isinstance(obj, bytes):
         return obj, "binary", f"{slug}.bin", "application/octet-stream"
+
+    # --- numpy ndarray ---
+    # Last of the type branches on purpose: an ndarray matches none of the
+    # checks above, so every already-supported type keeps the exact sniffing
+    # order it had. Without this an array reaches the repr() fallback below and
+    # is stored as a lossy text summary instead of loadable data.
+    #
+    # Object-dtype arrays are deliberately NOT caught here: ``np.save`` cannot
+    # write them without pickle, and the store never enables pickle, so they
+    # keep falling through to the repr() fallback.
+    try:
+        import numpy as np
+
+        if isinstance(obj, np.ndarray) and not obj.dtype.hasobject:
+            import io
+
+            buf = io.BytesIO()
+            np.save(buf, obj, allow_pickle=False)
+            return buf.getvalue(), "file", f"{slug}.npy", "application/octet-stream"
+    except ImportError:
+        pass
 
     # Fallback: repr as text
     return repr(obj).encode(), "text", f"{slug}.txt", "text/plain"
@@ -358,9 +397,10 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     ) -> ArtifactEntry:
         """Smart-serialize a Python object and save it.
 
-        Detects Plotly figures, matplotlib figures, DataFrames, strings, dicts.
+        Detects Plotly figures, matplotlib figures, DataFrames, strings, dicts
+        and numpy arrays (saved as ``.npy``).
         """
-        content, detected_type, filename, mime = _serialize_object(obj, title)
+        content, detected_type, filename, mime = serialize_object(obj, title)
 
         return self.save_file(
             file_content=content,
@@ -380,7 +420,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         title: str,
         description: str = "",
         artifact_type: str | None = None,
-        tool_source: str = "artifact_save",
+        tool_source: str = "artifact_register",
         metadata: dict[str, Any] | None = None,
         category: str = "",
     ) -> ArtifactEntry:
@@ -480,6 +520,139 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         return entry
 
+    def save_channel_reading(
+        self,
+        png_bytes: bytes,
+        npy_bytes: bytes,
+        title: str,
+        summary: dict[str, Any] | None = None,
+        access_details: dict[str, Any] | None = None,
+        category: str = "channel_values",
+        metadata: dict[str, Any] | None = None,
+        description: str = "",
+        tool_source: str = "channel_read",
+        source_agent: str = "",
+    ) -> ArtifactEntry:
+        """Save a multi-dimensional channel reading as a PNG plus its raw array.
+
+        The two-file shape, and the only reason this method exists next to
+        :meth:`save_data`: an image-shaped reading is stored twice — a rendered
+        PNG the gallery displays directly (the primary file) and the raw
+        ``.npy`` payload beside it (``data_file``), which is what analysis code
+        actually loads. One-dimensional readings do not need this; they go
+        through :meth:`save_data` as a JSON series.
+
+        Both blobs arrive ready: the caller renders the PNG *before* calling, so
+        nothing inside the locked section can fail halfway through a render.
+        Inside the lock the write order is ``.npy`` → PNG → index, and any
+        failure unlinks whatever was already written before re-raising — a
+        partial save must never strand a file no delete path can collect.
+
+        ``size_bytes`` counts both files, because the entry owns both; the
+        ``.npy`` half is normally the larger one by far, and a size that named
+        only the thumbnail-sized PNG would misreport the entry's footprint to
+        anything accounting for disk.
+
+        Args:
+            png_bytes: Rendered image of the reading — the primary file.
+            npy_bytes: Serialized ``numpy`` array — the companion payload.
+            title: Human-facing artifact title.
+            summary: Compact shape/statistics description for the agent.
+            access_details: How to load the payload back (agent-facing).
+            category: Registered artifact category; defaults to the reserved
+                ``channel_values`` slot.
+            metadata: Free-form index metadata. ``metadata["channel"]`` is
+                REQUIRED — the channel address is the only queryable key that
+                selects an address's readings, so retention pruning needs it.
+            description: Optional longer description.
+            tool_source: Tool that produced the reading.
+            source_agent: Subagent that produced the reading, when applicable.
+
+        Returns:
+            The registered :class:`ArtifactEntry`.
+
+        Raises:
+            ValueError: If ``metadata["channel"]`` is missing or empty.
+        """
+        from osprey.stores.type_registry import valid_category_keys
+
+        if category and category not in valid_category_keys():
+            logger.warning("Unregistered category %r — add to type_registry.py", category)
+
+        metadata = dict(metadata or {})
+        channel = metadata.get("channel")
+        if not channel:
+            raise ValueError(
+                "save_channel_reading requires metadata['channel']: the channel "
+                "address is the queryable key retention pruning selects on, and "
+                "ArtifactEntry has no other field that records it."
+            )
+
+        slug = _slugify(str(channel))
+
+        with self._with_index_lock():
+            art_id = self._make_id()
+            png_path = self._store_dir / f"{art_id}_{slug}.png"
+            npy_path = self._store_dir / f"{art_id}_{slug}.npy"
+
+            written: list[Path] = []
+            appended = False
+            try:
+                npy_path.write_bytes(npy_bytes)
+                written.append(npy_path)
+                png_path.write_bytes(png_bytes)
+                written.append(png_path)
+
+                # data_file is the agent-facing pointer: a path relative to the
+                # repo root, which is where agent code's working directory is,
+                # so the agent can pass it straight to ``numpy.load()``. Same
+                # convention (and same defensive fallback) as ``save_data``.
+                try:
+                    agent_path = str(npy_path.relative_to(self.repo_root))
+                except ValueError:
+                    agent_path = npy_path.name
+
+                entry = ArtifactEntry(
+                    id=art_id,
+                    artifact_type="image",
+                    title=title,
+                    description=description,
+                    filename=png_path.name,
+                    mime_type="image/png",
+                    size_bytes=len(png_bytes) + len(npy_bytes),
+                    timestamp=datetime.now(UTC).isoformat(),
+                    tool_source=tool_source,
+                    metadata=metadata,
+                    category=category,
+                    summary=summary or {},
+                    access_details=access_details or {},
+                    data_file=agent_path,
+                    source_agent=source_agent,
+                    session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                    run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
+                )
+                self._entries.append(entry)
+                appended = True
+                self._save_index()
+            except BaseException:
+                if appended:
+                    self._entries[:] = [e for e in self._entries if e.id != art_id]
+                for path in written:
+                    with suppress(OSError):
+                        path.unlink()
+                raise
+
+        self._notify_listeners(entry)
+
+        try:
+            from osprey.infrastructure.server_launcher import ensure_artifact_server
+
+            ensure_artifact_server()
+        except Exception as exc:
+            logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
+
+        return entry
+
     def list_entries(
         self,
         type_filter: str | None = None,
@@ -562,29 +735,212 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             return None
         return entry
 
+    def _entry_data_file(self, entry: ArtifactEntry) -> Path | None:
+        """Return the entry's *second* file, when it really has one.
+
+        A two-file entry (an image plus the raw payload it was rendered from,
+        say) records the companion file in ``data_file``. Single-file entries
+        set ``data_file`` too, but only as an agent-facing pointer at the
+        primary file — so a companion counts only when ``data_file`` is set,
+        resolves to something other than ``filename``, and lands *inside* the
+        store directory. That last condition is the guard that keeps a
+        hand-edited, imported or hostile index from turning a delete into an
+        arbitrary unlink somewhere else on the filesystem.
+
+        Returns:
+            The resolved companion path, or ``None`` when the entry has none.
+        """
+        if not entry.data_file:
+            return None
+
+        primary = (self._store_dir / entry.filename).resolve()
+        store_dir = self._store_dir.resolve()
+        raw = Path(entry.data_file)
+
+        # ``data_file`` is written repo-root-relative (see ``save_data``), with
+        # a bare-filename fallback; try both anchors, absolute paths as given.
+        candidates: list[Path] = []
+        if raw.is_absolute():
+            candidates.append(raw)
+        else:
+            try:
+                candidates.append(self.repo_root / raw)
+            except Exception:
+                logger.debug("Could not anchor data_file at the repo root", exc_info=True)
+            candidates.append(self._store_dir / raw)
+
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+                if resolved == primary or not resolved.is_relative_to(store_dir):
+                    continue
+                if resolved.exists():
+                    return resolved
+            except OSError:
+                continue
+        return None
+
+    def _unlink_entry_files(self, entry: ArtifactEntry) -> None:
+        """Remove every file an entry owns: the primary one and any companion."""
+        data_file = self._entry_data_file(entry)
+        filepath = self._store_dir / entry.filename
+        if filepath.exists():
+            filepath.unlink()
+        if data_file is not None:
+            with suppress(OSError):
+                data_file.unlink()
+
+    def _delete_entry_locked(
+        self, artifact_id: str, *, persist: bool = True
+    ) -> ArtifactEntry | None:
+        """Delete one entry from *inside* an already-held index lock.
+
+        The lock-free half of :meth:`delete_entry`, for callers that are
+        already in a ``_with_index_lock()`` critical section (a save that
+        prunes its own retention window, for instance). Calling the public
+        method from there would self-deadlock: ``_with_index_lock`` takes an
+        ``flock`` on a freshly opened descriptor, and ``flock`` is per
+        open-file-description — the in-process ``RLock`` is reentrant, the file
+        lock is not, so the second acquisition waits on the first forever.
+
+        Delete listeners are deliberately *not* fired here; the caller fires
+        them after leaving the lock, exactly as :meth:`delete_entry` does.
+
+        Args:
+            artifact_id: Id of the entry to remove.
+            persist: Whether to rewrite the index. Pass ``False`` when the
+                caller saves the index once for a batch of mutations.
+
+        Returns:
+            The removed entry, or ``None`` when no entry matched.
+        """
+        for i, e in enumerate(self._entries):
+            if e.id == artifact_id:
+                self._unlink_entry_files(e)
+                del self._entries[i]
+                if persist:
+                    self._save_index()
+                return e
+        return None
+
     def delete_entry(self, artifact_id: str) -> bool:
-        """Delete an artifact by ID, removing both the index entry and physical file.
+        """Delete an artifact by ID, removing the index entry and its file(s).
 
         Returns:
             ``True`` if the entry was found and deleted, ``False`` otherwise.
         """
-        deleted: ArtifactEntry | None = None
         with self._with_index_lock():
-            for i, e in enumerate(self._entries):
-                if e.id == artifact_id:
-                    filepath = self._store_dir / e.filename
-                    if filepath.exists():
-                        filepath.unlink()
-                    deleted = e
-                    del self._entries[i]
-                    self._save_index()
-                    break
+            deleted = self._delete_entry_locked(artifact_id)
 
         if deleted is None:
             return False
 
         self._notify_delete_listeners(deleted)
         return True
+
+    def _prune_channel_readings_locked(
+        self, address: str, keep: int, *, persist: bool = True
+    ) -> list[ArtifactEntry]:
+        """Trim *address*'s reading window from inside an already-held index lock.
+
+        The lock-free half of :meth:`prune_channel_readings`, so a save that
+        wants to prune its own window can do it without releasing the lock it
+        already holds (``_with_index_lock`` is not reentrant across processes —
+        see :meth:`_delete_entry_locked`).
+
+        Each removal goes through ``_delete_entry_locked(persist=False)`` and
+        the index is rewritten once at the end, so a sweep that drops ten
+        entries costs one index write, not ten.
+
+        Delete listeners are deliberately *not* fired here: the caller fires
+        them after leaving the lock, so a listener that calls back into the
+        store cannot deadlock.
+
+        Args:
+            address: Channel address to match against ``metadata["channel"]``.
+            keep: Window size. ``0`` or negative keeps everything.
+            persist: Whether to rewrite the index when anything was pruned.
+                Pass ``False`` only if the caller persists afterwards anyway.
+
+        Returns:
+            The removed entries, oldest first (empty when nothing was pruned).
+        """
+        if keep <= 0 or not address:
+            return []
+
+        # Pinned entries are skipped on both counts: they are never pruned, and
+        # they never occupy a slot in the window either. Counting them would
+        # let ``keep`` pinned frames permanently starve the rolling window.
+        #
+        # Order is the index's insertion order, which is the store's house
+        # convention for chronology (``list_entries(last_n=...)`` takes the
+        # tail for the same reason): entries are only ever appended, so the
+        # oldest reading for an address is the earliest surviving match.
+        candidates = [
+            e
+            for e in self._entries
+            if e.category == "channel_values"
+            and not e.pinned
+            and e.metadata.get("channel") == address
+        ]
+        excess = len(candidates) - keep
+        if excess <= 0:
+            return []
+
+        pruned: list[ArtifactEntry] = []
+        for entry in candidates[:excess]:
+            removed = self._delete_entry_locked(entry.id, persist=False)
+            if removed is not None:
+                pruned.append(removed)
+
+        if pruned and persist:
+            self._save_index()
+        return pruned
+
+    def prune_channel_readings(self, address: str, keep: int) -> list[ArtifactEntry]:
+        """Keep only the newest *keep* unpinned readings of one channel.
+
+        The retention half of the channel-read artifact path: an
+        approval-free read in a polling loop would otherwise grow the gallery
+        without bound. Entries qualify when their category is
+        ``channel_values`` and their ``metadata["channel"]`` equals *address*,
+        which covers both shapes a reading is stored in — the JSON series from
+        :meth:`save_data` and the PNG-plus-``.npy`` pair from
+        :meth:`save_channel_reading`.
+
+        The store stays config-agnostic: the window size is the caller's to
+        supply, read from configuration by the tool that saves the reading.
+        Call this right after a successful save.
+
+        Pinned entries are exempt in both directions — never pruned, and never
+        counted against the window, so pinning a frame cannot shrink the
+        rolling window to nothing.
+
+        The whole sweep is attributed to the ``"system"`` actor
+        (:func:`artifact_mutation_actor`), so activity feeds never show a
+        retention prune as something the agent did.
+
+        Args:
+            address: Channel address, matched exactly against
+                ``metadata["channel"]``.
+            keep: How many unpinned readings of this channel to keep. ``0``
+                or negative means keep everything (the sweep is a no-op).
+
+        Returns:
+            The removed entries, oldest first (empty when nothing was pruned).
+        """
+        if keep <= 0 or not address:
+            return []
+
+        with artifact_mutation_actor("system"):
+            with self._with_index_lock():
+                pruned = self._prune_channel_readings_locked(address, keep)
+
+            # Outside the lock: a listener is free to call back into the store.
+            for entry in pruned:
+                self._notify_delete_listeners(entry)
+
+        return pruned
 
     def _delete_where(self, predicate: Callable[[ArtifactEntry], bool]) -> list[ArtifactEntry]:
         """Delete every entry matching *predicate* in one atomic operation.
@@ -596,9 +952,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         with self._with_index_lock():
             doomed = [e for e in self._entries if predicate(e)]
             for e in doomed:
-                filepath = self._store_dir / e.filename
-                if filepath.exists():
-                    filepath.unlink()
+                self._unlink_entry_files(e)
             if doomed:
                 survivors = [e for e in self._entries if not predicate(e)]
                 self._entries[:] = survivors

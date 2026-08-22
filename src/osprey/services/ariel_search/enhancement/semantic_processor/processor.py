@@ -137,6 +137,12 @@ class SemanticProcessorModule(BaseEnhancementModule):
                     summary=result.summary,
                     conn=conn,
                 )
+                entry.update(
+                    {
+                        "keywords": result.keywords,
+                        "summary": result.summary,
+                    }
+                )
 
         except Exception as e:
             logger.warning(f"Failed to process entry {entry.get('entry_id')}: {e}")

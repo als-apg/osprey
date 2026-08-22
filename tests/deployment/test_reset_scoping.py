@@ -217,6 +217,18 @@ def no_down(monkeypatch):
     return calls
 
 
+#: The image axes are read from ``os.environ`` at resolve time, so an exported
+#: ``OSPREY_IMAGE_TAG`` in the developer's shell would rename every tag these
+#: tests expect. Unset for the whole module; the axis tests set them back.
+_IMAGE_AXIS_VARS = ("OSPREY_IMAGE_REGISTRY", "OSPREY_IMAGE_TAG")
+
+
+@pytest.fixture(autouse=True)
+def _axes_unset(monkeypatch):
+    for name in _IMAGE_AXIS_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 def make_probe(fake: FakeRuntime) -> RuntimeProbe:
     return RuntimeProbe("docker", run=fake)
 
@@ -1395,6 +1407,147 @@ def test_the_plan_states_how_images_are_verified(repo):
     rendered = "\n".join(plan_reset(repo, probe=make_probe(fake)).render())
 
     assert f"{reset_mod.OSPREY_PROJECT_LABEL}={PROJECT} verified" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Images: the tag is the one the BUILD produced, not the ``:local`` literal
+# ---------------------------------------------------------------------------
+#
+# ``OSPREY_IMAGE_REGISTRY`` / ``OSPREY_IMAGE_TAG`` (over ``images.registry`` /
+# ``images.tag``) rename every image OSPREY builds. Reset names the image it
+# wants to remove BEFORE it looks at the host, so a restated ``:local`` literal
+# does not fail loudly — it silently names an image that was never built, finds
+# nothing, and leaves the real one on the disk forever. Both halves of the
+# naming are therefore pinned here: the tag reset asks for, and the roster
+# filter that decides which other images are ours.
+
+_AXIS_REGISTRY = "registry.example.org/beam"
+_AXIS_TAG = "2026.08.19"
+_AXIS_IMAGE = f"{_AXIS_REGISTRY}/{PROJECT}:{_AXIS_TAG}"
+
+
+def _with_image_axes(repo: Path, registry: str, tag: str) -> None:
+    """Pin the axes in the rendered config, the way a profile would."""
+    import yaml
+
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config["images"] = {"registry": registry, "tag": tag}
+    (repo / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+
+
+def test_the_project_image_tag_is_local_while_no_axis_is_set(repo):
+    """The unchanged case, asserted so the axis work cannot move it by accident."""
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [f"{PROJECT}:local"]
+
+
+def test_the_environment_axes_rename_the_image_reset_removes(repo, no_down, monkeypatch):
+    """The deploy built ``<registry>/<project>:<tag>``, so that is what must go.
+
+    The ``:local`` image is present on this host too, and is asserted to survive:
+    reset removes the image THIS deployment's configuration names, and naming a
+    second tag on a suffix guess is how a shared host loses a sibling's image.
+    """
+    monkeypatch.setenv("OSPREY_IMAGE_REGISTRY", _AXIS_REGISTRY)
+    monkeypatch.setenv("OSPREY_IMAGE_TAG", _AXIS_TAG)
+    fake = FakeRuntime(
+        images={
+            _AXIS_IMAGE: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
+            f"{PROJECT}:local": {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
+        }
+    )
+
+    run_reset(repo, fake)
+
+    assert fake.removed_names() == [_AXIS_IMAGE]
+    assert f"{PROJECT}:local" in fake.images
+
+
+def test_the_configured_axes_rename_the_image_reset_removes(repo, no_down):
+    """The config layer, which a deploy carries in ``build/config.yml`` with no env at all."""
+    _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
+    fake = FakeRuntime(images={_AXIS_IMAGE: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT}})
+
+    run_reset(repo, fake)
+
+    assert fake.removed_names() == [_AXIS_IMAGE]
+
+
+def test_the_environment_axis_wins_over_the_configured_one(repo):
+    """Same precedence the render resolves, because both must name one image."""
+    _with_image_axes(repo, "stale.example.org", "stale")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("OSPREY_IMAGE_REGISTRY", _AXIS_REGISTRY)
+        patch.setenv("OSPREY_IMAGE_TAG", _AXIS_TAG)
+
+        assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE]
+
+
+def test_the_axes_still_apply_when_there_is_no_rendered_config(repo, monkeypatch):
+    """A build directory that was already removed must not silently restore ``:local``."""
+    (repo / "build" / "config.yml").unlink()
+    monkeypatch.setenv("OSPREY_IMAGE_REGISTRY", _AXIS_REGISTRY)
+    monkeypatch.setenv("OSPREY_IMAGE_TAG", _AXIS_TAG)
+
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE]
+
+
+def test_an_unreadable_config_degrades_to_the_project_name_and_the_axes(repo, monkeypatch):
+    """An unparseable build is a warning and a fallback, never an exception."""
+    (repo / "build" / "config.yml").write_text("{not: valid: yaml:", encoding="utf-8")
+    monkeypatch.setenv("OSPREY_IMAGE_TAG", _AXIS_TAG)
+
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [f"{PROJECT}:{_AXIS_TAG}"]
+
+
+def _roster_of(monkeypatch, *images: str) -> None:
+    """Make the roster resolve to exactly *images*, whatever the persona rules say.
+
+    The persona naming rules produce ``:local`` images and only ``:local``
+    images, so the filter's other half — an image the AXES named — cannot be
+    reached through them. Substituting the roster is what puts that half under
+    test without asserting a persona shape the code does not produce.
+    """
+    from osprey.deployment.web_terminals import personas as personas_mod
+
+    roster = [{"name": f"u{index}", "image": image} for index, image in enumerate(images)]
+    monkeypatch.setattr(personas_mod, "resolve_personas", lambda *args, **kwargs: roster)
+
+
+def test_a_roster_image_the_axes_named_is_a_candidate(repo, monkeypatch):
+    """The filter's second half: ours by name, not by a ``:local`` suffix it no longer carries."""
+    _with_web_terminals(repo)
+    _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
+    qmd_image = f"{_AXIS_REGISTRY}/{PROJECT}-qmd:{_AXIS_TAG}"
+    _roster_of(monkeypatch, qmd_image)
+
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE, qmd_image]
+
+
+def test_a_pulled_upstream_image_sharing_the_axis_tag_is_not_a_candidate(repo, monkeypatch):
+    """The reason the filter matches whole names instead of the tag.
+
+    A registry-mode roster image is PULLED, and its tag can coincide with the
+    axis tag. Widening the filter to ``endswith(":<tag>")`` would put an
+    upstream image on the removal list, where only its project label stands
+    between it and a ``docker image rm``.
+    """
+    _with_web_terminals(repo)
+    _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
+    pulled = f"{_AXIS_REGISTRY}/web-terminal:{_AXIS_TAG}"
+    _roster_of(monkeypatch, pulled)
+
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE]
+
+
+def test_a_local_roster_image_stays_a_candidate_under_a_set_axis(repo, monkeypatch):
+    """``:local`` is the persona convention and the axes do not move it."""
+    _with_web_terminals(repo)
+    _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
+    persona_tag = "acc-control-control-room:local"
+    _roster_of(monkeypatch, persona_tag)
+
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE, persona_tag]
 
 
 # ---------------------------------------------------------------------------

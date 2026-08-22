@@ -91,6 +91,11 @@ import {
  *   opened: the shell selects it and switches to the Results tab. This is the
  *   whole of the old cross-panel handoff — the queue and the run's rows are in
  *   this same panel now.
+ * @property {Promise<void>} [channelCatalogReady]  Settles once the channel
+ *   catalog has been installed, or once the panel's deadline for it passes.
+ *   Awaited before a plan form is rendered, because channel-tagged fields read
+ *   the catalog synchronously as they are built and are never retrofitted.
+ *   Optional: omitted, a form renders immediately with no suggestions.
  */
 
 /**
@@ -102,10 +107,47 @@ import {
  */
 
 /**
+ * Colour an already-populated source block with highlight.js, if it loaded.
+ *
+ * `hljs` is a page global set by the classic <script> in index.html, so it is
+ * absent under unit tests and whenever the CDN is unreachable. Every call is
+ * therefore guarded and every throw swallowed: the caller has already written
+ * the source as inert `textContent`, and losing colour is a far smaller cost
+ * than losing the operator's ability to read the plan.
+ *
+ * The grammar is named by the element's `language-python` class rather than
+ * left to `highlightAuto`, whose guess is unreliable on the short, import-free
+ * snippets many plans are.
+ *
+ * @param {HTMLElement} el  Source block holding the plan text.
+ * @returns {void}
+ */
+function highlightSource(el) {
+  const { hljs } = /** @type {any} */ (globalThis);
+  if (!hljs || typeof hljs.highlightElement !== 'function') return;
+  // hljs refuses to touch an element it has already marked; this block is
+  // repainted on every plan selection, so clear the mark before each pass.
+  delete el.dataset.highlighted;
+  try {
+    hljs.highlightElement(el);
+  } catch {
+    // Inert textContent stays on screen -- see above.
+  }
+}
+
+/**
  * @param {PlansViewDeps} deps
  * @returns {PlansView}
  */
-export function createPlansView({ root, api, onOpenRun }) {
+export function createPlansView({
+  root,
+  api,
+  onOpenRun,
+  // Resolves when the channel catalog is installed (or its deadline passed).
+  // Defaulted so a caller that does not care — tests, any embedder without a
+  // catalog — behaves exactly as before: render immediately, no suggestions.
+  channelCatalogReady = Promise.resolve(),
+}) {
   /**
    * The panel owns its own shell, so every id below is present by
    * construction — a missing one is a bundle bug, not a runtime condition to
@@ -375,7 +417,11 @@ export function createPlansView({ root, api, onOpenRun }) {
     detailDescEl.textContent = (plan && plan.description) || '';
     detailDescEl.hidden = !(plan && plan.description);
     sessionNoteEl.hidden = source.provenance !== 'session';
+    // Text first, always: `textContent` is inert and renders the source
+    // correctly on its own, so a missing or broken highlight.js costs colour
+    // and nothing else. The colouring pass is layered on top.
     detailSourceEl.textContent = source.source;
+    highlightSource(detailSourceEl);
 
     renderParamForm(plan, source);
 
@@ -588,6 +634,14 @@ export function createPlansView({ root, api, onOpenRun }) {
       const source = await response.json();
       selectedSource = source;
       const plan = plans.find((candidate) => candidate.name === name);
+      // Channel-tagged fields read the catalog synchronously as they are built
+      // and are never retrofitted once it lands (schema-form.js), so a form
+      // rendered mid-fetch loses its suggestion comboboxes permanently. Both
+      // fetches were started together at boot and this one is the later of the
+      // two, so by here the catalog has all but always arrived; the await is
+      // what makes "all but always" into "always". It is deadline-bounded and
+      // never rejects, so a missing or hanging /channels still renders a form.
+      await channelCatalogReady;
       renderDetail(plan, source);
       // Draft-binding check: only ever a consequence of this explicit
       // selection (or the affordance click below) — never of a frame alone

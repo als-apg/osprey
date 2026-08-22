@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+from osprey.stores.artifact_manifest import collect_artifacts
 from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
 
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
@@ -151,7 +152,7 @@ async def _execute_via_local(
     """Execute code in a host subprocess with the ExecutionWrapper."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(limits_validator=limits_validator)
+    wrapper = ExecutionWrapper(limits_validator=limits_validator, execution_mode=execution_mode)
     wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
     # Write wrapped script to execution folder
@@ -167,6 +168,12 @@ async def _execute_via_local(
     python_bin = str(resolve_agent_interpreter(project_root))
 
     sandbox_env = scrub_sensitive_env(os.environ.copy())
+    # The declared mode becomes a runtime property of the subprocess: the
+    # connector base class refuses writes and the EPICS connector stays on
+    # the read_only gateway when this says readonly, so a readonly run cannot
+    # write however the call is spelled — the pre-execution regex only ever
+    # saw the standard spellings.
+    sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -199,7 +206,7 @@ async def _execute_via_local(
     # since the wrapper captures output internally)
     metadata = _read_execution_metadata(execution_folder)
     figures = _collect_figures(execution_folder)
-    artifacts = _collect_artifacts(execution_folder)
+    artifacts = collect_artifacts(execution_folder)
 
     if metadata:
         final_stdout = metadata.get("stdout", stdout_text)
@@ -247,44 +254,6 @@ def _collect_figures(execution_folder: Path) -> list[Path]:
             for ext in ("*.png", "*.jpg", "*.jpeg", "*.svg"):
                 figures.extend(sorted(search_dir.glob(ext)))
     return figures
-
-
-def _collect_artifacts(execution_folder: Path) -> list[dict]:
-    """Collect artifacts saved by save_artifact() inside the subprocess.
-
-    Reads ``artifacts/manifest.json`` from the execution folder and returns
-    a list of dicts with file content paths resolved to absolute paths.
-    """
-    import json
-
-    manifest_path = execution_folder / "artifacts" / "manifest.json"
-    if not manifest_path.exists():
-        return []
-
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        logger.debug("Failed to read artifact manifest", exc_info=True)
-        return []
-
-    artifacts = []
-    for entry in manifest:
-        file_path = execution_folder / "artifacts" / entry["filename"]
-        if file_path.exists():
-            art = {
-                "path": file_path,
-                "title": entry.get("title", "Untitled"),
-                "description": entry.get("description", ""),
-                "artifact_type": entry.get("artifact_type", "file"),
-                "mime_type": entry.get("mime_type", "application/octet-stream"),
-            }
-            if entry.get("category"):
-                art["category"] = entry["category"]
-            artifacts.append(art)
-        else:
-            logger.debug("Artifact file missing: %s", file_path)
-
-    return artifacts
 
 
 async def execute_code(

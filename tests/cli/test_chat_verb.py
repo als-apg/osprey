@@ -537,3 +537,139 @@ class TestProviderEnvironment:
         assert result.exit_code == 1
         assert "Refusing to launch" in result.output
         assert launches == []
+
+
+def _telemetry_config(password: str, *, user: str = "ingest@example.com") -> str:
+    """A rendered config whose telemetry block names ``password`` as its secret.
+
+    Shaped like the block every bundled preset ships: an OpenObserve backend
+    with no explicit endpoint (it derives one) and a user that already has a
+    value, so the password is the only credential a test is varying.
+    """
+    return (
+        "claude_code:\n"
+        "  provider: anthropic\n"
+        "  telemetry:\n"
+        "    enabled: true\n"
+        "    backend: openobserve\n"
+        "    openobserve:\n"
+        f"      user: {user}\n"
+        f"      password: {password}\n"
+        "      org: default\n"
+    )
+
+
+class TestTelemetryCredentialNotIssuedYet:
+    """Chat on a deployment that has never run ``osprey up``.
+
+    The shipped telemetry block names ``${ZO_INGEST_SA_TOKEN}`` with no
+    fallback, and that token does not exist until a deploy provisions it into
+    the repo's ``.env``. Resolving the provider resolves telemetry too, so
+    without a carve-out the very first ``osprey chat`` on a fresh scaffold
+    cannot start at all — for a value the operator has no way to supply.
+
+    The carve-out is exactly as wide as the store-issued registry and no wider:
+    every other unresolved credential is an ordinary missing secret and keeps
+    refusing.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_ambient_store_credentials(self, monkeypatch: pytest.MonkeyPatch):
+        """A developer machine that happens to export the token would hide the bug."""
+        monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
+        monkeypatch.delenv("OPERATOR_OTLP_SECRET", raising=False)
+
+    def test_the_token_under_test_is_really_store_issued(self):
+        """Guards every assertion below from passing for the wrong reason."""
+        from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
+
+        assert "ZO_INGEST_SA_TOKEN" in _STORE_ISSUED_VARS
+        assert "OPERATOR_OTLP_SECRET" not in _STORE_ISSUED_VARS
+
+    def test_an_unissued_store_credential_starts_the_session_without_telemetry(
+        self, runner, launches, lifecycle_repo
+    ):
+        stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 0
+        assert len(launches) == 1
+        # Degraded, not deferred: an exporter without its auth header would post
+        # to an auth-gated store and drop every span, so the whole block goes.
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in launches[0].env
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in launches[0].env
+
+    def test_the_operator_is_told_which_verb_issues_it(self, runner, launches, lifecycle_repo):
+        """Silence would read as "this deployment has no telemetry configured"."""
+        stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 0
+        assert "ZO_INGEST_SA_TOKEN" in result.output
+        assert "osprey up" in result.output
+        assert "Traceback" not in result.output
+
+    def test_an_operator_supplied_credential_still_refuses(self, runner, launches, lifecycle_repo):
+        """The carve-out reads the registry, not "unresolved" — this one is a
+        real missing secret and starting without it would hide a broken pipeline."""
+        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+
+        stub_build(lifecycle_repo, config=_telemetry_config("${OPERATOR_OTLP_SECRET}"))
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code != 0
+        assert isinstance(result.exception, ObservabilityCredentialError)
+        assert launches == []
+
+    def test_a_mixed_refusal_is_not_deferred(self, runner, launches, lifecycle_repo):
+        """One name in the set that the operator does have to supply and the whole
+        set stands refused — a session told "nothing to do here" about half of it
+        leaves the other half to be discovered as a store that never authenticates."""
+        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+
+        stub_build(
+            lifecycle_repo,
+            config=_telemetry_config("${OPERATOR_OTLP_SECRET}${ZO_INGEST_SA_TOKEN}"),
+        )
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert isinstance(result.exception, ObservabilityCredentialError)
+        # Both names reach the decision — the refusal is the mixed verdict, not
+        # an artifact of only one of them being visible.
+        assert result.exception.unresolved_vars == (
+            "OPERATOR_OTLP_SECRET",
+            "ZO_INGEST_SA_TOKEN",
+        )
+        assert launches == []
+
+    def test_a_blank_credential_still_refuses(self, runner, launches, lifecycle_repo):
+        """No variable is named at all, so there is nothing a deploy could issue."""
+        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+
+        stub_build(lifecycle_repo, config=_telemetry_config('""'))
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert isinstance(result.exception, ObservabilityCredentialError)
+        assert launches == []
+
+    def test_a_resolvable_token_keeps_telemetry_on(
+        self, runner, launches, lifecycle_repo, monkeypatch
+    ):
+        """The deferral is about absence only — once `osprey up` has written the
+        token, the same config resolves and the session exports normally."""
+        stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))
+        (lifecycle_repo / ".env").write_text(
+            "ZO_INGEST_SA_TOKEN=issued-by-the-store\n", encoding="utf-8"
+        )
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 0
+        assert launches[0].env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+        assert "Authorization=Basic " in launches[0].env["OTEL_EXPORTER_OTLP_HEADERS"]
+        assert "Telemetry is off" not in result.output

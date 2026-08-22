@@ -146,7 +146,7 @@ class TestSessionFooter:
             with TestClient(create_app(shell_command="echo")) as c:
                 return c.get("/").text
 
-    def test_footer_names_the_user_and_holds_the_logout_control(self, workspace_dir):
+    def test_header_identity_menu_names_the_user_and_holds_the_logout_control(self, workspace_dir):
         body = self._body(
             workspace_dir,
             {
@@ -155,24 +155,32 @@ class TestSessionFooter:
             },
         )
 
-        assert 'class="display-menu-identity"' in body
-        assert 'class="display-menu-identity-name">alice<' in body
+        assert 'class="header-identity"' in body
+        assert 'class="header-identity-who-name">alice<' in body
         # The avatar shows the initial, upper-cased.
-        assert 'class="display-menu-identity-avatar" aria-hidden="true">A<' in body
+        assert 'class="header-identity-avatar" aria-hidden="true">A<' in body
+        # The chip is the trigger, and says so to assistive tech.
+        assert 'id="header-identity-trigger"' in body
+        assert 'aria-controls="header-identity-menu"' in body
         # The logout control keeps its id + data-landing-url contract; app.js's
         # initLogoutButton() and the command palette both find it by id.
         assert 'id="logout-btn"' in body
         assert 'data-landing-url="https://facility.example/portal"' in body
-        # And it is not a header chip of its own.
-        assert 'id="identity-menu"' not in body
+        # Identity lives in the header menu now, not in the display card —
+        # but Log out renders in BOTH places: the chip's menu and the display
+        # card's action row (its own id; initLogoutButton() binds both).
+        assert "display-menu-identity" not in body
+        assert 'id="display-menu-logout-btn"' in body
 
-    def test_footer_is_identity_free_for_a_single_user_deployment(self, client):
-        """No OSPREY_TERMINAL_USER: no identity line, and no logout control —
-        the footer is the Settings button alone."""
+    def test_header_is_identity_free_for_a_single_user_deployment(self, client):
+        """No OSPREY_TERMINAL_USER: no identity chip, and no logout control —
+        the display card's footer is the Settings button alone."""
         body = client.get("/").text
 
-        assert 'class="display-menu-identity"' not in body
+        assert 'class="header-identity"' not in body
+        assert 'id="header-identity-trigger"' not in body
         assert 'id="logout-btn"' not in body
+        assert 'id="display-menu-logout-btn"' not in body
         assert 'id="display-menu-settings"' in body
 
     def test_user_without_a_landing_url_is_named_but_offered_no_logout(self, workspace_dir):
@@ -180,8 +188,9 @@ class TestSessionFooter:
         states a fact, and only the action depends on landing_url."""
         body = self._body(workspace_dir, {"OSPREY_TERMINAL_USER": "alice"})
 
-        assert 'class="display-menu-identity-name">alice<' in body
+        assert 'class="header-identity-who-name">alice<' in body
         assert 'id="logout-btn"' not in body
+        assert 'id="display-menu-logout-btn"' not in body
 
     def test_deployment_name_moved_out_of_the_action_cluster(self, workspace_dir):
         """app_name renders once, on the left beside the product name, and once
@@ -199,6 +208,6 @@ class TestSessionFooter:
             with TestClient(create_app(shell_command="echo")) as c:
                 body = c.get("/").text
 
-        assert 'class="header-deployment"' in body
-        assert 'class="display-menu-identity-sub">Control Assistant<' in body
+        assert "header-deployment" in body
+        assert 'class="header-identity-who-sub">Control Assistant<' in body
         assert "header-app-name" not in body

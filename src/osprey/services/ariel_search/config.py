@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .exceptions import ConfigurationError
+from .models import normalize_search_mode, resolve_implicit_search_mode
 
 logger = logging.getLogger("osprey.services.ariel_search.config")
 
@@ -366,6 +367,10 @@ class ARIELConfig:
         enhancement_modules: Enhancement module configurations by name
         ingestion: Ingestion configuration
         embedding: Embedding provider configuration
+        default_search_mode: Search module a search runs in when the caller
+            names no mode. Unset resolves to ``hybrid`` where that module is
+            enabled and ``keyword`` otherwise; a name that is set but not
+            enabled is a config error rather than a silent fallback.
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
@@ -383,6 +388,7 @@ class ARIELConfig:
     enhancement_modules: dict[str, EnhancementModuleConfig] = field(default_factory=dict)
     ingestion: IngestionConfig | None = None
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    default_search_mode: str | None = None
 
     @classmethod
     def from_dict(
@@ -429,13 +435,32 @@ class ARIELConfig:
         if "embedding" in config_dict:
             embedding = EmbeddingConfig.from_dict(config_dict["embedding"])
 
+        default_search_mode = config_dict.get("default_search_mode")
+        if default_search_mode is not None:
+            default_search_mode = normalize_search_mode(default_search_mode)
+
         return cls(
             database=database,
             search_modules=search_modules,
             enhancement_modules=enhancement_modules,
             ingestion=ingestion,
             embedding=embedding,
+            default_search_mode=default_search_mode,
         )
+
+    def resolve_default_search_mode(self) -> str:
+        """Name the search module a search runs in when the caller names none.
+
+        Returns:
+            ``default_search_mode`` when the deployment sets it, else the
+            implicit answer from
+            :func:`~osprey.services.ariel_search.models.resolve_implicit_search_mode`.
+            :meth:`validate` has already refused a configured mode that names
+            no enabled module, so the returned name is routable.
+        """
+        if self.default_search_mode:
+            return self.default_search_mode
+        return resolve_implicit_search_mode(self.is_search_module_enabled)
 
     def is_search_module_enabled(self, name: str) -> bool:
         """Check if a search module is enabled.
@@ -488,6 +513,16 @@ class ARIELConfig:
         # Validate database URI
         if not self.database.uri:
             errors.append("database.uri is required")
+
+        # A configured default that names no enabled module is refused here
+        # rather than falling back: a deployment that asked for a mode and
+        # silently got a different one has no way to notice.
+        if self.default_search_mode and not self.is_search_module_enabled(self.default_search_mode):
+            enabled = ", ".join(self.get_enabled_search_modules()) or "(none)"
+            errors.append(
+                f"default_search_mode '{self.default_search_mode}' names no enabled "
+                f"search module. Enabled modules: {enabled}"
+            )
 
         # Validate semantic search requires model
         if self.is_search_module_enabled("semantic"):

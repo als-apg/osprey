@@ -2,9 +2,10 @@
 
 The ``execute`` tool description must never name a fixed set of packages
 (``numpy``, ``pandas``, ``scipy``, ``at``, ``matplotlib``, ``plotly``): a fixed
-list makes the agent reason about an import set that may not exist — a package
-present on the host but missing inside the deployed container would be
-described as available either way.
+list makes the agent reason about an import set that may not exist — the
+environment agent code runs in need not be the environment the OSPREY server
+itself runs in, so what is installed alongside the server does not reliably
+describe what agent code can import.
 
 This module enumerates the environment that
 :func:`~osprey.mcp_server.python_executor.executor.resolve_agent_interpreter`
@@ -32,6 +33,10 @@ logger = logging.getLogger("osprey.mcp_server.python_executor.package_inventory"
 
 #: Token that :func:`with_live_packages` replaces in a tool docstring.
 PACKAGES_PLACEHOLDER = "<<AVAILABLE_PACKAGES>>"
+
+#: Leading text of the rendered package line, shared with tests that need to
+#: filter it out of a tool description without duplicating the literal.
+PACKAGE_LINE_PREFIX = "Packages importable in the execution environment include:"
 
 #: Used whenever the environment cannot be enumerated.  It must never name a
 #: package: a stale list is the exact failure this module removes.
@@ -137,7 +142,7 @@ def render_package_line(names: Sequence[str]) -> str:
     line = ", ".join(listed)
     if hidden > 0:
         line += f", +{hidden} more"
-    return f"Packages importable in the execution environment include: {line}."
+    return f"{PACKAGE_LINE_PREFIX} {line}."
 
 
 @lru_cache(maxsize=1)

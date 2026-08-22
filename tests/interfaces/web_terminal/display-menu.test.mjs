@@ -20,8 +20,10 @@
  *   - the session footer: the Settings / Log out row is the card's last child,
  *     Settings keeps the `[data-drawer-trigger]`-not-`[data-drawer]` contract
  *     settings.js's warning gate binds to and closes the card on click (the
- *     open itself is settings.js's, out of scope here), and Log out
- *     deliberately does not close it (the logout itself is app.js's)
+ *     open itself is settings.js's, out of scope here), and Log out — the
+ *     display-menu copy, `#display-menu-logout-btn`; the header identity
+ *     chip holds `#logout-btn` (identity-menu.test.mjs) — deliberately does
+ *     not close it (the logout itself is app.js's)
  *
  * Module-identity note (same as theme-switcher.test.mjs): this file imports
  * theme-manager.js and display-menu.js exactly once, at the top, and resets
@@ -52,14 +54,10 @@ const FIXTURE = `
         <button class="display-seg-option mode-segment" data-mode="simple" type="button">Simple</button>
       </div>
       <div class="display-menu-families" id="family-picker" role="group"></div>
-      <div class="display-menu-identity">
-        <span class="display-menu-identity-avatar" aria-hidden="true">A</span>
-        <span class="display-menu-identity-name">alice</span>
-      </div>
       <div class="display-menu-actions">
         <button class="display-menu-settings" id="display-menu-settings" type="button"
                 data-drawer-trigger="settings-drawer">Settings</button>
-        <button class="display-menu-logout" id="logout-btn" type="button"
+        <button class="display-menu-logout" id="display-menu-logout-btn" type="button"
                 data-landing-url="https://facility.example/portal">Log out</button>
       </div>
     </div>
@@ -166,7 +164,7 @@ describe('display-menu', () => {
       mountAndInit();
       qs('#display-menu-btn').click();
 
-      qs('#logout-btn').click();
+      qs('#display-menu-logout-btn').click();
       expect(qs('#display-menu-card').classList.contains('open')).toBe(true);
     });
   });
@@ -189,9 +187,10 @@ describe('display-menu', () => {
       const actions = qs('.display-menu-actions');
       expect(card.lastElementChild).toBe(actions);
       // Settings leads, Log out follows: the destructive control is not the
-      // one under the cursor when the card opens.
+      // one under the cursor when the card opens. (The header identity menu
+      // holds the second Log out, `#logout-btn` — identity-menu.test.mjs.)
       expect(actions.firstElementChild).toBe(qs('#display-menu-settings'));
-      expect(actions.lastElementChild).toBe(qs('#logout-btn'));
+      expect(actions.lastElementChild).toBe(qs('#display-menu-logout-btn'));
     });
 
     test('init still no-ops when the row is absent', () => {
@@ -282,6 +281,15 @@ describe('display-menu', () => {
       // derivation in either file is what this guards against.
       const themeManager = await import('/design-system/js/theme-manager.js');
       expect(familyLabel).toBe(themeManager.familyLabel);
+    });
+  });
+
+  describe('themeFamilies', () => {
+    test('is the same function <osprey-theme-switcher> uses', async () => {
+      // Both pickers must offer the same families in the same order; a second
+      // local dedupe of THEMES in either file is what this guards against.
+      const themeManager = await import('/design-system/js/theme-manager.js');
+      expect(themeFamilies).toBe(themeManager.themeFamilies);
     });
   });
 });

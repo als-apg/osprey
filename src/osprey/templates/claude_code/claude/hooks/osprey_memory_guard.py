@@ -38,7 +38,8 @@ stdin ──► Parse JSON
 ## Details
 
 Gate for the Write tool. Computes the Claude Code memory directory for the
-current project (``~/.claude/projects/<encoded>/memory/``) and only allows
+current project (``$CLAUDE_CONFIG_DIR/projects/<encoded>/memory/``, with
+``~/.claude`` as the root when the variable is unset) and only allows
 writes targeting ``.md`` files inside it. All other Write operations are
 denied silently — the agent never sees a user prompt for non-memory writes.
 
@@ -67,13 +68,20 @@ def resolve_memory_dir(project_dir: str) -> Path:
     """Compute the Claude Code memory directory for a project.
 
     Claude Code stores memory files in
-    ``~/.claude/projects/<encoded>/memory/`` where ``<encoded>`` is the
+    ``<config-dir>/projects/<encoded>/memory/`` where ``<encoded>`` is the
     absolute project path with every non-alphanumeric character normalized
-    to ``-``.
+    to ``-``, and ``<config-dir>`` is ``$CLAUDE_CONFIG_DIR`` when set and
+    ``~/.claude`` otherwise. The web-terminal container sets the variable
+    (and ``HOME``) to one mounted volume, so the ``~/.claude`` spelling there
+    would name a directory nothing writes to — and deny every memory write.
+    Mirrors ``osprey.agent_runner.project_paths.claude_config_dir``, inlined
+    for the same reason as the regex above.
     """
     abs_project = str(Path(project_dir).resolve())
     encoded = _CLAUDE_PROJECT_DIR_NORMALIZE.sub("-", abs_project)
-    return Path.home() / ".claude" / "projects" / encoded / "memory"
+    configured = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    config_dir = Path(configured).expanduser() if configured else Path.home() / ".claude"
+    return config_dir / "projects" / encoded / "memory"
 
 
 def is_allowed_memory_write(file_path: str, memory_dir: Path) -> bool:

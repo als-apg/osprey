@@ -50,7 +50,9 @@ class ARIELContext:
         ariel_section = self._raw_config.get("ariel", {})
         if not ariel_section:
             logger.warning(
-                "No 'ariel' section in config.yml — ARIEL tools will fail until config is provided"
+                "No 'ariel' section in config.yml — ARIEL tools will fail until an "
+                "'ariel' section is added to the build profile (profile.yml on the "
+                "host) and the project is rebuilt and redeployed"
             )
             self._initialized = True
             return
@@ -68,8 +70,9 @@ class ARIELContext:
         """Parsed ARIELConfig instance."""
         if self._ariel_config is None:
             raise RuntimeError(
-                "ARIEL config not available. Check that config.yml has an "
-                "'ariel' section with database configuration."
+                "ARIEL config not available. Add an 'ariel' section with database "
+                "configuration in the build profile (profile.yml on the host), "
+                "then rebuild and redeploy."
             )
         return self._ariel_config
 

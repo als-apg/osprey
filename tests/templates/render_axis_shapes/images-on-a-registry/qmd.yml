@@ -1,0 +1,113 @@
+# The qmd search sidecar runs a locally-built image (see ./Dockerfile), which
+# bakes in the qmd CLI and its 2.1 GB of GGUF models so a cold container never
+# reaches out to huggingface.co. `osprey up` builds it on first run; subsequent
+# runs reuse the local tag, which is project-prefixed —
+# golden-project-qmd:local — so two OSPREY projects on one host
+# never race to tag one shared image. To use a prebuilt/published image instead,
+# set OSPREY_QMD_IMAGE (e.g. OSPREY_QMD_IMAGE=my-registry/osprey-qmd:2.5.3).
+#
+# PORT SPLIT. qmd's daemon hardcodes `httpServer.listen(port, "localhost")` —
+# there is no --host flag and no env override — so it answers only on a loopback
+# address inside the container, unreachable from any other container. WHICH
+# loopback family "localhost" lands on is not fixed: Node resolves it to [::1]
+# on some image/host combinations and to 127.0.0.1 on others (observed under
+# rootless podman on RHEL-family hosts). So the entrypoint runs the daemon on
+# the container's internal 8181, probes BOTH families for /health, and points a
+# socat forwarder at whichever one answered. The forwarder owns the port
+# published below, which is the one clients talk to. The security posture is the
+# point: qmd itself never listens on a routable address, on either family.
+#
+# The endpoint carries no token, no TLS and no per-caller identity — it answers
+# any request that reaches it. That is safe exactly as long as only this host
+# can reach it, which is what publishing on the project-wide
+# `deployment.bind_address` (default 127.0.0.1) guarantees. There is
+# deliberately no per-service bind key: a sidecar exposed on an interface the
+# rest of the stack is not on would publish unauthenticated search over the
+# whole corpus.
+
+services:
+  qmd:
+    image: ${OSPREY_QMD_IMAGE:-registry.example.org/physics/osprey/golden-project-qmd:v1.2.3}
+    build:
+      # EVERY relative path in this file — the build context and the bind-mount
+      # sources alike — resolves against the pinned compose project directory,
+      # which is the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd), never this file's own subdir. So
+      # render output is addressed under build/ and the repo's own zones by
+      # their plain names (data/). The corpus mounts below follow the same rule.
+      context: ./build/services/qmd
+      dockerfile: Dockerfile
+      args:
+        OSPREY_PROJECT_NAME: "golden-project"
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy a sidecar on one host without colliding
+    # on one name. In-network consumers reach this service by its compose
+    # service key `qmd`, which this rename does not touch.
+    container_name: golden-project-qmd
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8180:8180"
+    environment:
+      # The routable port socat owns inside the container. It must equal the
+      # container side of the publish above, or the published port forwards to
+      # nothing.
+      OSPREY_QMD_PORT: "8180"
+      # Fallback sweep period, NOT the expected freshness lag: a corpus writer
+      # touches its `.qmd-touch` marker and the sidecar re-indexes within a
+      # poll. The sweep only catches writers that forgot to touch it, and its
+      # cost grows with corpus size (~12.5 s at 135,000 documents), so a large
+      # corpus wants a larger value via `services.qmd.interval`.
+      OSPREY_QMD_UPDATE_INTERVAL: "30"
+      # Where the entrypoint keeps the qmd config and the SQLite index. Backed
+      # by the named volume below, and deliberately NOT under the model cache —
+      # persisting the index must not shadow the models baked into the image.
+      OSPREY_QMD_STATE_DIR: "/var/lib/qmd"
+      # The rendered collection config, mounted read-only. The entrypoint copies
+      # it into the state directory on every start, so changing what gets
+      # indexed is a redeploy, not an image rebuild.
+      OSPREY_QMD_INDEX_CONFIG: "/etc/qmd/index.yml"
+      TZ: UTC
+    volumes:
+      # The index. A named volume rather than a bind: it is derived data the
+      # sidecar owns end to end, it is large, and rebuilding it from scratch
+      # costs ~41 minutes at ALS scale — which is exactly why it must survive a
+      # container recreate.
+      - qmd_index:/var/lib/qmd
+      - ./build/services/qmd/index.yml:/etc/qmd/index.yml:ro
+    networks:
+      - osprey-network
+    healthcheck:
+      # /health is the daemon's own probe, reached through the forwarder — so a
+      # pass means the whole published path works, not just that qmd is alive.
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8180/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Long by design, not by accident. The entrypoint refuses to open the port
+      # until the index is built and provably non-empty, and a first-boot full
+      # build measured 41 minutes at ALS scale (~135,000 documents). A shorter
+      # grace period would report a container that is working correctly as
+      # unhealthy for most of its first hour.
+      start_period: 3600s
+
+volumes:
+  qmd_index:
+    labels:
+      com.osprey.repo-id: "0123456789ab"
+
+networks:
+  osprey-network:

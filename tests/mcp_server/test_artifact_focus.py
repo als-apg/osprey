@@ -17,10 +17,10 @@ def _get_artifact_focus():
     return get_tool_fn(artifact_focus)
 
 
-def _get_artifact_save():
-    from osprey.mcp_server.workspace.tools.artifact_save import artifact_save
+def _get_artifact_register():
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
 
-    return get_tool_fn(artifact_save)
+    return get_tool_fn(artifact_register)
 
 
 class TestArtifactFocusTool:
@@ -43,7 +43,7 @@ class TestArtifactFocusTool:
         monkeypatch.chdir(tmp_path)
 
         # First save an artifact
-        save_fn = _get_artifact_save()
+        save_fn = _get_artifact_register()
         save_result = await save_fn(
             title="Test Artifact",
             content="# Hello",

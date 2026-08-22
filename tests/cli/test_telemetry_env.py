@@ -713,6 +713,50 @@ def test_unresolved_credential_var_raises_the_credential_type(openobserve):
         )
 
 
+@pytest.mark.parametrize(
+    ("openobserve", "expected"),
+    [
+        ({"user": "u", "password": "${STORE_PASSWORD}"}, ("STORE_PASSWORD",)),
+        ({"user": "${STORE_USER}", "password": "p"}, ("STORE_USER",)),
+        # A default the config author wrote is not part of the variable's name.
+        ({"user": "u", "password": "${STORE_PASSWORD:-fallback}"}, ("STORE_PASSWORD",)),
+        # Two references in one value: both are named, so a caller deciding
+        # whether it can supply them itself sees the whole set.
+        ({"user": "u", "password": "${A_TOKEN}-${B_TOKEN}"}, ("A_TOKEN", "B_TOKEN")),
+    ],
+    ids=["password", "user", "with-default", "two-references"],
+)
+def test_the_refusal_names_the_variables_it_could_not_resolve(openobserve, expected):
+    """The names travel on the exception, not only inside its sentence.
+
+    A caller has to decide whether the absent value is one its own deploy
+    issues later — that decision is about a variable name, and recovering names
+    by parsing prose makes it hostage to the wording of a human-facing message.
+    """
+    with pytest.raises(ObservabilityCredentialError) as caught:
+        _build_telemetry_env(
+            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
+        )
+
+    assert caught.value.unresolved_vars == expected
+
+
+@pytest.mark.parametrize(
+    "openobserve",
+    [{"user": "u"}, {"user": "u", "password": ""}],
+    ids=["absent", "blank"],
+)
+def test_a_missing_credential_names_no_variable(openobserve):
+    """There is nothing to name, and nothing any later step could fill in — so a
+    caller reading the names cannot mistake this for a value that is merely early."""
+    with pytest.raises(ObservabilityCredentialError) as caught:
+        _build_telemetry_env(
+            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
+        )
+
+    assert caught.value.unresolved_vars == ()
+
+
 def test_deferred_credential_still_raises_the_credential_type_when_absent():
     """Deferral covers an unresolved ${VAR}; an absent credential keeps its type."""
     with pytest.raises(ObservabilityCredentialError):

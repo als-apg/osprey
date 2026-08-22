@@ -1,3 +1,9 @@
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing and this file renders exactly
+    as it did before the axis existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 # The archiver-recorder service samples the live control system over Channel
 # Access and writes what it reads into the archiver store (see
 # src/osprey/services/archiver_recorder/). It is what makes deployed history
@@ -26,7 +32,7 @@
 services:
   archiver-recorder:
 {% if va_co_deployed %}
-    image: ${OSPREY_VA_IMAGE:-{{ (services.virtual_accelerator | default({})).image | default(osprey_labels.project_name ~ '-va:local') }}}
+    image: ${OSPREY_VA_IMAGE:-{{ (services.virtual_accelerator | default({})).image | default(osprey_images.va) }}}
 {% else %}
     # No co-deployed Virtual Accelerator means nothing in this deploy BUILDS
     # the VA image, so the local tag would not exist and compose would fail
@@ -148,6 +154,7 @@ services:
       EPICS_CA_AUTO_ADDR_LIST: "${EPICS_CA_AUTO_ADDR_LIST:-NO}"
 {% endif %}
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.archiver_recorder) }}
     volumes:
       # Bind-mount sources are relative to the pinned compose project
       # directory, which is the deployment REPO ROOT — so `.` is the repo and

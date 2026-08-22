@@ -59,7 +59,7 @@ def install(name: str, target: Path | None) -> None:
 
     \b
     Bundled skills:
-      osprey-build-interview  Author OSPREY build profiles (global)
+      osprey-build-interview  Set up or migrate an OSPREY deployment, interview-style (global)
       osprey-contribute       Walk a contributor through the GitHub Flow journey
       osprey-pre-commit       Run quick / ci / premerge check scripts at the right gate
       osprey-release          Cut a CalVer release: bump PR, tag, verify publish

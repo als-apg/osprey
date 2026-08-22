@@ -48,6 +48,7 @@ import { escapeHtml } from '/design-system/js/dom.js';
  * @typedef {Object} Capabilities
  * @property {Object<string, AdvancedCategory>} categories
  * @property {AdvancedParam[]} [shared_parameters]
+ * @property {string} [default_mode]
  */
 
 // --- State ---
@@ -81,6 +82,15 @@ const FALLBACK_CAPABILITIES = {
  */
 export function initAdvancedOptions(caps) {
   capabilities = caps || FALLBACK_CAPABILITIES;
+
+  // The deployment decides which mode a search runs in when the user picks
+  // none, so the opening tab follows ariel.default_search_mode rather than a
+  // hardcoded guess. A capabilities payload without it (or naming a mode this
+  // build does not render) leaves the module-level default in place.
+  const advertised = capabilities?.default_mode;
+  if (advertised && _modeExists(advertised)) {
+    currentMode = advertised;
+  }
 
   // Set defaults from capabilities
   resetToDefaults();
@@ -240,6 +250,23 @@ function selectMode(mode) {
 }
 
 /**
+ * Whether the capabilities payload advertises a mode by this name.
+ * @param {string} modeName - Mode name
+ * @returns {boolean} True when a rendered tab exists for the mode
+ */
+function _modeExists(modeName) {
+  const categories = capabilities?.categories || {};
+  for (const cat of Object.values(categories)) {
+    for (const mode of (cat.modes || [])) {
+      if (mode.name === modeName) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Get parameter descriptors for a mode.
  * @param {string} modeName - Mode name
  * @returns {AdvancedParam[]} Parameter descriptors
@@ -271,7 +298,7 @@ function renderAdvancedPanel() {
 
   if (allParams.length === 0) {
     container.innerHTML = `
-      <div class="empty-state" style="padding: var(--ariel-space-6);">
+      <div class="empty-state" style="padding: var(--space-5);">
         <p class="empty-state-text">No advanced options for this mode.</p>
       </div>
     `;

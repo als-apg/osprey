@@ -806,7 +806,11 @@ def _fold_profile_material(
 
 
 def _hash_resolved_profile(
-    raw: dict[str, Any], profile_path: Path, *, conventions: bool = True
+    raw: dict[str, Any],
+    profile_path: Path,
+    *,
+    conventions: bool = True,
+    overlay: Path | None = None,
 ) -> str:
     """Canonical content hash of a profile dict after ``extends`` resolution.
 
@@ -846,6 +850,16 @@ def _hash_resolved_profile(
     the same as one that did — the YAML-surface rename must not move any
     profile's hash. Normalizing before ``extends`` resolution (rather than
     after) keeps the deep merge child-wins across a mixed-spelling chain.
+
+    ``overlay`` is the host-variant profile this repo builds, when one is
+    selected — the layer ``raw`` does not carry, because the hash resolves the
+    TRACKED document while the render merges the overlay over it. It is folded
+    as file material rather than merged in: :func:`_fold_source_tree`
+    contributes the file's NAME beside its content, so an edit to the selected
+    overlay and a switch between two byte-identical overlays both move the hash,
+    while an overlay this host did not select folds nothing. No overlay folds
+    nothing at all, which is what keeps every repo that defines no variants
+    hashing exactly as it did before variants existed.
     """
     import hashlib
     import json
@@ -854,6 +868,8 @@ def _hash_resolved_profile(
     canonical = json.dumps(document.raw, sort_keys=True, default=str)
     digest = hashlib.sha256(canonical.encode("utf-8"))
     _fold_profile_material(digest, document.raw, document.root_dir, conventions=conventions)
+    if overlay is not None:
+        _fold_source_tree(digest, "variant", overlay)
     # Sorted so the record's iteration order cannot move a hash; a profile with
     # no exclusions folds nothing and keeps the digest it had before.
     for artifact in sorted(document.excluded_artifacts):
@@ -889,12 +905,23 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     Counterpart of :func:`compute_preset_hash` for profile-built repos — the
     drift-fingerprint input, hashed against the profile path the manifest
     recorded. Returns ``None`` when the file is missing or unreadable.
+
+    The host variant is folded in from the profile's own directory rather than
+    passed by the caller. That is deliberate: this one function is what the
+    build stamps and what ``osprey up``/``status`` recompute, and a fingerprint
+    whose variant arrived as an argument would be a fingerprint two call sites
+    could spell differently — the exact way a stale build goes unnoticed. Read
+    off the directory, both sides of the comparison see the same selection, and
+    a directory with no ``.env.variant`` (a persona delta's, a preset's) folds
+    nothing.
     """
     try:
+        from .variant_selection import active_variant_overlay
+
         path = Path(profile_path)
         raw = _read_profile_document(path)
         if not isinstance(raw, dict):
             return None
-        return _hash_resolved_profile(raw, path)
+        return _hash_resolved_profile(raw, path, overlay=active_variant_overlay(path.parent))
     except Exception:
         return None

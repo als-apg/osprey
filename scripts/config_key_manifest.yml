@@ -94,6 +94,25 @@ keys:
       PRESENCE is all-templates; VALUES deliberately diverge ([] /
       [openobserve] / [postgresql, openobserve]). The guard must not assert
       value equality here.
+  images.registry:
+    rendered: false
+    evidence: 'images\.get\("registry"\)'
+    note: >-
+      Hidden key, unset in all five templates. One of the two stack-wide image
+      axes (`compose_generator.resolve_image_axes`): the registry every
+      OSPREY-built image's DEFAULT reference is prefixed with, so the images CI
+      pushes and the images a deploy pulls are the same images. Overridden by
+      OSPREY_IMAGE_REGISTRY in the environment, and outranked in the other
+      direction by a `services.<svc>.image` pin or an
+      `OSPREY_<SVC>_IMAGE` compose override. Never applied to the third-party
+      pins beside them — prefixing an upstream name yields no image at all.
+  images.tag:
+    rendered: false
+    evidence: 'images\.get\("tag"\)'
+    note: >-
+      The other axis, same layering. Defaults to `local` — the tag `osprey up`
+      builds on the host — so a deployment that sets neither key renders
+      byte-for-byte what it rendered before the axes existed.
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
   services.openobserve: {evidence: 'get\("openobserve", \{\}\)'}
@@ -258,7 +277,13 @@ keys:
       approval-governed tool (setup_patch) is covered by default_policy.
       See governed_sets.
   approval.tools.channel_write: {evidence: 'channel_write'}
-  approval.tools.channel_read: {evidence: 'channel_read'}
+  approval.tools.channel_read:
+    evidence: 'approval\.tools\.channel_read'
+    note: >-
+      Anchored on the settings-panel schema that serves this key rather than
+      on the bare word. `channel_read` names the MCP tool as well as the
+      policy, so the literal spread across enough modules to trip the
+      vacuity guard -- a match that no longer proved a reader existed.
   approval.tools.archiver_read: {evidence: 'archiver_read'}
   approval.tools.execute: {covered-by: approval.tools}
   approval.tools.setup_patch: {evidence: 'setup_patch'}
@@ -295,6 +320,10 @@ keys:
     evidence: 'get_config_value\("control_system\.write_verification\.default_level", "callback"\)'
   control_system.write_verification.default_tolerance_percent:
     evidence: 'default_tolerance_percent'
+  control_system.read_inline_max_elements:
+    evidence: '"control_system\.read_inline_max_elements"'
+  control_system.channel_read_artifact_retention:
+    evidence: '"control_system\.channel_read_artifact_retention"'
   control_system.connector: {covered-by: control_system}
   control_system.connector.mock: {covered-by: control_system.connector}
   control_system.connector.mock.simulation_file: {evidence: 'simulation_file'}
@@ -303,7 +332,7 @@ keys:
   control_system.connector.epics: {covered-by: control_system.connector}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics}
   control_system.connector.epics.gateways: {evidence: 'gateways'}
-  control_system.connector.epics.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.epics.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
   control_system.connector.epics.gateways.read_only.address: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.port: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.use_name_server: {evidence: 'use_name_server'}
@@ -315,7 +344,7 @@ keys:
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file'}
   control_system.connector.virtual_accelerator.gateways: {evidence: 'gateways'}
-  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
   control_system.connector.virtual_accelerator.gateways.read_only.address: {covered-by: control_system.connector.virtual_accelerator.gateways.read_only}
   control_system.connector.virtual_accelerator.gateways.read_only.use_name_server:
     evidence: 'use_name_server'
@@ -332,6 +361,8 @@ keys:
   # control-assistant default became mongodb_archiver — a matcher that tracks a
   # default is a matcher that goes quiet on the change it should have caught.
   archiver.type: {evidence: 'archiver\.type is not set'}
+  # Point budget behind archiver_read's span-derived default bin (issue #117).
+  archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points'}
   archiver.epics_archiver: {evidence: 'epics_archiver'}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver}
   archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver}
@@ -408,8 +439,12 @@ keys:
       deliberately differs (10 providers in project/control_assistant/
       hello_world, a 6-provider subset in the two standalone bundles). The
       guard checks SHAPE per provider (base_url present, all three tiers
-      mapped), never membership. A provider with no models map hard-errors in
-      build/claude_code_resolver.py, which is the quoted evidence.
+      mapped), never membership. At runtime a tier no source maps falls back
+      to the default model with a warning; only a provider with no models map
+      AND no default model to fall back on hard-errors in
+      build/claude_code_resolver.py, which is the quoted evidence. The guard
+      stays stricter than the runtime on purpose — a shipped template should
+      map every tier rather than lean on that fallback.
 
   # ── Claude Code ─────────────────────────────────────────────────────
   claude_code:
@@ -501,6 +536,7 @@ keys:
   ariel.ingestion: {covered-by: ariel}
   ariel.ingestion.adapter: {covered-by: ariel.ingestion}
   ariel.ingestion.source_url: {evidence: 'source_url'}
+  ariel.default_search_mode: {evidence: 'default_search_mode'}
   ariel.search_modules: {evidence: 'search_modules'}
   ariel.search_modules.keyword: {covered-by: ariel.search_modules}
   ariel.search_modules.keyword.enabled: {covered-by: ariel.search_modules.keyword}
@@ -620,6 +656,28 @@ keys:
   web.panels.ariel.enabled: {covered-by: web.panels.ariel}
   web.panels.channel-finder: {covered-by: web.panels}
   web.panels.channel-finder.enabled: {covered-by: web.panels.channel-finder}
+  web.docs_url:
+    evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
+    note: >-
+      Rendered live in the four templates that carry a `web:` block;
+      hello_world has none, so this is deliberately not all-templates.
+      The `\s*` between the call's parts is load-bearing: these four reads sit
+      in one lifespan block, and the formatter wraps a call across lines purely
+      on line length, so a single-line pattern reds the guard when a rename
+      pushes an unrelated call past the margin.
+  web.feedback:
+    evidence: 'get_config_value\("web\.feedback\.'
+    note: >-
+      The block is never read as a mapping — each of the three leaves below
+      has its own dotted lookup in the web terminal's lifespan. The evidence
+      anchors on the prefix those readers share, so this entry dies with the
+      last of them rather than outliving them all.
+  web.feedback.github_repo:
+    evidence: 'get_config_value\(\s*"web\.feedback\.github_repo",\s*DEFAULT_FEEDBACK_GITHUB_REPO\s*\)'
+  web.feedback.email:
+    evidence: 'get_config_value\(\s*"web\.feedback\.email",\s*DEFAULT_FEEDBACK_EMAIL\s*\)'
+  web.feedback.max_store_bytes:
+    evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)'}
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)'}
   web.channel_suggestions.max_channels:
@@ -901,7 +959,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 287
+  expected_union_size: 296
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on

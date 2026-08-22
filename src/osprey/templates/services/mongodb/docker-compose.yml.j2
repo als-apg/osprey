@@ -1,3 +1,9 @@
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing and this file renders exactly
+    as it did before the axis existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 # The mongodb service owns the archiver store: one collection of
 # `{date: ISODate, <PV>: value}` documents, written by the base seeder (host
 # CLI, over the published port below), by `osprey sim apply` when a scenario
@@ -86,6 +92,7 @@ services:
       # that rather than leaving the store silently unauthenticatable.
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-osprey}
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.mongodb) }}
     volumes:
       # The store itself. Named (not a bind mount) so it is namespaced per
       # compose project and survives `osprey down`: a base seed costs minutes,

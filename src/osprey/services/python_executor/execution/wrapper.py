@@ -12,6 +12,168 @@ from osprey.utils.logger import get_logger
 logger = get_logger("execution_wrapper")
 
 
+#: Message raised by every refused write in a readonly run. Tests match on
+#: it, so keep it stable. The MCP tool layer also matches on it to recognise a
+#: runtime refusal in the subprocess's stderr, so that a write blocked *during*
+#: execution reaches the operator alert and the audit log the same way one
+#: blocked before execution does.
+READONLY_REFUSAL = (
+    "readonly execution mode: control-system writes are refused — "
+    "resubmit with execution_mode='readwrite' (human approval required) "
+    "if the write is intended"
+)
+
+#: The substring every readonly refusal message carries, whichever layer
+#: raised it. The wrapper guard raises :data:`READONLY_REFUSAL`; the connector
+#: reference monitor raises its own, channel-named message
+#: (``osprey_connectors.control_system.base._writes_disabled_result``). Both
+#: reach the tool layer only as a traceback on the subprocess's stderr, so the
+#: tool matches on what they share rather than on either full message — which
+#: is what lets a write refused through the *approved* ``write_channel`` path
+#: be alerted and audited exactly like one refused by the guard.
+#:
+#: A test pins the connector's message against this constant, so rewording
+#: either side without the other fails rather than silently stopping the alert.
+READONLY_REFUSAL_MARKER = "readonly execution mode"
+
+
+#: Every entry point a readonly run refuses, as ``(dotted target, attributes)``.
+#: This table is the canonical machine-readable answer to "what counts as a
+#: control-system write from Python" — the docs list is written from it, and a
+#: library added here needs no other change to be enforced.
+#:
+#: The dotted target is resolved by importing its longest importable prefix and
+#: then walking attributes, so a module (``epics``), a module attribute
+#: (``epics.ca``) and a class (``p4p.client.thread.Context``) are all spelled
+#: the same way. Attributes that do not exist on the resolved object are
+#: skipped, which is what makes listing several client flavours free: an
+#: uninstalled or older library simply contributes nothing.
+#:
+#: Patching the object in ``sys.modules`` — rather than inspecting the source —
+#: is what makes this immune to spelling. ``importlib.import_module("epics")``,
+#: ``from epics import caput as _w`` and ``getattr(epics, "ca" + "put")`` all
+#: end up holding the refusing function, because they all resolve through the
+#: one module object this mutates.
+_READONLY_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # --- EPICS Channel Access (pyepics) ---
+    ("epics", ("caput", "caput_many")),
+    ("epics.PV", ("put",)),
+    ("epics.ca", ("put", "put_complete")),
+    # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
+    # server-side SharedPV, which puts values on the wire when it is opened or
+    # posted to.
+    ("p4p.client.thread.Context", ("put", "rpc")),
+    ("p4p.client.asyncio.Context", ("put", "rpc")),
+    ("p4p.client.cothread.Context", ("put", "rpc")),
+    ("p4p.server.raw.SharedPV", ("post", "open")),
+    ("p4p.server.thread.SharedPV", ("post", "open")),
+    ("p4p.server.asyncio.SharedPV", ("post", "open")),
+    # --- Channel Access (caproto) ---
+    ("caproto.sync.client", ("write", "write_read")),
+    ("caproto.threading.client.PV", ("write", "write_all")),
+    ("caproto.threading.client.Batch", ("write",)),
+    ("caproto.asyncio.client.PV", ("write",)),
+    # --- PVAccess (pvaPy). Its ``Channel`` carries one typed setter per scalar
+    # and array type, so the ``put`` prefix is swept dynamically below rather
+    # than enumerated here; ``put`` itself is listed so the table still names
+    # the library.
+    ("pvaccess.Channel", ("put", "putGet")),
+    # --- Tango. ``command_inout`` is included because a Tango command is an
+    # action on the device, not a read — refusing it is the readonly reading.
+    # ``PyTango`` is the legacy alias for the same package; when both import,
+    # they resolve to the same class object and the second patch is a no-op.
+    (
+        "tango.DeviceProxy",
+        (
+            "write_attribute",
+            "write_attributes",
+            "write_attribute_asynch",
+            "write_attributes_asynch",
+            "write_read_attribute",
+            "write_read_attributes",
+            "write_pipe",
+            "put_property",
+            "command_inout",
+            "command_inout_asynch",
+        ),
+    ),
+    ("tango.AttributeProxy", ("write", "write_asynch", "write_read")),
+    (
+        "PyTango.DeviceProxy",
+        (
+            "write_attribute",
+            "write_attributes",
+            "write_read_attribute",
+            "command_inout",
+        ),
+    ),
+    # --- Routes out of Python. A readonly run has no legitimate use for these:
+    # ``import subprocess`` is already refused in every mode by the static
+    # import check, so anything reaching the process-spawning surface at
+    # runtime got there by an evasion. ``os.fork`` is deliberately absent —
+    # forking alone cannot run a new program, and refusing it would break
+    # ordinary multiprocessing for no security gain, since the exec half of
+    # every fork+exec is refused here.
+    (
+        "subprocess",
+        (
+            "run",
+            "Popen",
+            "call",
+            "check_call",
+            "check_output",
+            "getoutput",
+            "getstatusoutput",
+        ),
+    ),
+    ("_posixsubprocess", ("fork_exec",)),
+    # ``os`` re-exports these from ``posix``; patching only ``os`` would leave
+    # ``import posix; posix.system(...)`` open, so both modules are swept.
+    (
+        "os",
+        (
+            "system",
+            "popen",
+            "execl",
+            "execle",
+            "execlp",
+            "execlpe",
+            "execv",
+            "execve",
+            "execvp",
+            "execvpe",
+            "spawnl",
+            "spawnle",
+            "spawnlp",
+            "spawnlpe",
+            "spawnv",
+            "spawnve",
+            "spawnvp",
+            "spawnvpe",
+            "posix_spawn",
+            "posix_spawnp",
+        ),
+    ),
+    (
+        "posix",
+        (
+            "system",
+            "popen",
+            "execv",
+            "execve",
+            "posix_spawn",
+            "posix_spawnp",
+        ),
+    ),
+    # --- Loading a shared library sidesteps every Python-level guard above:
+    # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
+    # single client package. ``LibraryLoader.__getattr__`` is patched too,
+    # because ``ctypes.cdll.libca`` never goes through ``CDLL`` by that name.
+    ("ctypes", ("CDLL", "PyDLL", "WinDLL", "OleDLL")),
+    ("ctypes.LibraryLoader", ("LoadLibrary", "__getattr__")),
+)
+
+
 class ExecutionWrapper:
     """
     Wrapper system for subprocess Python execution.
@@ -24,14 +186,20 @@ class ExecutionWrapper:
     - Error handling
     """
 
-    def __init__(self, limits_validator=None):
+    def __init__(self, limits_validator=None, execution_mode: str = "readonly"):
         """
         Initialize the wrapper.
 
         Args:
             limits_validator: Optional LimitsValidator instance for channel checking
+            execution_mode: The mode the script was submitted under. A
+                ``"readonly"`` run gets the readonly guard (every direct
+                control-system write entry point refuses at runtime); the
+                default is readonly so a wrapper built without a mode fails
+                closed.
         """
         self.limits_validator = limits_validator
+        self.execution_mode = execution_mode
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -49,6 +217,7 @@ class ExecutionWrapper:
         imports = self._get_imports()
         environment_setup = self._get_environment_setup(execution_folder)
         limits_checking = self._get_limits_checking_monkeypatch()
+        readonly_guard = self._get_readonly_guard()
         metadata_init = self._get_metadata_init()
         save_artifact_injection = self._get_save_artifact_injection()
         output_capture_start = self._get_output_capture_start()
@@ -61,6 +230,7 @@ class ExecutionWrapper:
                 imports,
                 environment_setup,
                 limits_checking,
+                readonly_guard,
                 metadata_init,
                 save_artifact_injection,
                 output_capture_start,
@@ -259,12 +429,220 @@ if not _execution_dir.exists():
 
                 except ImportError:
                     print("ℹ️  pyepics not available - EPICS limits checking disabled")
+
+                # p4p / PVAccess clients: p4p ships parallel Context classes per
+                # concurrency flavor, so each one is imported and patched in its
+                # OWN try/except - patching only the thread client would leave an
+                # approved `from p4p.client.asyncio import Context` put unvalidated.
+                def _p4p_validate_put(_name, _values):
+                    '''Validate a p4p put payload BEFORE any network operation.
+
+                    Discrimination mirrors p4p's OWN rule - a str name is the
+                    scalar form, ANY other value is the batch form. Keying on
+                    list/tuple instead would let an exotic iterable of names
+                    (numpy array, generator) take the scalar path here while
+                    p4p executed a batch, so per-channel bounds could be
+                    skipped. A length mismatch fails closed via
+                    zip(..., strict=True) rather than silently validating only
+                    the shorter prefix, and a shape p4p would accept but we
+                    cannot pair up fails closed via ValueError.
+
+                    Returns the name to forward to the original put(); a
+                    one-shot iterable is materialized so validation does not
+                    consume the caller's names.
+                    '''
+                    if isinstance(_name, str):
+                        _limits_validator.validate(_name, _values)
+                        return _name
+
+                    if not isinstance(_values, (list, tuple)):
+                        raise ValueError(
+                            "p4p batch put requires a sequence of values "
+                            "matching the sequence of channel names"
+                        )
+
+                    if isinstance(_name, (list, tuple)):
+                        _names_seq = _name
+                    else:
+                        try:
+                            _names_seq = tuple(_name)
+                        except TypeError as _shape_error:
+                            raise ValueError(
+                                "p4p put requires a channel name string or a "
+                                "sequence of channel names"
+                            ) from _shape_error
+
+                    for _pair_name, _pair_value in zip(_names_seq, _values, strict=True):
+                        _limits_validator.validate(_pair_name, _pair_value)
+                    return _names_seq
+
+                def _p4p_install_guard(_context_cls):
+                    '''Limits-check put() and refuse rpc() on one p4p Context class.'''
+                    if hasattr(_context_cls, 'put'):
+                        _original_p4p_put = _context_cls.put
+
+                        def _p4p_checked_put(self, name, values, *args, **kwargs):
+                            '''Limits-checked wrapper for p4p Context.put()'''
+                            name = _p4p_validate_put(name, values)  # Raises if invalid
+                            return _original_p4p_put(self, name, values, *args, **kwargs)
+
+                        _context_cls.put = _p4p_checked_put
+
+                    if hasattr(_context_cls, 'rpc'):
+                        def _p4p_blocked_rpc(self, *args, **kwargs):
+                            '''Unconditional refusal for p4p Context.rpc().
+
+                            Limits semantics cannot apply to an arbitrary rpc
+                            payload, so refusal is the only honest parity.
+                            '''
+                            raise RuntimeError(
+                                "rpc is not mediated and cannot be approved — "
+                                "use the supervised write path"
+                            )
+
+                        _context_cls.rpc = _p4p_blocked_rpc
+
+                try:
+                    from p4p.client.thread import Context as _P4PThreadContext
+
+                    _p4p_install_guard(_P4PThreadContext)
+                    print("✅ Monkeypatched p4p.client.thread Context.put()/.rpc()")
+                except ImportError:
+                    print(
+                        "ℹ️  p4p.client.thread not available - "
+                        "PVA limits checking disabled"
+                    )
+                except Exception as _p4p_error:
+                    # One flavor failing must NOT skip the remaining flavors,
+                    # so this stops short of the outer swallow-all handler.
+                    print(f"⚠️  p4p.client.thread guard failed: {{_p4p_error}}")
+
+                try:
+                    from p4p.client.asyncio import Context as _P4PAsyncioContext
+
+                    _p4p_install_guard(_P4PAsyncioContext)
+                    print("✅ Monkeypatched p4p.client.asyncio Context.put()/.rpc()")
+                except ImportError:
+                    print(
+                        "ℹ️  p4p.client.asyncio not available - "
+                        "PVA limits checking disabled"
+                    )
+                except Exception as _p4p_error:
+                    print(f"⚠️  p4p.client.asyncio guard failed: {{_p4p_error}}")
+
+                try:
+                    from p4p.client.cothread import Context as _P4PCothreadContext
+
+                    _p4p_install_guard(_P4PCothreadContext)
+                    print("✅ Monkeypatched p4p.client.cothread Context.put()/.rpc()")
+                except ImportError:
+                    print(
+                        "ℹ️  p4p.client.cothread not available - "
+                        "PVA limits checking disabled"
+                    )
+                except Exception as _p4p_error:
+                    print(f"⚠️  p4p.client.cothread guard failed: {{_p4p_error}}")
             except Exception as e:
                 print(f"⚠️  Limits checking setup failed: {{e}}")
                 import traceback
                 traceback.print_exc()
         """
         ).strip()
+
+    def _get_readonly_guard(self) -> str:
+        """Generate the readonly-run guard; empty for a readwrite run.
+
+        The pre-execution regex sees only the standard spellings of a write.
+        ``from epics import caput as _w`` evades it, so a readonly run is
+        enforced here, at runtime: every entry point in
+        :data:`_READONLY_WRITE_TARGETS` is replaced with a function that
+        refuses. The guard is emitted *before* user code and *after* the limits
+        monkeypatch, so an alias bound in the user code late-binds to the
+        refusing function, and the refusal — not a limits check — is the first
+        thing a write hits. It is deliberately independent of the limits
+        validator: a deployment with limits checking off is exactly the one
+        with nothing else standing behind the regex.
+
+        The table covers three kinds of route: the control-system client
+        libraries themselves, the process-spawning surface that could shell out
+        to ``caput``, and ``ctypes``, which reaches Channel Access without
+        importing any client package at all. It is emitted into the script
+        rather than applied here because the objects to patch only exist in the
+        subprocess.
+
+        The connector side of the same contract lives in
+        ``osprey_connectors.control_system.base`` (refuses ``write_channel``
+        when ``OSPREY_EXECUTION_MODE`` says readonly) and in the EPICS
+        connector's gateway selection (stays on the read_only gateway).
+        """
+        if self.execution_mode != "readonly":
+            return ""
+
+        guard = f"""
+            # Readonly run: refuse every control-system write entry point, and
+            # every route out of Python that could reach one. Installed before
+            # user code, so an alias bound later resolves here.
+            import importlib as _osprey_importlib
+
+            _osprey_targets = {_READONLY_WRITE_TARGETS!r}
+
+
+            def _osprey_readonly_refuse(*_args, **_kwargs):
+                raise RuntimeError("@@REFUSAL@@")
+
+
+            def _osprey_resolve(dotted):
+                \"\"\"Import the longest importable prefix of *dotted*, then walk attributes.
+
+                One spelling for modules, module attributes and classes alike.
+                Returns None when the target is not present, which is the
+                ordinary case for most of the table — an uninstalled library,
+                or an optional flavour of an installed one. That case has to
+                stay SILENT: it is true on every ordinary deployment, and a
+                warning per absent target would print on every readonly run.
+                \"\"\"
+                parts = dotted.split(".")
+                for _cut in range(len(parts), 0, -1):
+                    try:
+                        obj = _osprey_importlib.import_module(".".join(parts[:_cut]))
+                    except ImportError:
+                        continue
+                    for _attr in parts[_cut:]:
+                        try:
+                            obj = getattr(obj, _attr)
+                        except AttributeError:
+                            # An importable parent without the child: the
+                            # target does not exist here either.
+                            return None
+                    return obj
+                return None
+
+
+            for _osprey_dotted, _osprey_attrs in _osprey_targets:
+                try:
+                    _osprey_obj = _osprey_resolve(_osprey_dotted)
+                    if _osprey_obj is None:
+                        continue
+                    for _osprey_attr in _osprey_attrs:
+                        if hasattr(_osprey_obj, _osprey_attr):
+                            setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                    # pvaPy spells one typed setter per scalar and array type
+                    # (putDouble, putScalarArray, ...). Enumerating them would
+                    # go stale against the binding; the prefix will not.
+                    if _osprey_dotted == "pvaccess.Channel":
+                        for _osprey_attr in dir(_osprey_obj):
+                            if _osprey_attr.startswith("put"):
+                                setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                except Exception as _osprey_guard_error:
+                    # A target that cannot be patched must not stop the ones
+                    # after it, and the operator needs to know which one.
+                    print(
+                        f"⚠️  readonly guard ({{_osprey_dotted}}) failed: {{_osprey_guard_error}}"
+                    )
+
+            del _osprey_importlib, _osprey_targets, _osprey_resolve
+        """
+        return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
 
     def _get_metadata_init(self) -> str:
         """Initialize execution metadata tracking."""
@@ -289,159 +667,16 @@ if not _execution_dir.exists():
         ).strip()
 
     def _get_save_artifact_injection(self) -> str:
-        """Generate a save_artifact() function for use inside the subprocess.
+        """The ``save_artifact()`` the subprocess exposes to user code.
 
-        The function serializes objects to files in an ``artifacts/`` subdirectory
-        and writes a ``artifacts/manifest.json`` listing all saved artifacts.
-        The executor collects these post-execution, mirroring the figure collection
-        pattern.
+        Shared with the visualization sandbox via
+        :data:`osprey.stores.artifact_manifest.SAVE_ARTIFACT_SOURCE`; the
+        executor collects what it wrote post-execution, mirroring the figure
+        collection pattern.
         """
-        return textwrap.dedent(
-            """
-            # Inject save_artifact() for subprocess execution
-            def save_artifact(obj, title="Untitled", description="", artifact_type=None, category=""):
-                \"\"\"Save an object as a gallery artifact.
+        from osprey.stores.artifact_manifest import SAVE_ARTIFACT_SOURCE
 
-                Supported types:
-                  - plotly Figure -> interactive HTML
-                  - matplotlib Figure -> PNG image
-                  - pandas DataFrame -> HTML table
-                  - str -> markdown or HTML (auto-detected)
-                  - dict / list -> JSON
-                  - bytes -> binary file
-
-                Args:
-                    obj: The object to save.
-                    title: Human-readable title shown in the gallery.
-                    description: Optional longer description.
-                    artifact_type: Override the auto-detected type.
-                    category: Optional category key for gallery grouping.
-                \"\"\"
-                import json as _json
-                import uuid as _uuid
-                from pathlib import Path as _Path
-
-                # Use _execution_dir if set, else cwd
-                _art_base = globals().get('_execution_dir', _Path.cwd())
-                artifacts_dir = _art_base / "artifacts"
-                artifacts_dir.mkdir(exist_ok=True)
-
-                art_id = _uuid.uuid4().hex[:12]
-
-                # Slugify title for filename
-                _slug = title.lower().strip()
-                _slug = "".join(c if c.isalnum() or c in (" ", "-", "_") else "" for c in _slug)
-                _slug = _slug.replace(" ", "_")[:60] or "artifact"
-
-                # Smart type detection and serialization
-                content = None
-                detected_type = None
-                filename = None
-                mime_type = None
-
-                # Plotly Figure
-                try:
-                    import plotly.graph_objects as _go
-                    if isinstance(obj, _go.Figure):
-                        content = obj.to_html(include_plotlyjs=False, full_html=True).encode()
-                        detected_type = "plot_html"
-                        filename = f"{art_id}_{_slug}.html"
-                        mime_type = "text/html"
-                except ImportError:
-                    pass
-
-                # Matplotlib Figure
-                if content is None:
-                    try:
-                        import matplotlib.figure as _mfig
-                        if isinstance(obj, _mfig.Figure):
-                            import io as _io
-                            _buf = _io.BytesIO()
-                            obj.savefig(_buf, format="png", dpi=150, bbox_inches="tight")
-                            _buf.seek(0)
-                            content = _buf.read()
-                            detected_type = "plot_png"
-                            filename = f"{art_id}_{_slug}.png"
-                            mime_type = "image/png"
-                    except ImportError:
-                        pass
-
-                # Pandas DataFrame
-                if content is None:
-                    try:
-                        import pandas as _pd
-                        if isinstance(obj, _pd.DataFrame):
-                            content = obj.to_html(classes="artifact-table", border=0).encode()
-                            detected_type = "table_html"
-                            filename = f"{art_id}_{_slug}.html"
-                            mime_type = "text/html"
-                    except ImportError:
-                        pass
-
-                # str
-                if content is None and isinstance(obj, str):
-                    if obj.lstrip().startswith(("<", "<!")) and "</" in obj:
-                        content = obj.encode()
-                        detected_type = "html"
-                        filename = f"{art_id}_{_slug}.html"
-                        mime_type = "text/html"
-                    else:
-                        content = obj.encode()
-                        detected_type = "markdown"
-                        filename = f"{art_id}_{_slug}.md"
-                        mime_type = "text/markdown"
-
-                # dict / list
-                if content is None and isinstance(obj, (dict, list)):
-                    content = _json.dumps(obj, indent=2, default=str).encode()
-                    detected_type = "json"
-                    filename = f"{art_id}_{_slug}.json"
-                    mime_type = "application/json"
-
-                # bytes
-                if content is None and isinstance(obj, bytes):
-                    content = obj
-                    detected_type = "binary"
-                    filename = f"{art_id}_{_slug}.bin"
-                    mime_type = "application/octet-stream"
-
-                # Fallback: repr as text
-                if content is None:
-                    content = repr(obj).encode()
-                    detected_type = "text"
-                    filename = f"{art_id}_{_slug}.txt"
-                    mime_type = "text/plain"
-
-                final_type = artifact_type or detected_type
-
-                # Write artifact file
-                artifact_path = artifacts_dir / filename
-                artifact_path.write_bytes(content)
-
-                # Update manifest
-                manifest_path = artifacts_dir / "manifest.json"
-                if manifest_path.exists():
-                    manifest = _json.loads(manifest_path.read_text())
-                else:
-                    manifest = []
-
-                entry = {
-                    "id": art_id,
-                    "filename": filename,
-                    "title": title,
-                    "description": description,
-                    "artifact_type": final_type,
-                    "mime_type": mime_type,
-                    "size_bytes": len(content),
-                }
-                if category:
-                    entry["category"] = category
-                manifest.append(entry)
-                manifest_path.write_text(_json.dumps(manifest, indent=2))
-
-                print(f"Artifact saved: {title} ({final_type}, {len(content)} bytes)")
-        """
-        ).strip()
+        return SAVE_ARTIFACT_SOURCE.strip()
 
     def _get_output_capture_start(self) -> str:
         """Start output capture for both environments."""

@@ -495,7 +495,7 @@ def _worker_mcp_surface() -> str:
     if not found:
         return (
             f"CAUSE = provisioning: no .mcp.json anywhere under /app/{PROJECT_NAME}, so "
-            "mcp__osprey_workspace__artifact_save never existed and the agent's Write "
+            "mcp__osprey_workspace__artifact_register never existed and the agent's Write "
             "fallback was denied by the allowlist."
         )
     if "osprey_workspace" not in found:
@@ -590,7 +590,7 @@ def test_full_stack_dispatch(deployed_stack: Path) -> None:
 
     # save-report must persist via the workspace artifact tool, not merely report
     # "completed". Without the worker's startup artifact provisioning, .mcp.json is
-    # absent, mcp__osprey_workspace__artifact_save does not exist, the agent's
+    # absent, mcp__osprey_workspace__artifact_register does not exist, the agent's
     # Write fallback is denied by the allowlist, and the run hollow-completes with
     # no artifact on disk. Asserting a real .md artifact landed guards that path.
     artifacts = _worker_artifact_files()

@@ -56,6 +56,13 @@ _PRISTINE_LOGGING = {
 os.environ.pop("FORCE_COLOR", None)
 os.environ.pop("CLICOLOR_FORCE", None)
 
+# Rich deliberately clamps ``TERM=dumb`` consoles to 80 columns and suppresses
+# cursor control even when a test explicitly requests ``force_terminal=True``.
+# CI presents a capable TERM, so normalize only the dumb/unknown host values;
+# tests for a restricted terminal can still set one explicitly after collection.
+if os.environ.get("TERM", "").lower() in {"dumb", "unknown"}:
+    os.environ["TERM"] = "xterm-256color"
+
 _PRE_COLLECTION_ENV = dict(os.environ)
 
 

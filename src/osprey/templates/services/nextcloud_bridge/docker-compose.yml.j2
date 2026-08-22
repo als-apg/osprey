@@ -5,6 +5,12 @@
     `network:` declared the macros emit exactly the blocks this file carried
     before, byte for byte. -#}
 {%- import "services/_network_axis.j2" as net -%}
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing and this file renders exactly
+    as it did before the axis existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 # The nextcloud-bridge service polls Nextcloud Talk rooms and dispatches
 # mentions of the bot account through the osprey.dispatch pair (see
 # src/osprey/bridges/nextcloud_talk/). It is a poller, not a server: it opens
@@ -55,7 +61,7 @@
 
 services:
   nextcloud-bridge:
-    image: ${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-{{ services.nextcloud_bridge.image | default(osprey_labels.project_name ~ '-nextcloud-bridge:local') }}}
+    image: ${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-{{ services.nextcloud_bridge.image | default(osprey_images.nextcloud_bridge) }}}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -226,6 +232,7 @@ services:
       HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
       OFFSETS_PATH: "${OFFSETS_PATH:-/data/offsets.json}"
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.nextcloud_bridge) }}
     volumes:
       # Bridge state, and the ONLY stateful thing this service owns: the dedup
       # store (message_id -> run, the crash-safety ledger), the per-conversation

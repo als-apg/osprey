@@ -283,7 +283,7 @@ def _database_row(db_path: Path | None) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             "No database.path configured for the active pipeline",
-            details="Set the pipeline's database.path in config.yml.",
+            details="Set the pipeline's database.path under config: in profile.yml and run 'osprey build'.",
         )
 
     try:

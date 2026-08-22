@@ -71,8 +71,8 @@ Spawn a **Task subagent** to generate the report. Pass it:
 
 The subagent should:
 - Read the reference file at `.claude/skills/session-report/reference.md` for CSS/JS patterns
-- Use workspace MCP tools (`artifact_save`, `session_log`, `archiver_downsample`) as needed
-- Generate a single self-contained HTML file and save it via `artifact_save`
+- Use workspace MCP tools (`artifact_register`, `session_log`, `archiver_downsample`) as needed
+- Generate a single self-contained HTML file and save it via `artifact_register` (`content_type: "html"`)
 - Block access to Bash, Read, Write, Edit (subagent uses only MCP tools)
 
 ### Content safety rules (MUST be included in subagent prompt)

@@ -142,7 +142,25 @@ app_template: control_assistant
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
+model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+
+# Any custom gateway works too: name it as the provider, describe it under
+# `config:` below, and put its key in this repo's .env — the variable name
+# derives from the provider name, <NAME>_API_KEY. Worked example:
+#
+# provider: my-gateway
+# config:
+#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
+#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
+#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
+#   # in Anthropic mode), so the local translation proxy is skipped:
+#   api.providers.my-gateway.api_protocol: anthropic
+#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
+#   # fall back to `model:` above, with a build-time warning:
+#   api.providers.my-gateway.models:
+#     haiku: claude-haiku-4-5
+#     sonnet: claude-sonnet-4-6
+#     opus: claude-opus-4-6
 
 # How the agent searches for channels. `osprey set channel_finder_mode=...`
 # also accepts in_context, middle_layer, or graph (the knowledge graph store).
@@ -188,6 +206,10 @@ skills:
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
+  - bluesky-plans  # Browse which plans this deployment can run
+  # Available — uncomment to enable:
+  # - logbook-deep-research  # Multi-phase logbook investigation skill
+  # - sim-scenarios  # List and switch simulated machine scenarios
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -207,6 +229,8 @@ web_panels:
   - system-health   # SYSTEM tab, a framework health dashboard
   # The events and bluesky panels are declared in personas/readwrite.yml
   # instead, so the read-only login is built without them.
+  # Available — uncomment to enable:
+  # - lattice  # Lattice dashboard
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -310,6 +334,17 @@ config:
     # How the landing page is laid out. Omit this whole block and you get one
     # section holding every entry below, headed "Terminals".
     landing:
+      # Each file below becomes one collapsible section at the bottom of the
+      # landing page, in this order. The file's `# H1` is the section label, so
+      # adding a section means adding a markdown file and listing it here.
+      # `data/landing/working-safely.md` ships with this preset and is yours to
+      # rewrite; add your own for local procedures, contacts or shift handover.
+      # Drop this key entirely and you get OSPREY's built-in safety notice
+      # instead; set it to [] for no notices at all.
+      notices:
+        - data/landing/working-safely.md
+      # The line under everything. Set to "" for no footer.
+      footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
         # `users` renders the roster. It also SPLITS it: any entry whose
         # persona declares a `landing_group` (see `ariel` below) moves into a
@@ -582,6 +617,7 @@ exclude:
     - demo-ui
     - writing-bluesky-plans    # Plan authoring needs the Bluesky server
     - operating-bluesky-plans  # and so does running one
+    - bluesky-plans            # and so does listing them
   agents:
     - channel-finder
     - data-visualizer
@@ -832,12 +868,12 @@ triggers:
         Investigate this event and save a short status report. First take a
         quick look at the working directory (Glob/Read) to ground yourself, then
         use the workspace artifact tool to save a concise markdown report
-        summarizing the event payload and what you would do next. Confirm the
-        artifact you created.
+        (content_type markdown) summarizing the event payload and what you would
+        do next. Confirm the artifact you created.
       allowed_tools:
         - Glob
         - Read
-        - mcp__osprey_workspace__artifact_save
+        - mcp__osprey_workspace__artifact_register
         - mcp__osprey_workspace__create_document
 
   # 4. Requests a tool the worker blocks server-side; teaches the denylist.
@@ -885,6 +921,11 @@ GITIGNORE = """\
 # unanchored `build/` or `.env*` would also swallow a same-named path anywhere
 # deeper in the tree — including files moved there later — and it would do it
 # silently.
+#
+# The same pattern covers `.env.variant`, which is not a secret but is
+# host-local for the same reason: it holds `OSPREY_PROFILE_VARIANT=<name>`, naming
+# which `profiles/<name>.yml` overlay THIS host builds. Committing it would
+# hand this host's choice to every other one.
 /.env*
 !/.env.example
 !/.env.shared
@@ -983,6 +1024,10 @@ ENV_SHARED = """\
 # A key set in both files takes its value from `.env`. There is nothing more to
 # it than that: same syntax, same variables, lower precedence.
 #
+# One exception, and only if profile.yml asks for it: a variable listed under
+# `env.pinned` is this file's to decide. `osprey up` refuses to start when
+# `.env` or a shell export sets one.
+#
 # Never put a secret here — this file is committed. An API key, a token or a
 # password goes in `.env`, which git ignores and which never leaves the host.
 # Neither file ever enters a container image; both are read at run time.
@@ -991,6 +1036,12 @@ ENV_SHARED = """\
 # NO_PROXY=localhost,127.0.0.1
 # HTTP_PROXY=http://proxy.example.com:8080
 # HTTPS_PROXY=http://proxy.example.com:8080
+
+# Site CA bundle — uncomment if a proxy re-signs TLS with a site CA.
+# On RHEL-family hosts the system bundle lives here:
+# SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# REQUESTS_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# NODE_EXTRA_CA_CERTS=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 """
 
 #: Written only when the factory is asked for a seeded repo. Values are the
@@ -1038,6 +1089,10 @@ edited by hand.
 setting appears in both, the one in `.env` wins. That is how a single host
 changes a shared default without affecting anyone else. None of these files go
 into a container image — they are all read when the deployment starts.
+
+If `profile.yml` lists a variable under `env.pinned`, that one is the exception:
+`.env.shared` decides it, and `osprey up` refuses to start when `.env`
+or a shell export disagrees.
 
 `.osprey-compose.yml` at the root is generated the same way, so a deploy
 can hand the container runtime one file instead of several. It is kept out of

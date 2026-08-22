@@ -719,6 +719,161 @@ def _resolve_qmd_render_context(config, repo_root):
     }
 
 
+#: The images this repo's Dockerfiles build, keyed by the infix of the
+#: ``OSPREY_<KEY>_IMAGE`` compose override that pins each one, mapped to the
+#: suffix its name carries after the project name (the project image itself
+#: carries none). The third-party pins that sit beside these in the same
+#: templates — postgres, mongo, redis, tiled, openobserve — are deliberately
+#: absent: those are upstream coordinates, and prefixing or re-tagging one
+#: names an image that exists in no registry.
+_OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
+    "worker": "",
+    "dispatch": "-dispatch",
+    "qmd": "-qmd",
+    "va": "-va",
+    "bluesky_bridge": "-bluesky-bridge",
+    "bluesky_web": "-bluesky-web",
+    "gchat_bridge": "-gchat-bridge",
+    "nextcloud_bridge": "-nextcloud-bridge",
+}
+
+#: Tag those images carry when nothing sets the tag axis — the one ``osprey up``
+#: builds on the host, so a deployment that never heard of the axes renders
+#: byte-for-byte what it rendered before they existed.
+DEFAULT_IMAGE_TAG = "local"
+
+
+def _image_axis(env_var, config_key, configured, default):
+    """Resolve one image axis: process environment, then config, then *default*.
+
+    The environment is read ahead of the config, the same way
+    ``OSPREY_PREBUILT_IMAGES`` is: a host whose config pins an axis can still be
+    made to render something else for the length of one shell, without editing a
+    committed file.
+
+    Blank counts as unset on *both* layers, so the environment can only replace
+    a configured value, never clear one — exporting ``OSPREY_IMAGE_TAG=`` leaves
+    an ``images.tag`` pin standing rather than dropping to the packaged default.
+    An exported-but-empty variable is how a shell spells "I did not set this",
+    and honoring it literally would render an image reference with an empty tag,
+    a document compose accepts and no runtime can pull.
+
+    A configured value that is not a string is coerced when it is a plain number
+    and refused otherwise. YAML reads an unquoted ``tag: 2024`` as an ``int``
+    and ``tag: 2025.10`` as a ``float``; both name a tag the operator plainly
+    meant, so both render as ``str`` spells them — note that the float spelling
+    drops a trailing zero, so ``2025.10`` pins ``:2025.1``, which is why a
+    dotted tag is worth quoting. A list, a mapping or a boolean names no tag at
+    all, and quietly ignoring one would render the ``:local`` default on a host
+    that only pulls, failing much later as "No such image" with nothing pointing
+    back at the key that was dropped.
+
+    :param env_var: Name of the variable carrying the override.
+    :type env_var: str
+    :param config_key: Dotted config key, named in the error message.
+    :type config_key: str
+    :param configured: The value the config declared, if it declared one.
+    :param default: What the axis means when neither layer set it.
+    :type default: str
+    :return: The resolved axis value.
+    :rtype: str
+    :raises ValueError: If the configured value is neither a string nor a
+        number — a shape no image reference can be built from.
+    """
+    value = os.environ.get(env_var, "")
+    if not value.strip():
+        value = _axis_config_value(config_key, configured)
+    return value.strip() or default
+
+
+def _axis_config_value(config_key, configured):
+    """The config layer of one image axis, as a string.
+
+    :param config_key: Dotted config key, named in the error message.
+    :type config_key: str
+    :param configured: The value the config declared, if it declared one.
+    :return: The declared value, or ``""`` when the key is absent.
+    :rtype: str
+    :raises ValueError: If the value is present but is not a scalar an image
+        reference can carry. ``bool`` is rejected with the containers rather
+        than the numbers — it is an ``int`` subclass, so an unquoted YAML
+        ``tag: yes`` would otherwise pin the tag ``True``.
+    """
+    if configured is None:
+        return ""
+    if isinstance(configured, str):
+        return configured
+    if isinstance(configured, bool) or not isinstance(configured, (int, float)):
+        raise ValueError(
+            f"{config_key} must be a string or a number, got "
+            f"{type(configured).__name__} ({configured!r}). An image axis is one "
+            "scalar every OSPREY-built image carries; quote the value you meant."
+        )
+    return str(configured)
+
+
+def resolve_image_axes(config):
+    """The registry prefix and tag every OSPREY-built image default carries.
+
+    Two stack-wide axes, each resolved from ``OSPREY_IMAGE_REGISTRY`` /
+    ``OSPREY_IMAGE_TAG`` before the ``images.registry`` / ``images.tag`` config
+    keys. They exist because the images a pipeline pushes and the images a
+    deploy pulls were previously two unrelated facts: CI tagged by commit and
+    pushed to a registry, while the rendered compose documents named the
+    ``<project>:local`` tags a host builds for itself.
+
+    The registry is returned already shaped as a *prefix* — trailing slash when
+    there is one, empty string when there is not — so every caller concatenates
+    rather than re-deriving whether a separator is needed.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: The registry prefix and the tag, in that order.
+    :rtype: tuple[str, str]
+    :raises ValueError: If ``images`` is present but is not a block of keys, or
+        if ``images.registry`` / ``images.tag`` declares something no image
+        reference can carry — a list, a mapping, a boolean.
+    """
+    images = config.get("images")
+    if images is None:
+        images = {}
+    if not isinstance(images, dict):
+        raise ValueError(
+            f"images must be a block of axis keys, got {type(images).__name__} "
+            f"({images!r}). Spell the axes as 'images.registry' and 'images.tag'."
+        )
+    registry = _image_axis("OSPREY_IMAGE_REGISTRY", "images.registry", images.get("registry"), "")
+    tag = _image_axis("OSPREY_IMAGE_TAG", "images.tag", images.get("tag"), DEFAULT_IMAGE_TAG)
+    return (f"{registry.rstrip('/')}/" if registry else ""), tag
+
+
+def resolve_image_defaults(config):
+    """Every OSPREY-built image's default reference, keyed as in the suffix map.
+
+    This is the INNERMOST of three layers, and the only one the axes reach. A
+    compose-time ``${OSPREY_<SVC>_IMAGE}`` still wins over everything, and a
+    profile that pinned ``services.<svc>.image`` still wins over what is
+    returned here — a deployment that named an image outright is naming a
+    complete reference, which no stack-wide prefix or tag may edit.
+
+    Derived once for the whole render rather than per template, so the eight
+    images cannot drift onto different tags, and exposed as a function so the
+    lifecycle code that has to predict the worker's tag before compose runs
+    reads the same answer instead of restating the rule.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: Image reference per :data:`_OSPREY_IMAGE_SUFFIXES` key.
+    :rtype: dict[str, str]
+    """
+    prefix, tag = resolve_image_axes(config)
+    project_name = resolve_project_name(config)
+    return {
+        key: f"{prefix}{project_name}{suffix}:{tag}"
+        for key, suffix in _OSPREY_IMAGE_SUFFIXES.items()
+    }
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -729,11 +884,13 @@ def _inject_project_metadata(config):
     The project name is extracted via :func:`resolve_project_name` (explicit
     ``project_name`` > last component of ``project_root`` > ``unnamed-project``).
 
-    It also defaults the dispatch worker's image to ``<project>:local`` — the
-    tag ``osprey up`` builds from the project ``Dockerfile`` — unless the
+    It also injects the default image reference of every OSPREY-built service
+    (:func:`resolve_image_defaults`), and defaults the dispatch worker's image
+    to its entry — ``<project>:local`` until the registry or tag axis moves it,
+    the tag ``osprey up`` builds from the project ``Dockerfile`` — unless the
     profile pinned an explicit ``services.dispatch_worker.image``. The
-    event-dispatcher is left untouched (it builds ``<project>-dispatch:local``
-    via its own compose ``build:`` block; the worker deliberately has none).
+    event-dispatcher's own image is left to its template (it builds its tag via
+    a compose ``build:`` block; the worker deliberately has none).
 
     :param config: Configuration dictionary
     :type config: dict
@@ -877,20 +1034,27 @@ def _inject_project_metadata(config):
     # derived key here; templates that do not name it are unaffected.
     config_with_labels["osprey_qmd"] = _resolve_qmd_render_context(config, repo_root)
 
+    # What each OSPREY-built service falls back to when nothing named its image,
+    # with the registry and tag axes already applied
+    # (:func:`resolve_image_defaults`). Injected as one mapping so the eight
+    # image lines read a value rather than each restating how a name is built,
+    # and so a stack cannot end up half on the registry and half on ``:local``.
+    config_with_labels["osprey_images"] = image_defaults = resolve_image_defaults(config)
+
     # Default the dispatch worker's image to the project image that
-    # ``osprey up`` builds (``<project>:local``). The worker compose
-    # template renders ``${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image
-    # | default(osprey_labels.project_name ~ ':local') }}}`` — the template-level
-    # fallback now matches this same project image, so this setdefault and the
-    # template agree even when it cannot fire (e.g. a null ``dispatch_worker:``
-    # key). ``setdefault`` honors a profile that pinned its own image. Copy the
+    # ``osprey up`` builds. The worker compose template renders
+    # ``${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image
+    # | default(osprey_images.worker) }}}`` — the template-level fallback is
+    # this same value, so this setdefault and the template agree even when it
+    # cannot fire (e.g. a null ``dispatch_worker:`` key), axes set or not.
+    # ``setdefault`` honors a profile that pinned its own image. Copy the
     # nested dicts we touch so the shared input config is never mutated (the
     # top-level copy() above is shallow).
     services = config_with_labels.get("services")
     if isinstance(services, dict) and isinstance(services.get("dispatch_worker"), dict):
         services = dict(services)
         worker_cfg = dict(services["dispatch_worker"])
-        worker_cfg.setdefault("image", f"{project_name}:local")
+        worker_cfg.setdefault("image", image_defaults["worker"])
         services["dispatch_worker"] = worker_cfg
         config_with_labels["services"] = services
 

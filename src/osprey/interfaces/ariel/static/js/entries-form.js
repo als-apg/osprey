@@ -183,7 +183,7 @@ export function initEntryTags() {
  */
 function createAttachmentIcon() {
   const icon = document.createElement('div');
-  icon.style.cssText = 'font-size: 32px; margin: 8px 0;';
+  icon.style.cssText = 'font-size: var(--text-4xl); margin: 8px 0;';
   icon.textContent = '\u{1F4CE}';
   return icon;
 }
@@ -235,7 +235,7 @@ export function handleFilePreview(e) {
     let media;
     if (file.type.startsWith('image/')) {
       const img = document.createElement('img');
-      img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: 4px;';
+      img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: var(--radius-md);';
       img.src = URL.createObjectURL(file);
       img.onload = () => URL.revokeObjectURL(img.src);
       media = img;
@@ -340,7 +340,7 @@ export async function loadDraft(draftId) {
           const isImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
           if (isImage) {
             const img = document.createElement('img');
-            img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: 4px;';
+            img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: var(--radius-md);';
             img.src = url;
             img.alt = filename;
             media = img;
@@ -366,7 +366,7 @@ export async function loadDraft(draftId) {
       banner.className = 'text-muted';
       banner.dataset.draftId = draftId;
       banner.style.cssText =
-        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--color-accent-secondary); font-size: 0.85rem;';
+        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--color-accent-secondary); font-size: var(--text-xl);';
       banner.textContent = 'Draft loaded from Claude — review and submit';
       form.prepend(banner);
     }

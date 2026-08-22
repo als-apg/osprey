@@ -320,3 +320,28 @@ class TestAppLifecycle:
         assert calls["host"] == "127.0.0.1"
         assert calls["port"] == 59999
         assert calls["app"].title == "OSPREY Artifact Gallery"
+
+
+class TestIndexPlotlyVendorMeta:
+    """GET / carries the resolved Plotly URL for timeseries.js's lazy loader.
+
+    Plotly is the one vendor asset loaded lazily from JS rather than from a
+    template tag, so it cannot call the ``vendor_url`` Jinja global itself —
+    index.html hands it the resolved URL in a meta tag instead. Without the
+    tag, online (CDN-mode) deployments request the never-vendored local path,
+    404, and every timeseries preview dies with "Failed to load Plotly".
+    """
+
+    def test_online_mode_carries_the_cdn_url(self, app_client, monkeypatch):
+        from osprey.interfaces.vendor import asset_cdn_url
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        client, _ = app_client
+        html = client.get("/").text
+        assert f'name="osprey-vendor-plotly" content="{asset_cdn_url("Plotly.js")}"' in html
+
+    def test_offline_mode_carries_the_vendored_path(self, app_client, monkeypatch):
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        client, _ = app_client
+        html = client.get("/").text
+        assert 'name="osprey-vendor-plotly" content="/static/js/vendor/plotly-3.3.1.min.js"' in html

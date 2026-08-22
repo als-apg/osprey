@@ -94,9 +94,10 @@ def recording_console(*, width: int = 100, terminal: bool = True) -> tuple[Conso
     """A themed terminal console that records everything written to it.
 
     ``force_terminal`` is what makes a ``Live`` real: off a terminal Rich skips
-    the repaint entirely. The theme is not optional either -- the primitives'
-    styles are semantic tokens, and a bare ``Console()`` raises ``MissingStyle``
-    on the first one.
+    the repaint entirely. Explicit color settings keep ANSI output independent
+    of ``NO_COLOR`` and ``TERM``. The theme is not optional either -- the
+    primitives' styles are semantic tokens, and a bare ``Console()`` raises
+    ``MissingStyle`` on the first one.
 
     ``width`` is for the tests that are about layout rather than about words:
     the ledger folds its values at the console's width, so pinning that fold
@@ -104,7 +105,14 @@ def recording_console(*, width: int = 100, terminal: bool = True) -> tuple[Conso
     """
     buffer = io.StringIO()
     return (
-        Console(file=buffer, theme=osprey_theme, force_terminal=terminal, width=width),
+        Console(
+            file=buffer,
+            theme=osprey_theme,
+            force_terminal=terminal,
+            color_system="standard",
+            no_color=False,
+            width=width,
+        ),
         buffer,
     )
 

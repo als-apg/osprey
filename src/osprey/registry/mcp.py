@@ -229,7 +229,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "create_interactive_plot",
             "create_dashboard",
             "create_document",
-            "artifact_save",
+            "artifact_register",
             "artifact_delete",
             "artifact_delete_all",
             "provenance_locator",
@@ -329,6 +329,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             bsky.LIST_RUNS,
             bsky.GET_RUN_DATA,
             bsky.GET_RUN_FIGURE,
+            bsky.GET_PLAN_SOURCE,
             # Draft tools never touch hardware — editing the shared
             # plan draft only stages what a future queue_add or in-panel
             # Add-to-queue click might queue, so like the read tools above they need no approval

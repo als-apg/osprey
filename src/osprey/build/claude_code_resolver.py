@@ -520,6 +520,11 @@ class ClaudeCodeModelSpec:
         default_model_tier: Default model tier for settings.json ``model`` key.
             Always a canonical tier, even when ``claude_code.default_model``
             named a concrete model ID — see :func:`_resolve_default_tier`.
+        default_model_id: The verbatim ``claude_code.default_model`` value when
+            it named a model ID outside the tier map (it is what
+            ``ANTHROPIC_MODEL`` carries); ``None`` whenever the default
+            resolved through a tier. Consumers wanting the effective default
+            model read ``default_model_id or tier_to_model[default_model_tier]``.
         shell_exports: Shell export lines the user must add to their profile
             (e.g. ``export ANTHROPIC_AUTH_TOKEN="$CBORG_API_KEY"``).
     """
@@ -529,6 +534,7 @@ class ClaudeCodeModelSpec:
     tier_to_model: dict[str, str] = field(default_factory=dict)
     agent_overrides: dict[str, str] = field(default_factory=dict)
     default_model_tier: str = "sonnet"
+    default_model_id: str | None = None
     shell_exports: tuple[str, ...] = ()
     auth_env_var: str = ""
     auth_secret_env: str = ""
@@ -571,53 +577,70 @@ class ClaudeCodeModelSpec:
         return conflicts
 
 
+def _warn_dropped_tier_keys(source: str, models: Mapping[str, Any]) -> None:
+    """Warn when a ``models:`` map carries keys that are not canonical tiers.
+
+    The keys are still dropped — only haiku/sonnet/opus reach the env block —
+    but dropping them silently turns a typo like ``sonet:`` into a tier that
+    quietly falls back to another model. Name the dropped keys instead.
+    """
+    dropped = [key for key in models if key not in VALID_TIERS]
+    if dropped:
+        logger.warning(
+            "%s: ignoring non-tier key(s) %s — only the canonical tiers (%s) are used.",
+            source,
+            ", ".join(str(key) for key in dropped),
+            ", ".join(TIER_MODEL_ENV_VARS),
+        )
+
+
 def _resolve_default_tier(
     configured: str | None,
     provider_name: str,
     provider_default_tier: str,
     tier_to_model: dict[str, str],
-) -> str:
-    """Resolve ``claude_code.default_model`` to a canonical tier — or refuse.
+) -> tuple[str, str | None]:
+    """Resolve ``claude_code.default_model`` to a tier plus an optional raw ID.
 
-    Three branches, no silent fallback:
+    Four branches, none refusing:
 
     1. Unset → the provider's own default tier.
     2. A canonical tier name (``haiku``/``sonnet``/``opus``) → that tier.
     3. An explicit model ID that the effective provider map actually serves →
        the tier carrying it, so ``ANTHROPIC_MODEL`` ends up as exactly the ID
        the operator wrote.
+    4. Any other model ID → passed through verbatim as the second element.
+       The provider is trusted to serve it: refusing here would keep every
+       model the tier map does not name — a newly released ID, a gateway-only
+       alias — unusable until the map caught up. A misspelt ID therefore
+       fails at the provider (a 404 naming the ID), not at resolution.
 
-    Anything else raises. The prior behaviour quietly substituted the
-    provider's default tier, so a config naming Opus could run Haiku with no
-    log line — the wrong failure mode for a framework driving control systems.
-
-    Returning a tier (rather than the raw ID) keeps
+    Returning a tier as the first element keeps
     :attr:`ClaudeCodeModelSpec.default_model_tier` a valid key into
-    ``tier_to_model`` for every consumer that indexes it.
+    ``tier_to_model`` for every consumer that indexes it; in branch 4 that
+    tier is the provider's default, and the verbatim ID travels separately in
+    :attr:`ClaudeCodeModelSpec.default_model_id`.
 
-    Raises:
-        ValueError: The value is neither a tier nor a model ID the provider
-            serves. The message names the key, the tiers, and the IDs.
+    Returns:
+        ``(tier, model_id)`` — ``model_id`` is ``None`` except in branch 4,
+        where it is the ID that must become ``ANTHROPIC_MODEL``.
     """
     if configured is None:
-        return provider_default_tier
+        return provider_default_tier, None
     if configured in VALID_TIERS:
-        return configured
+        return configured, None
     # Iterate the canonical tier order so a provider that maps two tiers to the
     # same model ID still resolves deterministically.
     for tier in TIER_MODEL_ENV_VARS:
         if tier_to_model.get(tier) == configured:
-            return tier
-
-    served = ", ".join(f"{tier}={tier_to_model[tier]}" for tier in TIER_MODEL_ENV_VARS)
-    raise ValueError(
-        f"claude_code.default_model: '{configured}' is neither a model tier nor a "
-        f"model ID served by provider '{provider_name}'. "
-        f"Valid tiers: {', '.join(TIER_MODEL_ENV_VARS)}. "
-        f"Model IDs for '{provider_name}': {served}. "
-        f"Set claude_code.default_model to one of those, or add the model ID to "
-        f"api.providers.{provider_name}.models in config.yml."
+            return tier, None
+    logger.info(
+        "claude_code.default_model: %r is not a tier and not in provider %r's "
+        "tier map — passing it through verbatim as ANTHROPIC_MODEL.",
+        configured,
+        provider_name,
     )
+    return provider_default_tier, configured
 
 
 class ClaudeCodeModelResolver:
@@ -657,12 +680,14 @@ class ClaudeCodeModelResolver:
         into the artifact. The trailing ``/v1`` is stripped for
         ``ANTHROPIC_BASE_URL`` either way (see below).
 
-        A provider that leaves a tier unmapped by all three sources is refused
-        — the framework will not substitute another provider's model IDs.
+        A tier that all three sources leave unmapped falls back to the
+        resolved default model, with a warning naming each substitution — the
+        framework never substitutes another provider's model IDs. Only a
+        provider with no models *and* no default model at all is refused.
 
-        ``claude_code.default_model`` accepts a canonical tier or a model ID
-        the resolved provider actually serves; anything else is refused rather
-        than silently downgraded (see :func:`_resolve_default_tier`).
+        ``claude_code.default_model`` accepts a canonical tier or any model
+        ID; an ID outside the provider's tier map is passed through verbatim
+        as ``ANTHROPIC_MODEL`` (see :func:`_resolve_default_tier`).
 
         Args:
             claude_code_config: The ``claude_code`` section of config.yml.
@@ -679,9 +704,8 @@ class ClaudeCodeModelResolver:
 
         Raises:
             ValueError: If the provider name is not in CLAUDE_CODE_PROVIDERS
-                and not in api_providers, if the provider leaves any tier
-                unmapped, or if ``default_model`` names neither a tier nor one
-                of the provider's model IDs.
+                and not in api_providers, or if the provider maps no models
+                and no ``default_model`` is set to fall back on.
         """
         provider_name = claude_code_config.get("provider")
         if not provider_name:
@@ -696,7 +720,9 @@ class ClaudeCodeModelResolver:
                 raise ValueError(
                     f"Unknown Claude Code provider '{provider_name}'. "
                     f"Built-in providers: {supported}. "
-                    f"To use a custom provider, add it to api.providers in config.yml."
+                    f"To use a custom provider, add it under `config:` api.providers "
+                    f"in profile.yml and run `osprey build` (config.yml is generated "
+                    f"from profile.yml)."
                 )
             provider_def: dict[str, Any] = {
                 "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
@@ -742,42 +768,80 @@ class ClaudeCodeModelResolver:
         # Override with models defined in api.providers[name].models
         # This is the authoritative source: providers own their model naming.
         provider_api_models = api_providers.get(provider_name, {}).get("models", {})
+        _warn_dropped_tier_keys(f"api.providers.{provider_name}.models", provider_api_models)
         for tier, model_id in provider_api_models.items():
             if tier in VALID_TIERS:
                 tier_to_model[tier] = model_id
 
         # Apply explicit per-tier overrides from claude_code.models
         model_overrides = claude_code_config.get("models", {})
+        _warn_dropped_tier_keys("claude_code.models", model_overrides or {})
         for tier, model_id in (model_overrides or {}).items():
             if tier in VALID_TIERS:
                 tier_to_model[tier] = model_id
 
-        # Every tier must resolve to a model ID the *configured* provider
-        # actually serves. Never fill a missing tier with Anthropic's own direct
-        # IDs: a proxy that ships no map would launch the agent asking it for
-        # "claude-opus-4-6" — a 404 if the proxy is strict, and silently the
-        # wrong model if it is not. Refuse instead, before the env block or the
-        # default tier are built from the map.
+        # ── Default model ────────────────────────────────────────
+        # Resolved before the tier map is completed: the default model is the
+        # fallback that fills any unmapped tier below.
+        default_tier, default_model_id = _resolve_default_tier(
+            claude_code_config.get("default_model"),
+            provider_name,
+            provider_def["default_model_tier"],
+            tier_to_model,
+        )
+
+        # A tier no source maps falls back to the resolved default model — with
+        # a warning that names every substitution. Never fill a missing tier
+        # with Anthropic's own direct IDs: a proxy that ships no map would
+        # launch the agent asking it for "claude-opus-4-6" — a 404 if the proxy
+        # is strict, and silently the wrong model if it is not (#350/#357). The
+        # default model is the one ID the operator chose for this provider, so
+        # it is the only defensible substitute; the warning keeps the
+        # substitution from being silent. Refusal remains only for the case
+        # with nothing to fall back to: no map and no default model at all.
         missing = [tier for tier in TIER_MODEL_ENV_VARS if tier not in tier_to_model]
         if missing:
-            problem = (
-                "defines no models mapping"
-                if len(missing) == len(TIER_MODEL_ENV_VARS)
-                else f"defines no model for tier(s): {', '.join(missing)}"
+            fallback_model = default_model_id or tier_to_model.get(default_tier)
+            if fallback_model is None:
+                # Default tier itself unmapped: first mapped tier, canonical order.
+                fallback_model = next(
+                    (tier_to_model[t] for t in TIER_MODEL_ENV_VARS if t in tier_to_model),
+                    None,
+                )
+            if fallback_model is None:
+                raise ValueError(
+                    f"Provider '{provider_name}' defines no models mapping. Claude Code "
+                    f"needs one model ID per tier ({', '.join(TIER_MODEL_ENV_VARS)}). "
+                    f"Add them under api.providers.{provider_name}.models — under "
+                    f"`config:` in profile.yml for profile-built projects, then run "
+                    f"`osprey build`:\n"
+                    f"  api:\n"
+                    f"    providers:\n"
+                    f"      {provider_name}:\n"
+                    f"        models:\n"
+                    f"          haiku: <fast model ID as this provider names it>\n"
+                    f"          sonnet: <balanced model ID>\n"
+                    f"          opus: <most capable model ID>\n"
+                    f"Individual tiers can also be set under claude_code.models, or set "
+                    f"claude_code.default_model to a model ID the provider serves."
+                )
+            substitutions = "\n".join(
+                f"    {tier} -> {fallback_model}  ({TIER_MODEL_ENV_VARS[tier]})" for tier in missing
             )
-            raise ValueError(
-                f"Provider '{provider_name}' {problem}. Claude Code needs one model "
-                f"ID per tier ({', '.join(TIER_MODEL_ENV_VARS)}). "
-                f"Add them under api.providers.{provider_name}.models in config.yml:\n"
-                f"  api:\n"
-                f"    providers:\n"
-                f"      {provider_name}:\n"
-                f"        models:\n"
-                f"          haiku: <fast model ID as this provider names it>\n"
-                f"          sonnet: <balanced model ID>\n"
-                f"          opus: <most capable model ID>\n"
-                f"Individual tiers can also be set under claude_code.models."
+            logger.warning(
+                "Provider '%s' defines no model for tier(s): %s.\n"
+                "Each unmapped tier falls back to the default model:\n%s\n"
+                "Every agent pinned to a tier listed above will run '%s', NOT a "
+                "tier-appropriate model. If that is not intended, map the tier(s) "
+                "under api.providers.%s.models and rebuild.",
+                provider_name,
+                ", ".join(missing),
+                substitutions,
+                fallback_model,
+                provider_name,
             )
+            for tier in missing:
+                tier_to_model[tier] = fallback_model
 
         # ── Build env block (literals only — no ${VAR} refs) ────
         # Claude Code's settings.json env block does NOT expand
@@ -799,7 +863,7 @@ class ClaudeCodeModelResolver:
         # Tier model env vars (all providers) — derived from the single
         # TIER_MODEL_ENV_VARS declaration so this key set can never drift from
         # the e2e-force and scrub-agreement paths (#357). tier_to_model is known
-        # to carry all three tiers (the completeness check above), and the map's
+        # to carry all three tiers (the fallback fill above), and the map's
         # insertion order is haiku→sonnet→opus, so both the key set and the
         # insertion order are byte-identical to the prior literal block.
         for tier, env_var in TIER_MODEL_ENV_VARS.items():
@@ -815,17 +879,11 @@ class ClaudeCodeModelResolver:
             # Proxy provider (e.g. cborg): alias one var to another
             shell_exports = (f'export {auth_env_var}="${auth_secret_env}"',)
 
-        # ── Default model tier ───────────────────────────────────
-        default_tier = _resolve_default_tier(
-            claude_code_config.get("default_model"),
-            provider_name,
-            provider_def["default_model_tier"],
-            tier_to_model,
-        )
-
-        # ANTHROPIC_MODEL: override any shell-level value so the
-        # project's chosen tier is authoritative.
-        env_block["ANTHROPIC_MODEL"] = tier_to_model[default_tier]
+        # ANTHROPIC_MODEL: override any shell-level value so the project's
+        # chosen model is authoritative. A free-form default_model (an ID
+        # outside the tier map) passes through verbatim; otherwise the
+        # resolved default tier's ID is used.
+        env_block["ANTHROPIC_MODEL"] = default_model_id or tier_to_model[default_tier]
 
         # ── Agent overrides ──────────────────────────────────────
         agent_overrides = dict(claude_code_config.get("agent_models", {}) or {})
@@ -866,6 +924,7 @@ class ClaudeCodeModelResolver:
             tier_to_model=tier_to_model,
             agent_overrides=agent_overrides,
             default_model_tier=default_tier,
+            default_model_id=default_model_id,
             shell_exports=tuple(shell_exports),
             auth_env_var=auth_env_var,
             auth_secret_env=auth_secret_env,

@@ -41,6 +41,11 @@
   <link rel="stylesheet" href="{{ vendor_url('KaTeX CSS', '/static/css/vendor/katex.min.css') }}">
   <script defer src="{{ vendor_url('KaTeX JS', '/static/js/vendor/katex.min.js') }}"></script>
 
+  <!-- Plotly (timeseries charts) is lazy-loaded from JS (timeseries.js), which
+       cannot call the vendor_url() template global — the resolved URL rides
+       along here instead. -->
+  <meta name="osprey-vendor-plotly" content="{{ vendor_url('Plotly.js', '/static/js/vendor/plotly-3.3.1.min.js') }}">
+
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/static/css/gallery.css">
 
