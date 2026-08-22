@@ -19,6 +19,11 @@ import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig, SearchModuleConfig
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
+from osprey.services.ariel_search.search.base import (
+    ExpansionGroup,
+    ModuleOutput,
+    QueryExpansion,
+)
 from osprey.services.ariel_search.search.qmd import (
     ARIEL_COLLECTION,
     DEFAULT_CANDIDATE_LIMIT,
@@ -822,3 +827,130 @@ class TestServiceDispatch:
         )
 
         assert client.calls
+
+
+# --------------------------------------------------------------------------
+# Vocabulary expansion
+# --------------------------------------------------------------------------
+
+
+AMBIGUOUS_GROUPS = (ExpansionGroup(original="ts", alternatives=("troubleshoot", "timing system")),)
+AMBIGUOUS_EXPANSION = QueryExpansion(
+    groups=AMBIGUOUS_GROUPS,
+    flattened_text="ts fault troubleshoot timing system",
+)
+
+
+class TestVocabularyExpansion:
+    """What the sidecar is sent, and what comes back, when expansion is active.
+
+    Hybrid search matches on the whole query, so expansion is one substitution:
+    the sidecar — and therefore its reranker — sees the flattened text instead
+    of the raw query. Nothing is truncated on the way.
+    """
+
+    @pytest.mark.asyncio
+    async def test_flattened_text_reaches_the_sidecar(self):
+        client = StubClient([])
+
+        await hybrid_search(
+            "ts fault",
+            StubRepository([]),
+            make_config(),
+            client=client,
+            query_expansion=AMBIGUOUS_EXPANSION,
+        )
+
+        assert client.calls[0]["text"] == "ts fault troubleshoot timing system"
+
+    @pytest.mark.asyncio
+    async def test_raw_query_reaches_the_sidecar_without_expansion(self):
+        """Without an expansion the call is byte-identical to today's."""
+        client = StubClient([])
+
+        await hybrid_search("ts fault", StubRepository([]), make_config(), client=client)
+
+        assert client.calls[0]["text"] == "ts fault"
+
+    @pytest.mark.asyncio
+    async def test_long_query_is_not_truncated(self):
+        """The 1000-char cap is keyword-only; hybrid queries go whole."""
+        client = StubClient([])
+        query = "beam loss " * 120  # 1200 characters
+
+        await hybrid_search(query, StubRepository([]), make_config(), client=client)
+
+        assert client.calls[0]["text"] == query
+
+    @pytest.mark.asyncio
+    async def test_without_expansion_a_bare_list_is_returned(self):
+        """Direct callers keep the list they have always received."""
+        client = StubClient([make_hit("1")])
+        repo = StubRepository([make_entry("1")])
+
+        results = await hybrid_search("beam", repo, make_config(), client=client)
+
+        assert isinstance(results, list)
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_with_expansion_a_module_output_carries_the_groups(self):
+        client = StubClient([make_hit("1")])
+        repo = StubRepository([make_entry("1")])
+
+        result = await hybrid_search(
+            "ts fault",
+            repo,
+            make_config(),
+            client=client,
+            query_expansion=AMBIGUOUS_EXPANSION,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert result.expansion == AMBIGUOUS_GROUPS
+        assert result.diagnostics == ()
+        ((entry, score, snippets),) = result.entries
+        assert entry["entry_id"] == "1"
+        assert isinstance(score, float)
+        assert isinstance(snippets, list)
+
+    @pytest.mark.asyncio
+    async def test_zero_hit_path_keeps_the_shape(self):
+        """A query the sidecar answers with nothing still answers in shape."""
+        client = StubClient([])
+
+        result = await hybrid_search(
+            "ts fault",
+            StubRepository([]),
+            make_config(),
+            client=client,
+            query_expansion=AMBIGUOUS_EXPANSION,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert result.entries == []
+
+    @pytest.mark.asyncio
+    async def test_blank_query_keeps_the_shape_without_reaching_the_sidecar(self):
+        client = StubClient([])
+
+        result = await hybrid_search(
+            "   ",
+            StubRepository([]),
+            make_config(),
+            client=client,
+            query_expansion=AMBIGUOUS_EXPANSION,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert result.entries == []
+        assert client.calls == []
+
+    def test_descriptor_opts_into_expansion(self):
+        descriptor = get_tool_descriptor()
+
+        assert descriptor.accepts_expansion is True
+
+    def test_descriptor_declares_no_query_parser(self):
+        """Hybrid search matches whole text — there is nothing to parse."""
+        assert get_tool_descriptor().query_parser is None

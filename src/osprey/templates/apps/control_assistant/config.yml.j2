@@ -854,6 +854,60 @@ ariel:
   # where that module is enabled and `keyword` everywhere else.
   default_search_mode: hybrid
 
+  # Facility vocabulary: the shorthand operators type ("t/s the bpm offset"),
+  # mapped to the words the logbook prose actually contains ("troubleshoot",
+  # "beam position monitor"). Stemming cannot bridge those two spellings, so
+  # without this file a search in control-room shorthand misses the entries
+  # that describe exactly what it asked about. Expansion is plain dictionary
+  # matching — no model, no network call — and every rewrite is reported back
+  # as `expanded_terms`, so a surprising hit always arrives with its reason.
+  #
+  # This project ships a twenty-concept EXAMPLE at the path below, covering
+  # what most storage-ring facilities share (the orbit and ring group is
+  # storage-ring-specific — a linac or FEL should delete it first). It is a
+  # starting point, not your vocabulary: edit it, and validate every edit
+  # with
+  #   osprey ariel vocab-check data/ariel/vocabulary.yml
+  #
+  # The file is read ONCE, when this config is parsed — not lazily on the first
+  # search — so a broken file is a startup-time failure, loudly: the ARIEL
+  # panel comes up in CONFIGURATION INVALID mode with the errors and the fix on
+  # screen and the search form disabled, search returns 503 naming
+  # `ariel.vocabulary.path`, and the MCP server refuses to start. Browse,
+  # entries, status and publishing keep working. The recovery is either switch
+  # `enabled` to false or repoint `path`, then restart — and if the file is
+  # baked into a deployed persona image, fix the source and rebuild.
+  vocabulary:
+    enabled: true
+
+    # Resolved against the directory holding this file, like every other
+    # config-relative path here (`qmd_export.mirror_path` and
+    # `facility_knowledge.bundle_path` follow the same rule).
+    path: data/ariel/vocabulary.yml
+
+    # Whether a search that expresses no preference gets expansion. Shipped
+    # explicitly rather than left to its default, because the per-request
+    # `expand_query` argument overrides it in both directions and an operator
+    # reading this file should be able to see which way the default falls.
+    expand_by_default: true
+
+    # The two direction gates, deliberately asymmetric. Matching a form and
+    # adding its canonical is always on (`bpm` finds "beam position monitor").
+    # These control the REVERSE: spelling a canonical out and also searching
+    # the short form. For an acronym that is free recall — an initialism means
+    # one thing. For ordinary words it is not: expanding "calibration" into
+    # "cal" drags in far more noise than it recovers.
+    canonical_to_acronym: true
+    canonical_to_shorthand: false
+
+    # No `expand_modes` key: unset means every enabled search module expands,
+    # which is what a facility wants until proven otherwise, and a shipped list
+    # would rot the moment a module is toggled. The key exists as one specific
+    # knob — hybrid search feeds the expanded query to the qmd sidecar's LLM
+    # reranker, so a facility whose reranked ordering degrades under expansion
+    # sets `expand_modes: [keyword, semantic]` here to drop `hybrid` alone
+    # without giving up expansion everywhere else.
+
   # Search modules (leaf-level search functions)
   # provider: references api.providers for credentials (api_key, base_url)
   # Both keyword and semantic are enabled by default.
@@ -872,6 +926,29 @@ ariel:
   search_modules:
     keyword:
       enabled: true
+      # These knobs MUST stay under `settings:`. The search-config loader keeps
+      # only `enabled`, `provider`, `model` and `settings` and drops every
+      # other key without a word, so a knob written as a sibling of `enabled`
+      # is silently inert — no error, no warning, just the defaults forever.
+      settings:
+        # Pattern tokens in a keyword query: `*` globs (`SR01C___BPM*`, with
+        # `?` as a single-character wildcard inside a glob) and explicit
+        # `/regex/` tokens, run as case-insensitive matches against the entry
+        # text — a glob is additionally anchored to word boundaries, an
+        # explicit `/regex/` is matched exactly as written. Both need at
+        # least 3 consecutive literal characters to be indexable; below that
+        # the token is searched as ordinary text and the search says so in
+        # its diagnostics. Set false to make `*` and `/…/` plain words again
+        # — the escape hatch for a logbook whose prose is full of literal
+        # asterisks.
+        patterns_enabled: true
+        # The wall-clock envelope a pattern search runs under. Applied only to
+        # a query that actually emitted a pattern predicate, so an ordinary
+        # keyword search is untouched by it. A pattern that cannot use the
+        # index scans the whole logbook, and this is what stops that from
+        # holding the panel open; the search returns a timeout diagnostic
+        # rather than nothing, so the agent can tell "too slow" from "no hits".
+        pattern_timeout_seconds: 10.0
     semantic:
       enabled: true      # Degrades gracefully if Ollama/pgvector unavailable
       provider: ollama    # References api.providers.ollama

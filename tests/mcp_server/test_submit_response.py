@@ -236,3 +236,40 @@ class TestSubmitResponse:
         _exc_ctx["envelope"]
         store = get_artifact_store()
         assert len(store.list_entries()) == 0
+
+    @pytest.mark.asyncio
+    async def test_narrative_does_not_claim_a_domain_category(self, workspace):
+        """The prose artifact must not land in a domain results category.
+
+        pyat-specialist saves its computed quantities as JSON under
+        ``category="lattice_analysis"``. If this markdown claimed the same key,
+        that category would stop identifying structured results and the agent's
+        own verification step could not tell the two apart.
+        """
+        raw = await _fn(
+            title="AR Optics Summary",
+            content="Tunes and beta functions computed from the design lattice.",
+            source_agent="pyat-specialist",
+        )
+        data = extract_response_dict(raw)
+
+        entry = get_artifact_store().get_entry(data["artifact_id"])
+        assert entry is not None
+        assert entry.artifact_type == "markdown"
+        assert entry.category != "lattice_analysis"
+        assert entry.category == "agent_response"
+
+    @pytest.mark.asyncio
+    async def test_explicit_data_type_drives_the_category(self, workspace):
+        """An explicit data_type is the category — the agent name never overrides it."""
+        raw = await _fn(
+            title="BPM Channel Addresses",
+            content="Found 12 BPM channels.",
+            data_type="channel_addresses",
+            source_agent="channel-finder",
+        )
+        data = extract_response_dict(raw)
+
+        entry = get_artifact_store().get_entry(data["artifact_id"])
+        assert entry is not None
+        assert entry.category == "channel_addresses"

@@ -4,7 +4,14 @@ This module provides keyword, semantic, hybrid (qmd-sidecar-backed), and SQL
 search implementations for the ARIEL search service.
 """
 
-from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from osprey.services.ariel_search.search.base import (
+    ExpansionGroup,
+    ModuleOutput,
+    ParsedKeywordQuery,
+    PatternSpan,
+    QueryExpansion,
+    SearchToolDescriptor,
+)
 from osprey.services.ariel_search.search.keyword import (
     ALLOWED_FIELD_PREFIXES,
     ALLOWED_OPERATORS,
@@ -12,6 +19,7 @@ from osprey.services.ariel_search.search.keyword import (
     KeywordSearchInput,
     format_keyword_result,
     keyword_search,
+    parse_keyword_query,
     parse_query,
 )
 from osprey.services.ariel_search.search.qmd import (
@@ -54,4 +62,10 @@ __all__ = [
     "semantic_search",
     "sql_query",
     "validate_sql_query",
+    "ExpansionGroup",
+    "ModuleOutput",
+    "ParsedKeywordQuery",
+    "PatternSpan",
+    "QueryExpansion",
+    "parse_keyword_query",
 ]
