@@ -988,6 +988,7 @@ OSPREY_AUTH_PW_BOB=bob
 # DISPATCH_WORKER_TOKEN=  # event_dispatcher, dispatch_worker — authenticates the dispatch worker back to the dispatcher
 # BLUESKY_LAUNCH_TOKEN=  # bluesky — arms the Bluesky bridge's plan-launch endpoint
 # BLUESKY_TILED_API_KEY=  # bluesky — the key the bridge presents to the co-deployed Tiled catalog
+# OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
