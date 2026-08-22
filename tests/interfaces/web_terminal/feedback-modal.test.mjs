@@ -29,6 +29,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/palette.js', () =
 const {
   ARTIFACT_WINDOW_DISCLOSURE,
   CHANNEL_HINTS,
+  CONTEXT_PASTE_HINT,
   FEEDBACK_DISCLOSURE,
   FEEDBACK_DISCLOSURE_PARAGRAPHS,
   FeedbackModal,
@@ -493,6 +494,24 @@ describe('feedback modal state — context availability', () => {
   test('state: with a session the context box is enabled and unhinted', () => {
     openForm();
     expect(input('.feedback-context-check').disabled).toBe(false);
+    expect(qs(document, '.feedback-context-hint').textContent).toBe('');
+  });
+
+  test('state: ticking context on an outbound channel explains the paste step', () => {
+    openForm();
+    pickChannel('email');
+    setChecked(input('.feedback-context-check'), true);
+    expect(qs(document, '.feedback-context-hint').textContent).toBe(CONTEXT_PASTE_HINT);
+
+    pickChannel('github');
+    expect(qs(document, '.feedback-context-hint').textContent).toBe(CONTEXT_PASTE_HINT);
+
+    // Local sends the context inline with the record — nothing to paste.
+    pickChannel('local');
+    expect(qs(document, '.feedback-context-hint').textContent).toBe('');
+
+    pickChannel('email');
+    setChecked(input('.feedback-context-check'), false);
     expect(qs(document, '.feedback-context-hint').textContent).toBe('');
   });
 

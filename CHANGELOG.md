@@ -35,6 +35,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Feedback sent by GitHub or Email no longer arrives without its session
+  context because nobody knew about the paste step. The context travels by
+  clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:
+  ticking the context box on an outbound channel shows a paste hint, and the
+  post-send confirmation tells the sender the full report is on the clipboard.
+  The session id also rides inline in the prefilled body when context is
+  attached, so a message can be matched to the deployment's own record even
+  when the paste never happened.
+- The prefilled issue title / mail subject is no longer the first line of the
+  report text. It is now a stable "OSPREY feedback" title, suffixed with a
+  short session id when context is attached.
 - The web terminal now knows its own session id from the moment it opens.
   It previously waited for the session's transcript file to appear on disk,
   which only happens once the session has content — so a terminal left idle
