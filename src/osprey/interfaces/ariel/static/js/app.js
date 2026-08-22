@@ -98,7 +98,9 @@ async function init() {
       console.warn('Failed to fetch capabilities, using fallback:', e);
     }
 
-    initSearch();
+    // Search first, and with the payload: a degraded-configuration banner has
+    // to be on screen before anything else renders.
+    initSearch(capabilities);
     initEntries();
     initDashboard();
     initAdvancedOptions(capabilities);
