@@ -63,6 +63,36 @@ SHARED_PARAMETERS = [
 ]
 
 
+def shared_parameters(config: ARIELConfig) -> list[ParameterDescriptor]:
+    """Return the shared parameter descriptors for this configuration.
+
+    The five filter/limit descriptors are always present. ``expand_query`` is
+    appended only when a vocabulary is configured — a facility that ships no
+    vocabulary gets no toggle to click and no capability entry to explain.
+
+    Args:
+        config: ARIEL configuration.
+
+    Returns:
+        The shared descriptors, in advertised order.
+    """
+    parameters = [*SHARED_PARAMETERS]
+    if config.vocabulary.enabled:
+        parameters.append(
+            ParameterDescriptor(
+                name="expand_query",
+                label="Expand vocabulary",
+                description=(
+                    "Expand facility shorthand and acronyms using the configured vocabulary"
+                ),
+                param_type="bool",
+                default=config.vocabulary.expand_by_default,
+                section="General",
+            )
+        )
+    return parameters
+
+
 def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
     """Build the capabilities response for the frontend.
 
@@ -80,6 +110,7 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
             },
             "default_mode": "hybrid",
             "shared_parameters": [...],
+            "vocabulary": {"enabled": ..., "concepts": ..., "expand_by_default": ...},
         }
     """
     categories: dict[str, dict[str, Any]] = {
@@ -88,10 +119,16 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
 
     _add_search_modules(config, categories)
 
+    enabled = bool(config.vocabulary.enabled)
     return {
         "categories": categories,
         "default_mode": config.resolve_default_search_mode(),
-        "shared_parameters": [p.to_dict() for p in SHARED_PARAMETERS],
+        "shared_parameters": [p.to_dict() for p in shared_parameters(config)],
+        "vocabulary": {
+            "enabled": enabled,
+            "concepts": config.loaded_vocabulary.concept_count if config.loaded_vocabulary else 0,
+            "expand_by_default": config.vocabulary.expand_by_default if enabled else False,
+        },
     }
 
 
@@ -124,4 +161,4 @@ def _add_search_modules(
         )
 
 
-__all__ = ["SHARED_PARAMETERS", "get_capabilities"]
+__all__ = ["SHARED_PARAMETERS", "get_capabilities", "shared_parameters"]
