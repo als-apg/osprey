@@ -10,8 +10,13 @@ from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
-def _make_search_result(entries, reasoning="", sources=(), diagnostics=()):
-    """Build a mock ARIELSearchResult."""
+def _make_search_result(entries, reasoning="", sources=(), diagnostics=(), expanded_terms=()):
+    """Build a mock ARIELSearchResult.
+
+    ``expanded_terms`` is set explicitly on every result: a MagicMock
+    auto-attribute is neither iterable nor JSON-serializable, so leaving it
+    unset would fail the envelope build rather than the assertion under test.
+    """
     result = MagicMock()
     result.entries = tuple(entries)
     result.answer = None
@@ -19,6 +24,7 @@ def _make_search_result(entries, reasoning="", sources=(), diagnostics=()):
     result.sources = tuple(sources)
     result.search_modes_used = ("hybrid",)
     result.diagnostics = tuple(diagnostics)
+    result.expanded_terms = tuple(expanded_terms)
     result.pipeline_details = None
     return result
 
@@ -463,3 +469,104 @@ def test_tool_is_auto_allowed():
     ariel = FRAMEWORK_SERVERS["ariel"]
     assert "hybrid_search" in ariel.permissions_allow
     assert "hybrid_search" not in ariel.permissions_ask
+
+
+# --- vocabulary expansion ---------------------------------------------------
+
+TS_GROUP = {"original": "ts", "alternatives": ["troubleshoot", "timing system"]}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", [True, False])
+async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+    """An explicit expand_query reaches the service as an advanced parameter."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result([])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        await fn(query="ts bpm", expand_query=value)
+
+    assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
+
+
+@pytest.mark.unit
+async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
+    """Silence leaves the deployment's ``expand_by_default`` in charge."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result([])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        await fn(query="ts bpm")
+
+    assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
+
+
+@pytest.mark.unit
+async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
+    """The merged ranking reports the expansion both legs were run with."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result(
+        [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
+        expanded_terms=[TS_GROUP],
+    )
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        result = await fn(query="ts fault", expand_query=True)
+
+    data = extract_response_dict(result)
+    assert data["expanded_terms"] == [TS_GROUP]
+
+
+@pytest.mark.unit
+async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monkeypatch):
+    """A rejected pattern carries the mode's own source, but is not an outage.
+
+    ``_sidecar_fault`` matches on the source alone, so the category-specific
+    fault has to be checked first or a caller typo would send an operator to
+    look at a healthy sidecar.
+    """
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result(
+        [],
+        diagnostics=[
+            SearchDiagnostic(
+                level=DiagnosticLevel.ERROR,
+                source="service.hybrid",
+                message="invalid pattern 'SR0[1-4': brackets [] not balanced",
+                category="pattern",
+            )
+        ],
+        expanded_terms=[TS_GROUP],
+    )
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        with assert_raises_error(error_type="invalid_pattern") as _exc_ctx:
+            await fn(query="ts /SR0[1-4/")
+
+    data = _exc_ctx["envelope"]
+    assert "SR0[1-4" in data["error_message"]
+    assert data["details"]["expanded_terms"] == [TS_GROUP]
