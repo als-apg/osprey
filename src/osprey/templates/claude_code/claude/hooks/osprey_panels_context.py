@@ -48,6 +48,16 @@ Injects three independent pieces of session context as ``additionalContext``:
    is *unknown* rather than empty (see below) — an unobserved workspace is never
    described as an empty one.
 
+## Terminal-API authorization
+
+The ``GET /api/panels`` call carries ``Authorization: Bearer
+<OSPREY_PANEL_TOKEN>`` whenever that variable holds a non-blank value in the
+environment the hook inherits — the web terminal exports it into the agent it
+launches.  When it is unset, empty or whitespace-only the header is omitted
+entirely rather than sent blank, matching how the server-side
+``mcp_server.http._panel_auth_headers`` reads the same carrier.  Either way the call stays fail-open: a refused fetch (401
+included) drops the live-state parts and leaves the session unblocked.
+
 ## Workspace snapshot
 
 Besides the context lines, this hook seeds the *workspace snapshot* — the file
@@ -294,6 +304,34 @@ def _build_inventory(data):
     )
 
 
+def _panels_target(url):
+    """Build what ``urlopen`` should be handed for a terminal-API GET.
+
+    The web terminal exports ``OSPREY_PANEL_TOKEN`` into the environment of the
+    agent it launches, so a hook running under that agent inherits the token
+    without reading any file or importing anything.
+
+    Args:
+        url: Absolute URL of the terminal-API endpoint to fetch.
+
+    Returns:
+        A ``urllib.request.Request`` carrying ``Authorization: Bearer <token>``
+        when the variable holds a non-blank value; otherwise *url* unchanged,
+        so no ``Authorization`` header is sent at all. A blank bearer would be
+        a credential claim this hook cannot back, and the token being absent is
+        exactly the unauthenticated read every caller here already expected.
+        Whitespace-only counts as absent for the same reason the empty string
+        does — an uninterpolated compose variable arrives as ``""`` and a
+        hand-edited one can arrive as ``"   "`` — and it is how
+        ``mcp_server.http._panel_auth_headers`` reads the same carrier, so both
+        sides agree on what "no token" means.
+    """
+    token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
+    if not token:
+        return url
+    return urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+
+
 def main():
     try:
         ux_context = _build_ux_context(os.environ.get("OSPREY_WEB_UX"))
@@ -306,7 +344,7 @@ def main():
         inventory = None
         tile_line = None
         try:
-            req = urllib.request.urlopen(f"{base}/api/panels", timeout=2)
+            req = urllib.request.urlopen(_panels_target(f"{base}/api/panels"), timeout=2)
             data = json.loads(req.read())
             inventory = _build_inventory(data)
             state = _workspace_state(data)

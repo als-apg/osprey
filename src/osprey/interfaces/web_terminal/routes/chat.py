@@ -23,13 +23,13 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
     CLAUDE_SDK_AVAILABLE,
     OperatorSession,
     TurnInProgressError,
     TurnSilenceTimeout,
+    build_operator_child_env,
     is_terminal_event,
 )
 
@@ -97,7 +97,7 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
 
     try:
         session, was_reused = await registry.get_or_create_chat_session(
-            chat_id, cwd, build_clean_env(cwd)
+            chat_id, cwd, build_operator_child_env(cwd)
         )
     except ChatCapacityError:
         raise HTTPException(
