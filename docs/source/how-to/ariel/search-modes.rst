@@ -268,6 +268,11 @@ The ``control-assistant`` template ships a twenty-concept example at
 ``data/ariel/vocabulary.yml`` as a starting point and a format tutorial; it is
 meant to be edited down to what your control room actually says.
 
+.. note::
+
+   Thanks to Chris Tennant (Jefferson Lab), whose idea this feature started
+   from.
+
 The vocabulary file
 ~~~~~~~~~~~~~~~~~~~
 
