@@ -2,7 +2,9 @@
 Database Validation Tool
 
 Validates channel database JSON files for correctness and compatibility with the system.
-Auto-detects pipeline type (hierarchical, in_context, or middle_layer) and validates accordingly.
+Auto-detects the paradigm from config --- hierarchical, in_context or
+middle_layer --- and validates accordingly. A graph project ships no database
+file, so it is answered with the graph guidance panel instead.
 """
 
 import json
@@ -13,8 +15,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
+    MiddleLayerDatabase,
     TemplateChannelDatabase,
 )
 from osprey.services.channel_finder.utils.detection import detect_pipeline_config
@@ -132,9 +136,15 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
 def validate_database_loading(db_path: Path, pipeline_type: str) -> tuple[bool, list[str], dict]:
     """Test loading database through the actual database class.
 
+    One arm per file-backed paradigm, so the check exercises the same class the
+    running pipeline would use. ``in_context`` is the final arm rather than a
+    named one: it is the flat format, and reading an unrecognised file as a flat
+    channel list gives a more legible failure than a dispatch error would.
+
     Args:
         db_path: Path to database file
-        pipeline_type: Either 'hierarchical' or 'in_context'
+        pipeline_type: A file-backed paradigm: 'hierarchical', 'middle_layer',
+            or 'in_context'
 
     Returns:
         (success, errors, stats)
@@ -145,6 +155,8 @@ def validate_database_loading(db_path: Path, pipeline_type: str) -> tuple[bool, 
     try:
         if pipeline_type == "hierarchical":
             db = HierarchicalChannelDatabase(str(db_path))
+        elif pipeline_type == "middle_layer":
+            db = MiddleLayerDatabase(str(db_path))
         else:
             db = TemplateChannelDatabase(str(db_path), presentation_mode="explicit")
 
@@ -247,7 +259,10 @@ def print_validation_results(
         if "compressed_ratio" in stats:
             stats_table.add_row("Compression Ratio", f"{stats['compressed_ratio']:.1f}x")
         if "systems" in stats:
-            system_count = len(stats["systems"])
+            # Paradigms report ``systems`` either as the collection of system
+            # names or as a count of them; the row wants the count either way.
+            systems = stats["systems"]
+            system_count = systems if isinstance(systems, int) else len(systems)
             stats_table.add_row("Systems", str(system_count))
 
         console.print(
@@ -293,6 +308,51 @@ def print_validation_results(
     console.print()
 
 
+def print_graph_paradigm_guidance(console: Console | None = None) -> None:
+    """Explain that a graph project has no database file to open.
+
+    ``validate`` and ``preview`` both exist to open the channel database a
+    project ships and report on it. A graph project ships none by design: its
+    channels live in a graph store reached over the network, so the store *is*
+    the database and there is no path on disk for either command to read. That
+    is a healthy configuration, not an error --- so both commands say what the
+    store is, name the three verbs that act on it, and succeed.
+
+    The panel is written once, here, because two commands printing an
+    operator-facing remedy separately agree only by coincidence: an operator
+    following the stale copy is sent to a command that no longer exists.
+
+    Args:
+        console: Rich Console instance for output (default: plain Console).
+    """
+    console = console or _default_console
+
+    # Imported inside the function so that reading a channel database does not
+    # drag the deployment package into its import closure. The spelling of the
+    # seeding verb is owned there, by the module that also names it for the
+    # deploy warnings and the health remedy.
+    from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+
+    console.print()
+    console.print(
+        Panel(
+            "[bold primary]This project searches a facility graph.[/bold primary]\n\n"
+            "The graph store is the database: a graph project ships no channel "
+            "database file, so there is nothing on disk to open here.\n\n"
+            "[label]Load or refresh the graph:[/label]\n"
+            f"  [value]{GRAPHDB_SEED_COMMAND}[/value]\n\n"
+            "[label]Check the store is reachable:[/label]\n"
+            "  [value]osprey health --category graphdb[/value]\n\n"
+            "[label]Look inside it:[/label]\n"
+            "  [value]the channel-finder subagent's get_schema and read_cypher tools[/value]",
+            border_style="info",
+            title="[bold]Graph Paradigm[/bold]",
+            padding=(1, 2),
+        )
+    )
+    console.print()
+
+
 def run_validation(
     database: str | None = None,
     pipeline: str | None = None,
@@ -303,12 +363,16 @@ def run_validation(
 
     Args:
         database: Path to database file (default: from config).
-        pipeline: Override pipeline type ('hierarchical' or 'in_context').
+        pipeline: Override the detected paradigm with a file-backed one
+            ('hierarchical', 'middle_layer' or 'in_context'). The CLI derives
+            the accepted names from the paradigm registry, so the override
+            spans every paradigm whose store is a file on disk.
         verbose: Show detailed statistics.
         console: Rich Console instance for output (default: plain Console).
 
     Returns:
-        0 if valid, 1 if invalid.
+        0 if valid, 1 if invalid. A graph project has no database file to
+        validate, so the graph guidance is printed and 0 returned.
     """
     console = console or _default_console
     from osprey.utils.config import load_config as get_config
@@ -322,7 +386,13 @@ def run_validation(
             try:
                 config = get_config()
                 detected_type, _ = detect_pipeline_config(config)
-                pipeline_type = detected_type if detected_type else "in_context"
+                # An explicit file is the request; the graph paradigm says
+                # nothing about how to read one, so it falls back with the
+                # unconfigured case rather than reaching a file loader.
+                if detected_type in (None, "graph"):
+                    pipeline_type = "in_context"
+                else:
+                    pipeline_type = detected_type
             except Exception:
                 pipeline_type = "in_context"
     else:
@@ -330,14 +400,19 @@ def run_validation(
             config = get_config()
             detected_type, db_config = detect_pipeline_config(config)
 
+            if detected_type == "graph":
+                print_graph_paradigm_guidance(console)
+                return 0
+
             if not detected_type:
                 console.print()
                 console.print(
                     Panel(
                         "[bold error]Error:[/bold error] No database configured\n\n"
-                        "[warning]Check config.yml:[/warning] Configure either:\n"
+                        "[warning]Check config.yml:[/warning] Configure one of:\n"
                         "  \u2022 channel_finder.pipelines.hierarchical.database.path\n"
-                        "  \u2022 channel_finder.pipelines.in_context.database.path",
+                        "  \u2022 channel_finder.pipelines.in_context.database.path\n"
+                        "  \u2022 channel_finder.pipelines.middle_layer.database.path",
                         border_style="error",
                         title="\u274c Configuration Error",
                     )
@@ -357,6 +432,22 @@ def run_validation(
                 )
                 return 1
             db_path = resolve_path(db_path_str)
+        except PipelineModeError as e:
+            # A mode nobody implements is a config typo, not an unreadable
+            # config: say which value was rejected instead of folding it into
+            # the generic panel below, where the operator would go looking for
+            # a broken config file that is in fact fine.
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold error]Error:[/bold error] {e}\n\n"
+                    "[warning]Check config.yml:[/warning] set "
+                    "channel_finder.pipeline_mode to one of the valid modes listed above.",
+                    border_style="error",
+                    title="\u274c Configuration Error",
+                )
+            )
+            return 1
         except Exception as e:
             console.print()
             console.print(

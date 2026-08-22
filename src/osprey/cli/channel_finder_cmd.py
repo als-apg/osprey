@@ -12,8 +12,21 @@ import os
 
 import click
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.altitude import lift_gate
 from osprey.cli.styles import Messages, Styles, console
+
+#: The paradigms this command group can build and inspect: every registered
+#: paradigm whose store is a database file on disk.
+#:
+#: ``graph`` is the one deliberate exclusion. A graph store is a service
+#: reached over the network, so ``validate`` (which opens a file and checks it)
+#: and ``generate`` (which writes one) have no file to work on. Derived by
+#: subtraction from :data:`~osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`
+#: so registering a file-backed paradigm opens it up on both commands without a
+#: second edit, and so the exclusion stays a stated rule rather than a list that
+#: silently falls behind.
+FILE_DATABASE_PARADIGMS: list[str] = sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"})
 
 
 def _setup_config(project: str | None):
@@ -275,7 +288,7 @@ def build_database(
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed statistics")
 @click.option(
     "--pipeline",
-    type=click.Choice(["hierarchical", "in_context"]),
+    type=click.Choice(FILE_DATABASE_PARADIGMS),
     default=None,
     help="Override pipeline type detection (default: auto-detect from config)",
 )
@@ -284,7 +297,9 @@ def validate(ctx, database: str | None, verbose: bool, pipeline: str | None):
     """Validate a channel database JSON file.
 
     Checks JSON structure, schema validity, and database loading.
-    Auto-detects pipeline type (hierarchical vs in_context).
+    Auto-detects the paradigm from config when --pipeline is not given. A
+    graph project has no database file: it is told how to seed and inspect
+    its store instead.
 
     Examples:
 
@@ -367,8 +382,9 @@ def preview(
 ):
     """Preview a channel database with flexible display options.
 
-    Auto-detects database type (hierarchical, in_context)
-    and shows a tree visualization with configurable depth and sections.
+    Auto-detects the paradigm from config and shows a tree visualization with
+    configurable depth and sections. A graph project has no database file: it
+    is told how to seed and inspect its store instead.
 
     Examples:
 
@@ -452,7 +468,7 @@ def web(ctx, host: str, port: int):
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["in_context", "hierarchical", "middle_layer", "all"]),
+    type=click.Choice([*FILE_DATABASE_PARADIGMS, "all"]),
     default="all",
     help="Format(s) to generate (default: all)",
 )
@@ -519,6 +535,8 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
     else:
         tier_spec = {"1": TIER_1, "3": TIER_3}[tier]
 
+    # One writer per paradigm in FILE_DATABASE_PARADIGMS; Click has already
+    # rejected any other --format before this point.
     format_map = {
         "in_context.json": lambda: format_in_context(channels, tier_spec),
         "hierarchical.json": lambda: format_hierarchical(tree_data, tier_spec),

@@ -2,8 +2,9 @@
 Preview Database Presentation
 
 Shows how the channel database will be presented to the LLM.
-Auto-detects pipeline type (hierarchical vs in_context vs middle_layer)
-and displays accordingly.
+Auto-detects the paradigm from config --- hierarchical, in_context or
+middle_layer --- and displays accordingly. A graph project has no database
+file to render, so it is answered with the graph guidance panel instead.
 """
 
 import json
@@ -20,6 +21,9 @@ from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     MiddleLayerDatabase,
     TemplateChannelDatabase,
+)
+from osprey.services.channel_finder.tools.validate_database import (
+    print_graph_paradigm_guidance,
 )
 from osprey.services.channel_finder.utils.detection import detect_pipeline_config
 
@@ -808,6 +812,10 @@ def preview_database(
         show_full: Sets depth and max_items to -1 for complete view
         db_path: Direct path to database file (overrides config)
         console: Rich Console instance for output (default: plain Console)
+
+    A graph project keeps its channels in a store reached over the network,
+    so there is no file to preview: the graph guidance panel is printed and
+    nothing else is read.
     """
     console = console or _default_console
 
@@ -837,6 +845,10 @@ def preview_database(
 
         config = get_config()
         pipeline_type, db_config = detect_pipeline_config(config)
+
+        if pipeline_type == "graph":
+            print_graph_paradigm_guidance(console)
+            return
 
         if not pipeline_type:
             console.print()

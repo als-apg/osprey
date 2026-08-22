@@ -416,6 +416,24 @@ class TestRunValidation:
         assert rc == 1
         assert "Error reading config" in _text(console)
 
+    def test_unknown_pipeline_mode_names_the_rejected_value(self, monkeypatch):
+        """A mode typo is its own message, not the generic unreadable-config panel."""
+        import osprey.utils.config as config_mod
+
+        monkeypatch.setattr(
+            config_mod,
+            "load_config",
+            lambda *a, **k: {"channel_finder": {"pipeline_mode": "graf"}},
+        )
+        console = _capture_console()
+
+        rc = run_validation(console=console)
+
+        text = _text(console)
+        assert rc == 1
+        assert "graf" in text
+        assert "Error reading config" not in text
+
     def test_no_database_detected_but_missing_path(self, monkeypatch):
         import osprey.utils.config as config_mod
 
