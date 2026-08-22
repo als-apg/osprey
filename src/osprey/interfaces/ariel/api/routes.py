@@ -24,6 +24,7 @@ from osprey.interfaces.ariel.api.schemas import (
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
+    ExpandedTermResponse,
     SearchRequest,
     SearchResponse,
     StatusResponse,
@@ -61,14 +62,24 @@ def _localize_facility(dt: datetime | None) -> datetime | None:
 
 
 def _require_service(request: Request) -> ARIELSearchService:
-    """Get the ARIEL service or raise 503 if the database is unavailable."""
+    """Get the ARIEL service or raise 503 if the database is unavailable.
+
+    The database text is unchanged: this is reached only when the database is
+    genuinely unreachable, never because the configuration is broken (a
+    configuration problem leaves the service constructed and degrades only the
+    search path). When both are true the stored configuration errors are
+    appended, so an operator staring at a 503 sees every reason at once.
+    """
     service = getattr(request.app.state, "ariel_service", None)
     if service is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Database unavailable — search, browse, and entry creation "
-            "require a database connection. Drafts and settings still work.",
+        detail = (
+            "Database unavailable — search, browse, and entry creation "
+            "require a database connection. Drafts and settings still work."
         )
+        errors = getattr(request.app.state, "config_errors", None) or []
+        if errors:
+            detail = f"{detail} Configuration errors: " + "; ".join(errors)
+        raise HTTPException(status_code=503, detail=detail)
     return service
 
 
@@ -164,17 +175,68 @@ def _resolve_search_mode(service: ARIELSearchService, requested: str | None) -> 
     return mode
 
 
+def _invalid_capabilities(config_errors: list[str], remedy: str | None) -> dict:
+    """Build the capabilities payload for a configuration that did not parse.
+
+    Shape-compatible with the normal payload (the frontend's ``Capabilities``
+    typedef requires ``vocabulary``), but built from nothing: no config, no
+    service and no database are needed to render the banner that tells the
+    operator which key to fix.
+
+    Args:
+        config_errors: Every stored configuration error, in collection order.
+        remedy: The class-derived operator action.
+
+    Returns:
+        The degraded capabilities payload.
+    """
+    return {
+        "status": "configuration_invalid",
+        "config_errors": list(config_errors),
+        "remedy": remedy,
+        "categories": {"direct": {"modes": []}},
+        "default_mode": None,
+        "shared_parameters": [],
+        "vocabulary": {"enabled": False, "concepts": 0, "expand_by_default": False},
+    }
+
+
 @router.get("/capabilities")
 async def get_capabilities(request: Request) -> dict:
     """Return available search modes and their tunable parameters.
 
-    The frontend calls this at startup to dynamically render
-    mode tabs and advanced options.
+    The frontend calls this at startup to dynamically render mode tabs and
+    advanced options — and, when the configuration is broken, the banner that
+    explains why search is dead. It is therefore service-independent: a
+    ``configuration_invalid`` state answers 200 with the degraded payload
+    without touching the service. A ``configuration_warning`` state has a
+    working service, so it returns the normal payload with the three
+    configuration keys added; if that service is missing the database really
+    is down and ``_require_service`` raises 503 as it does everywhere else.
+    An app whose state carries no configuration fields at all behaves exactly
+    as it did before this endpoint learned about them.
     """
+    from osprey.interfaces.ariel.app import CONFIG_STATUS_INVALID, CONFIG_STATUS_WARNING
     from osprey.services.ariel_search.capabilities import get_capabilities as _get_caps
 
+    status = getattr(request.app.state, "config_status", None)
+    errors = getattr(request.app.state, "config_errors", None) or []
+    remedy = getattr(request.app.state, "config_remedy", None)
+    service = getattr(request.app.state, "ariel_service", None)
+
+    if status == CONFIG_STATUS_INVALID or (errors and status is None and service is None):
+        return _invalid_capabilities(errors, remedy)
+
     service = _require_service(request)
-    return _get_caps(service.config)
+    payload = _get_caps(service.config)
+    if errors:
+        payload = {
+            **payload,
+            "status": status or CONFIG_STATUS_WARNING,
+            "config_errors": list(errors),
+            "remedy": remedy,
+        }
+    return payload
 
 
 @router.get("/publish-info")
@@ -237,6 +299,39 @@ async def get_filter_options(request: Request, field_name: str) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _expanded_terms(result: Any) -> list[ExpandedTermResponse]:
+    """Map a search result's applied vocabulary expansion onto the wire model.
+
+    Reports only what the executed search actually contained. Defensive about
+    the shape: a result object that carries no real groups (a stub, or a module
+    that never learned about expansion) yields an empty list rather than an
+    error.
+
+    Args:
+        result: The service's search result.
+
+    Returns:
+        One response model per expanded span, in the order the service reported.
+    """
+    groups = getattr(result, "expanded_terms", None) or ()
+    if not isinstance(groups, (tuple, list)):
+        return []
+    terms: list[ExpandedTermResponse] = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        alternatives = group.get("alternatives") or ()
+        if not isinstance(alternatives, (tuple, list)):
+            alternatives = ()
+        terms.append(
+            ExpandedTermResponse(
+                original=str(group.get("original", "")),
+                alternatives=[str(a) for a in alternatives],
+            )
+        )
+    return terms
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     """Execute search query.
@@ -244,6 +339,8 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     Routes to the search module named by ``mode``; an unknown or disabled mode
     is rejected with 400 rather than falling back to another module.
     """
+    from osprey.services.ariel_search.exceptions import PatternError, VocabularyError
+
     service = _require_service(request)
     start_time = time.time()
 
@@ -305,8 +402,26 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
                 )
                 for d in result.diagnostics
             ],
+            expanded_terms=_expanded_terms(result),
         )
 
+    except VocabularyError as e:
+        # The deployment asked for vocabulary expansion and cannot have it.
+        # 503, not 500: the service is up, this one path is unavailable until
+        # the operator acts, and the detail names the key and that action.
+        first = e.errors[0] if e.errors else e.message
+        raise HTTPException(
+            status_code=503,
+            detail=f"{e.config_key}: {first}. {e.remedy}",
+        ) from e
+    except PatternError as e:
+        # Defensive: the keyword module turns a rejected pattern into an ERROR
+        # diagnostic, so this should not surface — if it ever does, it is the
+        # operator's regex, not a server fault.
+        detail = f"Invalid search pattern: {e.message}"
+        if e.pattern:
+            detail = f"Invalid search pattern '{e.pattern}': {e.message}"
+        raise HTTPException(status_code=400, detail=detail) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -747,14 +862,30 @@ def _find_project_root() -> Path:
     return Path.cwd()
 
 
-def _config_path() -> Path:
+def _config_path(request: Request) -> Path:
+    """Return the config.yml the running panel actually loaded.
+
+    The lifespan stores the resolved path on ``app.state.config_path``, so the
+    editor writes the same file the loader read (and the same file a relative
+    ``ariel.vocabulary.path`` resolves against). The candidate search survives
+    only as the fallback for an app that never set it.
+
+    Args:
+        request: The incoming request, for its app state.
+
+    Returns:
+        Path to config.yml.
+    """
+    configured = getattr(request.app.state, "config_path", None)
+    if configured is not None:
+        return Path(configured)
     return _find_project_root() / "config.yml"
 
 
 @router.get("/config")
-async def get_config() -> dict:
+async def get_config(request: Request) -> dict:
     """Return the current config.yml as a dict and raw YAML."""
-    path = _config_path()
+    path = _config_path(request)
     if not path.exists():
         raise HTTPException(status_code=404, detail="config.yml not found")
     raw = path.read_text()
@@ -770,9 +901,9 @@ class ConfigUpdateRequest(BaseModel):
 
 
 @router.put("/config")
-async def update_config(req: ConfigUpdateRequest) -> dict:
+async def update_config(request: Request, req: ConfigUpdateRequest) -> dict:
     """Write new content to config.yml with backup + fsync."""
-    path = _config_path()
+    path = _config_path(request)
     if not path.exists():
         raise HTTPException(status_code=404, detail="config.yml not found")
 

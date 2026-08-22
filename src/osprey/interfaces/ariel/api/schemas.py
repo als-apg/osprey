@@ -70,6 +70,18 @@ class DiagnosticResponse(BaseModel):
     category: str | None = None
 
 
+class ExpandedTermResponse(BaseModel):
+    """One vocabulary expansion group that the executed search contained.
+
+    Mirrors ``ARIELSearchResult.expanded_terms`` on the wire: ``original`` is
+    the span as the operator typed it, ``alternatives`` the canonical terms it
+    was expanded to (several when a form is bound to several concepts).
+    """
+
+    original: str
+    alternatives: list[str] = []
+
+
 class SearchResponse(BaseModel):
     """Search response payload."""
 
@@ -81,6 +93,7 @@ class SearchResponse(BaseModel):
     total_results: int = 0
     execution_time_ms: int = 0
     diagnostics: list[DiagnosticResponse] = []
+    expanded_terms: list[ExpandedTermResponse] = []
 
 
 class EntriesListResponse(BaseModel):
