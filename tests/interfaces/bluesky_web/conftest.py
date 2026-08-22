@@ -48,6 +48,7 @@ import pytest
 
 from osprey.interfaces._serving import run_app_server as _run_app_server
 from osprey.interfaces.bluesky_web.app import app
+from tests.interfaces.conftest import use_process_web_credentials
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -219,6 +220,11 @@ def bluesky_live_server(
         # so this only has to be set before the first request — but setting it
         # before startup matches the deployed container's environment.
         monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
+
+        # `app` here is a module-level singleton, so its cached credential
+        # holder goes stale the moment the root conftest resets the process
+        # one; without this the gate refuses every seam-authenticated call.
+        use_process_web_credentials(app)
 
         with _run_app_server(app) as base_url:
             # The lifespan has run: swap the bridge client out from under the
