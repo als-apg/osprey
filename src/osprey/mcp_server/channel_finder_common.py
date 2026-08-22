@@ -1,13 +1,16 @@
 """Shared scaffolding for the channel-finder MCP server variants.
 
-The three channel-finder pipelines
-(``channel_finder_hierarchical``, ``channel_finder_middle_layer``,
-``channel_finder_in_context``) each ship an identical server bootstrap: an
-entry point, a ``create_server()`` startup sequence, and per-context config
-loading and path resolution. Only the FastMCP instance, the pipeline-specific
-server context, and the tool modules differ between variants — those stay in
-each package. This module holds the common bootstrap so the variants become
-thin parameterizations of it.
+Every channel-finder pipeline package (``channel_finder_hierarchical``,
+``channel_finder_middle_layer``, ``channel_finder_in_context``,
+``channel_finder_graph``) reaches its ``create_server()`` factory through the
+same entry point, :func:`run_cf_main`. The three database-backed pipelines
+share the whole startup sequence as well — config-builder priming, server
+context, workspace singletons, tool imports — which :func:`build_cf_server`
+holds so those variants become thin parameterizations of it; the graph
+pipeline runs a leaner startup of its own (no workspace singletons) and takes
+only the entry point. Only the FastMCP instance, the pipeline-specific server
+context, and the tool modules differ between variants — those stay in each
+package.
 """
 
 from __future__ import annotations

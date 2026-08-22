@@ -15,6 +15,7 @@ reset_server_context`` here would read as the wrong one.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -22,6 +23,7 @@ from typing import Any
 import pytest
 
 from osprey.mcp_server.graph import server_context as graph_ctx
+from tests.mcp_server.conftest import get_tool_fn
 
 # ---------------------------------------------------------------------------
 # Fixtures and fakes
@@ -793,6 +795,78 @@ class TestSingleton:
         context.shutdown()
 
         assert context._driver is None
+
+
+# ---------------------------------------------------------------------------
+# No project to read (no config.yml anywhere)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _no_project(tmp_path, monkeypatch):
+    """Run from a directory holding no ``config.yml``, and name none either.
+
+    Nothing is patched here on purpose: this is the one place the *real* config
+    readers run, because the pin is about what they do when there is no project
+    to read. ``tests/mcp_server/conftest.py`` already drops the ConfigBuilder
+    singleton and the config cache around every test in this directory, so the
+    only ambient state left to clear is the two environment variables that would
+    otherwise point a reader at a config file elsewhere on the host.
+
+    Returns:
+        The empty directory the test runs in.
+    """
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+class TestNoConfigFile:
+    """No config file is "not configured", never a startup failure.
+
+    A graph server can be launched from a directory that is not an OSPREY
+    project. That is a store the tools have no address for — the same answer a
+    project without a ``services.graphdb`` block gets — and it must arrive as
+    ``configured = False``, not as a ``FileNotFoundError`` out of
+    ``create_server()``. The difference is the whole server: an exception there
+    means the agent loses ``capabilities`` and ``example_queries`` too, and both
+    of those answer without ever dialing a store.
+    """
+
+    def test_initialize_degrades_to_not_configured(self, _no_project):
+        """Every config read degrades; none of them escapes ``initialize()``."""
+        context = graph_ctx.GraphContext()
+
+        context.initialize()
+
+        assert context.configured is False
+        assert context.uri is None
+        assert context.query_timeout_s == graph_ctx.DEFAULT_QUERY_TIMEOUT_S
+        assert context.query_max_rows == graph_ctx.DEFAULT_QUERY_MAX_ROWS
+
+    def test_reads_report_no_store_rather_than_a_missing_file(self, _no_project):
+        """The tool-facing error names the store, not the config loader."""
+        context = graph_ctx.GraphContext()
+        context.initialize()
+
+        with pytest.raises(graph_ctx.GraphNotConfigured):
+            context.run_read("RETURN 1")
+
+    def test_create_server_still_serves_the_store_free_tools(self, _no_project):
+        """``create_server()`` returns, and the two offline tools still answer."""
+        from osprey.mcp_server.graph.server import create_server
+
+        create_server()
+
+        assert graph_ctx.get_server_context().configured is False
+
+        from osprey.mcp_server.graph.tools import capabilities as capabilities_tool
+        from osprey.mcp_server.graph.tools import example_queries as example_queries_tool
+
+        for tool in (capabilities_tool.capabilities, example_queries_tool.example_queries):
+            payload = json.loads(get_tool_fn(tool)())
+            assert payload.get("error") is not True
 
 
 # ---------------------------------------------------------------------------

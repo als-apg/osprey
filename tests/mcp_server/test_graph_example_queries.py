@@ -6,14 +6,21 @@ function. The store-down guarantee — the tool answers while the graph is
 unreachable — is proved two ways: a fresh subprocess shows the call never imports
 the server-context module, and a poison module in ``sys.modules`` shows the call
 never touches it even when it is already loaded.
+
+:class:`TestExampleQueriesGolden` then pins the whole thing: the served payload
+against a checked-in golden, and the ``graph`` server's tool vocabulary against
+the exact four names it advertises. This server belongs to the main agent, so
+any other graph-backed server is built beside it and never on top of it.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +29,57 @@ from tests.mcp_server.conftest import get_tool_fn, registered_tool_names
 pytestmark = pytest.mark.unit
 
 _SERVER_CONTEXT_MODULE = "osprey.mcp_server.graph.server_context"
+
+#: The served catalogue, frozen. Sorted keys, two-space indent, real Unicode,
+#: one trailing newline — see :class:`TestExampleQueriesGolden` to regenerate.
+_GOLDEN_PATH = Path(__file__).parent / "goldens" / "graph_example_queries.json"
+
+#: The complete tool vocabulary of the main-agent ``graph`` server. Exactly these
+#: four, no more: a fifth name here means something registered itself on the
+#: shared ``mcp`` singleton instead of standing up its own server.
+_ORIGINAL_TOOLS = ("capabilities", "example_queries", "get_schema", "read_cypher")
+
+
+def _serialise(payload: dict) -> str:
+    """Render a payload the way the golden is stored."""
+    return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+#: Probe run in a fresh interpreter: stub the server context so nothing dials a
+#: store, build the server, and print every registered tool name.
+_REGISTRATION_PROBE = """
+import asyncio, json
+
+import osprey.mcp_server.graph.server_context as graph_ctx
+
+graph_ctx.initialize_server_context = lambda: None
+
+from osprey.mcp_server.graph.server import create_server
+
+mcp = create_server()
+tools = mcp.get_tools() if hasattr(mcp, "get_tools") else mcp.list_tools()
+if asyncio.iscoroutine(tools):
+    tools = asyncio.run(tools)
+names = list(tools) if isinstance(tools, dict) else [t.name for t in tools]
+print("TOOLS " + json.dumps(sorted(names)))
+"""
+
+
+def _registered_tools_in_subprocess() -> list[str]:
+    """Tool names ``create_server()`` registers in a pristine interpreter."""
+    env = {k: v for k, v in os.environ.items() if k not in {"OSPREY_CONFIG", "CONFIG_FILE"}}
+    proc = subprocess.run(
+        [sys.executable, "-c", _REGISTRATION_PROBE],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=180,
+    )
+    assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
+    marker = [line for line in proc.stdout.splitlines() if line.startswith("TOOLS ")]
+    assert marker, f"probe printed no tool list:\n{proc.stdout}\n{proc.stderr}"
+    return json.loads(marker[-1].removeprefix("TOOLS "))
+
 
 #: The curated keys, in the order the tool must serve them. Kept as a literal so
 #: a reordered or dropped example fails here rather than silently changing the
@@ -155,3 +213,65 @@ class TestExampleQueriesWorksStoreDown:
         payload = json.loads(get_tool_fn(mod.example_queries)())
 
         assert payload["count"] == 9
+
+
+class TestExampleQueriesGolden:
+    r"""Byte-for-byte pin on the served catalogue and on the graph tool vocabulary.
+
+    The graph server is the main agent's server. Work that adds *other*
+    graph-backed servers must leave it alone, and "alone" is easy to claim and
+    hard to see: a reworded description, a dropped example or an extra
+    ``@mcp.tool()`` hung off the shared ``mcp`` singleton all pass every
+    shape-level assertion above. The golden and the exact-vocabulary check turn
+    any of those into a failing test.
+
+    Regenerate deliberately — only when the catalogue is *meant* to change::
+
+        env PYTHONPATH=src python -c "
+        import json, pathlib
+        from osprey.mcp_server.graph.tools import example_queries as m
+        fn = getattr(m.example_queries, 'fn', m.example_queries)
+        pathlib.Path('tests/mcp_server/goldens/graph_example_queries.json').write_text(
+            json.dumps(json.loads(fn()), indent=2, sort_keys=True, ensure_ascii=False) + '\n',
+            encoding='utf-8')
+        "
+    """
+
+    def test_served_payload_matches_the_golden(self, payload):
+        golden_text = _GOLDEN_PATH.read_text(encoding="utf-8")
+        served_text = _serialise(payload)
+
+        assert served_text == golden_text, (
+            f"the example_queries payload drifted from {_GOLDEN_PATH.name}. If the "
+            "catalogue was meant to change, regenerate the golden with the command in "
+            "this class's docstring; if it was not, the graph server was modified by "
+            "work that should have left it untouched."
+        )
+
+    def test_golden_matches_examples_data_length_and_ids(self):
+        """The golden pins the source constant, not just the tool's output."""
+        from osprey.mcp_server.graph.tools.examples_data import EXAMPLE_QUERIES
+
+        golden = json.loads(_GOLDEN_PATH.read_text(encoding="utf-8"))
+        golden_keys = tuple(example["key"] for example in golden["examples"])
+
+        assert len(EXAMPLE_QUERIES) == len(golden["examples"]) == golden["count"]
+        assert tuple(example.key for example in EXAMPLE_QUERIES) == golden_keys
+        assert golden_keys == _EXPECTED_KEYS
+
+    def test_graph_server_registers_exactly_the_original_tools(self):
+        """No tool may be added to — or removed from — the ``graph`` server.
+
+        Run in a fresh interpreter: ``mcp`` is a module singleton, so a module
+        imported earlier in this worker could otherwise add a tool that makes
+        the "exactly" assertion pass or fail for reasons unrelated to the
+        server's own wiring.
+        """
+        names = set(_registered_tools_in_subprocess())
+
+        assert names == set(_ORIGINAL_TOOLS), (
+            f"the graph server's tool vocabulary changed: unexpected "
+            f"{sorted(names - set(_ORIGINAL_TOOLS))}, missing "
+            f"{sorted(set(_ORIGINAL_TOOLS) - names)}. The main-agent graph server is "
+            "not this phase's to extend — register new tools on their own server."
+        )

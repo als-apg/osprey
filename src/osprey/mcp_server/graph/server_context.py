@@ -376,12 +376,12 @@ class GraphContext:
 
         config = self._load_config()
         self.query_timeout_s = _positive_int(
-            get_config_value(QUERY_TIMEOUT_CONFIG_KEY, DEFAULT_QUERY_TIMEOUT_S),
+            self._setting(QUERY_TIMEOUT_CONFIG_KEY, DEFAULT_QUERY_TIMEOUT_S),
             DEFAULT_QUERY_TIMEOUT_S,
             QUERY_TIMEOUT_CONFIG_KEY,
         )
         self.query_max_rows = _positive_int(
-            get_config_value(QUERY_MAX_ROWS_CONFIG_KEY, DEFAULT_QUERY_MAX_ROWS),
+            self._setting(QUERY_MAX_ROWS_CONFIG_KEY, DEFAULT_QUERY_MAX_ROWS),
             DEFAULT_QUERY_MAX_ROWS,
             QUERY_MAX_ROWS_CONFIG_KEY,
         )
@@ -502,6 +502,29 @@ class GraphContext:
         except Exception as exc:  # noqa: BLE001 - a bad config must not kill startup
             logger.warning("GraphContext: could not load config.yml (%s)", exc)
             return {}
+
+    @staticmethod
+    def _setting(key: str, default: int) -> Any:
+        """Read one tuning key, degrading to *default*.
+
+        Args:
+            key: Dotted config key.
+            default: Value to use when the key cannot be read at all.
+
+        Returns:
+            The configured value, or ``default``. ``get_config_value`` builds
+            the project's ConfigBuilder on first use, so where
+            :meth:`_load_config` degrades a *missing* config file this degrades
+            the same file being missing one call later — without it the server
+            would still die at startup over a config the graph tools are not
+            the only reader of, and the agent would lose ``capabilities`` and
+            ``example_queries`` along with the store it never had.
+        """
+        try:
+            return get_config_value(key, default)
+        except Exception as exc:  # noqa: BLE001 - a bad config must not kill startup
+            logger.warning("GraphContext: could not read %s (%s)", key, exc)
+            return default
 
     def _resolve_connection(self, config: Mapping[str, Any]) -> None:
         """Decide :attr:`configured` and resolve what to dial.
