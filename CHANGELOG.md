@@ -35,6 +35,20 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `osprey up` now refuses a Bluesky deployment on a Podman host still using
+  the legacy `cni` network backend, naming netavark as the requirement and
+  the `containers.conf` setting to change. Without aardvark-dns the
+  dual-homed `bluesky-queueserver` receives only its first network's
+  resolver, so it can never resolve `bluesky-redis`: it goes unhealthy and
+  the deploy aborts before the web slice renders — the whole deployment down
+  on a DNS fact nothing in the output pointed at. The check runs before any
+  container is touched, is skipped unless `bluesky` is deployed, and never
+  blocks a deploy on a host it could not read.
+- The package inventory the agent sees no longer names compiled `__mypyc`
+  shims as importable packages. The filter dropped them only when the shim's
+  hash happened to start with a digit (making it a non-identifier); a
+  letter-leading hash such as `ada92cb5d92a588d1b93__mypyc` passed straight
+  through and was advertised to the agent as a top-level import.
 - Feedback sent by GitHub or Email no longer arrives without its session
   context because nobody knew about the paste step. The context travels by
   clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:

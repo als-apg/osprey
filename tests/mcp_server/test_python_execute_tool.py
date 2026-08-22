@@ -1269,6 +1269,38 @@ def test_describe_available_packages_falls_back_on_garbage_output(clean_package_
 
 
 @pytest.mark.unit
+def test_enumeration_snippet_drops_mypyc_shims(monkeypatch):
+    """The probe drops `<hash>__mypyc` shims whatever their hash starts with.
+
+    Both cases are exercised on purpose: a digit-leading hash is not an
+    identifier and would fall out anyway, so a filter that only ever sees that
+    one looks correct while leaking every letter-leading shim.
+    """
+    import contextlib
+    import importlib.metadata
+    import io
+
+    from osprey.mcp_server.python_executor.tools._package_inventory import _ENUMERATION_SNIPPET
+
+    monkeypatch.setattr(
+        importlib.metadata,
+        "packages_distributions",
+        lambda: {
+            "ada92cb5d92a588d1b93__mypyc": ["charset-normalizer"],  # letter-leading hash
+            "4c842c94c09923bae9e4__mypyc": ["mypy"],  # digit-leading hash
+            "_private": ["private-dist"],
+            "numpy": ["numpy"],
+        },
+    )
+
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        exec(_ENUMERATION_SNIPPET, {})  # noqa: S102 - runs the shipped probe verbatim
+
+    assert json.loads(captured.getvalue()) == ["numpy"]
+
+
+@pytest.mark.unit
 def test_empty_environment_falls_back(clean_package_cache):
     """An empty inventory tells us nothing usable — fall back rather than claim it."""
     assert clean_package_cache.render_package_line([]) == clean_package_cache.FALLBACK_DESCRIPTION
