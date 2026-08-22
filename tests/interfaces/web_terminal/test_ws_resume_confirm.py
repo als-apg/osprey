@@ -25,6 +25,7 @@ import asyncio
 import json
 import sys
 import threading
+import time
 import uuid as uuid_mod
 from unittest.mock import patch
 
@@ -100,6 +101,24 @@ def _recv_json(ws, msg_type: str, max_frames: int = 30):
         f"Expected JSON type '{msg_type}' not received within {max_frames} frames. "
         f"Got types: {types}"
     )
+
+
+def _collect_until(ws, msg_type: str, max_frames: int = 30) -> list[dict]:
+    """Return every JSON message up to and including the first *msg_type*.
+
+    The twin of :func:`_recv_json` for asserting what did NOT arrive: read to a
+    frame the server is guaranteed to send, then inspect the whole run.
+    """
+    collected = []
+    for _ in range(max_frames):
+        raw = ws.receive()
+        if "text" in raw:
+            data = json.loads(raw["text"])
+            collected.append(data)
+            if data.get("type") == msg_type:
+                return collected
+    types = [d.get("type") for d in collected]
+    raise AssertionError(f"'{msg_type}' not received within {max_frames} frames. Got: {types}")
 
 
 def _uuid() -> str:
@@ -296,3 +315,63 @@ def test_stale_resume_with_delayed_file_confirms_discovered_id(app, tmp_path):
     # The stale branch must use the same (full) window as the new-session
     # discovery path — not a shortened one that races the CLI and loses.
     assert captured_timeouts == [15.0]
+
+
+# ---------------------------------------------------------------------------
+# Stale id whose PTY died — the resume demonstrably failed, so say nothing
+# ---------------------------------------------------------------------------
+
+
+def test_stale_resume_with_dead_pty_is_not_confirmed(app, tmp_path):
+    """A resume whose PTY has already exited must not have its id confirmed.
+
+    The no-discovery fallback reasons "nothing new appeared, so the requested
+    id resumed after all". A PTY that has since exited is evidence against
+    exactly that: ``--resume`` found no such conversation and the CLI quit.
+    Confirming the id back there would tell the client to keep an id that
+    resolves to nothing and re-resume it on the next page load, which is how a
+    dead tab becomes a permanently dead one. Silence hands the verdict to the
+    client's own failover, which the ``exit`` frame has already triggered.
+    """
+    dead_sid = _uuid()
+    sessions_dir = tmp_path / "claude_sessions"
+    sessions_dir.mkdir()
+
+    # Order the two events: discovery does not give up until the client has
+    # seen the PTY exit, so the confirm decision is made against a session
+    # that is unambiguously dead.
+    exit_seen = threading.Event()
+
+    def _discover_after_exit(self, before, timeout=15.0):
+        exit_seen.wait(timeout=5.0)
+        return None
+
+    with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
+        with patch.object(SessionDiscovery, "discover_new_session", _discover_after_exit):
+            with TestClient(app) as client:
+                _, spawned = _patch_spawn(app)
+                with client.websocket_connect(_resume_url(dead_sid)) as ws:
+                    _send_resize(ws)
+                    # The handler spawns once it has the resize; wait for it.
+                    deadline = time.monotonic() + 5.0
+                    while not spawned and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    assert spawned, "handler never spawned a PTY"
+
+                    # The CLI cannot find the conversation and quits.
+                    spawned[0].terminate()
+                    assert _recv_json(ws, "exit")["code"] == 0
+                    exit_seen.set()
+                    # Let the confirm task reach its decision and, if it sends,
+                    # get the frame onto the wire ahead of the fence below.
+                    time.sleep(0.5)
+
+                    # Fence: an invalid switch is answered immediately, so a
+                    # confirmation would already be queued in front of it.
+                    ws.send_json({"type": "switch_session", "session_id": "not-a-uuid"})
+                    seen = _collect_until(ws, "error")
+
+        assert [m["type"] for m in seen] == ["error"], (
+            "a dead PTY's resume was confirmed back to the client: "
+            f"{[m for m in seen if m['type'] == 'session_info']}"
+        )
