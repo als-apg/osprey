@@ -48,8 +48,12 @@ repos:
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
-      # Check for merge conflict markers
+      # Check for merge conflict markers. reStructuredText is exempt: the hook
+      # treats a line of exactly seven '=' as a conflict marker, which is also
+      # how RST underlines a seven-character heading ("Secrets", "Roadmap"), so
+      # every merge touching those pages fails on prose that is perfectly fine.
       - id: check-merge-conflict
+        exclude: \.rst$
       # Check YAML syntax
       - id: check-yaml
       # Check TOML syntax
