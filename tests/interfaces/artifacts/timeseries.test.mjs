@@ -1331,4 +1331,67 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
     expect(elA.data).toEqual([]);
     expect(elB.data).toEqual([]);
   });
+
+  // The injected src is resolved server-side by the vendor_url() template
+  // global (CDN by default, the vendored copy offline) and handed to this
+  // classic-script loader via index.html's osprey-vendor-plotly meta tag —
+  // static JS cannot call a Jinja global. Both halves of that contract:
+  // the meta wins when present, the vendored spelling survives without it.
+
+  test('the injected <script> src comes from the osprey-vendor-plotly meta when the page carries one', async () => {
+    vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    stubFetchRouting();
+
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'osprey-vendor-plotly');
+    meta.setAttribute('content', 'https://cdn.plot.ly/plotly-3.3.1.min.js');
+    document.head.appendChild(meta); // before the spy below hijacks appendChild
+
+    /** @type {InjectedScript[]} */
+    const scriptAppends = [];
+    vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
+      const script = /** @type {InjectedScript} */ (node);
+      if (node && script.tagName === 'SCRIPT') {
+        scriptAppends.push(script);
+        queueMicrotask(() => script.onload && script.onload());
+        return node;
+      }
+      throw new Error('unexpected non-script appendChild in this isolated test');
+    });
+
+    try {
+      const fresh = await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
+      const container = document.createElement('div');
+      await fresh.renderTimeseriesView(container, { id: 'ts1' });
+
+      expect(scriptAppends.length).toBe(1);
+      expect(scriptAppends[0].getAttribute('src')).toBe('https://cdn.plot.ly/plotly-3.3.1.min.js');
+    } finally {
+      meta.remove(); // this file's document is shared across tests
+    }
+  });
+
+  test('without the meta the loader falls back to the vendored path', async () => {
+    vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    stubFetchRouting();
+
+    /** @type {InjectedScript[]} */
+    const scriptAppends = [];
+    vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
+      const script = /** @type {InjectedScript} */ (node);
+      if (node && script.tagName === 'SCRIPT') {
+        scriptAppends.push(script);
+        queueMicrotask(() => script.onload && script.onload());
+        return node;
+      }
+      throw new Error('unexpected non-script appendChild in this isolated test');
+    });
+
+    const fresh = await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
+    const container = document.createElement('div');
+    await fresh.renderTimeseriesView(container, { id: 'ts1' });
+
+    expect(scriptAppends.length).toBe(1);
+    expect(scriptAppends[0].getAttribute('src')).toBe('/static/js/vendor/plotly-3.3.1.min.js');
+  });
 });

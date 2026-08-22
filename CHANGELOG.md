@@ -35,6 +35,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Timeseries previews in the workspace gallery render again in CDN-mode
+  (non-offline) deployments: the lazy Plotly loader now uses the same
+  CDN-or-vendored URL resolution as the gallery's other vendor assets
+  instead of hardcoding the offline-only path.
 - `save_artifact()` inside `execute` now stores a Bokeh layout as a dashboard
   rather than as its text representation, and a `category` passed from
   visualization code stays on the artifact.
