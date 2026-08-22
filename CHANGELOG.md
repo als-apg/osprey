@@ -77,6 +77,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- ARIEL search now speaks your control room's shorthand. Drop a
+  `vocabulary.yml` in your project, set `ariel.vocabulary.enabled: true` and
+  point `ariel.vocabulary.path` at it, and a search for `t/s bpm` also finds
+  "troubleshoot" and "beam position monitor" —
+  in keyword, semantic and hybrid mode. Every rewrite is reported back with the
+  results, and `expand_query` turns it off for a single search. Gate the
+  directions with `ariel.vocabulary.canonical_to_acronym` and
+  `canonical_to_shorthand`, limit which modes expand with `expand_modes`, and
+  validate every edit with `osprey ariel vocab-check` (no database needed).
+  Keyword search also takes pattern tokens now — `SR01C___BPM*` globs and
+  `/SR0[1-4]C___BPM\d+/` regular expressions, with
+  `ariel.search_modules.keyword.settings.patterns_enabled` and
+  `pattern_timeout_seconds`. The `control-assistant` template ships a
+  twenty-concept example file; see the new "Vocabulary Expansion and Pattern
+  Search" section of the Search Modes how-to.
+
 - Web Terminal users can now send feedback from the terminal itself. A
   **Feedback** button in the panel rail (beside a new **Documentation** link)
   opens a dialog with three channels: **Local** records the report on this

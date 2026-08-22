@@ -690,11 +690,24 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
 ``enhance [--module NAME] [--force] [--limit N]`` -- Run enhancement modules.
 
+``qmd-resync [--rebuild]``
+   Re-export entries the qmd markdown mirror never saw --- entries created in
+   the web interface, attachment uploads, and entries written through the
+   logbook write service. ``--rebuild`` wipes the mirror and re-exports
+   everything, which is what to run after ``purge``.
+   ``ingest`` and ``watch`` already do this pass on their own.
+
 ``models`` -- List embedding models and tables.
 
 ``search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
    Execute a search query. Without ``--mode``, the deployment's
    ``ariel.default_search_mode`` decides.
+
+``vocab-check [PATH] [--json]``
+   Validate a facility vocabulary file --- the shorthand-to-prose mapping that
+   query expansion uses. Checks ``PATH``, or the file named by
+   ``ariel.vocabulary.path`` when no path is given. Needs no database. Exits 1
+   and lists every error when the file is broken; warnings never fail it.
 
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.
@@ -707,6 +720,7 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
+   osprey ariel vocab-check data/ariel/vocabulary.yml
    osprey ariel web --port 8080
 
 osprey artifacts
