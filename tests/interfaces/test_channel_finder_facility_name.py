@@ -113,6 +113,11 @@ def test_config_derived_name_is_not_the_registry_reported_name():
 
 # (module, initializer, resetter) for the three pipeline server contexts. They
 # each fed `app.state.facility_names` and the CF UI's per-pipeline label.
+#
+# The `graph` paradigm is deliberately absent: `facility_names` is read out of a
+# loaded channel *database* registry, and a graph project has none — its store
+# is seeded from the facility corpus TTL. A graph-mode app reports its facility
+# name from config alone (the `facility_name` reader above).
 _PIPELINE_CONTEXTS = [
     (
         "osprey.mcp_server.channel_finder_hierarchical.server_context",

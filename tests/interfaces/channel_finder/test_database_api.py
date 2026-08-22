@@ -188,3 +188,25 @@ class TestCrudEndpoints:
                 json={"channel_name": "TEST:CH"},
             )
         assert resp.status_code == 500
+
+
+class TestUnknownPipelineType:
+    """The API refuses to serve a pipeline type it does not recognise."""
+
+    def test_unknown_pipeline_type_returns_400_naming_the_value(self, client):
+        client.app.state.pipeline_type = "telepathic"
+        resp = client.get("/api/statistics")
+        assert resp.status_code == 400
+        assert "telepathic" in resp.json()["detail"]
+
+    def test_unknown_pipeline_type_is_rejected_on_info_too(self, client):
+        client.app.state.pipeline_type = "telepathic"
+        resp = client.get("/api/info")
+        assert resp.status_code == 400
+        assert "telepathic" in resp.json()["detail"]
+
+    def test_unset_pipeline_type_returns_400_rather_than_defaulting(self, client):
+        del client.app.state.pipeline_type
+        resp = client.get("/api/statistics")
+        assert resp.status_code == 400
+        assert "channel_finder.pipeline_mode" in resp.json()["detail"]
