@@ -323,15 +323,21 @@ Working with a Bundle
       ``osprey knowledge seed-graph --help``.
 
       **build-ttl** — generates the corpus ``seed-graph`` loads, deriving it
-      from the project's own hierarchical channel database so the graph and the
-      channel finder describe the same machine:
+      from the project's own channel databases so the graph and the channel
+      finder describe the same machine:
 
       .. code-block:: console
 
-         $ osprey knowledge build-ttl data/demo_machine.ttl
+         $ osprey knowledge build-ttl data/demo_machine.ttl \
+             --channel-db data/channel_databases/hierarchical.json \
+             --descriptions <your in-context database>
 
-      Inputs you do not name come from ``config.yml``, and every run reports
-      which source decided each signal's read/write direction. See
+      Two databases describe the machine — the hierarchical one for its
+      structure, the in-context one for the sentence on each channel — and a
+      rendered project names both, because it ships only the paradigm it runs.
+      The limits file comes from ``config.yml`` and the ontology table from
+      OSPREY's shipped default, and every run reports which source decided each
+      signal's read/write direction. See
       :doc:`use-facility-graph` for the inputs, the shipped corpora, and what
       the agent then does with the graph.
 

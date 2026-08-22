@@ -67,17 +67,49 @@ Compatibility is documented in release notes, not encoded in the version string.
   parameterized set covering device rollups, channel bindings and section
   walks. `services.graphdb.query_timeout_s` (default 15 s) and
   `services.graphdb.query_max_rows` (default 200) bound a single query. The
-  server is rendered wherever `services.graphdb` is configured, for the main
-  agent and the channel-finder subagent.
+  server is rendered for the main agent wherever `services.graphdb` is
+  configured.
 - `osprey knowledge build-ttl` generates a Turtle corpus from a project's
-  hierarchical channel database, deriving devices from the channel-name grammar
-  and each binding's read/write direction from the limits database. The
-  `control-assistant` preset seeds its graph from that corpus, so its graph and
-  channel finder describe the same machine.
+  hierarchical channel database (`--channel-db`) and the matching in-context
+  database (`--descriptions`), deriving devices from the channel-name grammar,
+  each binding's read/write direction from the limits database, and the prose
+  describing them from both. The `control-assistant` preset seeds its graph from
+  that corpus, so its graph and channel finder describe the same machine.
 - The `control-assistant-readonly` and `control-assistant-readwrite` operator
   terminals get the graph tools too, reading the hosting deployment's store
   over `services.graphdb.port_host`. Move that port on the deployment and move
   the same number in both preset files.
+
+- The graph is available as a fourth channel-finder paradigm:
+  `channel_finder.pipeline_mode: graph` (`osprey init --set
+  channel_finder_mode=graph`) answers channel questions from the deployment's
+  graph store instead of a database file. The channel-finder subagent gets four
+  tools under the usual `channel-finder` server name — `read_cypher` for
+  read-only Cypher, `get_schema`, `capabilities` for the corpus conventions a
+  query has to follow, and `example_queries` for a catalogue of worked lookups.
+  A `services.graphdb` block is the whole configuration, whether it deploys the
+  store with the project or names an external one (`uri`, `username` and
+  `GRAPHDB_PASSWORD`); there is no `pipelines.graph` block to fill in.
+- The corpus the `control-assistant` preset ships describes its machine in
+  words, so a graph-mode search can match an operator's phrasing: every channel
+  binding carries a description plus its field and subfield text, every device
+  carries family, system and ring descriptions and a `system` token, and
+  synonyms are stored as lists.
+- `osprey health` reports a graph-mode channel finder as store-backed — bolt
+  reachability and the store's resource count, with no database file to look
+  for — and the channel-finder web app serves a pane naming the graph tools,
+  answering the file-backed routes (statistics, validation, pipeline switching)
+  by pointing at `read_cypher`.
+- The channel-finder benchmark runs a fourth lane, scoring the graph paradigm
+  against the same tier-3 query set as the other three.
+
+### Changed
+
+- A missing or unknown `channel_finder.pipeline_mode` now fails with an error
+  naming the modes that exist, everywhere the mode is read: build, agent
+  render, `osprey health`, the channel-finder web app and the benchmark runner.
+- A benchmark lane fails outright when any of its queries fails to run, so a
+  score is only ever reported over the whole query set.
 
 ### Fixed
 

@@ -4,8 +4,9 @@ MCP Servers
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. The Osprey agent discovers servers from ``.mcp.json`` at startup and calls
-tools via stdio JSON-RPC. There are **9 in-tree MCP servers**; build profiles
-can inject additional servers beyond the core set below.
+tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
+deployment normally renders; build profiles can inject additional servers beyond
+them.
 
 
 Control System
@@ -34,9 +35,10 @@ safety-limits enforcement on all write operations.
 Channel Finding
 ---------------
 
-OSPREY provides three channel finder variants, each suited to different
-facility data models and search strategies. Deployments typically enable
-one or two variants depending on available metadata.
+OSPREY provides four channel finder variants, each suited to different
+facility data models and search strategies. A deployment picks one with
+``channel_finder.pipeline_mode``, and whichever it picks is served under the one
+``channel-finder`` name.
 
 ``channel_finder_hierarchical``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -85,6 +87,37 @@ lookups and validation.
 - ``validate`` -- Validate that channel names exist in the database.
 - ``statistics`` -- Get database statistics (total channels, systems, families).
 - ``run_sql`` -- Run a read-only SQL query directly against the channel finder DuckDB database (``channels``, ``systems``, ``families`` tables).
+
+``channel_finder_graph``
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.channel_finder_graph``
+
+Finds channels by searching the facility knowledge graph. Instead of drilling
+through a database file, the agent writes read-only Cypher against the seeded
+``graphdb`` store, so a question can start from a description, an alternate name
+or a system just as easily as from an address. Selected with
+``channel_finder.pipeline_mode: graph``, and needs a ``services.graphdb`` store
+to search -- deployed with the rest of the stack, or one the facility already
+runs.
+
+``read_cypher`` and ``get_schema`` are the ``graph`` server's own tools, served
+here under the ``channel-finder`` name: the same read transaction, the same
+refusal of extension procedures and ``LOAD CSV``, the same row and time bounds.
+The examples catalogue is this package's own, written around the questions
+operators ask about channels rather than around general graph exploration. See
+:doc:`/how-to/use-facility-graph`.
+
+**Tools:**
+
+- ``read_cypher`` -- Run one read-only Cypher query and return the matching rows,
+  bounded by ``services.graphdb.query_max_rows`` and
+  ``services.graphdb.query_timeout_s``.
+- ``get_schema`` -- Report the node labels, relationship types, sampled per-label
+  property names and namespace prefixes this graph holds.
+- ``example_queries`` -- Return runnable Cypher examples for the common channel
+  questions, each with per-corpus parameter values.
+- ``capabilities`` -- Report the server description, tool list and operating notes.
 
 Workspace
 ---------

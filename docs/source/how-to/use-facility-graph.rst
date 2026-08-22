@@ -18,6 +18,17 @@ to each other: how many correctors the storage ring has, what sits in a section
 in beam order, which PVs one device exposes and which of them are written, or
 which devices share a PV.
 
+.. admonition:: Two things are called "graph"
+   :class: important
+
+   This page is about the ``graph`` MCP server — the main agent's exploration
+   surface over the store. The **graph paradigm** is a different thing wearing
+   the same word: a channel finder mode (``channel_finder.pipeline_mode:
+   graph``) that puts the channel finder subagent on this same store to turn a
+   phrase into an address, under the ``channel-finder`` server name and with a
+   query catalogue written for that job. Same store, different audience — see
+   :doc:`use-channel-finder`.
+
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
@@ -26,7 +37,8 @@ which devices share a PV.
    - The four tools and the order to use them in
    - Why the server can only read, and what it refuses before dialing
    - What each degraded state means and the remedy it names
-   - How to generate a graph corpus from your own channel database
+   - How to generate a graph corpus from your own channel databases
+   - How to point the tools at a store the facility already runs
 
    **Prerequisites:** a project with a ``services.graphdb`` block — the
    ``control-assistant`` preset ships one, already seeded.
@@ -41,20 +53,36 @@ the nodes and relationships a query walks. Four kinds of thing matter to a
 query:
 
 * **Devices** — one node per physical device, carrying ``sourceName``,
-  ``sectionCode``, ``sPositionM`` (position along the beamline) and
-  ``ordinalInSection``.
+  ``sectionCode``, ``system``, ``sPositionM`` (position along the beamline) and
+  ``ordinalInSection``, plus the prose for the three levels the device sits
+  under: ``ringDescription``, ``systemDescription`` and ``familyDescription``.
 * **Channel bindings** — one node per control system address, carrying
-  ``fullPv``, ``protocol`` and ``confidence``. A device reaches its bindings
-  over ``HASBINDING``.
+  ``fullPv``, ``protocol``, ``confidence`` and three texts: ``description`` is
+  the sentence written for that one channel, while ``fieldDescription`` and
+  ``subfieldDescription`` say what the last two tokens of the address mean. A
+  device reaches its bindings over ``HASBINDING``.
 * **Signals** — what a binding reads or writes, reached over ``READSSIGNAL`` or
   ``WRITESSIGNAL``. Exactly one of the two sits on every binding, so the
   direction of an address is a property of the graph rather than a guess from
   its name.
 * **Classes** — the device ontology, linked by ``SUBCLASSOF``. A device is
   typed by ``TYPE``. This is what lets "every magnet" find an ``HCorrector``
-  without the query naming ``HCorrector``.
+  without the query naming ``HCorrector``. Classes also carry the synonyms an
+  operator would say out loud, as ``skos:altLabel``.
 
-Two spelling rules come from neosemantics and catch out anyone writing Cypher
+The descriptions are what makes the graph reachable from a phrase rather than
+only from a name: "the magnets that bend the beam" matches text no address
+spells. They sit on bindings rather than on signals because an address is
+ring-qualified and a signal is not — ``SR:MAG:QF:01:CURRENT:SP`` and its
+booster counterpart share one signal node but are described differently.
+
+The descriptions and ``system`` come from the generator, so they are there in a
+corpus ``build-ttl`` produced — the demo machine — and not in the shipped ALS
+corpus, which OSPREY carries as a fixed artifact with no source database to
+regenerate from. On that one the way in is a name, an ``altLabel``, a section
+or a class.
+
+Three spelling rules come from neosemantics and catch out anyone writing Cypher
 from memory:
 
 * Every node carries the label ``Resource`` plus the local name of its RDF
@@ -64,6 +92,11 @@ from memory:
   Property names keep their original spelling. A query naming something that
   does not exist returns zero rows rather than an error, so a guess produces a
   confident wrong answer — which is what ``get_schema`` is for.
+* ``altLabel`` is a **list**, not a string: the store keeps every synonym
+  instead of letting the last one win. Match it with
+  ``ANY(l IN c.altLabel WHERE l = $label)``. Comparing it to a string —
+  ``c.altLabel = $label`` — is a list against a text and never matches, and the
+  string operators do not apply to it at all.
 
 
 The Four Tools
@@ -204,29 +237,63 @@ Generating a Corpus
 ===================
 
 ``osprey knowledge build-ttl`` derives a NARAD-convention Turtle corpus from a
-project's own channel database, so the graph describes the same machine the
-channel finder does:
+project's own channel databases, so the graph describes the same machine the
+channel finder does. Inside a rendered project:
 
 .. code-block:: console
 
-   $ osprey knowledge build-ttl data/demo_machine.ttl
+   $ osprey knowledge build-ttl data/demo_machine.ttl \
+       --channel-db data/channel_databases/hierarchical.json \
+       --descriptions <your in-context database>
    Wrote data/demo_machine.ttl.
      512 devices, 2908 channel bindings, 113 signals.
      direction from channel limits: data/channel_limits.json
      Load it with: osprey knowledge seed-graph data/demo_machine.ttl
 
+``--descriptions`` has to be named there, for the reason below, and
+``--channel-db`` too unless the project runs the hierarchical paradigm and its
+config already names the database. The shipped demo corpus is regenerated from
+``src/osprey/templates/apps/control_assistant/`` in the OSPREY source tree
+instead, where the two databases sit side by side and ``--descriptions`` can be
+left to its default:
+
+.. code-block:: console
+
+   $ osprey knowledge build-ttl data/demo_machine.ttl \
+       --channel-db data/channel_databases/tiers/tier3/hierarchical.json
+
 One device node per device, one binding per address, one class per device
-family, and a read or write direction on every signal. Inputs you do not name
-come from the project's config:
+family, a read or write direction on every signal, and the prose from both
+databases carried onto the nodes it describes.
+
+Two inputs describe the machine:
 
 ``--channel-db``
+   The **hierarchical**-paradigm database, the one whose addresses are
+   ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``. Its addresses become the
+   devices, bindings and classes, and the text it carries per level becomes
+   ``ringDescription`` / ``systemDescription`` / ``familyDescription`` on
+   devices and ``fieldDescription`` / ``subfieldDescription`` on bindings.
+   Unnamed, it comes from
    ``channel_finder.pipelines.hierarchical.database.path``, resolved against
-   the ``config.yml`` directory — ``data/channel_databases/hierarchical.json``
-   in a rendered project. The generator reads the **hierarchical**-paradigm
-   database, the one whose addresses are
-   ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``; a project built for another
-   paradigm does not ship it, and the command says which database files it did
-   find and points at this option.
+   the ``config.yml`` directory.
+
+``--descriptions``
+   The in-context database for the same machine: a flat list of addresses, each
+   with a sentence about that one channel. Those sentences become
+   ``ChannelBinding.description``. Unnamed, it is looked for as
+   ``in_context.json`` beside the file ``--channel-db`` named — which is how
+   the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
+   With no such neighbour the command asks for the flag.
+
+That neighbour rule is a convenience of the source tree. A rendered project
+keeps only the paradigm it runs, as a flat
+``data/channel_databases/<paradigm>.json``, and prunes the tier tree — so there
+is no neighbour to find and ``--descriptions`` has to be named, as the first
+example does. A graph-mode project ships no channel database at all, and says
+so rather than hunting for one.
+
+Two more inputs decide details:
 
 ``--limits``
    ``control_system.limits_checking.database_path``. This file is what tells a
@@ -255,7 +322,7 @@ What the Presets Seed
 =====================
 
 * **control-assistant** seeds ``./data/demo_machine.ttl`` — the demo machine,
-  generated from the preset's own channel database with the command above and
+  generated from the preset's own channel databases with the command above and
   regenerable the same way. The ALS corpus still ships alongside it at
   ``./services/graphdb/als_gtb.ttl``; point ``ttl_path`` there, or at a corpus
   of your own, to seed that instead.
@@ -270,6 +337,38 @@ What the Presets Seed
    overlay — at its own corpus, or at ``./services/graphdb/als_gtb.ttl``.
    Otherwise the deploy warns, the store comes up empty, and every query
    reports the empty state above.
+
+
+Pointing at a Store the Facility Runs
+=====================================
+
+The store does not have to be one this deployment brings up. Give
+``services.graphdb`` an explicit ``uri`` and leave ``graphdb`` out of
+``deployed_services``:
+
+.. code-block:: yaml
+
+   services:
+     graphdb:
+       uri: bolt://graph.facility.example:7687
+       username: osprey
+     # ... the rest of your services, unchanged
+
+   deployed_services: [postgresql, openobserve, qmd]   # no graphdb
+
+Put that account's password in the project ``.env`` as ``GRAPHDB_PASSWORD``.
+Nothing mints one here — the store belongs to somebody else, so OSPREY starts
+nothing and bootstraps nothing, and it seeds nothing on its own: the corpus is
+whatever the facility loaded, unless you run ``osprey knowledge seed-graph``
+against it deliberately. ``username`` is read only on this path; a store this
+deployment does run authenticates as ``neo4j``, the account its container is
+created with.
+
+Everything else on this page applies to an external store as written, because
+it is all client side: the same four tools, the same read-only posture, the
+same bounds and the same degraded states. The graph channel finder paradigm
+reads the same block and reaches an external store the same way
+(:doc:`build-profiles`).
 
 
 One Machine, Several Views
@@ -290,9 +389,10 @@ where a view is smaller, it is a strict subset rather than a different machine:
      - 2,908
      - 512 devices; 396 of the bindings are write-direction, and they are
        exactly the ``:SP`` addresses.
-   * - Channel finder, hierarchical and middle-layer builds
+   * - Channel finder — hierarchical, middle-layer and graph builds
      - 2,908
-     - The same set, address for address.
+     - The same set, address for address. A graph-mode build keeps no database
+       of its own: it answers out of this corpus.
    * - Channel finder, in-context (tier-1) builds
      - 569
      - A strict subset — the tier-1 database is a smaller selection of the same

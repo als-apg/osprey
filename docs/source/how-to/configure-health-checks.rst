@@ -228,6 +228,18 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   channel-database file exists (a configured-but-missing database is an
   ``error``), shows the database's age, and — for the ``middle_layer``
   pipeline — the channel count from the materialized DuckDB.
+
+  The ``graph`` pipeline reads different rows, because it answers from the
+  graph store rather than from a file on disk. The pipeline row reports it as
+  store-backed, and in place of the database rows the category reports the
+  store's **reachability** and its **resource count** — the same two readings
+  the ``graphdb`` category takes, so a stopped store warns rather than
+  failing the suite. A graph-mode build configures no ``database.path`` and is
+  never warned about one missing: there is no channel-database file in that
+  paradigm to look for (see :doc:`use-channel-finder`). The ``graphdb`` tile is
+  always alongside — graph mode needs that block — so these rows restate the
+  same store readings in the channel finder's own terms: whether *channel
+  search* has anything to answer from.
 - ``graphdb`` — appears when a ``services.graphdb`` block is configured (see
   :doc:`deploy-project`). Two rows: **connection**, which dials the store over
   bolt and reports the round-trip latency, and **resources**, the number of
