@@ -57,6 +57,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AuthSecretsResult,
     ensure_auth_credentials,
     ensure_auth_session_secrets,
+    ensure_terminal_secrets,
     raise_if_env_auth_would_be_interpolated,
 )
 from osprey.deployment.web_terminals.env_production import (
@@ -105,10 +106,17 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     renders it looks for are the ones ``osprey build`` wrote into that repo's
     ``build/``.
 
-    Auth provisioning runs LAST, and in both image-source modes: the sidecar's
-    credentials are needed whatever the images come from, but minting them for
-    a deploy that :func:`ensure_env_production` is about to abort would write
-    (and print) passwords for a stack that never comes up.
+    Terminal-secret provisioning (:func:`_provision_terminal_secrets`) runs
+    LAST, and for EVERY deployment whatever ``auth.method`` says — deliberately
+    outside the ``none`` early return that governs the auth credentials before
+    it. Those secrets are what makes nginx the only way into a terminal at all;
+    an unauthenticated multi-user deployment needs that no less than an
+    authenticated one, and gets it from nowhere else.
+
+    Auth provisioning runs second-to-last, and in both image-source modes: the
+    sidecar's credentials are needed whatever the images come from, but minting
+    them for a deploy that :func:`ensure_env_production` is about to abort would
+    write (and print) passwords for a stack that never comes up.
 
     Every step is idempotent, so :func:`deploy_up_web_terminals` re-running
     the same sequence later is a cheap no-op: the persona check reads and
@@ -150,6 +158,19 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # below _provision_auth_secrets silently loses that property.
     _require_auth_sidecar_image(web_terminals)
     _provision_auth_secrets(web_terminals, str(root))
+    # OUTSIDE _provision_auth_secrets, which returns early on `auth.method:
+    # none` — that early return governs who may log in, and a terminal secret is
+    # not a login: it is what makes nginx the only route to a terminal at all.
+    # An auth-off multi-user deployment needs it exactly as much.
+    #
+    # Ordered after the credential mint rather than before it, unlike every
+    # other step here. The usual rule — abort before the step that PRINTS a
+    # password for a doomed stack — carries less weight for this one: a
+    # password printed and then aborted on is still the password its stored
+    # hash accepts at the next `osprey up`, whereas hoisting this call would
+    # change which refusal an operator meets in every failure the two share
+    # (an unwritable repo root fails both).
+    _provision_terminal_secrets(web_terminals, str(root))
 
 
 def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
@@ -230,6 +251,54 @@ def web_terminal_preflight_problems(
         findings.append((problem, ""))
 
     return findings
+
+
+def _provision_terminal_secrets(web_terminals: dict, repo_root: str) -> None:
+    """Mint every roster user's terminal secret, then gate the deploy on it.
+
+    Runs in EVERY auth method, ``none`` included. The per-user secret nginx
+    stamps onto a proxied request is what lets a terminal refuse everything that
+    did not come through nginx; turning authentication off decides who may walk
+    through the front door, not whether the back ones are open. An auth-off
+    multi-user deployment is precisely the one with nothing else in the way.
+
+    The whole roster is provisioned, ``login: false`` entries included — unlike
+    the auth credentials, where such an entry has no login for a password to
+    belong to. Every entry has a terminal, so every entry has a front door.
+
+    Mint first, then gate, for the reason
+    :func:`_provision_auth_secrets` spells out: the question is not "was a
+    secret configured?" but "does one exist now?", and only the mint can answer
+    it. The gate names the variable rather than the user, because the variable
+    is what an operator sets and what the compose file references.
+
+    Because this runs in every auth method, so does the roster gate inside it:
+    ``ensure_terminal_secrets`` refuses a name outside ``USERNAME_CHARSET_RE``
+    on an ``auth.method: none`` deployment as well, where nothing checked it
+    before. That is a real tightening — ``Alice`` and ``alice.b`` are refused by
+    a deploy that used to accept them — and it is the right one: the name is an
+    nginx location key and a URL path segment whatever the auth method. The
+    refusal says "web-terminal secrets" rather than "auth credentials"
+    (``_validate_usernames``'s ``subject``), so an operator who configured no
+    authentication is not sent looking for a feature they never turned on.
+
+    :param web_terminals: The already-unwrapped ``modules.web_terminals`` dict.
+    :param repo_root: Directory holding the deploy ``.env``.
+    :raises RuntimeError: If a roster user has no usable terminal secret after
+        the mint (an unwritable ``.env``), or if the roster cannot be keyed —
+        a charset violation, or two usernames colliding onto one secret
+        variable, both raised by ``ensure_terminal_secrets``.
+    """
+    usernames = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+    result = ensure_terminal_secrets(repo_root, usernames)
+    if result.missing:
+        raise RuntimeError(
+            "Cannot deploy web terminals: no terminal secret could be established for "
+            f"{', '.join(result.missing)} in {result.env_path}. Each per-user terminal "
+            "refuses every request that does not carry its secret, so those users would "
+            "get a terminal nobody — including nginx — can reach. Check that file is "
+            "writable, or set the variable(s) there by hand. Refusing to deploy."
+        )
 
 
 def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:

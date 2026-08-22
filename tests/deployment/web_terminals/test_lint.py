@@ -1892,6 +1892,82 @@ def test_lint_empty_nginx_image_is_a_warning() -> None:
     assert not any(f.code == "web_terminals.invalid_nginx_image" for f in _errors(findings))
 
 
+# --- external_origin override -------------------------------------------------
+
+
+def test_lint_omitted_external_origin_reports_nothing() -> None:
+    """No `external_origin` key (the common case) derives the origin from
+    `deploy.fqdn` and must never be flagged."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    assert "external_origin" not in config["modules"]["web_terminals"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any("external_origin" in f.code for f in findings)
+
+
+def test_lint_valid_external_origin_reports_nothing() -> None:
+    """scheme://host[:port] is exactly what a browser sends as `Origin`."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any("external_origin" in f.code for f in findings)
+
+
+def test_lint_external_origin_with_a_trailing_slash_is_an_error() -> None:
+    """The quiet failure this exists to catch.
+
+    The value is compared against the browser's `Origin` header as a whole
+    string, and no browser sends a trailing slash — so the deployment's pages
+    all load and its every write answers 403, with the only signal inside a
+    container.
+    """
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org/"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
+
+
+def test_lint_non_string_external_origin_is_an_error() -> None:
+    """A non-string cannot be an origin — fail closed, as render does."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["external_origin"] = 9080
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
+
+
+def test_lint_empty_external_origin_is_a_warning() -> None:
+    """Inert (the derivation applies) but almost certainly a mistake."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["external_origin"] = "  "
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.empty_external_origin" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
+
+
 # --- auth seam checks ---------------------------------------------------------
 
 

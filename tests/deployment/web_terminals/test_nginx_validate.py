@@ -28,6 +28,7 @@ Skipped entirely when docker (or openssl) is unavailable, mirroring
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -35,10 +36,38 @@ from pathlib import Path
 
 import pytest
 
-from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.render import (
+    NGINX_TEMPLATES_OUTPUT_DIR,
+    TERMINAL_SECRET_HEADER,
+    render_web_terminals,
+    terminal_secret_env_var,
+)
 
 _BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
 _NGINX_IMAGE = "nginx:1.27-alpine"
+
+#: Where the base image's entrypoint writes the envsubst'd per-user snippets, and
+#: which variables it may substitute — kept byte-identical to the values the
+#: compose overlay (docker-compose.web.yml.j2) sets on the nginx service, so this
+#: exercises the exact include + envsubst chain a real deployment runs. The
+#: output directory is pointedly NOT the entrypoint default of /etc/nginx/conf.d
+#: (which the base image globs into `http{}`, where a per-user header would reach
+#: every upstream); it is read only by the per-user `include` inside each
+#: authenticated location.
+_NGINX_ENVSUBST_OUTPUT_DIR = "/etc/nginx/osprey"
+_NGINX_ENVSUBST_FILTER = "^OSPREY_TERMINAL_SECRET_"
+#: The mode the compose overlay mounts that tmpfs with (its service-level
+#: `tmpfs: [- /etc/nginx/osprey:mode=0700]`), replayed here as docker-run's
+#: `--tmpfs <dir>:mode=` — the same option string, which is why the compose
+#: entry carries it as a string rather than as a YAML-octal `mode:` key. The substituted snippets
+#: hold every roster user's operator secret in plaintext at 0644, so the
+#: directory around them is what keeps them off every other process in the
+#: container. Root-owned 0700 is enough for both readers: the entrypoint writes
+#: as root, and nginx's MASTER process (also root) is what opens the includes.
+_ENVSUBST_OUTPUT_MODE = "0700"
+#: The default.conf path as `nginx -T` labels it in its per-file dump — the base
+#: image maps a `conf.d/*.conf` mount to this fixed name.
+_DEFAULT_CONF_PATH = "/etc/nginx/conf.d/default.conf"
 
 
 def _docker_available() -> bool:
@@ -142,19 +171,136 @@ def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
     assert "return 200;" not in nginx_conf
 
 
-def _run_nginx_t(conf_dir: Path, certs_dir: Path | None) -> subprocess.CompletedProcess:
+def _terminal_secrets(users: list[str]) -> dict[str, str]:
+    """A distinct, envsubst-legal operator secret per user.
+
+    Distinct values are what let the no-leak assertions tell one user's rendered
+    header apart from another's in an ``nginx -T`` dump: a snippet that leaked a
+    neighbour's variable would show that neighbour's value where it does not
+    belong.
+    """
+    return {user: f"terminal-secret-for-{user}" for user in users}
+
+
+def _write_secret_templates(artifacts: dict[str, str], dest: Path) -> None:
+    """Lay a render's per-user secret templates out flat under *dest*.
+
+    ``render_web_terminals(..., terminal_secrets=...)`` returns each snippet
+    keyed ``nginx/templates/secret-<user>.conf.template``; the base image's
+    entrypoint expects them directly inside the mounted ``/etc/nginx/templates``,
+    so the leading directory is stripped here — exactly what the write seam does
+    when it lays the templates directory out for the compose mount.
+    """
+    prefix = f"{NGINX_TEMPLATES_OUTPUT_DIR}/"
+    for path, content in artifacts.items():
+        if path.startswith(prefix):
+            (dest / path[len(prefix) :]).write_text(content)
+
+
+def _run_nginx_t(
+    conf_dir: Path,
+    certs_dir: Path | None,
+    *,
+    templates_dir: Path | None = None,
+    secret_env: dict[str, str] | None = None,
+    command: tuple[str, ...] = ("nginx", "-t"),
+    entrypoint: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Run *command* (default ``nginx -t``) in ``nginx:1.27-alpine`` against the
+    rendered fragment.
+
+    When *templates_dir* is given, the base image's entrypoint is driven exactly
+    as the rendered compose overlay drives it: the per-user secret templates are
+    mounted read-only at ``/etc/nginx/templates`` and envsubst'd — from the
+    ``OSPREY_TERMINAL_SECRET_*`` values in *secret_env* — into
+    ``/etc/nginx/osprey`` before the config is read, so the per-user ``include``
+    each authenticated location carries resolves to a real file. That output
+    directory is provided as a ``--tmpfs`` — the docker-run equivalent of the
+    ``tmpfs: /etc/nginx/osprey`` the compose overlay now declares on the nginx
+    service — because the entrypoint's own ``-w`` guard skips the whole
+    substitution when the directory is not already writable, and the base image
+    ships none. No writable bind mount and no host scaffold: this exercises the
+    exact self-provisioning mechanism a real ``osprey up`` relies on.
+
+    *entrypoint* overrides the image's own. Only one caller needs it: the base
+    entrypoint ``exec``s whatever it is handed, so a test that has to LOOK at
+    the substituted directory afterwards has to drive the substitution step
+    itself rather than let nginx replace the process.
+    """
     mounts = [
         "-v",
-        f"{conf_dir}/default.conf:/etc/nginx/conf.d/default.conf:ro",
+        f"{conf_dir}/default.conf:{_DEFAULT_CONF_PATH}:ro",
     ]
     if certs_dir is not None:
         mounts += ["-v", f"{certs_dir}:/etc/nginx/certs:ro"]
+    extra: list[str] = []
+    if templates_dir is not None:
+        mounts += ["-v", f"{templates_dir}:/etc/nginx/templates:ro"]
+        extra += [
+            "--tmpfs",
+            f"{_NGINX_ENVSUBST_OUTPUT_DIR}:mode={_ENVSUBST_OUTPUT_MODE}",
+            "-e",
+            f"NGINX_ENVSUBST_OUTPUT_DIR={_NGINX_ENVSUBST_OUTPUT_DIR}",
+            "-e",
+            f"NGINX_ENVSUBST_FILTER={_NGINX_ENVSUBST_FILTER}",
+        ]
+        for var, value in (secret_env or {}).items():
+            extra += ["-e", f"{var}={value}"]
+    if entrypoint is not None:
+        extra += ["--entrypoint", entrypoint]
     return subprocess.run(
-        ["docker", "run", "--rm", *mounts, _NGINX_IMAGE, "nginx", "-t"],
+        ["docker", "run", "--rm", *mounts, *extra, _NGINX_IMAGE, *command],
         capture_output=True,
         text=True,
         timeout=60,
     )
+
+
+def _config_file_sections(dump: str) -> dict[str, str]:
+    """Split an ``nginx -T`` dump into ``{path: body}`` by its file markers.
+
+    ``nginx -T`` prints every config file it read under a
+    ``# configuration file <path>:`` banner, including each ``include``d one —
+    so a per-user secret snippet lands in its OWN section keyed by
+    ``/etc/nginx/osprey/secret-<user>.conf``, not inline in the location that
+    included it. Splitting on the banner is what lets the no-leak assertions read
+    one user's snippet in isolation.
+    """
+    sections: dict[str, str] = {}
+    current: str | None = None
+    lines: list[str] = []
+    for line in dump.splitlines():
+        match = re.match(r"# configuration file (.+):$", line)
+        if match:
+            if current is not None:
+                sections[current] = "\n".join(lines)
+            current = match.group(1)
+            lines = []
+        elif current is not None:
+            lines.append(line)
+    if current is not None:
+        sections[current] = "\n".join(lines)
+    return sections
+
+
+def _location_body(conf: str, user: str) -> str:
+    """The brace-matched body of *user*'s ``location /u/<user>/ { ... }`` block.
+
+    Used to prove which secret ``include`` a given location carries: string
+    counting over the whole file could not tell a directive inside alice's
+    location from one inside bob's.
+    """
+    marker = f"location /u/{user}/ {{"
+    start = conf.index(marker)
+    depth = 0
+    for i in range(start, len(conf)):
+        if conf[i] == "{":
+            depth += 1
+        elif conf[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return conf[start : i + 1]
+    raise AssertionError(f"unterminated location block for {user!r}")
 
 
 def test_default_gated_off_render_passes_nginx_t() -> None:
@@ -187,18 +333,25 @@ def test_enabled_tls_and_auth_render_passes_nginx_t() -> None:
     rejects where it stands.
     """
     users = ["alice", "bob"]
+    secrets = _terminal_secrets(users)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         conf_dir = tmp_path / "conf"
         certs_dir = tmp_path / "certs"
+        templates_dir = tmp_path / "templates"
         conf_dir.mkdir()
         certs_dir.mkdir()
+        templates_dir.mkdir()
 
         cert_path, key_path = _generate_self_signed_cert(certs_dir)
 
         # Arrange — cert/key paths must match where they'll be mounted inside
-        # the container (/etc/nginx/certs/...), not the host tmp path.
+        # the container (/etc/nginx/certs/...), not the host tmp path. Rendering
+        # WITH terminal_secrets additionally emits the per-user snippet templates
+        # the authenticated locations `include`; without them (or their envsubst
+        # output) nginx dies at start on the missing include, so `nginx -t`
+        # would never reach the surface this test means to validate.
         artifacts = render_web_terminals(
             _config(
                 users=users,
@@ -208,7 +361,8 @@ def test_enabled_tls_and_auth_render_passes_nginx_t() -> None:
                     "key": f"/etc/nginx/certs/{key_path.name}",
                 },
                 auth={"method": "password"},
-            )
+            ),
+            terminal_secrets=secrets,
         )
         nginx_conf = artifacts["nginx/nginx.conf"]
         # Guard against a vacuous green: nginx would happily accept a fragment
@@ -220,9 +374,16 @@ def test_enabled_tls_and_auth_render_passes_nginx_t() -> None:
         assert "return 301 https://$host$request_uri;" in nginx_conf
 
         (conf_dir / "default.conf").write_text(nginx_conf)
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
 
         # Act
-        result = _run_nginx_t(conf_dir, certs_dir=certs_dir)
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=certs_dir,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+        )
 
     # Assert
     assert result.returncode == 0, result.stderr
@@ -234,10 +395,14 @@ def test_cleartext_auth_render_passes_nginx_t() -> None:
     inside a SINGLE server block — a different nesting of the same directives,
     and one nothing else runs nginx against."""
     users = ["alice", "bob"]
+    secrets = _terminal_secrets(users)
 
-    # Arrange
+    # Arrange — render WITH terminal_secrets so the per-user snippet templates
+    # the authenticated locations `include` are materialized and envsubst'd (see
+    # the C2 test for why the include is a hard startup dependency).
     artifacts = render_web_terminals(
-        _config(users=users, auth={"method": "password", "allow_insecure_http": True})
+        _config(users=users, auth={"method": "password", "allow_insecure_http": True}),
+        terminal_secrets=secrets,
     )
     nginx_conf = artifacts["nginx/nginx.conf"]
     _assert_auth_surface_present(nginx_conf, users)
@@ -245,11 +410,417 @@ def test_cleartext_auth_render_passes_nginx_t() -> None:
     assert "listen 443 ssl;" not in nginx_conf
 
     with tempfile.TemporaryDirectory() as tmp:
-        conf_dir = Path(tmp)
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
         (conf_dir / "default.conf").write_text(nginx_conf)
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
 
         # Act
-        result = _run_nginx_t(conf_dir, certs_dir=None)
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+        )
 
     # Assert
+    assert result.returncode == 0, result.stderr
+
+
+def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:
+    """IA-5: the operator secret nginx stamps on a proxied request is per-user
+    and un-leakable across locations.
+
+    Rendered through the same per-user ``include`` + envsubst chain the compose
+    overlay wires, an ``nginx -T`` dump of the fully resolved config must show
+    the ``X-Osprey-Terminal-Secret`` header exactly once per roster user — no
+    stray copy at ``http``/``server`` scope, where the base image's default
+    envsubst output directory would have put it and where it would reach every
+    upstream — with each user's header carrying ONLY that user's secret, from a
+    snippet ``include``d ONLY by that user's ``/u/<user>/`` location. A snippet
+    that named a neighbour's variable, or a location that pulled in a
+    neighbour's snippet, would hand one operator's credential to another's
+    terminal — the exact isolation this carrier exists to establish.
+    """
+    users = ["alice", "bob"]
+    secrets = _terminal_secrets(users)
+    artifacts = render_web_terminals(
+        _config(users=users, auth={"method": "password", "allow_insecure_http": True}),
+        terminal_secrets=secrets,
+    )
+    nginx_conf = artifacts["nginx/nginx.conf"]
+    _assert_auth_surface_present(nginx_conf, users)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
+        (conf_dir / "default.conf").write_text(nginx_conf)
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
+
+        # Act — dump the fully resolved config (`-T`), including every included
+        # per-user snippet after envsubst, so the header's real placement and
+        # value are observable rather than string-matched off the Jinja output.
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            command=("nginx", "-T"),
+        )
+
+    # Assert
+    assert result.returncode == 0, result.stderr
+    dump = result.stdout
+
+    # One header per user and no more: a copy at http/server scope (the default
+    # envsubst output directory's failure mode) would push this above the roster.
+    assert dump.count(TERMINAL_SECRET_HEADER) == len(users)
+
+    sections = _config_file_sections(dump)
+    default_conf = sections[_DEFAULT_CONF_PATH]
+
+    for user in users:
+        others = [other for other in users if other != user]
+
+        # This user's snippet lives in its own included file, carrying its own
+        # header and secret and nothing of any other user's.
+        snippet_path = f"{_NGINX_ENVSUBST_OUTPUT_DIR}/secret-{user}.conf"
+        assert snippet_path in sections, sorted(sections)
+        snippet = sections[snippet_path]
+        assert f'{TERMINAL_SECRET_HEADER} "{secrets[user]}";' in snippet
+        for other in others:
+            assert secrets[other] not in snippet
+            assert terminal_secret_env_var(other) not in snippet
+
+        # That snippet is reached ONLY from this user's own location — its
+        # include appears inside `/u/<user>/` and no other user's snippet does.
+        location_body = _location_body(default_conf, user)
+        assert f"include {snippet_path};" in location_body
+        for other in others:
+            assert f"secret-{other}.conf" not in location_body
+
+    # Each user's secret appears exactly once in the whole resolved config —
+    # a value showing up twice would mean a snippet or location leaked it.
+    for user in users:
+        assert dump.count(secrets[user]) == 1
+
+
+def _log_formats(dump: str) -> list[str]:
+    """Every ``log_format`` definition in an ``nginx -T`` dump, whitespace-joined.
+
+    A ``log_format`` may be written across several continuation lines (this
+    deployment's is), so the assertions below need the whole directive as one
+    string rather than the line the name happens to sit on.
+    """
+    formats: list[str] = []
+    for raw in re.split(r"(?m)^(?=\s*log_format\s)", dump)[1:]:
+        directive = raw[: raw.index(";") + 1] if ";" in raw else raw
+        formats.append(" ".join(directive.split()))
+    return formats
+
+
+def test_access_log_never_carries_the_query_string() -> None:
+    """C6: no format nginx ends up using may log a variable holding the query.
+
+    The `?token=` URL is the ONLY way into an auth-off multi-user terminal, so a
+    `combined`-format access line — which logs `$request`, query string and all
+    — writes a live operator secret to container stdout, where `docker logs` and
+    every log shipper can read it and nothing can revoke it.
+
+    Read off `nginx -T` rather than off the rendered fragment, because the base
+    image's own main config carries a `log_format main` and an http-level
+    `access_log` of its own. The fragment's directives have to actually
+    SUPPRESS that one, which is a property of the resolved config and of nothing
+    the template says about itself.
+    """
+    users = ["alice", "bob"]
+    secrets = _terminal_secrets(users)
+    artifacts = render_web_terminals(
+        _config(users=users, auth={"method": "password", "allow_insecure_http": True}),
+        terminal_secrets=secrets,
+    )
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
+        (conf_dir / "default.conf").write_text(nginx_conf)
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
+
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            command=("nginx", "-T"),
+        )
+
+    assert result.returncode == 0, result.stderr
+    dump = result.stdout
+
+    # Every `access_log` that names a format names the sanitized one. The base
+    # image's http-level default is still IN the dump (it is a real directive in
+    # a config file nginx read); what matters is that this deployment's server
+    # blocks define their own, which is what stops the http-level one being
+    # inherited.
+    selected = re.findall(r"(?m)^\s*access_log\s+(\S+)\s+(\S+?);", dump)
+    server_level = [fmt for path, fmt in selected if path == "/dev/stdout"]
+    assert server_level, f"no sanitized access_log in the dump: {selected}"
+    assert set(server_level) == {"osprey_sanitized"}
+    # One per server block: the content server, and the redirect-only one is not
+    # rendered in this (no-TLS) shape.
+    assert len(server_level) == 1
+
+    # SERVER level, not http. nginx inherits access_log from the level above
+    # only when the current level defines none, and every access_log on ONE
+    # level is written — so an http-level directive here would ADD the sanitized
+    # line beside the base image's `combined`-format one rather than replace it.
+    fragment = _directives(nginx_conf)
+    server_start = fragment.index("server {")
+    assert "access_log" not in fragment[:server_start], fragment[:server_start]
+    assert "access_log /dev/stdout osprey_sanitized;" in fragment[server_start:]
+
+    # And the format itself carries nothing that can hold a query string.
+    sanitized = [fmt for fmt in _log_formats(dump) if "osprey_sanitized" in fmt]
+    assert len(sanitized) == 1, _log_formats(dump)
+    for forbidden in ("$request ", "$args", "$query_string", "$request_uri", "$http_referer"):
+        assert forbidden not in sanitized[0], sanitized[0]
+
+
+def test_no_location_forwards_the_browsers_whole_cookie_jar() -> None:
+    """I1: one origin serves every terminal, so the raw `Cookie` header names
+    every user that browser has unlocked — and, with auth on, the sidecar's
+    origin-wide session too.
+
+    Forwarding it into a container that runs agent-generated code puts those
+    credentials outside the perimeter. So no location may pass `$http_cookie`:
+    a gated one cuts the header entirely (it authenticates by the injected
+    operator secret), and an ungated one narrows it to that user's own session
+    cookie. Checked on the resolved config, mixed roster included, because the
+    two branches are exactly where a later edit would reintroduce the bare
+    forward.
+    """
+    users = ["alice", "kiosk"]
+    secrets = _terminal_secrets(users)
+    config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "kiosk", "index": 1, "login": False},
+    ]
+    artifacts = render_web_terminals(config, terminal_secrets=secrets)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
+        (conf_dir / "default.conf").write_text(nginx_conf)
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
+
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            command=("nginx", "-T"),
+        )
+
+    assert result.returncode == 0, result.stderr
+    dump = result.stdout
+    default_conf = _config_file_sections(dump)[_DEFAULT_CONF_PATH]
+
+    assert "$http_cookie" not in dump
+
+    # The gated user authenticates by the header nginx injected, so its cookie
+    # is cut outright.
+    gated = _location_body(default_conf, "alice")
+    assert 'proxy_set_header Cookie "";' in gated
+
+    # The exempt user has no injected header, so its own session cookie is the
+    # only gate left and must survive — and nothing else may travel with it.
+    exempt = _location_body(default_conf, "kiosk")
+    cookie = f"osprey_terminal_session_{_BASE_PORTS['web'] + 1}"
+    assert f'proxy_set_header Cookie "{cookie}=$cookie_{cookie}";' in exempt
+    assert 'proxy_set_header Cookie "";' not in exempt
+
+
+def test_the_secret_directory_holds_exactly_the_users_with_a_gated_location() -> None:
+    """Every file in /etc/nginx/osprey is included by exactly one location.
+
+    Both directions matter and neither is free. A file with no include is a
+    plaintext operator secret materialized inside the nginx container for no
+    reader — it widens what any later change to that container (a support shell,
+    a sidecar exporter, the tmpfs mode regressing) can reach, and it falsifies
+    the property the per-user no-leak tests reason about. An include with no
+    file is worse: nginx refuses to start, and the error names a generated path
+    rather than the roster.
+
+    Read from the real container, not from the render, because the question is
+    what the entrypoint actually put in that directory. The substitution step is
+    driven directly here: the image's own entrypoint ``exec``s nginx, which
+    would replace the process before anything could look.
+    """
+    users = ["alice", "kiosk"]
+    secrets = _terminal_secrets(users)
+    config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "kiosk", "index": 1, "login": False},
+    ]
+    artifacts = render_web_terminals(config, terminal_secrets=secrets)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
+        (conf_dir / "default.conf").write_text(artifacts["nginx/nginx.conf"])
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
+
+        listing = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            entrypoint="sh",
+            command=(
+                "-c",
+                "/docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null 2>&1; "
+                f"ls -1 {_NGINX_ENVSUBST_OUTPUT_DIR}",
+            ),
+        )
+        resolved = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            command=("nginx", "-T"),
+        )
+
+    assert listing.returncode == 0, listing.stderr
+    assert resolved.returncode == 0, resolved.stderr
+
+    materialized = {name for name in listing.stdout.split() if name}
+    included = {
+        Path(path).name
+        for path in re.findall(
+            rf"^\s*include ({_NGINX_ENVSUBST_OUTPUT_DIR}/\S+);",
+            _config_file_sections(resolved.stdout)[_DEFAULT_CONF_PATH],
+            flags=re.MULTILINE,
+        )
+    }
+    # alice is gated and reads her snippet; kiosk is served ungated with the
+    # header cleared, so nothing would ever open a file for it.
+    assert materialized == included == {"secret-alice.conf"}
+
+
+def test_every_terminal_location_clears_credentials_nginx_did_not_set() -> None:
+    """M4: the only credential reaching an upstream is one this perimeter put there.
+
+    `Authorization` is cleared on every `/u/<user>/` location whatever the auth
+    mode — the app's own bearer tier is loopback traffic inside the container and
+    never crosses this proxy, so a value arriving here is the client's and means
+    nothing. `X-Osprey-Terminal-Secret` is cleared wherever nginx does not
+    inject it; leaving it alone there would let anyone who can reach the port
+    present the credential the app trusts absolutely.
+    """
+    users = ["alice", "kiosk"]
+    secrets = _terminal_secrets(users)
+    config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "kiosk", "index": 1, "login": False},
+    ]
+    artifacts = render_web_terminals(config, terminal_secrets=secrets)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
+        (conf_dir / "default.conf").write_text(artifacts["nginx/nginx.conf"])
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
+
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            command=("nginx", "-T"),
+        )
+
+    assert result.returncode == 0, result.stderr
+    default_conf = _config_file_sections(result.stdout)[_DEFAULT_CONF_PATH]
+
+    for user in users:
+        body = _location_body(default_conf, user)
+        assert 'proxy_set_header Authorization "";' in body
+
+    # Injected here, so not cleared here.
+    gated = _location_body(default_conf, "alice")
+    assert f'proxy_set_header {TERMINAL_SECRET_HEADER} "";' not in gated
+    assert "include /etc/nginx/osprey/secret-alice.conf;" in gated
+
+    # Not injected here, so cleared here.
+    exempt = _location_body(default_conf, "kiosk")
+    assert f'proxy_set_header {TERMINAL_SECRET_HEADER} "";' in exempt
+
+
+def test_a_blank_terminal_secret_takes_down_only_that_users_terminal() -> None:
+    """M3: an empty operator secret must not stop nginx from starting.
+
+    The compose carrier renders `${VAR:-}`, so a blank entry in the deploy .env
+    reaches nginx as a variable that is PRESENT and empty — which envsubst
+    resolves to nothing. Unquoted, the snippet then reads
+    `proxy_set_header X-Osprey-Terminal-Secret ;`, which nginx refuses to parse:
+    every user's terminal is down over one user's blank variable, with an error
+    naming a generated file. Quoted, only that user's app sees an empty
+    credential and refuses it.
+    """
+    users = ["alice", "bob"]
+    secrets = _terminal_secrets(users)
+    artifacts = render_web_terminals(
+        _config(users=users, auth={"method": "password", "allow_insecure_http": True}),
+        terminal_secrets=secrets,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
+        (conf_dir / "default.conf").write_text(artifacts["nginx/nginx.conf"])
+        _write_secret_templates(artifacts, templates_dir)
+        # alice's variable is present and EMPTY — exactly what `${VAR:-}` hands
+        # the container for a blank .env entry.
+        secret_env = {terminal_secret_env_var("alice"): ""}
+        secret_env[terminal_secret_env_var("bob")] = secrets["bob"]
+
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+        )
+
     assert result.returncode == 0, result.stderr
