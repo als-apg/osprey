@@ -19,7 +19,9 @@ model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 # Channel-finder pipeline. The bundle ships a demo hierarchical database, so
 # hierarchical is the out-of-the-box default. Override for your data via
 # `--set channel_finder_mode=in_context|middle_layer` or a profile that
-# extends this preset.
+# extends this preset. The fourth paradigm, `graph`, answers from a knowledge
+# graph store instead of a database file; this bundle configures no such store,
+# so the build rejects it here.
 channel_finder_mode: hierarchical
 
 # Selects the channel-finder persona — "channel/PV address finder" instead of

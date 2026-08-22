@@ -700,9 +700,15 @@ class TestBuildProfileChannelFinderModeValidation:
             profile.validate(tmp_path)
 
     def test_validate_accepts_valid_channel_finder_modes(self, tmp_path: Path) -> None:
+        """Every registered paradigm validates — the check derives from the registry.
+
+        Read from :data:`VALID_CHANNEL_FINDER_MODES` rather than a literal list so
+        registering a paradigm cannot leave this test asserting a stale set.
+        """
+        from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
         from osprey.cli.build_profile import BuildProfile
 
-        for mode in ("in_context", "hierarchical", "middle_layer"):
+        for mode in VALID_CHANNEL_FINDER_MODES:
             BuildProfile(name="t", channel_finder_mode=mode).validate(tmp_path)
 
     def test_validate_accepts_none_channel_finder_mode(self, tmp_path: Path) -> None:
@@ -998,3 +1004,60 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     wide_owned = [str(entry) for entry in _config_yaml(wide)["scaffold"]["user_owned"]]
     assert "agents/orbit-writer" in wide_owned, wide_owned
     assert "commands/osprey/scan" in wide_owned, wide_owned
+
+
+class TestGraphModeRequiresAGraphStore:
+    """`osprey init` refuses graph mode on a preset whose app template has no store.
+
+    The paradigm is selectable on any profile, but its store is a service rather
+    than a bundled database file — so the one preset built on the storeless
+    ``channel_finder_standalone`` template turns the mode away at
+    materialization time, before a project that could not answer anything
+    reaches disk.
+    """
+
+    def test_set_graph_mode_on_the_standalone_preset_is_refused(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """The refusal reaches the operator by name of the block it is missing.
+
+        `osprey init` reports an unmaterializable preset as a usage error (exit
+        2) on stderr, not through the build log — the operator got the ``--set``
+        wrong, and the message says which block would have made it right.
+        """
+        result = _materialize(
+            runner,
+            str(tmp_path),
+            "cf",
+            "channel-finder-standalone",
+            "--set",
+            "channel_finder_mode=graph",
+        )
+        assert result.exit_code == 2, result.output
+        assert "services.graphdb" in result.output
+        assert "channel_finder_mode: graph" in result.output
+        assert not (tmp_path / "cf" / "profile.yml").exists()
+
+    def test_set_graph_mode_on_the_control_assistant_preset_is_accepted(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Control: the same ``--set`` on a store-deploying preset materializes.
+
+        Without it the refusal above could pass because ``--set
+        channel_finder_mode=graph`` is refused everywhere rather than because
+        this app template ships no store.
+        """
+        repo = pathlib.Path(tmp_path) / "cr"
+        result = runner.invoke(
+            init,
+            [
+                str(repo),
+                "--preset",
+                "control-assistant",
+                "--no-git",
+                "--set",
+                "channel_finder_mode=graph",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert _profile_yaml(repo)["channel_finder_mode"] == "graph"

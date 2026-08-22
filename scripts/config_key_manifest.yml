@@ -215,7 +215,7 @@ keys:
       taken out of it: the container's memory budget is roughly heap max plus
       this plus about half a gigabyte of JVM overhead.
   services.graphdb.query_timeout_s:
-    evidence: 'get_config_value\(QUERY_TIMEOUT_CONFIG_KEY'
+    evidence: '_setting\(QUERY_TIMEOUT_CONFIG_KEY'
     note: >-
       Transaction timeout the graph MCP server hands to the store for one
       `read_cypher` call, so a runaway traversal is cancelled server-side
@@ -224,7 +224,7 @@ keys:
       the value never reaches compose, so this is the first graphdb key whose
       evidence sits outside deployment/graphdb_service.py.
   services.graphdb.query_max_rows:
-    evidence: 'get_config_value\(QUERY_MAX_ROWS_CONFIG_KEY'
+    evidence: '_setting\(QUERY_MAX_ROWS_CONFIG_KEY'
     note: >-
       Rows one `read_cypher` call returns before the result is truncated; the
       tool reports the truncation, so a partial answer is never mistaken for a

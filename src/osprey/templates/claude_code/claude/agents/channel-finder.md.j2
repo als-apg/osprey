@@ -5,13 +5,12 @@ description: "Finds and verifies control system channel/PV addresses by explorin
 summary: Finds control system channel/PV addresses by exploring the channel database
 model: {{ claude_code_model_spec.agent_tier("channel-finder") if claude_code_model_spec is defined and claude_code_model_spec else "haiku" }}
 maxTurns: 30
-{# The graph tools are gated on the SERVER being enabled, not on a store being
-   configured: `claude_code.servers.graph.enabled: false` turns the server off
-   while `services.graphdb` is still present, and a frontmatter tool with no
-   matching permissions entry fails validate_agent_tools_against_permissions and
-   aborts the build. `graph_tools` arrives fully qualified from
-   config_derived_context, so it is spliced verbatim. -#}
-tools: {% for t in channel_finder_tools | default([]) %}mcp__channel-finder__{{ t }}, {% endfor %}{% if "graph" in enabled_servers %}{% for t in graph_tools %}{{ t }}, {% endfor %}{% endif %}mcp__osprey_workspace__submit_response
+{# One channel-finding vocabulary, whichever paradigm is configured: the tools
+   come from CHANNEL_FINDER_TOOLS_BY_PIPELINE and are all served under the
+   `channel-finder` server name. The graph paradigm is no exception — it reaches
+   the knowledge graph through `mcp__channel-finder__read_cypher` and friends,
+   not through the standalone `graph` server, which belongs to the main agent. -#}
+tools: {% for t in channel_finder_tools | default([]) %}mcp__channel-finder__{{ t }}, {% endfor %}mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
@@ -154,37 +153,130 @@ the final answer wrapped in `<final>...</final>` markers; relay it to the user
 verbatim or summarize.
 
 {% include "claude_code/claude/agents/_terminology/in_context.md.j2" %}
+{% elif channel_finder_mode == "graph" %}
+{# PROMPT-PROVIDER: section=channel_finding_graph
+   Future: source from FrameworkPromptProvider.get_graph_prompt_builder()
+     - get_facility_description() → Search Strategy intro
+     - get_matching_rules() → Matching a Phrase to Addresses section
+   Also: get_channel_finding_orchestration_prompt_builder().get_orchestrator_guide()
+     → Search Strategy steps
+   Facility-customizable: which free-text description properties a corpus
+   carries, class/synonym vocabulary, description-vs-name search preference #}
+## Search Strategy
+
+The channel database is a knowledge graph and you query it by writing read-only
+Cypher. Work in this order — do not open by composing a query from scratch.
+
+### Step 1: Read the curated examples
+
+Call `example_queries()`. It returns runnable Cypher for the shapes that answer
+most address questions — devices of a class, one section in beamline order,
+every PV bound to a named device, the reverse lookup from a PV — each with
+parameter values that exist in this deployment's corpus. Adapt the closest
+example: swap a parameter, add a `WHERE` clause, widen or narrow the `LIMIT`.
+
+### Step 2: Check the schema when the examples do not reach
+
+`get_schema()` lists the labels, relationship types and property names the store
+actually holds. Its property lists are sampled rather than exhaustive, so treat
+a property it does not mention as unconfirmed rather than absent.
+`capabilities()` describes the server itself — reach for it when you need to
+know what the tools can do, not what the facility contains.
+
+### Step 3: Run the query
+
+`read_cypher(query, params)` executes it. Pass every value through `params` as a
+`$name` placeholder — `MATCH (d:Resource {sectionCode: $section})` with
+`params={"section": "SR"}` — never pasted into the query text.
+
+Results are bounded: at most a configured number of rows come back, and the
+result says whether more matched. A truncated or timed-out answer means narrow
+the query — add a filter, bound the traversal, aggregate — not retry it
+unchanged. Give every query its own `LIMIT`, sized to what was asked: a question
+about one signal should not drag back a device's whole binding list, and a
+question about a whole family must not come back cut short.
+
+Reads only. Nothing you can call here modifies the graph.
+
+## Matching a Phrase to Addresses
+
+Two routes from an operator's words to a device. Try both before reporting that
+nothing matched.
+
+**By description.** Where the corpus carries free text, search it first — it is
+written in the operator's language rather than in naming-convention tokens. On a
+binding, `description` describes the individual signal and `fieldDescription` /
+`subfieldDescription` the group it belongs to. On a device,
+`familyDescription`, `systemDescription` and `ringDescription` describe what
+kind of thing it is and where it lives. Match case-insensitively, e.g.
+`WHERE toLower(b.description) CONTAINS $term`.
+
+**By name and class.** `sourceName` and `sectionCode` identify a device
+together, `system` names the accelerator system it belongs to, and the ontology
+carries the synonyms: match a `(:Class)` on its `altLabel` list, then take every
+device typed as that class or any subclass —
+`(d:Resource)-[:TYPE]->(:Class)-[:SUBCLASSOF*0..]->(c)`. `altLabel` is a list,
+so match it with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`.
+
+Whichever route found the device, the addresses come from
+`-[:HASBINDING]->(b:ChannelBinding)` and the answer is `b.fullPv`. Direction is
+which signal edge the binding has: `READSSIGNAL` for a readback, `WRITESSIGNAL`
+for a setpoint.
+
+That hop reaches EVERY binding the device has, so the question's signal words
+belong in the same query — one filter to pick the hardware, another to pick the
+addresses on it. A match that stops at the device answers a question nobody
+asked.
+
+Descriptions are corpus-dependent — a corpus built from a facility export may
+carry none at all. A description search that returns nothing is a reason to fall
+back on the name and class route, not evidence the device is missing.
+
+## Answering Precisely
+
+Finding the right device is only half the answer. Report the addresses that
+satisfy the question — all of them, and nothing besides.
+
+- Every word in the question is a FILTER, not a hint. A named system, ring,
+  section, family, device number, field, subfield or kind of signal narrows the
+  result; whatever it excludes does not belong in the answer
+- A question that names a KIND of signal — a readback, a setpoint, an alarm, a
+  position — selects only the bindings of that kind. A device usually exposes
+  many more: status flags, interlocks, limits, calibration and reference values.
+  Those are siblings of the answer, not part of it
+- A question that asks for ALL of something must be answered completely: set the
+  query's `LIMIT` above the number of rows you expect, check the result came
+  back untruncated, and list every address. A partial list presented as a
+  complete one is a wrong answer, not a short one
+- The two rules hold at the same time, and neither cancels the other. "All" is a
+  quantifier over the filter, not a licence to widen it: asking for all of one
+  kind of signal on a set of devices means every binding of that kind those
+  devices carry, and still none of their other bindings
+- A device number or a ring is a filter like any other. The same-numbered device
+  in another ring, section or transport line is not an answer unless the
+  question spans them
+- When you are unsure whether a binding belongs, prefer the narrower set and say
+  what you left out. The user can ask for more
+
+## Verification
+
+Every address you report must have come back from a query as a `fullPv` value.
+A query naming a label or property that does not exist returns zero rows rather
+than an error, so an empty result means "check the spelling with `get_schema()`"
+at least as often as it means "the facility has no such device".
+
+{% include "claude_code/claude/agents/_terminology/graph.md.j2" %}
+{% else %}
+{# Every paradigm must have an arm above. Without this the chain would fall
+   through silently and ship an agent with no channel-finding instructions at
+   all — a prompt that reads as complete but tells the agent nothing. #}
+{{ fail("unknown channel_finder_mode: " ~ channel_finder_mode) }}
 {% endif %}
 
 {# PROMPT-PROVIDER: section=facility_context
    Future: source from FrameworkPromptProvider.get_*_prompt_builder().get_facility_description()
    Facility-customizable: facility name is already templated; future: full facility description #}
 You are exploring the {{ facility_name }} control system database.
-{% if "graph" in enabled_servers %}
-## The Facility Knowledge Graph
-
-This deployment also has a knowledge graph of the facility: devices, the sections
-they sit in, the classes they belong to, and the PVs bound to each one. Reach for
-it when the question turns on a *relationship* the channel database does not
-encode:
-
-- what a section contains, in beamline order
-- every device of a class, including the classes beneath it in the hierarchy
-- which PVs a named device exposes, split by read and write direction
-- the reverse lookup — which device a PV belongs to, and which devices share it
-
-Work in that order: `example_queries()` for curated Cypher covering exactly these
-shapes, and adapt the closest one rather than composing a query from scratch;
-`get_schema()` when you need labels, relationship types or property spellings the
-examples do not reach; `read_cypher(query, params)` to run it, passing values
-through `params` and never pasted into the query text. `capabilities()` describes
-the graph server itself. Reads only — nothing here modifies the graph.
-
-The channel database stays authoritative for the addresses you return: confirm
-anything the graph hands you against it before reporting. If the graph is
-unreachable or empty, say so and carry on with database navigation — it is a
-second route to an answer, not a prerequisite.
-{%- endif %}
 {# PROMPT-PROVIDER: section=channel_finding_guidelines
    Future: source from FrameworkPromptProvider safety rules + channel finding guide
    Facility-customizable: additional guidelines, strictness levels #}

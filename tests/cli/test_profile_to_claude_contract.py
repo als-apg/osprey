@@ -207,18 +207,17 @@ def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
 _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
     "channel-finder": {
         # tools: rendered from CHANNEL_FINDER_TOOLS_BY_PIPELINE['hierarchical']
-        #        + the graph server's tools + mcp__osprey_workspace__submit_response.
-        # The graph entries are here because control_assistant's app template
-        # ships a `services.graphdb` block, so this fixture's render enables the
-        # `graph` server; the agent template splices them on `"graph" in
-        # enabled_servers`. Both lists are read from the registry rather than
-        # spelled out, so neither can drift from what the render uses.
+        #        + mcp__osprey_workspace__submit_response, and nothing else.
+        # The subagent gets exactly its paradigm's vocabulary: the `graph`
+        # server this fixture's render also enables (control_assistant ships a
+        # `services.graphdb` block) is a MAIN-agent server and stays off this
+        # list. The tool list is read from the registry rather than spelled out,
+        # so it cannot drift from what the render uses.
         "tools": [
             *(
                 f"mcp__channel-finder__{t}"
                 for t in CHANNEL_FINDER_TOOLS_BY_PIPELINE["hierarchical"]
             ),
-            *(f"mcp__graph__{t}" for t in FRAMEWORK_SERVERS["graph"].permissions_allow),
             "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [

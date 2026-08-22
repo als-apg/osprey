@@ -1191,6 +1191,7 @@ def _render_project(
     Returns:
         The rendered project directory.
     """
+    from osprey.build.build_tiers import tier_mode_conflict
     from osprey.build.claude_code_resolver import load_provider_spec
     from osprey.services.virtual_accelerator.manifest.build import (
         prepare_project_manifest,
@@ -1231,6 +1232,21 @@ def _render_project(
         shared.va_manifests[va_key] = prepare_project_manifest(va_data_root, va_key[1])
     prepared_va_manifest = shared.va_manifests[va_key]
 
+    # ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
+    # not "the tier to use": given ``None`` it applies the same paradigm-aware
+    # derivation ``resolved_tier()`` does, and given a value it enforces
+    # ``tier_mode_conflict`` against it. So a paradigm that refuses an explicit
+    # tier — one whose store is a service rather than tiered database files —
+    # must be handed ``None`` here, or its own derived default comes back as a
+    # pin and the build refuses to render at all. Ask the rule rather than
+    # naming the paradigm, so this stays true as paradigms are added.
+    derived_tier = build_profile.resolved_tier()
+    pinned_tier = (
+        None
+        if tier_mode_conflict(derived_tier, build_profile.channel_finder_mode)
+        else derived_tier
+    )
+
     # The render. No `.env` is carried in from anywhere: the repo's own `.env`
     # is the deployment's whole secret store, it is mounted from the repo root,
     # and a build neither reads nor rewrites it — copying it into the disposable
@@ -1245,7 +1261,7 @@ def _render_project(
         context=context,
         force=True,
         artifacts=artifacts or None,
-        tier=build_profile.resolved_tier(),
+        tier=pinned_tier,
         data_root=build_profile.resolved_data_root(repo_root),
     )
     progress("  ✓ Base template rendered")

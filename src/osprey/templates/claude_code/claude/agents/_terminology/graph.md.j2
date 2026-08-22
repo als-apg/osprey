@@ -1,0 +1,95 @@
+
+## Channel Database Terminology
+
+### Database Profile
+
+This is a **graph** channel database — the facility is held as a knowledge graph
+and you reach addresses by writing read-only Cypher. There is no level-by-level
+navigation and no fixed lookup call: devices, the classes they belong to, the
+sections they sit in and the PVs bound to each of them are nodes and
+relationships, and a query walks between them.
+
+### Node Types and Predicates
+
+The corpus is RDF loaded through neosemantics, so the spellings follow the
+source ontology rather than any convention you would invent. `get_schema()` is
+authoritative; this table is the orientation.
+
+| Shape | What it is |
+|---|---|
+| `(d:Resource)` | Every node carries `Resource`. A device carries it plus one concrete class label (`Quadrupole`, `BeamPositionMonitor`, …) — there is **no** `Device` label, so match devices as `:Resource` plus properties |
+| `(b:ChannelBinding)` | One PV bound to one device. `b.fullPv` is the address you return |
+| `(c:Class)` | An ontology class. `c.uri` identifies it, `c.altLabel` holds its synonyms |
+| `(d)-[:HASBINDING]->(b)` | Device to binding — the hop from a device to its addresses |
+| `(b)-[:READSSIGNAL]->()` / `(b)-[:WRITESSIGNAL]->()` | Binding to semantic signal. Which one the binding has is the read/write direction |
+| `(d)-[:TYPE]->(c)` / `(c)-[:SUBCLASSOF]->(parent)` | Device to class, class to parent class. `SUBCLASSOF*0..` rolls a whole subtree up |
+
+Relationship types are UPPERCASED by the loader. Writing `hasBinding` matches
+nothing and returns zero rows rather than an error.
+
+Properties worth knowing:
+
+- **On a device:** `sourceName`, `sectionCode`, `system`, `sPositionM`,
+  `ordinalInSection`, plus the free text `familyDescription`,
+  `systemDescription`, `ringDescription`
+- **On a binding:** `fullPv`, `confidence`, plus the free text `description`,
+  `fieldDescription`, `subfieldDescription`
+- **On a class:** `uri`, `altLabel`
+
+`altLabel` is a **list**, always — even where a class has one synonym. Match it
+with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`, never with `=`.
+
+### Address Grammar
+
+`ChannelBinding.fullPv` is the address, whole and already formatted for the
+control system. Return it verbatim: never assemble an address out of
+`sectionCode`, `sourceName` and a signal name, and never adjust one you were
+given. Two devices can share a `sourceName` in different sections, so a device
+is identified by `sourceName` **and** `sectionCode` together.
+
+### Terminology Mapping
+
+Operators use domain language. Map their terms to a graph query:
+
+| Operator Language | Graph Query |
+|---|---|
+| "beam current" | Search binding descriptions for `current`; or class `altLabel` `beam current monitor`, `dcct`, `bc` |
+| "BPM positions" / "beam position" | Class `BeamPositionMonitor` via `altLabel` `beam position monitor`, `bpm` → `HASBINDING` → bindings whose `description`/`subfieldDescription` names the `X`/`Y` axis |
+| "corrector magnets" | Class `Corrector` (or `HCorrector`/`VCorrector`) with `SUBCLASSOF*0..` so both planes roll up |
+| "quadrupole" / "quad" | Class `Quadrupole` via `altLabel` |
+| "all magnets" | `(:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $magnet_uri})` — name the parent class and let the hierarchy supply the kinds |
+| "readback" / "monitor" | Bindings with a `READSSIGNAL` edge and no `WRITESSIGNAL` |
+| "setpoint" / "control" | Bindings with a `WRITESSIGNAL` edge |
+| "in sector 3" / "in the storage ring" | `d.sectionCode` for the location, `d.system` for the accelerator system |
+| "in beamline order" | Order by `d.sPositionM`, falling back to `d.ordinalInSection` |
+| "what is this PV" | Reverse lookup: `MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})` |
+
+### Graph Conventions
+
+- Start every unfamiliar question at `example_queries()` — the examples are
+  written against the corpus that is actually loaded, so adapting one is
+  reliable where inventing a query shape is guesswork
+- Pass every value through `params` as a `$name` placeholder; a value pasted
+  into the query text is both a correctness and a safety problem
+- End every query with a `LIMIT`, including aggregates — bounded results are the
+  contract. The `LIMIT` is a guard, not a target: set it above the number of
+  rows the question implies, and if a result still comes back truncated, narrow
+  the query rather than reporting the partial list as the whole answer
+- A query that matches a device has not yet answered the question. The device's
+  other bindings stay out of the answer unless the question reaches them, and
+  the same is true of the same device in a section the question did not name
+- Write the `WHERE` clause so it carries every filter the question stated —
+  location, device identity AND kind of signal. A query filtered only down to
+  the device returns that device's whole binding list, which is how a precise
+  question comes back with a padded answer
+- "All" widens the number of rows, never the kind of row: a question asking for
+  all of one kind of signal wants every binding of that kind, and none of the
+  other kinds that sit beside it
+- Free-text descriptions are richer than names, but they are corpus-dependent: a
+  facility export may carry none. A zero-row description search means fall back
+  to the name and class route, not that the device is absent
+- Match text case-insensitively (`toLower(...) CONTAINS $term`); the corpus
+  spells names in the facility's own casing
+- A misspelled label or property returns **zero rows, not an error** — when a
+  query surprises you with an empty result, check the spelling with
+  `get_schema()` before concluding the facility has no such device

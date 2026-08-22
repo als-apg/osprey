@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
 from osprey.build.build_tiers import (
     VALID_CHANNEL_FINDER_MODES,
@@ -23,6 +23,38 @@ from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import repo_root_for_config
 
 logger = logging.getLogger("osprey.cli.templates")
+
+
+def _enable_flags(channel_finder_mode: str) -> dict[str, bool]:
+    """One ``enable_<paradigm>`` template flag per registered paradigm.
+
+    Derived by iterating
+    :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`, so a paradigm
+    added to the registry gets its render flag without an edit here. An
+    unregistered mode leaves every flag off; callers reject it before this
+    point.
+
+    ``enable_graph`` is derived like the rest and read by nothing. The graph
+    paradigm has no config block for a template to gate: ``pipeline_mode:
+    graph`` plus the ``services.graphdb`` declaration is its whole
+    configuration. Keeping the flag derived rather than special-casing it out
+    holds this set to the registry, and
+    ``tests/templates/test_control_assistant_config.py`` pins both halves —
+    the flag is emitted, and no template under ``src/osprey/templates``
+    mentions it.
+    """
+    return {f"enable_{mode}": channel_finder_mode == mode for mode in VALID_CHANNEL_FINDER_MODES}
+
+
+def _fail(message: str) -> None:
+    """Abort the render from inside a template.
+
+    Registered as the ``fail`` global on the manager's Jinja environment so a
+    template can refuse a case it has no branch for — ``{% else %}{{ fail(...)
+    }}`` at the end of a chain — instead of quietly emitting nothing. Jinja
+    otherwise has no way for a template to stop a render.
+    """
+    raise TemplateRuntimeError(message)
 
 
 class TemplateManager:
@@ -49,6 +81,7 @@ class TemplateManager:
             autoescape=select_autoescape(["html", "xml"]),
             keep_trailing_newline=True,
         )
+        self.jinja_env.globals["fail"] = _fail
 
     def _get_template_root(self) -> Path:
         """Get path to osprey templates directory.
@@ -282,9 +315,7 @@ class TemplateManager:
             ctx.update(
                 {
                     "channel_finder_mode": channel_finder_mode,
-                    "enable_in_context": channel_finder_mode == "in_context",
-                    "enable_hierarchical": channel_finder_mode == "hierarchical",
-                    "enable_middle_layer": channel_finder_mode == "middle_layer",
+                    **_enable_flags(channel_finder_mode),
                     "default_pipeline": channel_finder_mode,
                     "channel_finder_pipeline": channel_finder_mode,
                     "channel_finder_tools": list(

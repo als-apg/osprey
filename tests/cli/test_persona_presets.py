@@ -520,7 +520,7 @@ class TestControlAssistantPersonas:
             assert "services" not in profile.config
 
     @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
-    def test_operator_personas_render_the_graph_tools(
+    def test_operator_personas_render_the_graph_server(
         self, built_persona_stack: Path, persona: str
     ) -> None:
         """Both operator terminals can query the hosting deployment's graph.
@@ -534,9 +534,11 @@ class TestControlAssistantPersonas:
         resolution would leave every assertion below false while the profile
         still carried the key.
 
-        Both surfaces are checked: the main agent (permissions + a launchable
-        ``.mcp.json`` entry + the PostToolUse prefix, and nothing behind ``ask``
-        — these tools read) and the channel-finder subagent's frontmatter.
+        The whole main-agent surface is checked — permissions, a launchable
+        ``.mcp.json`` entry and the PostToolUse prefix, with nothing behind
+        ``ask`` because these tools read — together with the fact that the
+        server stops there: it is a main-agent server, so the channel-finder
+        subagent's frontmatter must not name one of its tools.
         """
         project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
         assert project.is_dir(), f"{persona} was never rendered"
@@ -561,7 +563,7 @@ class TestControlAssistantPersonas:
             .split("---")[1]
         )
         tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
-        assert _graph_entries(tools) == _graph_permission_entries()
+        assert _graph_entries(tools) == []
 
     @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
     def test_graph_port_lands_inside_the_attached_renders_services_map(

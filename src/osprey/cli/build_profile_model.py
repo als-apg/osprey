@@ -22,6 +22,10 @@ from osprey.build.build_tiers import (
     default_tier_for_mode,
     tier_mode_conflict,
 )
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_SERVICE_NAME,
+    resolve_graphdb_service_config,
+)
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 
@@ -54,6 +58,96 @@ DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
 """The two services the ``dispatch:`` block deploys as one unit. They share a
 network by construction, so ``dispatch.network:`` is their only network knob
 and a per-half ``network:`` is rejected rather than honored."""
+
+_GRAPH_MODE = "graph"
+"""The one channel-finder paradigm that answers from a graph store rather than a
+channel-database file, and so the one with a service prerequisite. A member name
+of :data:`VALID_CHANNEL_FINDER_MODES`, not a second enumeration — the rule below
+is about this paradigm alone, exactly as ``tier_mode_conflict`` is."""
+
+_APP_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "templates" / "apps"
+"""Where the bundled app templates live; ``app_template:`` names one by directory."""
+
+_GRAPHDB_CONFIG_PREFIX = f"services.{GRAPHDB_SERVICE_NAME}"
+"""Dotted-key spelling of the graph-store block on a profile's ``config:`` surface."""
+
+_CHANNEL_FINDER_SERVER_ENABLED_KEY = "claude_code.servers.channel-finder.enabled"
+"""The switch a persona flips to take the channel finder out of its render."""
+
+_MISSING = object()
+"""Sentinel for "this profile says nothing about that key"."""
+
+
+def _config_lookup(config: Any, dotted_key: str) -> Any:
+    """Read *dotted_key* off a profile's ``config:`` overlay, or ``_MISSING``.
+
+    The overlay is authored in dotted keys and that is the only spelling the
+    renderer applies, but a hand-written profile can nest the same path — and
+    can nest part of it (``claude_code.servers:`` holding a ``channel-finder:``
+    mapping). Longest match at each step, so a key that IS spelled dotted is
+    found before the walk tries to descend into it.
+
+    Args:
+        config: A profile's ``config:`` block, whatever shape it parsed as.
+        dotted_key: The full path, in the dotted spelling.
+
+    Returns:
+        The value, or :data:`_MISSING` when no spelling of that path is set.
+    """
+    node: Any = config
+    parts = dotted_key.split(".")
+    index = 0
+    while index < len(parts):
+        if not isinstance(node, dict):
+            return _MISSING
+        for end in range(len(parts), index, -1):
+            candidate = ".".join(parts[index:end])
+            if candidate in node:
+                node = node[candidate]
+                index = end
+                break
+        else:
+            return _MISSING
+    return node
+
+
+def _app_template_declares_graphdb(data_bundle: str) -> bool:
+    """Whether app template *data_bundle* renders a ``services.graphdb`` block.
+
+    Read off the template source rather than off a render: this validator runs
+    before anything reaches disk, and the block is a fixed part of the app
+    template — what varies per profile is the ``config:`` overlay applied after
+    the render, which :meth:`BuildProfile._renders_graphdb_block` reads itself.
+
+    Args:
+        data_bundle: App template directory name (the ``app_template:`` key).
+
+    Returns:
+        Whether that template's ``services:`` section carries a ``graphdb``
+        key. False for a bundle that ships no ``config.yml.j2``, which is also
+        how an unknown bundle name reads here — the build names that fault
+        itself, and reporting it twice would not help.
+    """
+    template = _APP_TEMPLATE_ROOT / data_bundle / "config.yml.j2"
+    try:
+        text = template.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    # Which top-level section each indented key belongs to is all this needs,
+    # so the file is walked by indentation rather than parsed: it is a Jinja
+    # template, not YAML, until it is rendered.
+    section: str | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", "{%", "{{")):
+            continue
+        if not line[0].isspace():
+            section = stripped.split(":", 1)[0]
+            continue
+        if section == "services" and stripped.split(":", 1)[0] == GRAPHDB_SERVICE_NAME:
+            return True
+    return False
+
 
 # VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
 # imported from the build-time kernel (osprey.build.build_tiers) so the
@@ -443,6 +537,76 @@ class BuildProfile:
 
         return errors
 
+    def _runs_the_channel_finder(self) -> bool:
+        """Whether this profile keeps the channel-finder MCP server switched on.
+
+        A persona narrows the deployment it is rendered from by switching
+        servers off in its ``config:`` overlay, and one of them takes the whole
+        channel finder — server, tools and subagent — out of that render. Such a
+        persona still inherits ``channel_finder_mode`` from the profile it
+        extends, because the mode belongs to the deployment rather than to the
+        login; it simply has no channel finder for the mode to configure.
+
+        Only an explicit ``false`` counts. The key is absent from every profile
+        that keeps the server, so absence reads as on.
+
+        Returns:
+            Whether the rendered project has a channel finder at all.
+        """
+        return _config_lookup(self.config, _CHANNEL_FINDER_SERVER_ENABLED_KEY) is not False
+
+    def _renders_graphdb_block(self) -> bool:
+        """Whether this profile's build renders a ``services.graphdb`` block.
+
+        Assembled from the two surfaces that decide it. The app template carries
+        the block for a deployment that runs its own store; the profile's
+        ``config:`` overlay, applied after the render, is how a store the
+        facility already runs is named instead (``services.graphdb.uri``) and
+        how a template's block is dropped. Whether what those produce counts as
+        a store is
+        :func:`~osprey.deployment.graphdb_service.resolve_graphdb_service_config`'s
+        own decision, borrowed rather than re-implemented so this validator and
+        the render-time ``graphdb_configured`` gate that ships the graph MCP
+        server cannot disagree about whether one exists.
+
+        Returns:
+            Whether the rendered ``config.yml`` will carry a graph store to dial.
+        """
+        overrides = self.config if isinstance(self.config, dict) else {}
+        sub_keys = [
+            key
+            for key in overrides
+            if isinstance(key, str) and key.startswith(f"{_GRAPHDB_CONFIG_PREFIX}.")
+        ]
+        if sub_keys:
+            # `services.graphdb.uri:` and its siblings write into the block,
+            # creating it when the app template carries none.
+            block: Any = {key.split(".", 2)[2]: overrides[key] for key in sub_keys}
+        elif _GRAPHDB_CONFIG_PREFIX in overrides:
+            # A whole-block override replaces what the template rendered —
+            # including the bare `services.graphdb:` that removes it.
+            block = overrides[_GRAPHDB_CONFIG_PREFIX]
+        elif not self.deploy_services:
+            # An attached project renders `services: {}` whatever its app
+            # template says: it scaffolds nothing and reaches a shared stack
+            # through client config, so its store has to be named above.
+            return False
+        else:
+            return GRAPHDB_SERVICE_NAME in self.services or _app_template_declares_graphdb(
+                self.data_bundle
+            )
+
+        try:
+            resolved = resolve_graphdb_service_config({"services": {GRAPHDB_SERVICE_NAME: block}})
+        except ValueError:
+            # A malformed key (a port out of range, a heap size the JVM would
+            # not parse) still names a store this profile means to dial. The
+            # resolver raises about it where it can be acted on — the deploy
+            # preflight — and answering "no block" here would report the wrong
+            # fault.
+            return True
+        return resolved is not None
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -485,6 +649,35 @@ class BuildProfile:
             errors.append(
                 f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} "
                 f"(got {self.channel_finder_mode!r})"
+            )
+
+        # `graph` is the one paradigm whose store is a service rather than a
+        # database file, so it is the one paradigm with a prerequisite outside
+        # the profile's own artifacts. Without a `services.graphdb` block the
+        # build would render a channel finder with nothing behind it, and the
+        # same `graphdb_configured` gate the registry applies would leave the
+        # graph MCP server out without a word — an agent holding the mode and
+        # none of its tools. Named here instead, on every configuration path.
+        #
+        # Skipped for a profile that switches the channel-finder server off — a
+        # persona rendered as a logbook terminal, say. It inherits the mode from
+        # the deployment it narrows, because the mode is the deployment's, but
+        # it ships no channel finder for the mode to leave toolless. Requiring a
+        # store there would make every graph deployment configure one for a
+        # login that cannot query it.
+        if (
+            self.channel_finder_mode == _GRAPH_MODE
+            and self._runs_the_channel_finder()
+            and not self._renders_graphdb_block()
+        ):
+            attached = "" if self.deploy_services else ", deploy_services: false"
+            errors.append(
+                f"channel_finder_mode: {_GRAPH_MODE} needs a "
+                f"services.{GRAPHDB_SERVICE_NAME} block and this build renders none "
+                f"(app_template: {self.data_bundle}{attached}). Build on an app "
+                f"template that deploys a graph store, or name one the facility "
+                f"already runs with `config: services.{GRAPHDB_SERVICE_NAME}.uri: "
+                f"bolt://host:7687` plus GRAPHDB_PASSWORD in the project .env."
             )
 
         # The data tree may legitimately sit above the profile dir (persona

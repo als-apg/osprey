@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
@@ -250,32 +251,6 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
-def _graph_tool_names() -> list[str]:
-    """Fully-qualified names of the graph server's tools, in registry order.
-
-    Derived from the ``graph`` :class:`~osprey.registry.mcp.ServerDefinition`'s
-    ``permissions_allow`` — the same list the server's permission rules render
-    from — so a tool added to or dropped from the server reaches every consumer
-    of this key without a second spelling of the tool names anywhere.
-
-    The registry holds BARE names (``settings.json.j2`` splices the prefix on);
-    the names are qualified here because the consumer is an agent's frontmatter
-    ``tools:`` list, which mixes tools from several servers and so has no single
-    prefix to splice. Qualifying at the one place that already knows the server
-    name keeps ``mcp__graph__`` out of the templates entirely.
-
-    Returns:
-        ``["mcp__graph__capabilities", ...]``, or ``[]`` if the registry carries
-        no ``graph`` server.
-    """
-    from osprey.registry.mcp import FRAMEWORK_SERVERS
-
-    graph = FRAMEWORK_SERVERS.get("graph")
-    if graph is None:
-        return []
-    return [f"mcp__{graph.name}__{tool}" for tool in graph.permissions_allow]
-
-
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read straight out of a project's ``config.yml``.
 
@@ -327,12 +302,6 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # left out of the render entirely rather than shipped as a tool that
         # can only fail.
         "graphdb_configured": _graphdb_configured(config),
-        # The graph server's tools, fully qualified, for the agent frontmatter
-        # that splices them into a `tools:` list. Written unconditionally — an
-        # agent template must be able to iterate it without a `| default([])`,
-        # which is what let the channel-finder list render as empty on a path
-        # that forgot to set it.
-        "graph_tools": _graph_tool_names(),
     }
 
 
@@ -448,17 +417,39 @@ def build_claude_code_context(
     # Derive channel finder configuration
     channel_finder = config.get("channel_finder")
     if channel_finder and "channel-finder" in artifacts.get("agents", []):
-        pipeline_mode = channel_finder.get("pipeline_mode", "hierarchical")
+        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+        from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+        # No default paradigm. A project that ships the channel-finder agent was
+        # built against one paradigm's store, and the agent's prompt and tools
+        # differ per paradigm — guessing one here would render an agent that
+        # does not match the data on disk, and the mismatch only shows up at
+        # run time as a tool that is not there.
+        pipeline_mode = channel_finder.get("pipeline_mode")
+        if not pipeline_mode:
+            raise PipelineModeError(
+                "channel_finder.pipeline_mode is required when the channel-finder "
+                "agent is selected. Set it in config.yml to one of: "
+                f"{', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            )
+        if pipeline_mode not in VALID_CHANNEL_FINDER_MODES:
+            raise PipelineModeError(
+                f"Unknown channel_finder.pipeline_mode: {pipeline_mode!r}. "
+                f"Valid modes are: {', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            )
         ctx["channel_finder_pipeline"] = pipeline_mode
         ctx["channel_finder_mode"] = pipeline_mode
         ctx["default_pipeline"] = pipeline_mode
 
         # Per-pipeline tool list — shared with the registry so the agent
-        # frontmatter and the server's permissions.allow stay in lockstep.
-        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-
+        # frontmatter and the server's permissions.allow stay in lockstep. The
+        # mode is already known-good above, so a paradigm with no entry here is
+        # one served by no channel-finder MCP pipeline of its own, and the empty
+        # list is the right answer rather than a swallowed typo.
         ctx["channel_finder_tools"] = list(CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(pipeline_mode, []))
 
+        # Only the hierarchical paradigm embeds extra render context; the other
+        # paradigms need none.
         if pipeline_mode == "hierarchical":
             hierarchy = resolve_hierarchy_context(channel_finder, project_dir)
             if hierarchy is not None:

@@ -22,7 +22,7 @@ provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # How the agent searches for channels. `osprey set channel_finder_mode=...`
-# also accepts in_context or middle_layer.
+# also accepts in_context, middle_layer, or graph (the knowledge graph store).
 channel_finder_mode: hierarchical
 
 # ── What the agent can do ────────────────────────────────────────────────────

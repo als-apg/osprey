@@ -1,13 +1,15 @@
 """The rendered agent surface of the ``graph`` MCP server, per app template.
 
-Three claims, each of which a settings-only check would miss:
+The ``graph`` server is a **main-agent** server: a declared store puts its four
+read-only tools on the orchestrator's surface, and on no subagent's. Three
+claims, each of which a settings-only check would miss:
 
-1. **The store, not the subagent, is what enables the server.**
+1. **The store enables it, and it stops at the main agent.**
    ``ariel_standalone`` ships a ``services.graphdb`` block and no channel-finder
    agent at all, so the graph tools must reach the MAIN agent there — settings,
    ``.mcp.json`` and the hook prefixes — while no agent frontmatter mentions
-   them. A wiring that only ever put the server on the subagent's list would
-   render an ARIEL project with a store it cannot query.
+   them. A wiring that put the server on a subagent's list would render an
+   ARIEL project whose orchestrator cannot query its own store.
 
 2. **A template with no store renders no trace of the server**, asserted by
    walking every file under ``.claude/`` rather than by reading one of them.
@@ -23,6 +25,10 @@ Three claims, each of which a settings-only check would miss:
    through the CLI, because it is the one that decides whether the benchmark
    fallback lever (``claude_code.servers.graph.enabled: false``) leaves a
    buildable project or an aborting one.
+
+A channel-finder subagent that queries a knowledge graph does so through the
+``graph`` *paradigm* instead — its tools arrive under the ``channel-finder``
+server name, and ``tests/cli/test_channel_finder_graph_tools.py`` owns them.
 """
 
 from __future__ import annotations
@@ -199,10 +205,14 @@ def _run_build(repo: Path):
     return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
-def test_osprey_build_ships_the_graph_tools_to_the_subagent(tmp_path):
-    """The build verb completes and its rendered channel-finder carries the
-    tools — the direction ``create_project`` cannot prove, since the build runs
-    its own render and then validates the result.
+def test_osprey_build_ships_the_graph_tools_to_the_main_agent_only(tmp_path):
+    """The build verb completes, the main agent gets the server, and the
+    channel-finder subagent rendered beside it gets none of it — the direction
+    ``create_project`` cannot prove, since the build runs its own render and
+    then validates the result.
+
+    The two halves belong in one test: a build where the tools reached neither
+    surface would satisfy the frontmatter assertion on its own.
     """
     repo = _write_profile(tmp_path / "graph-on")
 
@@ -212,13 +222,14 @@ def test_osprey_build_ships_the_graph_tools_to_the_subagent(tmp_path):
     project = repo / "build"
     _assert_main_agent_surface(project)
 
-    frontmatter = yaml.safe_load(
-        (project / ".claude" / "agents" / "channel-finder.md")
-        .read_text(encoding="utf-8")
-        .split("---")[1]
-    )
+    agent = project / ".claude" / "agents" / "channel-finder.md"
+    frontmatter = yaml.safe_load(agent.read_text(encoding="utf-8").split("---")[1])
     tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
-    assert sorted(t for t in tools if t.startswith("mcp__graph__")) == _graph_permission_entries()
+    assert [t for t in tools if t.startswith("mcp__graph__")] == []
+    assert _graph_tool_hits(project / ".claude") == [
+        "hooks/hook_config.json",
+        "settings.json",
+    ], "the server's whole rendered trace is the main agent's three files"
 
 
 def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):

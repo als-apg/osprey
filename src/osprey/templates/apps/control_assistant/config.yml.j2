@@ -658,7 +658,7 @@ archiver:
 
 channel_finder:
   # Active pipeline mode
-  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
+  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", "middle_layer", or "graph"
 
   # osprey:panel-port channel_finder
   # CHANNELS tab: the channel-finder UI is a web server of its own, configured
@@ -685,7 +685,13 @@ channel_finder:
   #     max_tokens: 1000
   #   llm_batch_size: 10
 
-  # Pipeline-specific configurations
+  # Pipeline-specific configurations. Three of the four paradigms name the
+  # database file they read, and their block appears below. The fourth,
+  # `graph`, names nothing here: it answers from the Neo4j store declared under
+  # `services.graphdb` above — the one this project deploys, or a facility-
+  # hosted one named by an explicit `uri:` there. So `pipeline_mode: graph`
+  # plus that block is the whole of its configuration, and this section renders
+  # empty in graph mode.
   pipelines:
 {% if enable_in_context %}
     # In-Context Pipeline (Semantic Search)
@@ -747,9 +753,12 @@ channel_finder:
 
   # Benchmarking configuration
   # All paradigms share a single benchmark query set, tier-resolved at build
-  # time per channel_finder_mode (in_context → tier 1, hierarchical/middle_layer
-  # → tier 3; override with `osprey set tier=N`, then rebuild).  Query file is
-  # materialized to data/benchmarks/queries.json by the scaffolder.
+  # time per channel_finder_mode (in_context → tier 1; hierarchical,
+  # middle_layer and graph → tier 3; override with `osprey set tier=N`, then
+  # rebuild).  Query file is materialized to data/benchmarks/queries.json by
+  # the scaffolder.  Graph mode takes no tier override — it ships no tiered
+  # database, so the tier selects only this query set and `osprey build`
+  # refuses an explicit one.
   benchmark:
     # Single source of truth — all paradigms read the same query set.
     dataset_path: data/benchmarks/queries.json

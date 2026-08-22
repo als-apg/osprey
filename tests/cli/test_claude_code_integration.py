@@ -10,7 +10,9 @@ import os
 import pytest
 import yaml
 from click.testing import CliRunner
+from jinja2 import TemplateRuntimeError
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
@@ -526,6 +528,121 @@ class TestChannelFinderAgent:
         )
 
         assert not (project_dir / ".claude" / "rules" / "channel_finding.md").exists()
+
+
+class TestChannelFinderAgentTemplateFailGlobal:
+    """The agent template itself refuses a paradigm it has no arm for.
+
+    The render path validates the paradigm name before it gets here, so this is
+    the second line of defence: it catches a paradigm that is registered but
+    whose prompt arm was never written, which would otherwise render an agent
+    with no channel-finding instructions at all.
+    """
+
+    @staticmethod
+    def _render(jinja_env, mode):
+        template = jinja_env.get_template("claude_code/claude/agents/channel-finder.md.j2")
+        return template.render(
+            channel_finder_mode=mode,
+            channel_finder_tools=[],
+            channel_finder_hierarchy=None,
+            enabled_agents={"channel-finder"},
+            facility_name="TestFacility",
+        )
+
+    @pytest.mark.unit
+    def test_unknown_mode_fails_the_render_and_names_the_mode(self):
+        manager = TemplateManager()
+        with pytest.raises(TemplateRuntimeError, match="bogus"):
+            self._render(manager.jinja_env, "bogus")
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
+    def test_each_registered_mode_still_renders(self, mode):
+        manager = TemplateManager()
+        rendered = self._render(manager.jinja_env, mode)
+        assert "name: channel-finder" in rendered
+
+    @pytest.mark.unit
+    def test_fail_global_is_registered_on_the_manager_environment(self):
+        manager = TemplateManager()
+        assert "fail" in manager.jinja_env.globals
+        with pytest.raises(TemplateRuntimeError, match="boom"):
+            manager.jinja_env.globals["fail"]("boom")
+
+
+class TestChannelFinderPipelineModeRefusal:
+    """An unknown channel-finder paradigm fails the build instead of rendering.
+
+    ``resolve_servers`` is the registry half of the same rule the render path
+    enforces: a paradigm nothing recognises would otherwise resolve to an empty
+    ``permissions.allow`` and ship an agent that can call no tools at all.
+    """
+
+    @pytest.mark.unit
+    def test_resolve_servers_rejects_unknown_pipeline(self):
+        from osprey.registry.mcp import resolve_servers
+        from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+        with pytest.raises(PipelineModeError, match="bogus"):
+            resolve_servers({}, {"channel_finder_pipeline": "bogus"})
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
+    def test_resolve_servers_allows_each_registered_pipeline_tool(self, mode):
+        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE, resolve_servers
+
+        servers = resolve_servers({}, {"channel_finder_pipeline": mode})
+        cf = next(s for s in servers if s["name"] == "channel-finder")
+        assert cf["permissions_allow"] == CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(mode, [])
+
+
+class TestGraphParadigmRender:
+    """A ``channel_finder_mode: graph`` project renders a buildable agent.
+
+    The graph paradigm is configuration-only — the mode name plus a
+    ``services.graphdb`` block, no pipeline config block of its own — so the
+    render is the first place it becomes visible. Two ends are asserted here:
+    the subagent's tools all come from the ``channel-finder`` server, and every
+    one of them is backed by a permissions entry. The second is what decides
+    whether ``osprey build`` completes or raises ``BuildProfileError``.
+
+    ``tests/cli/test_channel_finder_graph_tools.py`` owns the vocabulary itself
+    and the per-paradigm comparison; what this adds is the paradigm reaching
+    the integration surface at all.
+    """
+
+    @staticmethod
+    def _render(tmp_path, name):
+        return TemplateManager().create_project(
+            project_name=name,
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "graph"},
+        )
+
+    def test_graph_render_tools_are_backed_by_permissions(self, tmp_path):
+        from osprey.cli.validate_claude_artifacts import (
+            validate_agent_tools_against_permissions,
+        )
+        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+
+        project = self._render(tmp_path, "graph-paradigm-render")
+
+        frontmatter = yaml.safe_load(
+            (project / ".claude" / "agents" / "channel-finder.md")
+            .read_text(encoding="utf-8")
+            .split("---")[1]
+        )
+        tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
+        assert [t for t in tools if t.startswith("mcp__channel-finder__")] == [
+            f"mcp__channel-finder__{tool}" for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE["graph"]
+        ], "fixture precondition: the graph paradigm's tools must be on the agent"
+        assert [t for t in tools if t.startswith("mcp__graph__")] == [], (
+            "the standalone graph server belongs to the main agent, not the subagent"
+        )
+
+        assert validate_agent_tools_against_permissions(project) == []
 
 
 class TestLogbookSearchAgent:
@@ -1465,15 +1582,15 @@ class TestConfigDerivedKeysPrecedeServerResolution:
 
 
 class TestGraphdbConfiguredContextKey:
-    """``graphdb_configured`` and ``graph_tools``, the graph server's two gates.
+    """``graphdb_configured``, the graph context key.
 
-    ``graphdb_configured`` is the ``condition=`` of the ``graph``
-    ``ServerDefinition``: truthy exactly when the project declares a
-    ``services.graphdb`` block, so a project without a store never renders a
-    server whose every tool could only fail. It borrows
-    ``resolve_graphdb_service_config``'s reading of the block rather than
-    re-implementing it, which is what these tests pin — mapping-valued vs bare
-    ``null`` vs absent, and a malformed block warned about instead of raised.
+    It is the ``condition=`` of the ``graph`` ``ServerDefinition``: truthy
+    exactly when the project declares a ``services.graphdb`` block, so a
+    project without a store never renders a server whose every tool could only
+    fail. It borrows ``resolve_graphdb_service_config``'s reading of the block
+    rather than re-implementing it, which is what these tests pin — mapping-
+    valued vs bare ``null`` vs absent, and a malformed block warned about
+    instead of raised.
     """
 
     @staticmethod
@@ -1483,12 +1600,6 @@ class TestGraphdbConfiguredContextKey:
         from osprey.cli.templates import claude_code
 
         return claude_code.config_derived_context(config, Path("."))
-
-    @staticmethod
-    def _expected_graph_tools():
-        from osprey.registry.mcp import FRAMEWORK_SERVERS
-
-        return [f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow]
 
     def test_graphdb_configured_true_for_a_present_block(self):
         derived = self._derive({"services": {"graphdb": {"port_host": 7687}}})
@@ -1516,7 +1627,6 @@ class TestGraphdbConfiguredContextKey:
             derived = self._derive({"services": {"graphdb": {"port_host": "seven-thousand"}}})
 
         assert derived["graphdb_configured"] is False
-        assert derived["graph_tools"] == self._expected_graph_tools()
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
         assert "services.graphdb.port_host" in message, "the warning must name the offending key"
@@ -1543,18 +1653,6 @@ class TestGraphdbConfiguredContextKey:
         assert ctx["graphdb_configured"] is False
         assert "graph" not in ctx["enabled_servers"]
         assert ctx["project_name"] == "graphdb-malformed", "the rest of the context is intact"
-
-    def test_graphdb_configured_ships_the_registry_graph_tools(self):
-        """``graph_tools`` is the registry's list, qualified, and never guessed."""
-        expected = self._expected_graph_tools()
-        assert expected == [
-            "mcp__graph__capabilities",
-            "mcp__graph__example_queries",
-            "mcp__graph__get_schema",
-            "mcp__graph__read_cypher",
-        ]
-        for config in ({"services": {"graphdb": {}}}, {}):
-            assert self._derive(config)["graph_tools"] == expected
 
     def test_graphdb_configured_gates_the_graph_server_on_the_build_path(self, tmp_path):
         from osprey.cli.templates import claude_code

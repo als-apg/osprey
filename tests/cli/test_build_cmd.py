@@ -19,6 +19,7 @@ from osprey.cli.build_profile import (
     McpServerDef,
     load_profile,
 )
+from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey.errors import BuildProfileError
 
 # ---------------------------------------------------------------------------
@@ -1885,7 +1886,13 @@ def _render(repo: Path):
     return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
-_PARADIGMS_FOR_BUILD: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
+# Every paradigm whose store is a channel-database file, derived from the
+# registry so a new paradigm cannot be added without landing here. ``graph`` is
+# excluded by the same subtraction the CLI's ``click.Choice`` lists use: its
+# store is a graph service, so a graph build materializes no
+# ``channel_databases/<paradigm>.json`` for these tests to byte-compare against
+# a preset tier source. See tests/build/test_mode_registry_single_source.py.
+_PARADIGMS_FOR_BUILD: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
 
 # Tier selection is restricted to {1, 3}, and tier 1 is in_context-only
@@ -2755,3 +2762,149 @@ class TestVAArchiverConfigDerivation:
         assert config["archiver"]["mongodb_archiver"]["port"] == 27100
         assert config["deployed_services"] == []
         assert not (project / "services" / "mongodb").exists()
+
+
+# ---------------------------------------------------------------------------
+# What the build hands `create_project` as `tier`
+# ---------------------------------------------------------------------------
+
+
+class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
+    """The `tier` `_render_project` hands `create_project`, per paradigm.
+
+    ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
+    not "the tier to use": given ``None`` it derives the paradigm-aware default
+    itself, and given a value it enforces ``tier_mode_conflict`` against the
+    paradigm (both boundaries pinned in ``tests/cli/test_templates.py``). So the
+    build has to hand it a tier only where the paradigm accepts one. ``graph``
+    is the paradigm that does not — it derives tier 3 like every
+    non-``in_context`` paradigm, but its store is a service rather than tiered
+    database files, so no tier selects anything for it and pinning one is a
+    rule error. A build that handed its own derived tier straight back as a pin
+    would be refused at the boundary it had just satisfied, and would render
+    nothing at all.
+
+    Two tests, one per side of that rule: dropped for the paradigm that refuses
+    a tier, and carried through unchanged — overriding the derivation — for the
+    paradigms that take one.
+    """
+
+    def _tiers_handed_over(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        **profile_keys: object,
+    ) -> tuple[Path, list[int | None]]:
+        """Build the control-assistant preset with *profile_keys* layered on.
+
+        Returns the render and the ``tier`` every render in the build handed
+        ``create_project``. A build renders more than once — the deployment's
+        own project, its personas, its container copy — and the whole list comes
+        back rather than the first entry, because one render disagreeing with
+        the others is the interesting failure.
+
+        The argument is read off the bound signature rather than out of
+        ``kwargs``, so a caller that ever passes it positionally is still
+        recorded rather than silently read as ``None`` — which would make this
+        spy agree with a build that had stopped passing a tier at all.
+        """
+        import inspect
+
+        from click.testing import CliRunner
+
+        from osprey.cli.build_cmd import build
+        from osprey.cli.init_cmd import init
+        from osprey.cli.templates.manager import TemplateManager
+
+        repo = tmp_path / name
+        override = tmp_path / f"{name}-override.yml"
+        override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
+
+        runner = CliRunner()
+        created = runner.invoke(
+            init, [str(repo), "--preset", "control-assistant", "--no-git", "-O", str(override)]
+        )
+        assert created.exit_code == 0, created.output
+
+        create_project = TemplateManager.create_project
+        signature = inspect.signature(create_project)
+        seen: list[int | None] = []
+
+        def spy(self: TemplateManager, *args: object, **kwargs: object) -> Path:
+            bound = signature.bind(self, *args, **kwargs)
+            bound.apply_defaults()
+            seen.append(bound.arguments["tier"])
+            return create_project(self, *args, **kwargs)
+
+        monkeypatch.setattr(TemplateManager, "create_project", spy)
+        rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        assert rendered.exit_code == 0, rendered.output
+        assert seen, "the build rendered no project at all"
+        return repo / "build", seen
+
+    def test_graph_mode_renders_and_pins_no_tier(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The graph paradigm builds, and nothing in the build pins its tier.
+
+        The exit code is half the claim: pinning the derived tier here is not a
+        subtle mis-selection but a hard refusal, so a regression shows up as a
+        build that cannot render the paradigm at all.
+        """
+        render, tiers = self._tiers_handed_over(
+            tmp_path, monkeypatch, "graphed", channel_finder_mode="graph"
+        )
+
+        assert set(tiers) == {None}, (
+            f"a render pinned a tier for the graph paradigm: {tiers}. graph has no "
+            "tiered artifacts, so create_project refuses an explicit tier."
+        )
+        # The paradigm reached the render: graph flattens no channel database,
+        # so the server it declares is the whole of the evidence.
+        servers = json.loads((render / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+        assert servers["channel-finder"]["args"] == [
+            "-m",
+            "osprey.mcp_server.channel_finder_graph",
+        ]
+
+    def test_an_explicit_tier_overrides_the_derivation_on_a_file_paradigm(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pinned tier still reaches the materializer, and still decides the DB.
+
+        ``in_context`` with an explicit ``tier: 3`` is the one legal pairing
+        where the pin and the paradigm's own default disagree — the derivation
+        would pick tier 1. So this is the case that can tell "the profile's
+        pin was passed through" from "``create_project`` derived the same
+        number anyway", which a ``hierarchical`` profile (deriving 3, pinning 3)
+        cannot.
+        """
+        render, tiers = self._tiers_handed_over(
+            tmp_path, monkeypatch, "pinned", channel_finder_mode="in_context", tier=3
+        )
+
+        assert set(tiers) == {3}, (
+            f"the build dropped the profile's explicit tier: {tiers}. Passing None "
+            "here would have let create_project derive tier 1 from in_context, "
+            "silently building a smaller channel database than the profile asked for."
+        )
+
+        preset_tier3 = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "osprey"
+            / "templates"
+            / "apps"
+            / "control_assistant"
+            / "data"
+            / "channel_databases"
+            / "tiers"
+            / "tier3"
+            / "in_context.json"
+        )
+        flat = render / "data" / "channel_databases" / "in_context.json"
+        assert flat.read_bytes() == preset_tier3.read_bytes(), (
+            "the render materialized a channel database that is not the preset's "
+            "tier-3 in_context source — the pinned tier did not decide the artifact"
+        )

@@ -34,7 +34,10 @@ the box with no external service.
 2. Set `ANTHROPIC_API_KEY` (or `CBORG_API_KEY` for the LBL proxy) in `.env`.
 3. Replace `data/channel_databases/hierarchical.json` with your own channel
    database, or switch pipelines: create a deployment repo from this preset and
-   set `channel_finder_mode: in_context|middle_layer` with the matching database.
+   set `channel_finder_mode: in_context|middle_layer` with the matching
+   database. The fourth paradigm, `graph`, answers from a knowledge graph store
+   instead of a database file; this bundle configures no such store, so the
+   build rejects it here.
 
 For deeper customization, create a deployment repo from this preset and
 rebuild from it:

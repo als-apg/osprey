@@ -1,18 +1,27 @@
-"""The graph tools in the channel-finder subagent's rendered frontmatter.
+"""The channel-finder subagent's rendered ``tools:`` list, per paradigm.
 
-``channel-finder.md.j2`` splices ``graph_tools`` into its ``tools:`` list behind
-``{% if "graph" in enabled_servers %}``. The predicate is deliberately server
-enablement rather than ``graphdb_configured``: the two diverge under
-``claude_code.servers.graph.enabled: false``, which leaves ``services.graphdb``
-in the config while the server (and therefore every ``mcp__graph__`` permission
-entry) is gone. Gating on the store instead would render frontmatter tools that
-``validate_agent_tools_against_permissions`` reports as unbacked, and
-``osprey build`` turns that report into a ``BuildProfileError`` — the benchmark
-fallback lever would abort the build it is meant to make cheap.
+Two claims, and the second is what makes the first worth asserting:
 
-The tests below pin both render paths, because they are separate code:
-``create_project`` (manager.py) and ``regenerate_claude_code`` — the render
-``osprey build`` runs — each assemble their own context.
+1. **The subagent's vocabulary is exactly its paradigm's.**
+   ``channel-finder.md.j2`` renders ``CHANNEL_FINDER_TOOLS_BY_PIPELINE[mode]``
+   qualified with ``mcp__channel-finder__``, plus ``submit_response``. Nothing
+   else reaches the list — not even on a project that enables other servers.
+
+2. **The standalone ``graph`` server is not on it, in any paradigm.**
+   That server belongs to the main agent (``tests/cli/test_graph_agent_surface.py``
+   owns its surface). The channel-finder subagent reaches a knowledge graph
+   only through the ``graph`` paradigm, whose tools arrive under the
+   ``channel-finder`` server name like every other paradigm's — which is what
+   lets the benchmark harness, the feedback hook and the permission validator
+   treat the graph paradigm as a peer rather than a special case.
+
+The tests run on ``control_assistant``, which ships a ``services.graphdb``
+block: the ``graph`` server IS enabled on those renders, so "no ``mcp__graph__``
+entry in the frontmatter" is a claim about the agent template rather than a
+by-product of a project with no store. Both render paths are exercised, because
+they are separate code: ``create_project`` (manager.py) and
+``regenerate_claude_code`` — the render ``osprey build`` runs — each assemble
+their own context.
 """
 
 from __future__ import annotations
@@ -24,25 +33,43 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.validate_claude_artifacts import (
     validate_agent_tools_against_permissions,
 )
-from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE, FRAMEWORK_SERVERS
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 
+#: The one line of the terminology partial that no other paradigm's partial
+#: carries — proof that ``_terminology/graph.md.j2`` was included and not one of
+#: its siblings.
+_GRAPH_TERMINOLOGY_MARKER = "This is a **graph** channel database"
 
-def _expected_graph_tools() -> list[str]:
-    """The four tool names, derived the way the render derives them.
 
-    ``config_derived_context`` qualifies ``FRAMEWORK_SERVERS['graph']``'s bare
-    ``permissions_allow`` names, so reading the registry here keeps this test
-    from restating a list that has one owner.
+def _expected_frontmatter_tools(mode: str) -> list[str]:
+    """The whole ``tools:`` list for *mode*, derived the way the render derives it.
+
+    Read from the registry rather than spelled out, so a paradigm's vocabulary
+    has exactly one owner and this file cannot drift from it.
     """
-    return [f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow]
+    return [
+        *(f"mcp__channel-finder__{tool}" for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE[mode]),
+        _SUBMIT_RESPONSE,
+    ]
+
+
+def _graph_server_permission_entries() -> list[str]:
+    """The standalone ``graph`` server's four rendered permission strings.
+
+    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
+    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
+    qualification happens here rather than being restated where it could drift.
+    """
+    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
 
 
 def _agent_path(project_dir: Path) -> Path:
@@ -60,8 +87,8 @@ def _frontmatter_tools(project_dir: Path) -> list[str]:
     return [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
 
 
-def _graph_entries(values) -> list[str]:
-    return [entry for entry in values if entry.startswith("mcp__graph__")]
+def _graph_server_entries(values) -> list[str]:
+    return sorted(entry for entry in values if str(entry).startswith("mcp__graph__"))
 
 
 def _settings_permission_entries(project_dir: Path) -> list[str]:
@@ -75,14 +102,14 @@ def _settings_permission_entries(project_dir: Path) -> list[str]:
     ]
 
 
-def _control_assistant(tmp_path: Path, name: str, *, deploy_services: bool = True):
+def _control_assistant(tmp_path: Path, name: str, mode: str, *, deploy_services: bool = True):
     manager = TemplateManager()
     project_dir = manager.create_project(
         project_name=name,
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={
-            "channel_finder_mode": "hierarchical",
+            "channel_finder_mode": mode,
             "deploy_services": deploy_services,
         },
     )
@@ -90,60 +117,104 @@ def _control_assistant(tmp_path: Path, name: str, *, deploy_services: bool = Tru
 
 
 # ---------------------------------------------------------------------------
-# The graph tools land in the frontmatter — on both render paths
+# The subagent's list is its paradigm's vocabulary, and nothing else
 # ---------------------------------------------------------------------------
 
 
-def test_channel_finder_graph_tools_render_on_the_create_path(tmp_path):
-    """``create_project`` on control_assistant ships the store and the tools."""
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-create")
+@pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
+def test_frontmatter_is_exactly_the_paradigm_vocabulary(tmp_path, mode):
+    """Every registered paradigm renders its own tools, plus ``submit_response``.
 
-    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
-    assert (config.get("services") or {}).get("graphdb") is not None, (
-        "the app template is expected to ship a services.graphdb block; "
-        "without it this test would pass vacuously"
-    )
+    Asserted as the whole list rather than as a subset: a tool that arrives from
+    somewhere other than the paradigm's registry entry is the failure this
+    catches, and a subset assertion would let it through.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, f"cf-vocab-{mode}", mode)
 
     tools = _frontmatter_tools(project_dir)
-    assert _graph_entries(tools) == _expected_graph_tools()
+    assert tools == _expected_frontmatter_tools(mode)
     assert tools[-1] == _SUBMIT_RESPONSE, "submit_response stays last in the list"
 
 
-def test_channel_finder_graph_tools_render_on_the_build_path(tmp_path):
+@pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
+def test_no_paradigm_puts_the_graph_server_on_the_subagent(tmp_path, mode):
+    """The standalone ``graph`` server reaches the main agent and stops there.
+
+    The fixture's precondition carries the weight: this template ships a
+    ``services.graphdb`` block, so the server is enabled and its four
+    permissions ARE in ``settings.json``. What must be empty is the subagent's
+    frontmatter — the main agent can query the store; the channel-finder
+    subagent is confined to its paradigm's tools.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, f"cf-nograph-{mode}", mode)
+
+    assert _graph_server_entries(_settings_permission_entries(project_dir)) == (
+        _graph_server_permission_entries()
+    ), "fixture precondition: the graph server must be enabled on this render"
+
+    assert _graph_server_entries(_frontmatter_tools(project_dir)) == []
+    assert "mcp__graph__" not in _agent_path(project_dir).read_text(encoding="utf-8"), (
+        "the agent's prose must not name a tool its frontmatter cannot call"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The graph paradigm, specifically
+# ---------------------------------------------------------------------------
+
+
+def test_graph_paradigm_renders_the_four_channel_finder_tools(tmp_path):
+    """Spelled out once, as the names an operator would read in the file.
+
+    Everywhere else in this module the expectation is derived from the registry;
+    here it is literal, so a registry edit that silently changed the graph
+    paradigm's vocabulary has to be made deliberately in two places.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-paradigm", "graph")
+
+    assert _frontmatter_tools(project_dir) == [
+        "mcp__channel-finder__capabilities",
+        "mcp__channel-finder__example_queries",
+        "mcp__channel-finder__get_schema",
+        "mcp__channel-finder__read_cypher",
+        _SUBMIT_RESPONSE,
+    ]
+
+    server = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert server["channel-finder"]["args"] == ["-m", "osprey.mcp_server.channel_finder_graph"], (
+        "the graph paradigm ships under the channel-finder server name"
+    )
+
+
+def test_graph_paradigm_renders_its_terminology_partial(tmp_path):
+    """The prompt arm and ``_terminology/graph.md.j2`` both reached the file.
+
+    Without the include the agent would still list the right tools and still
+    have no idea what a ``ChannelBinding`` is — a render that looks complete and
+    tells the subagent nothing about the corpus it has to query.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-terms", "graph")
+
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+    assert _GRAPH_TERMINOLOGY_MARKER in body, "the graph terminology partial was not included"
+    for tool in ("example_queries", "get_schema", "read_cypher"):
+        assert tool in body, f"the prompt arm never names {tool}"
+    assert "fullPv" in body, "the prompt must name the property the addresses come from"
+
+
+def test_graph_paradigm_renders_on_the_build_path(tmp_path):
     """``regenerate_claude_code`` — the render ``osprey build`` runs — agrees.
 
     The rendered agent is deleted first, so what is asserted is what the build
     direction wrote and not a leftover from ``create_project``.
     """
-    manager, project_dir = _control_assistant(tmp_path, "cf-graph-build")
+    manager, project_dir = _control_assistant(tmp_path, "cf-graph-build", "graph")
     _agent_path(project_dir).unlink()
 
     manager.regenerate_claude_code(project_dir)
 
-    tools = _frontmatter_tools(project_dir)
-    assert _graph_entries(tools) == _expected_graph_tools()
-    assert tools[-1] == _SUBMIT_RESPONSE
-
-
-def test_channel_finder_graph_tools_appear_when_a_store_is_added(tmp_path):
-    """Adding the block to an attached project's config.yml is enough.
-
-    ``deploy_services: false`` renders ``services: {}``, so this starts from a
-    control_assistant with no store, proves the tools are absent, then adds the
-    block and re-renders. It is the same assertion as the build-path test from
-    the other direction, and it cannot be satisfied by a stale file.
-    """
-    manager, project_dir = _control_assistant(tmp_path, "cf-graph-added", deploy_services=False)
-    assert _graph_entries(_frontmatter_tools(project_dir)) == []
-
-    config_path = project_dir / "config.yml"
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    config.setdefault("services", {})["graphdb"] = {"port_host": 7687}
-    config_path.write_text(yaml.dump(config), encoding="utf-8")
-
-    manager.regenerate_claude_code(project_dir)
-
-    assert _graph_entries(_frontmatter_tools(project_dir)) == _expected_graph_tools()
+    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("graph")
+    assert _GRAPH_TERMINOLOGY_MARKER in _agent_path(project_dir).read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -151,34 +222,26 @@ def test_channel_finder_graph_tools_appear_when_a_store_is_added(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_channel_finder_graph_tools_are_backed_by_permissions(tmp_path):
-    """The crown-jewel invariant, on a graphdb-configured render.
-
-    ``osprey build`` raises ``BuildProfileError`` on any error this returns, so
-    an empty list is the difference between the graph tools shipping and the
-    build aborting.
+@pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
+def test_frontmatter_tools_are_backed_by_permissions(tmp_path, mode):
+    """The crown-jewel invariant: ``osprey build`` raises ``BuildProfileError``
+    on any error this returns, so an empty list is the difference between a
+    paradigm shipping and the build aborting.
     """
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-backed")
+    _manager, project_dir = _control_assistant(tmp_path, f"cf-backed-{mode}", mode)
 
-    assert _graph_entries(_frontmatter_tools(project_dir)) == _expected_graph_tools(), (
-        "the render under test must actually carry the graph tools"
-    )
     assert validate_agent_tools_against_permissions(project_dir) == []
 
 
-# ---------------------------------------------------------------------------
-# The two ways a project gets none of them
-# ---------------------------------------------------------------------------
+def test_disabling_the_graph_server_leaves_the_graph_paradigm_intact(tmp_path):
+    """``claude_code.servers.graph.enabled: false`` is a main-agent lever only.
 
-
-def test_channel_finder_graph_tools_absent_when_the_server_is_disabled(tmp_path):
-    """``claude_code.servers.graph.enabled: false`` with the store still declared.
-
-    The benchmark fallback lever: it must render, not raise, and must leave the
-    graph out of BOTH surfaces — the frontmatter and settings.json — because a
-    tool in one without the other is exactly what aborts the build.
+    It switches off the standalone ``graph`` server while the store stays
+    declared. Because the paradigm's tools come from the ``channel-finder``
+    server, the subagent is untouched: it keeps all four tools, they stay backed
+    by permissions, and the build does not abort.
     """
-    manager, project_dir = _control_assistant(tmp_path, "cf-graph-off")
+    manager, project_dir = _control_assistant(tmp_path, "cf-graph-server-off", "graph")
 
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -188,15 +251,37 @@ def test_channel_finder_graph_tools_absent_when_the_server_is_disabled(tmp_path)
 
     manager.regenerate_claude_code(project_dir)
 
-    assert _graph_entries(_frontmatter_tools(project_dir)) == []
-    assert _graph_entries(_settings_permission_entries(project_dir)) == []
+    assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
+    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("graph")
     assert validate_agent_tools_against_permissions(project_dir) == []
 
 
-def test_channel_finder_graph_tools_absent_without_a_graph_store(tmp_path):
-    """channel_finder_standalone ships no ``services.graphdb`` block at all."""
+def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path):
+    """``deploy_services: false`` renders ``services: {}`` — no store at all.
+
+    The paradigm is a rendering decision and the store is a deployment one, so
+    the agent renders the same either way; what changes is whether the tools it
+    calls find anything at the other end. Pinned because the opposite wiring —
+    a frontmatter gated on ``graphdb_configured`` — would silently produce an
+    agent with no channel-finding tools whenever the store is external or
+    attached rather than deployed.
+    """
+    _manager, project_dir = _control_assistant(
+        tmp_path, "cf-graph-nostore", "graph", deploy_services=False
+    )
+
+    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+    assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
+
+    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("graph")
+    assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
+    assert validate_agent_tools_against_permissions(project_dir) == []
+
+
+def test_channel_finder_standalone_renders_its_paradigm_and_no_graph_server(tmp_path):
+    """The bundle that ships neither a store nor a graph paradigm."""
     project_dir = TemplateManager().create_project(
-        project_name="cf-graph-standalone",
+        project_name="cf-standalone-tools",
         output_dir=tmp_path,
         data_bundle="channel_finder_standalone",
         context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
@@ -205,26 +290,6 @@ def test_channel_finder_graph_tools_absent_without_a_graph_store(tmp_path):
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
     assert (config.get("services") or {}).get("graphdb") is None, "the bundle ships no store"
 
-    tools = _frontmatter_tools(project_dir)
-    assert _graph_entries(tools) == []
-    assert tools[-1] == _SUBMIT_RESPONSE
-    assert _graph_entries(_settings_permission_entries(project_dir)) == []
+    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("hierarchical")
+    assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
     assert validate_agent_tools_against_permissions(project_dir) == []
-
-
-# ---------------------------------------------------------------------------
-# The prose that tells the agent when to reach for them
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("deploy_services", [True, False])
-def test_channel_finder_graph_guidance_follows_the_same_predicate(tmp_path, deploy_services):
-    """The graph section appears exactly where the tools do, and never alone."""
-    _manager, project_dir = _control_assistant(
-        tmp_path, f"cf-graph-prose-{str(deploy_services).lower()}", deploy_services=deploy_services
-    )
-
-    body = _agent_path(project_dir).read_text(encoding="utf-8")
-    has_tools = bool(_graph_entries(_frontmatter_tools(project_dir)))
-    assert has_tools is deploy_services, "the render shape under test"
-    assert ("## The Facility Knowledge Graph" in body) is deploy_services
