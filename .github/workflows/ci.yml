@@ -3045,10 +3045,17 @@ jobs:
     # into them would have made every lifecycle run pay that build. Keeping it
     # separate also means the cost shows up on its own line rather than as an
     # unexplained slowdown in a neighbouring job.
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    # Base-ref clause matches two-shape-boot-e2e below rather than the
+    # lifecycle lanes above, and for the same reason: this lane certifies the
+    # auth perimeter, which is built on epic phase branches whose PRs target an
+    # `epic/*` integration base. Scoped to main alone it would skip on every PR
+    # that changes what it covers, and a safety lane that only runs after the
+    # work is already merged is one that can go red inside a green gate.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (github.event.pull_request.base.ref == 'main'
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
 
     steps:
     - name: Checkout repository
@@ -3127,10 +3134,17 @@ jobs:
     # this one proves the DEFAULT posture `auth.method: none`, where nginx
     # authenticates nothing and the terminal app's own WebAuthMiddleware is the
     # only gate.
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    # Base-ref clause matches two-shape-boot-e2e below rather than the
+    # lifecycle lanes above, and for the same reason: this lane certifies the
+    # auth perimeter, which is built on epic phase branches whose PRs target an
+    # `epic/*` integration base. Scoped to main alone it would skip on every PR
+    # that changes what it covers, and a safety lane that only runs after the
+    # work is already merged is one that can go red inside a green gate.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (github.event.pull_request.base.ref == 'main'
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
 
     steps:
     - name: Checkout repository
