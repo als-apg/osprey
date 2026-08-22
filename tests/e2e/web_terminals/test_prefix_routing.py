@@ -318,14 +318,17 @@ def _recv_json(ws, msg_type: str, max_frames: int = 30) -> dict:
 
 @pytest.fixture
 def ws_app(tmp_path, monkeypatch):
-    """An isolated app for driving a real websocket handshake. Uses the
-    ``mode=resume`` path (not the bare ``mode=new`` default): the ``new``-session
-    path only sends ``session_info`` when discovery finds a NEWLY-created
-    session file, so with ``discover_new_session`` patched to return ``None``
-    (no real filesystem poll) it would never send anything and this test would
-    hang forever waiting on a frame that never arrives. The resume path, by
-    contrast, always confirms synchronously (real or discovered id) -- the
-    exact, proven shape ``test_ws_resume_confirm.py`` already relies on.
+    """An isolated app for driving a real websocket handshake.
+
+    Uses the ``mode=resume`` path, which confirms synchronously with the
+    requested id -- the exact shape ``test_ws_resume_confirm.py`` relies on, so
+    the frame this test waits for is guaranteed to arrive. ``mode=new`` would
+    serve equally well now that it confirms the id it forces on the CLI, but
+    there is no reason to churn a passing handshake test onto it.
+
+    ``discover_new_session`` is patched to ``None`` so nothing polls the real
+    filesystem; on the resume path that simply means the requested id is the
+    one confirmed.
     """
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
     ws_dir = tmp_path / "var" / "agent_data"
