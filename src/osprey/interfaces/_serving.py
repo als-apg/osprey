@@ -51,7 +51,7 @@ def _wait_until_serving(
     thread: threading.Thread,
     thread_error: list[BaseException],
     port: int,
-    timeout: float = 10.0,
+    timeout: float = 30.0,
 ) -> None:
     """Block until *server* is serving, or explain why it never will be.
 
@@ -61,6 +61,11 @@ def _wait_until_serving(
     exactly like one that is merely slow, so the caller pays the whole timeout
     and is then told the server "did not become ready", which points at the
     timeout rather than at the error that actually occurred.
+
+    Because a dead server is detected immediately through the thread check,
+    the timeout only ever bounds a *slow but alive* startup — app lifespans do
+    real work (service imports, degraded-mode probes) that stretches under
+    parallel test load, so the bound is generous rather than tight.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
