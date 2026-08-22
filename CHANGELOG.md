@@ -35,6 +35,18 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The web terminal now knows its own session id from the moment it opens.
+  It previously waited for the session's transcript file to appear on disk,
+  which only happens once the session has content — so a terminal left idle
+  for a few seconds never picked its id up at all, and never did later. That
+  tab then behaved as if no session existed: feedback could not attach
+  session context ("no session yet"), the session was not stored for resume,
+  and every page reload started another one instead of reconnecting.
+- Closing a web terminal no longer risks killing a session another tab is
+  using. A tab whose agent had exited could, on close, terminate whatever
+  session had since taken its place.
+- A web terminal that cannot resume its stored session now falls back to a
+  fresh one instead of stopping at "[Process exited]".
 - Timeseries previews in the workspace gallery render again in CDN-mode
   (non-offline) deployments: the lazy Plotly loader now uses the same
   CDN-or-vendored URL resolution as the gallery's other vendor assets

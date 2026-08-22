@@ -307,6 +307,11 @@ class TestSessionSwitchingContract:
         mock_reg = MagicMock(spec=PtyRegistry)
         mock_reg.get_or_create_session.return_value = (fake_session, False)
         mock_reg.attach_session.return_value = True
+        # The handler's teardown asks who currently owns the key before
+        # touching it; answer with the session it was handed, i.e. "still the
+        # owner". test_disconnect_leaves_a_replacement_session_alone below
+        # overrides this to model the other case.
+        mock_reg.get_session.return_value = fake_session
         app.state.pty_registry = mock_reg
         return mock_reg, fake_session
 
@@ -407,8 +412,9 @@ class TestSessionSwitchingContract:
 
         # Handler's finally: detach(current_key)
         mock_reg.detach_session.assert_called_with(sid)
-        # Session is alive → terminate_session should NOT be called
+        # Session is alive → nothing is terminated
         mock_reg.terminate_session.assert_not_called()
+        mock_reg.terminate_session_if_owner.assert_not_called()
 
     def test_disconnect_terminates_dead_session(self, app, sessions_dir):
         """On WS close with dead session: detach AND terminate."""
@@ -427,4 +433,40 @@ class TestSessionSwitchingContract:
                 time.sleep(0.2)  # let output loop notice and exit
 
         mock_reg.detach_session.assert_called_with(sid)
-        mock_reg.terminate_session.assert_called_with(sid)
+        # Terminated through the owner-checked entry point, which takes the
+        # session this handler owns as well as the key — see
+        # test_disconnect_leaves_a_replacement_session_alone.
+        mock_reg.terminate_session_if_owner.assert_called_with(sid, dead)
+
+    def test_disconnect_leaves_a_replacement_session_alone(self, app, sessions_dir):
+        """A stale handler's teardown must not touch a newer session.
+
+        Two handlers meeting on one pool key is ordinary: a second tab (or a
+        reload whose disconnect the server sees late) resumes the id, finds
+        this PTY dead, and gets a replacement spawned under the same key.
+        Teardown keyed on the id alone would then terminate the replacement
+        and clear its attachment, killing a terminal someone is looking at.
+        """
+        sid = _uuid()
+        import time
+
+        _seed_session_file(sessions_dir, sid)
+        with TestClient(app) as client:
+            dead = FakePtySession()
+            mock_reg, _ = self._mock_registry(app, fake_session=dead)
+            with client.websocket_connect(_resume_url(sid)) as ws:
+                _send_resize(ws)
+                mock_reg.reset_mock()
+                dead._alive = False
+                time.sleep(0.2)  # let output loop notice and exit
+                # A newer handler has since put its own session under this key.
+                replacement = FakePtySession()
+                mock_reg.get_session.return_value = replacement
+
+        # The newer handler's attachment is left intact...
+        mock_reg.detach_session.assert_not_called()
+        # ...and the registry entry is not terminated by key. The dead PTY is
+        # still handed to the owner-checked call, which terminates the process
+        # this handler owns without disturbing the pool.
+        mock_reg.terminate_session.assert_not_called()
+        mock_reg.terminate_session_if_owner.assert_called_with(sid, dead)

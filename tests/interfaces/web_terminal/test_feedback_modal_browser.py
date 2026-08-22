@@ -235,14 +235,15 @@ def test_tab_cycles_through_every_control_and_wraps(tmp_path, chromium_browser):
         try:
             _open_modal(page)
 
-            # The form is there in full, including the session-context checkbox
-            # that this fixture correctly greys out (no PTY session to attach).
+            # The form is there in full, including the session-context checkbox:
+            # the server confirms the terminal's session id on connect, so even
+            # this fresh, never-typed-in fixture has a session to attach.
             dialog = page.locator(".feedback-modal-dialog")
             expect(dialog.locator("button.feedback-modal-close")).to_have_count(1)
             expect(dialog.locator("textarea.feedback-text")).to_have_count(1)
             expect(dialog.locator('input[type="radio"][name="feedback-channel"]')).to_have_count(3)
             expect(dialog.locator("input.feedback-metadata-check")).to_be_enabled()
-            expect(dialog.locator("input.feedback-context-check")).to_be_disabled()
+            expect(dialog.locator("input.feedback-context-check")).to_be_enabled()
             expect(dialog.locator("button.feedback-help-toggle")).to_have_count(1)
             expect(dialog.locator("button.feedback-send")).to_have_count(1)
 
@@ -251,12 +252,11 @@ def test_tab_cycles_through_every_control_and_wraps(tmp_path, chromium_browser):
             # sides of the set comparison below are read off the live DOM, so a
             # control that becomes untabbable (``tabindex="-1"``, or newly
             # disabled) would drop out of BOTH and pass unnoticed; the inventory
-            # catches deletion, and this count catches un-tabbing. The six: the
-            # close button, the textarea, the channel radios (one stop — they
-            # share a name), the metadata checkbox, the help toggle, and Send.
-            # The context checkbox is disabled in this fixture and is correctly
-            # not a stop.
-            assert len(expected) == 6, f"tab order changed shape: {expected}"
+            # catches deletion, and this count catches un-tabbing. The seven:
+            # the close button, the textarea, the channel radios (one stop —
+            # they share a name), the metadata checkbox, the context checkbox,
+            # the help toggle, and Send.
+            assert len(expected) == 7, f"tab order changed shape: {expected}"
 
             start = _focus_probe(page)["key"]
             visited = [start]
