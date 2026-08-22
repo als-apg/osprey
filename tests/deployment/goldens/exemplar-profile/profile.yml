@@ -57,7 +57,10 @@ app_template: control_assistant
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
-# Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
+# Channel-finder pipeline. Override via
+# --set channel_finder_mode=in_context|middle_layer|graph. The first three pick
+# which channel database the build writes; `graph` writes none and reads the
+# store named by `services.graphdb` instead (deploy it to use that mode).
 channel_finder_mode: hierarchical
 
 # ── Artifact selection ───────────────────────────────────────────────────────

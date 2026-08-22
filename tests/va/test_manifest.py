@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
@@ -34,6 +35,22 @@ class TestParadigmAgreement:
     This is the load-bearing assumption behind treating "the namespace" as a
     single derived thing rather than three separate lists.
     """
+
+    def test_graph_is_the_only_paradigm_outside_this_gate(self):
+        """The manifest is three-paradigm by exemption, not by oversight.
+
+        ``graph`` ships no tiered database, so there is nothing here to expand
+        and compare; its namespace agreement is pinned one step earlier, at the
+        corpus, by ``tests/services/facility_knowledge/test_demo_ttl_consistency
+        .py::test_demo_ttl_bindings_equal_the_channel_database``. Registering
+        any *other* paradigm fails this assertion, which is the point: a
+        file-backed paradigm must join the agreement gate above.
+        """
+        assert set(VALID_CHANNEL_FINDER_MODES) - {"graph"} == {
+            "hierarchical",
+            "in_context",
+            "middle_layer",
+        }
 
     def test_hierarchical_in_context_middle_layer_agree(self):
         hier = {c.address for c in loaders.load_hierarchical_channels()}
