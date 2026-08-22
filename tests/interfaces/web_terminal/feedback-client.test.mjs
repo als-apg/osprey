@@ -22,6 +22,7 @@ import {
   sendFeedback,
   copyContext,
   BUNDLE_PATH,
+  DEFAULT_TITLE,
   FEEDBACK_PATH,
   NOTICE_COPY_FAILED,
   NOTICE_EMPTY_BUNDLE,
@@ -29,8 +30,23 @@ import {
   NOTICE_NOT_RECORDED,
   NOTICE_NO_SESSION,
   NOTICE_NO_TRANSCRIPT,
+  NOTICE_PASTE_EMAIL,
+  NOTICE_PASTE_GITHUB,
   NOTICE_TOO_LARGE,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/feedback-client.js';
+
+/**
+ * Read one query parameter back out of a built URL.
+ *
+ * @param {string} url
+ * @param {string} name
+ * @returns {string} the decoded value
+ */
+function param(url, name) {
+  const match = new RegExp(`[?&]${name}=([^&]*)`).exec(url);
+  if (match === null) throw new Error(`no ?${name}= in ${url.slice(0, 80)}`);
+  return decodeURIComponent(match[1]);
+}
 
 /** A promise whose settlement the test controls. */
 function deferred() {
@@ -425,6 +441,139 @@ describe('sendFeedback — Email channel', () => {
     expect(deps.clipboard.write).toHaveBeenCalledTimes(1);
     expect(await copiedText(written[0])).toBe('SERVER PAYLOAD');
     expect(result.copied).toBe('clipboard');
+  });
+});
+
+describe('outbound prefill — title, subject and session line', () => {
+  test('the issue title is generic, never the first line of the report', async () => {
+    const { deps } = makeDeps();
+
+    await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+
+    expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(DEFAULT_TITLE);
+  });
+
+  test('a thousand-character report never becomes a thousand-character title', async () => {
+    const { deps } = makeDeps();
+    const oneLongLine = 'the beam dropped and the archiver shows nothing '.repeat(25);
+
+    await sendFeedback({ ...BASE_FORM, channel: 'github', text: oneLongLine }, deps);
+
+    expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(DEFAULT_TITLE);
+  });
+
+  test('the title names the session when context is attached', async () => {
+    const { deps } = makeDeps();
+
+    await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+
+    expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(
+      `${DEFAULT_TITLE} (session 11111111)`
+    );
+  });
+
+  test('an explicit title still wins', async () => {
+    const { deps } = makeDeps();
+
+    await sendFeedback(
+      { ...BASE_FORM, channel: 'github', title: 'Rail button dead in top mode' },
+      deps
+    );
+
+    expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe('Rail button dead in top mode');
+  });
+
+  test('the mail subject follows the same rule', async () => {
+    const { deps } = makeDeps();
+
+    await sendFeedback({ ...BASE_FORM, channel: 'email', contextOn: true }, deps);
+
+    expect(param(deps.navigate.mock.calls[0][0], 'subject')).toBe(
+      `${DEFAULT_TITLE} (session 11111111)`
+    );
+  });
+
+  test('the session id rides in the body when context is attached', async () => {
+    const { deps } = makeDeps();
+
+    await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+
+    expect(param(deps.windowOpen.mock.calls[0][0], 'body')).toContain(
+      `**Session:** ${BASE_FORM.sessionId}`
+    );
+  });
+
+  test('the session line travels even with metadata unticked', async () => {
+    const { deps } = makeDeps();
+
+    await sendFeedback(
+      { ...BASE_FORM, channel: 'github', contextOn: true, metadataOn: false },
+      deps
+    );
+
+    const body = param(deps.windowOpen.mock.calls[0][0], 'body');
+    expect(body).toContain(`**Session:** ${BASE_FORM.sessionId}`);
+    expect(body).not.toContain('**version:**');
+  });
+
+  test('no session line when context is unticked', async () => {
+    const { deps } = makeDeps();
+
+    await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+
+    expect(param(deps.windowOpen.mock.calls[0][0], 'body')).not.toContain('**Session:**');
+  });
+});
+
+describe('outbound notices — the paste step is announced', () => {
+  test('a successful GitHub send with context points at the clipboard paste', async () => {
+    const { deps } = makeDeps();
+
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+
+    expect(result.notice.kind).toBe('success');
+    expect(result.notice.message).toBe(
+      `Recorded on this deployment (fb-1) — ${NOTICE_PASTE_GITHUB}`
+    );
+  });
+
+  test('a successful email send with context points at the clipboard paste', async () => {
+    const { deps } = makeDeps();
+
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'email', contextOn: true }, deps);
+
+    expect(result.notice.message).toBe(
+      `Recorded on this deployment (fb-1) — ${NOTICE_PASTE_EMAIL}`
+    );
+  });
+
+  test('a truncated body earns the paste hint even without context', async () => {
+    const { deps } = makeDeps();
+
+    const result = await sendFeedback(
+      { ...BASE_FORM, channel: 'email', text: 'y'.repeat(5000) },
+      deps
+    );
+
+    expect(result.notice.message).toBe(
+      `Recorded on this deployment (fb-1) — ${NOTICE_PASTE_EMAIL}`
+    );
+  });
+
+  test('an outbound send with nothing to paste keeps the plain confirmation', async () => {
+    const { deps } = makeDeps();
+
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+
+    expect(result.notice.message).toBe('Recorded on this deployment (fb-1)');
+  });
+
+  test('the local channel never carries a paste hint', async () => {
+    const { deps } = makeDeps();
+
+    const result = await sendFeedback({ ...BASE_FORM, contextOn: true }, deps);
+
+    expect(result.notice.message).toBe('Recorded on this deployment (fb-1)');
   });
 });
 

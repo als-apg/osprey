@@ -196,9 +196,13 @@ describe('utility cluster styling', () => {
     expect(body).toMatch(/border-radius:\s*0;/);
   });
 
-  test('gives both controls a glyph', () => {
-    expect(terminalCss).toMatch(/\.panel-utility-icon\[data-icon="docs"\]::before/);
-    expect(terminalCss).toMatch(/\.panel-utility-icon\[data-icon="feedback"\]::before/);
+  test('gives both controls a drawn SVG mark, not a font glyph', () => {
+    const cluster = qs(parseRailRegion(), '#panel-utility');
+
+    for (const id of ['#panel-docs-link', '#panel-feedback-btn']) {
+      const svg = qs(cluster, `${id} .panel-utility-icon svg[viewBox="0 0 16 16"]`);
+      expect(svg.getAttribute('stroke')).toBe('currentColor');
+    }
   });
 });
 

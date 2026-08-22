@@ -812,12 +812,14 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 .panel-utility-icon {
-  font-size: var(--text-xl);
-  line-height: var(--leading-none);
+  display: inline-flex;
 }
 
-.panel-utility-icon[data-icon="docs"]::before { content: "\24d8"; }     /* ⓘ documentation */
-.panel-utility-icon[data-icon="feedback"]::before { content: "\2709"; } /* ✉ feedback */
+.panel-utility-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
 
 /* The popover opens to the RIGHT of the rail (the "+" sits in a narrow left
    column), top-aligned to the button. */
