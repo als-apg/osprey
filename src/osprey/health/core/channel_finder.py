@@ -8,16 +8,25 @@ category stays a valid ``--category`` name at all times; when no
 ``channel_finder`` block is configured it simply contributes no rows (a silent
 skip), so a minimal build shows no tile at all.
 
-The category reads the pipeline's on-disk channel database directly, so it gives
-a useful reading whether or not any web surface is running. The active pipeline
-mode (``in_context``/``hierarchical``/``middle_layer``) selects which database
-file is consulted under ``channel_finder.pipelines.<mode>.database``.
+The category reads the pipeline's channel store directly, so it gives a useful
+reading whether or not any web surface is running. The active ``pipeline_mode``
+selects what is consulted: the file-backed paradigms name a database file under
+``channel_finder.pipelines.<mode>.database``, while ``graph`` answers from the
+deployment's graph store and so reads ``services.graphdb`` instead. The mode
+must name a real paradigm
+(:data:`~osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`); a mode nothing
+answers to raises :class:`~osprey.services.channel_finder.core.exceptions.PipelineModeError`
+rather than degrading to a row, because that is a defect in the configuration
+and not a store that happens to be down. The health runner isolates the failure
+to this category, so it surfaces as one error row naming the bad mode.
 
 When configured the category emits:
 
 * ``channel_finder_pipeline`` — the active ``pipeline_mode`` as ``value``
   (``ok``); ``warning`` when no mode is set, or when the named
-  ``pipelines.<mode>`` block is absent;
+  ``pipelines.<mode>`` block is absent. The ``graph`` paradigm is the exception
+  to that second rule: it stores nothing under ``pipelines.graph``, so the row
+  is derived from the mode alone and reads ``graph (store-backed)``;
 * ``channel_finder_database`` — the pipeline's ``database.path`` file exists and
   is non-empty (``ok``, file size as ``value``); ``error`` when a path is
   configured but the file is missing or empty (a broken build — the data bundle
@@ -31,19 +40,44 @@ When configured the category emits:
   cannot be opened, or when the ``duckdb`` package is unavailable (the check
   degrades, it never crashes the suite). In every other mode this row is simply
   absent.
+
+The ``graph`` paradigm emits neither the database rows nor the channel count —
+there is no file to stat and no DuckDB to open. In their place it restates the
+two readings the ``graphdb`` category takes, taken by that category's own
+builders so both tiles report one store the same way and a fix named in one
+place is named in both:
+
+* ``channel_finder_store`` — the store answered over bolt (``ok``, with the
+  round-trip latency); ``warning`` when it is unreachable, rejected the
+  credential, or is not described by a ``services.graphdb`` block at all;
+* ``channel_finder_resources`` — the number of ``(:Resource)`` nodes the corpus
+  imported (``value``); ``warning`` when that is zero or could not be read.
+
+Both are advisory: a stopped store is a service that is not running, not a
+broken build, so the graph paradigm produces no ``error`` row. The rows carry
+this category's names because they answer this category's question — whether
+channel search has anything to answer from — next to a ``graphdb`` tile that
+reports the same store as a service.
 """
 
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.health.core.graphdb import _CONNECTION_ROW as _GRAPHDB_CONNECTION_ROW
+from osprey.health.core.graphdb import _RESOURCES_ROW as _GRAPHDB_RESOURCES_ROW
+from osprey.health.core.graphdb import _graphdb_block
+from osprey.health.core.graphdb import graphdb as _graph_store_category
 from osprey.health.models import CheckResult, Status
+from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Awaitable, Callable, Mapping
 
     from osprey.health.core import CategoryCallable
     from osprey.health.runtime import HealthRuntime
@@ -51,6 +85,20 @@ if TYPE_CHECKING:
 CATEGORY = "channel_finder"
 
 _CHANNELS_TABLE = "channels"
+
+#: The paradigm whose channels live in the graph store rather than in a file.
+GRAPH_MODE = "graph"
+
+_STORE_ROW = "channel_finder_store"
+_RESOURCES_ROW = "channel_finder_resources"
+
+#: How the ``graphdb`` category's rows are renamed on their way into this one.
+#: The reading, its severity and its remedy are the graphdb builders' own — only
+#: the row id changes, so the two tiles never disagree about one store.
+_GRAPH_ROW_NAMES = {
+    _GRAPHDB_CONNECTION_ROW: _STORE_ROW,
+    _GRAPHDB_RESOURCES_ROW: _RESOURCES_ROW,
+}
 
 
 def channel_finder(
@@ -65,15 +113,20 @@ def channel_finder(
         config: Parsed config mapping (``None`` when config is unavailable). Read
             for the top-level ``channel_finder`` block (presence gate,
             ``pipeline_mode``, and ``pipelines.<mode>.database.path`` /
-            ``duckdb_path``).
-        context: Health runtime. Unused — the check reads database files on disk,
-            so no control-system connector is needed.
+            ``duckdb_path``), and — in ``graph`` mode — for ``services.graphdb``,
+            which describes the store that paradigm answers from.
+        context: Health runtime. Unused — the check reads the pipeline's store
+            directly, so no control-system connector is needed.
         cwd: Project root used to resolve relative database paths. Defaults to
             :func:`Path.cwd` (resolved when the callable runs); ``build_records``
             threads the project path here just as it does for ``file_system``.
 
     Returns:
         A no-argument async callable returning the category's check results.
+
+    Raises:
+        PipelineModeError: When the callable runs and ``pipeline_mode`` names
+            something that is not a channel-finder paradigm.
     """
     cfg: Mapping[str, Any] = config or {}
     base_dir = cwd
@@ -84,12 +137,23 @@ def channel_finder(
             return []
 
         mode = cf.get("pipeline_mode")
+        if mode and mode not in VALID_CHANNEL_FINDER_MODES:
+            raise PipelineModeError(
+                f"Unknown channel_finder.pipeline_mode {mode!r} "
+                f"(valid modes: {', '.join(VALID_CHANNEL_FINDER_MODES)})"
+            )
         pipelines = cf.get("pipelines", {}) or {}
         mode_block = pipelines.get(mode) if isinstance(mode, str) and mode else None
         if not isinstance(mode_block, dict):
             mode_block = None
 
         rows = [_pipeline_row(mode, mode_block)]
+
+        # The graph paradigm has no database file to stat: its channels live in
+        # the store, so the store's own readings are what this category reports.
+        if mode == GRAPH_MODE:
+            rows.extend(await _graph_store_rows(cfg))
+            return rows
 
         db_conf = (mode_block or {}).get("database", {}) or {}
         db_path = _resolve(db_conf.get("path"), base_dir)
@@ -121,13 +185,27 @@ def _resolve(raw_path: Any, base_dir: Path | None) -> Path | None:
 
 
 def _pipeline_row(mode: Any, mode_block: dict[str, Any] | None) -> CheckResult:
-    """Report the active pipeline mode; ``warning`` when unset or unbacked."""
+    """Report the active pipeline mode; ``warning`` when unset or unbacked.
+
+    The ``graph`` paradigm is read from the mode alone. A ``pipelines.graph``
+    block would have nothing to hold — the store is described by
+    ``services.graphdb`` — so a graph build correctly ships without one, and
+    treating its absence as a gap would make every such build warn.
+    """
     if not mode:
         return CheckResult(
             "channel_finder_pipeline",
             CATEGORY,
             Status.WARNING,
             "No pipeline_mode configured",
+        )
+    if mode == GRAPH_MODE:
+        return CheckResult(
+            "channel_finder_pipeline",
+            CATEGORY,
+            Status.OK,
+            "Active channel-finder pipeline",
+            value=f"{GRAPH_MODE} (store-backed)",
         )
     if mode_block is None:
         return CheckResult(
@@ -144,6 +222,45 @@ def _pipeline_row(mode: Any, mode_block: dict[str, Any] | None) -> CheckResult:
         "Active channel-finder pipeline",
         value=str(mode),
     )
+
+
+async def _graph_store_rows(cfg: Mapping[str, Any]) -> list[CheckResult]:
+    """Restate the graph store's readings as this category's rows.
+
+    The readings come from the ``graphdb`` category rather than from a second
+    probe written here: one store, one way of dialing it, one set of remedies.
+    Only the row ids change, so an operator comparing the two tiles sees the
+    same verdict twice rather than two checks that can drift apart.
+
+    Args:
+        cfg: The parsed config mapping — read for ``services.graphdb``, which is
+            where a graph-mode project describes the store it answers from.
+
+    Returns:
+        The store's reachability row, plus the resource-count row when the store
+        answered; or a single ``warning`` row when no store is configured at
+        all. Never an ``error``: a store that is down is a service that is not
+        running.
+    """
+    if _graphdb_block(cfg) is None:
+        return [
+            CheckResult(
+                _STORE_ROW,
+                CATEGORY,
+                Status.WARNING,
+                "The graph pipeline has no graph store to answer from",
+                details=(
+                    "Add a services.graphdb block to config.yml — the graph paradigm "
+                    "reads its channels from that store."
+                ),
+            )
+        ]
+
+    probe = cast("Callable[[], Awaitable[list[CheckResult]]]", _graph_store_category(cfg))
+    return [
+        replace(row, name=_GRAPH_ROW_NAMES.get(row.name, row.name), category=CATEGORY)
+        for row in await probe()
+    ]
 
 
 def _database_row(db_path: Path | None) -> CheckResult:
