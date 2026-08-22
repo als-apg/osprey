@@ -566,6 +566,9 @@ way.</p>
 <p><strong>Session context</strong> — the checkbox is <strong>off</strong> by default, and is greyed out with
 “no session yet” when there is no live session to attach. It adds:</p>
 <ul class="simple">
+<li><p>the session’s id — on the GitHub and Email channels this one also appears
+inline in the prefilled body, so the message can be matched to the
+deployment’s own record even if the paste step below is missed,</p></li>
 <li><p>the session’s tool-call and agent event log,</p></li>
 <li><p>its chat history,</p></li>
 <li><p>the terminal scrollback,</p></li>
@@ -599,9 +602,14 @@ puts the same trimmed context on the clipboard without sending anything and
 without writing a record. It is enabled only when the session-context checkbox
 is ticked and a session exists; otherwise it stays visible but greyed, so it
 never looks like a control that disappeared.</p>
-<p>Use it when the prefilled issue or draft is too small to carry the context
-inline: the prefilled body already contains a <code class="docutils literal notranslate"><span class="pre">paste</span> <span class="pre">the</span> <span class="pre">copied</span> <span class="pre">session</span> <span class="pre">context</span>
-<span class="pre">here</span></code> placeholder to drop it into.</p>
+<p>The context never travels inside the prefilled issue or draft itself — a
+<code class="docutils literal notranslate"><span class="pre">mailto:</span></code> URL in particular is far too small to carry it. Sending on an
+outbound channel already copies the whole report to the clipboard, the
+prefilled body contains a <code class="docutils literal notranslate"><span class="pre">paste</span> <span class="pre">the</span> <span class="pre">copied</span> <span class="pre">session</span> <span class="pre">context</span> <span class="pre">here</span></code>
+placeholder to drop it into, and the dialog says so twice: beside the ticked
+checkbox before sending, and in the confirmation afterwards. Reach for this
+button when the clipboard has since been overwritten and the paste still has
+to happen.</p>
 </section>
 <section id="read-the-feedback-a-deployment-collected">
 <span id="feedback-retrieval"></span><h2>Read the feedback a deployment collected<a class="headerlink" href="#read-the-feedback-a-deployment-collected" title="Link to this heading">#</a></h2>
