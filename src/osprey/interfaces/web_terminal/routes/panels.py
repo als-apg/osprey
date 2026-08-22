@@ -17,8 +17,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
+from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
-from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,31 @@ async def health(request: Request):
         "session_id": session_id,
         "version": __version__,
     }
+
+
+@router.get("/api/session")
+async def session_probe():
+    """Authenticated liveness probe for the operator's session.
+
+    A tiny credentialed endpoint the frontend polls after a channel drops, so it
+    can tell an expired session apart from a flaky network. It is deliberately
+    **not** in the middleware exempt set: the auth gate runs ahead of this
+    handler, so a request carrying a live operator credential (the operator
+    secret header or a valid session cookie) reaches here and gets a 200, while
+    an absent or expired credential is refused with 401 by the gate itself and
+    never reaches this body.
+
+    That app-level 401 is the whole point. Single-user deployments have no nginx
+    perimeter in front of the app, so ``/health`` — which is exempt so the
+    container healthcheck can curl it credential-less — always answers 200 and
+    can never signal an expired session. This route can, because it sits behind
+    the same auth gate every other API route does.
+
+    Returns:
+        ``{"status": "ok"}`` with a 200. The body carries no session detail; the
+        status code (200 here, or 401 from the gate) is the entire signal.
+    """
+    return {"status": "ok"}
 
 
 @router.get("/api/artifact-server")

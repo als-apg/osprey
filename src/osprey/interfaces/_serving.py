@@ -17,7 +17,7 @@ import socket
 import threading
 import time
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import uvicorn
 
@@ -125,3 +125,65 @@ def run_app_server(app: FastAPI) -> Iterator[str]:
         yield f"http://127.0.0.1:{port}"
     finally:
         _shutdown()
+
+
+def authorize_browser_context(context: Any, *, host: str = "127.0.0.1") -> str:
+    """Give a Playwright browser context a valid operator session cookie.
+
+    Every OSPREY interface app is gated by
+    :class:`osprey.interfaces.common_middleware.WebAuthMiddleware`, so a browser
+    that has not exchanged a login token is refused with ``401`` on its very
+    first navigation and never renders. Both real-browser callers — the
+    Playwright suites under ``tests/interfaces/`` and the docs screenshot runner
+    (``docs/screenshots/capture.py``) — drive an app this same process serves via
+    :func:`run_app_server`, so they can be authorized directly: this mints a
+    fresh browser session in *this process's* credential holder
+    (:func:`osprey.interfaces.web_auth.get_web_credentials`) and installs it as
+    the session cookie the gate reads, without going through the ``?token=``
+    login exchange.
+
+    The cookie is **host-scoped, not port-scoped**. Cookies ignore ports, and
+    :func:`run_app_server` binds a fresh random port on every call, so a cookie
+    pinned to one ``http://127.0.0.1:<port>`` origin would fail against the next
+    server. Setting it for the bare host ``127.0.0.1`` (no port) means every
+    ``run_app_server`` port on that host receives it. The cookie *name* comes
+    from :func:`osprey.interfaces.common_middleware.session_cookie_name`, derived
+    exactly as the gate derives the name it looks for, so the two always agree —
+    including the port-suffixed spelling when ``OSPREY_WEB_PORT`` is set.
+
+    This authorizes only servers running in *this* process, whose in-memory
+    credential holder the session is minted in. A server in a *separate* process
+    — a detached ``osprey web`` — issues its own sessions from its own holder and
+    will not recognise this cookie; a browser reaching such a server authorizes
+    through the ``?token=`` login URL instead.
+
+    Args:
+        context: A Playwright ``BrowserContext`` (the sync API). Only its
+            ``add_cookies`` method is used, so any object exposing that method
+            works — including a ``Page.context``.
+        host: The loopback host the servers bind, used verbatim as the cookie's
+            domain. Defaults to ``127.0.0.1`` to match :func:`run_app_server`.
+
+    Returns:
+        The session id that was installed, for a caller that wants to assert on
+        it or revoke it.
+    """
+    # Imported lazily so this module keeps depending only on the standard
+    # library plus uvicorn/fastapi at import time; the auth modules are always
+    # importable, but the deferral keeps the serving helpers' import surface
+    # narrow and matches how the rest of this module stays test-package-free.
+    from osprey.interfaces.common_middleware import session_cookie_name
+    from osprey.interfaces.web_auth import get_web_credentials
+
+    session_id = get_web_credentials().create_session()
+    context.add_cookies(
+        [
+            {
+                "name": session_cookie_name(),
+                "value": session_id,
+                "domain": host,
+                "path": "/",
+            }
+        ]
+    )
+    return session_id

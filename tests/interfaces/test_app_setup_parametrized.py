@@ -1,15 +1,20 @@
 """Parametrized cross-interface assertions for the shared app-setup block.
 
-Every one of the six OSPREY interface ``create_app()`` factories now delegates
-its CORS + middleware + static-mount wiring to
-:func:`osprey.interfaces._app_setup.configure_interface_app`.  This module builds
-each real app and asserts the shared invariants hold uniformly:
+Every OSPREY app that delegates its middleware + static-mount wiring to
+:func:`osprey.interfaces._app_setup.configure_interface_app` is built here —
+all nine: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
+``lattice_dashboard``, ``health``, ``okf_panel``, ``bluesky_web`` (which
+assembles its app at module scope rather than via a ``create_app()`` factory)
+and ``theme_lab`` (whose factory lives in ``osprey.cli.theme_lab_cmd``, not
+under ``osprey/interfaces/``). This module builds each real app and asserts the
+shared invariants hold uniformly:
 
 1. The three static mounts (``/static/fonts``, ``/design-system``, ``/static``)
    are all present.
 2. Both :class:`NoCacheStaticMiddleware` and :class:`ExceptionLoggingMiddleware`
    are registered.
-3. The CORS middleware does **not** enable ``allow_credentials``.
+3. :class:`WebAuthMiddleware` is registered (the auth gate).
+4. ``CORSMiddleware`` is **absent** — nothing here is cross-origin.
 
 Each factory has a slightly different signature, so a small per-interface builder
 mirrors exactly how that interface's own tests construct the app (see e.g.
@@ -19,6 +24,7 @@ mirrors exactly how that interface's own tests construct the app (see e.g.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -29,6 +35,7 @@ from starlette.routing import Mount
 from osprey.interfaces.common_middleware import (
     ExceptionLoggingMiddleware,
     NoCacheStaticMiddleware,
+    WebAuthMiddleware,
 )
 
 # ── Per-interface builders ────────────────────────────────────────────────
@@ -75,20 +82,70 @@ def _build_lattice_dashboard(tmp_path: Path) -> FastAPI:
     return create_app(workspace_root=tmp_path)
 
 
+def _build_health(tmp_path: Path) -> FastAPI:
+    from osprey.interfaces.health.app import create_app
+
+    # config_path=None is guaranteed-constructible (guarded fallback).
+    return create_app()
+
+
+def _build_okf_panel(tmp_path: Path) -> FastAPI:
+    from osprey.interfaces.okf_panel.app import create_app
+
+    # bundle_path=None → guarded app; the app is still fully assembled.
+    return create_app()
+
+
+def _build_theme_lab(tmp_path: Path) -> FastAPI:
+    # The Theme Lab's factory lives in the CLI module, not under
+    # osprey/interfaces/ — it serves the packaged design system and nothing
+    # project-specific, so it needs no arguments.
+    from osprey.cli.theme_lab_cmd import create_app
+
+    return create_app()
+
+
+def _build_bluesky_web(tmp_path: Path) -> FastAPI:
+    # bluesky_web assembles its app at MODULE scope, not via a create_app()
+    # factory, so importing the module runs configure_interface_app — and thus
+    # get_web_credentials — at import time. Seed an operator secret first so
+    # that import cannot hit the container-shape RuntimeError (a declared bind
+    # host with no supplied secret); populated at most once per process.
+    os.environ.setdefault("OSPREY_TERMINAL_SECRET", "test-bluesky-web-secret")
+    from osprey.interfaces.bluesky_web.app import app
+
+    return app
+
+
 INTERFACE_BUILDERS = [
     ("web_terminal", _build_web_terminal),
     ("artifacts", _build_artifacts),
     ("ariel", _build_ariel),
     ("channel_finder", _build_channel_finder),
     ("lattice_dashboard", _build_lattice_dashboard),
+    ("health", _build_health),
+    ("okf_panel", _build_okf_panel),
+    ("bluesky_web", _build_bluesky_web),
+    ("theme_lab", _build_theme_lab),
 ]
+
+
+#: Interfaces that ship no own ``static`` directory, so configure_interface_app's
+#: ``.exists()``-guarded ``/static`` catch-all is (correctly) not mounted. The
+#: two shared mounts (``/static/fonts``, ``/design-system``) are still present.
+#: bluesky_web serves its panel bundle at ``/bluesky`` instead. (theme_lab is
+#: not here: it passes the design-system directory as its own ``static_dir``,
+#: so it does mount ``/static``.)
+_INTERFACES_WITHOUT_OWN_STATIC = {"bluesky_web"}
 
 
 @pytest.fixture(params=INTERFACE_BUILDERS, ids=[name for name, _ in INTERFACE_BUILDERS])
 def interface_app(request, tmp_path) -> FastAPI:
     """Build one interface app per parametrization case."""
-    _name, builder = request.param
-    return builder(tmp_path)
+    name, builder = request.param
+    app = builder(tmp_path)
+    app.state.interface_name = name
+    return app
 
 
 # ── Shared invariants ─────────────────────────────────────────────────────
@@ -98,10 +155,19 @@ def _mount_paths(app: FastAPI) -> set[str]:
     return {route.path for route in app.routes if isinstance(route, Mount)}
 
 
-def test_all_three_static_mounts_present(interface_app: FastAPI) -> None:
+def test_static_mounts_present(interface_app: FastAPI) -> None:
     paths = _mount_paths(interface_app)
-    for expected in ("/static/fonts", "/design-system", "/static"):
+    # The two shared-asset mounts are installed on every interface by
+    # configure_interface_app, from the helper's own package location.
+    for expected in ("/static/fonts", "/design-system"):
         assert expected in paths, f"missing mount {expected}; got {sorted(paths)}"
+    # The /static catch-all is .exists()-guarded on the interface's own static
+    # dir, so it is present for every interface that ships one and absent for
+    # those that do not (see _INTERFACES_WITHOUT_OWN_STATIC).
+    if interface_app.state.interface_name in _INTERFACES_WITHOUT_OWN_STATIC:
+        assert "/static" not in paths, f"unexpected /static mount; got {sorted(paths)}"
+    else:
+        assert "/static" in paths, f"missing mount /static; got {sorted(paths)}"
 
 
 def test_both_middlewares_present(interface_app: FastAPI) -> None:
@@ -110,13 +176,79 @@ def test_both_middlewares_present(interface_app: FastAPI) -> None:
     assert ExceptionLoggingMiddleware in classes
 
 
-def test_cors_allow_credentials_not_enabled(interface_app: FastAPI) -> None:
-    cors = next(
-        (mw for mw in interface_app.user_middleware if mw.cls is CORSMiddleware),
-        None,
+def test_web_auth_middleware_present(interface_app: FastAPI) -> None:
+    classes = {mw.cls for mw in interface_app.user_middleware}
+    assert WebAuthMiddleware in classes, "WebAuthMiddleware (the auth gate) not registered"
+
+
+def test_web_auth_middleware_is_outermost(interface_app: FastAPI) -> None:
+    # Added last => outermost => runs first: the gate authenticates before any
+    # other middleware or route. Starlette lists user_middleware outermost-first.
+    assert interface_app.user_middleware[0].cls is WebAuthMiddleware
+
+
+def test_cors_middleware_absent(interface_app: FastAPI) -> None:
+    classes = {mw.cls for mw in interface_app.user_middleware}
+    assert CORSMiddleware not in classes, "CORSMiddleware should have been removed"
+
+
+#: Files that mention ``configure_interface_app(`` without being a caller: the
+#: helper's own definition site.
+_NOT_A_CALLER = {"_app_setup.py"}
+
+
+def _caller_name(path: Path) -> str:
+    """The parametrization id for one file that calls ``configure_interface_app``.
+
+    ``src/osprey/interfaces/<name>/app.py`` is named for its interface package;
+    anything else — the Theme Lab's factory in ``osprey/cli/theme_lab_cmd.py`` —
+    is named for its module, with the CLI module suffix dropped, so the id reads
+    the same as an interface's.
+    """
+    if path.name == "app.py" and path.parent.parent.name == "interfaces":
+        return path.parent.name
+    return path.stem.removesuffix("_cmd")
+
+
+def _configure_interface_app_callers() -> set[str]:
+    """Every app in ``src/osprey`` that calls ``configure_interface_app``.
+
+    Discovered by walking the **whole** source tree rather than
+    ``interfaces/*/app.py``: the Theme Lab builds a gated app from
+    ``osprey/cli/theme_lab_cmd.py``, and a glob scoped to the interfaces package
+    could not see it — which is exactly the kind of blind spot this guard exists
+    to prevent, since an app the guard cannot see is an app whose auth gate goes
+    unasserted.
+    """
+    source_root = Path(__file__).resolve().parents[2] / "src" / "osprey"
+    callers: set[str] = set()
+    for module in source_root.rglob("*.py"):
+        if module.name in _NOT_A_CALLER:
+            continue
+        text = module.read_text(encoding="utf-8")
+        # Skip a mention that is only a comment or a docstring reference.
+        if any(
+            "configure_interface_app(" in line and not line.lstrip().startswith("#")
+            for line in text.splitlines()
+        ):
+            callers.add(_caller_name(module))
+    return callers
+
+
+def test_builders_cover_every_configure_interface_app_caller() -> None:
+    # The WebAuthMiddleware-present/outermost/CORS-absent guards above are only
+    # as complete as INTERFACE_BUILDERS. If a new interface starts calling
+    # configure_interface_app without being added here, its auth gate would go
+    # unguarded — so assert the two sets agree exactly.
+    built = {name for name, _ in INTERFACE_BUILDERS}
+    callers = _configure_interface_app_callers()
+    assert "theme_lab" in callers, (
+        "discovery no longer sees the Theme Lab's create_app in "
+        "src/osprey/cli/theme_lab_cmd.py — the guard has narrowed back to "
+        "interfaces/*/app.py and would miss any gated app built elsewhere"
     )
-    assert cors is not None, "CORSMiddleware not registered"
-    # CORSMiddleware stores its constructor kwargs on the Middleware entry.
-    # allow_credentials must be left at Starlette's default (False): either
-    # absent, or present-but-falsy.
-    assert not cors.kwargs.get("allow_credentials", False)
+    assert built == callers, (
+        f"INTERFACE_BUILDERS out of sync with configure_interface_app callers.\n"
+        f"  missing builders for: {sorted(callers - built)}\n"
+        f"  builders with no caller: {sorted(built - callers)}"
+    )
