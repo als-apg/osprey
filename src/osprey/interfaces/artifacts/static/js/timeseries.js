@@ -14,8 +14,12 @@
  * `renderTimeseriesView` is local to a single render call, not shared state
  * across calls. So this module is plain exports, no `createXRenderer(...)`.
  *
- * The lazy `<script src="/static/js/vendor/plotly-3.3.1.min.js">` injection
- * must keep that exact offline-vendored path — do not change it.
+ * The lazy `<script>` injection takes its src from index.html's
+ * `osprey-vendor-plotly` meta tag, where the server's `vendor_url()` template
+ * global resolves it — the CDN URL by default, the offline-vendored copy
+ * under OSPREY_OFFLINE=1 (the vendored path is never populated in online
+ * images, so hardcoding it here 404s every CDN-mode deployment). The
+ * vendored spelling stays as the no-meta fallback.
  *
  * HTML-escaping uses the design-system's canonical `escapeHtml` (quote-safe,
  * nullish-collapsing) — see dom.js. This module used to carry its own
@@ -50,7 +54,11 @@ function ensurePlotlyLoaded() {
   if (_plotlyLoading) return _plotlyLoading;
   _plotlyLoading = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "/static/js/vendor/plotly-3.3.1.min.js";
+    // Resolved server-side by vendor_url() and handed over via index.html's
+    // meta tag (see the module docstring). The vendored path is the fallback
+    // for any page without the meta, preserving prior offline behavior.
+    const meta = document.querySelector('meta[name="osprey-vendor-plotly"]');
+    script.src = (meta && meta.getAttribute("content")) || "/static/js/vendor/plotly-3.3.1.min.js";
     script.onload = () => { _plotlyLoaded = true; resolve(); };
     script.onerror = () => {
       _plotlyLoading = null;
