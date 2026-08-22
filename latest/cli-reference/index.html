@@ -1068,10 +1068,23 @@ Safe to run on every build; on a fresh database, runs a full ingest.</p>
 </dl>
 <p><code class="docutils literal notranslate"><span class="pre">watch</span> <span class="pre">[--source]</span> <span class="pre">[--once]</span> <span class="pre">[--interval</span> <span class="pre">N]</span> <span class="pre">[--dry-run]</span></code> – Poll for new entries.</p>
 <p><code class="docutils literal notranslate"><span class="pre">enhance</span> <span class="pre">[--module</span> <span class="pre">NAME]</span> <span class="pre">[--force]</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Run enhancement modules.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">qmd-resync</span> <span class="pre">[--rebuild]</span></code></dt><dd><p>Re-export entries the qmd markdown mirror never saw — entries created in
+the web interface, attachment uploads, and entries written through the
+logbook write service. <code class="docutils literal notranslate"><span class="pre">--rebuild</span></code> wipes the mirror and re-exports
+everything, which is what to run after <code class="docutils literal notranslate"><span class="pre">purge</span></code>.
+<code class="docutils literal notranslate"><span class="pre">ingest</span></code> and <code class="docutils literal notranslate"><span class="pre">watch</span></code> already do this pass on their own.</p>
+</dd>
+</dl>
 <p><code class="docutils literal notranslate"><span class="pre">models</span></code> – List embedding models and tables.</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">QUERY</span> <span class="pre">[--mode</span> <span class="pre">keyword|semantic|hybrid]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--json]</span></code></dt><dd><p>Execute a search query. Without <code class="docutils literal notranslate"><span class="pre">--mode</span></code>, the deployment’s
 <code class="docutils literal notranslate"><span class="pre">ariel.default_search_mode</span></code> decides.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">vocab-check</span> <span class="pre">[PATH]</span> <span class="pre">[--json]</span></code></dt><dd><p>Validate a facility vocabulary file — the shorthand-to-prose mapping that
+query expansion uses. Checks <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, or the file named by
+<code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code> when no path is given. Needs no database. Exits 1
+and lists every error when the file is broken; warnings never fail it.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span></code></dt><dd><p>Re-embed entries with a different model.</p>
 </dd>
@@ -1080,6 +1093,7 @@ Safe to run on every build; on a fresh database, runs a full ingest.</p>
 <p><code class="docutils literal notranslate"><span class="pre">purge</span> <span class="pre">[--yes]</span> <span class="pre">[--embeddings-only]</span></code> – Delete all ARIEL data.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/ariel/vocabulary.yml
 osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span>
 </pre></div>
 </div>
