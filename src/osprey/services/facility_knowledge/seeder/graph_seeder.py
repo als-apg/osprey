@@ -53,11 +53,14 @@ if TYPE_CHECKING:
 #: * ``handleVocabUris='MAP'`` — property names are stored as-is with the
 #:   namespaces kept on a separate ``_NsPrefDef`` node, so Cypher sees
 #:   ``narad_p:sPositionM`` rather than a mangled URI.
-#: * ``handleMultival='OVERWRITE'`` — single-valued properties stay scalar
-#:   (``.sectionCode = 'GTL'``, not ``['GTL']``).  Trade-off: where a node
-#:   genuinely carries several values for one property (today only a handful of
-#:   ``skos:altLabel`` on SemanticSignal), the last one wins; the original RDF
-#:   remains recoverable through ``.uri``.
+#: * ``handleMultival='ARRAY'`` restricted by ``multivalPropList`` to
+#:   ``skos:altLabel`` — the one predicate in the NARAD vocabulary that
+#:   genuinely repeats, since an ontology class carries a handful of synonyms
+#:   ("bend", "bending magnet", "dipole").  Those land as a Cypher list the
+#:   synonym lookups can search element by element.  The prop list is what keeps
+#:   the rest of the graph scalar (``.sectionCode = 'GTL'``, not ``['GTL']``):
+#:   ARRAY on its own would wrap *every* property in a list and rewrite every
+#:   query.
 #: * ``keepLangTag=False`` — the ALS data carries no language tags.
 #: * ``handleRDFTypes='LABELS_AND_NODES'`` — every ``rdf:type`` becomes both a
 #:   ``:Resource`` label and a typed node, which is what the class-hierarchy
@@ -65,7 +68,8 @@ if TYPE_CHECKING:
 #: * ``applyNeo4jNaming=True`` — neo4j naming conventions for the mapped names.
 N10S_GRAPH_CONFIG: dict[str, Any] = {
     "handleVocabUris": "MAP",
-    "handleMultival": "OVERWRITE",
+    "handleMultival": "ARRAY",
+    "multivalPropList": ["http://www.w3.org/2004/02/skos/core#altLabel"],
     "keepLangTag": False,
     "handleRDFTypes": "LABELS_AND_NODES",
     "applyNeo4jNaming": True,
@@ -279,10 +283,20 @@ def _normalize(value: Any) -> str:
     builds stringify everything; normalizing both sides through the same funnel
     keeps ``keepLangTag=False`` from reading as drift against a returned
     ``"false"``.
+
+    The same split runs on multi-valued parameters: ``multivalPropList`` comes
+    back as a list from some builds and as a comma-joined string from others,
+    in no guaranteed order.  Both shapes are funnelled to one sorted,
+    comma-joined string, so the diff only reports a genuinely different set of
+    properties.
     """
     if isinstance(value, bool):
         return "true" if value else "false"
-    return str(value).strip()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        parts = [_normalize(item) for item in value]
+    else:
+        parts = str(value).split(",")
+    return ",".join(sorted(part.strip() for part in parts))
 
 
 def _live_graph_config(session: Session) -> dict[str, Any]:

@@ -17,6 +17,7 @@ neo4j usage must be guarded by a lazy import inside the command body.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
@@ -531,6 +532,12 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
 CHANNEL_DB_CONFIG_KEY = "channel_finder.pipelines.hierarchical.database.path"
 """Config key naming the hierarchical channel database ``build-ttl`` reads."""
 
+PIPELINE_MODE_CONFIG_KEY = "channel_finder.pipeline_mode"
+"""Config key naming the channel-finder paradigm the project runs."""
+
+DESCRIPTIONS_FILENAME = "in_context.json"
+"""What the in-context database is called where the two sit side by side."""
+
 
 def _paradigm_databases(directory: Path) -> str:
     """Say which channel databases *directory* actually holds.
@@ -580,6 +587,18 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
     from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
     from osprey.utils.config import get_config_value
 
+    if get_config_value(PIPELINE_MODE_CONFIG_KEY, None) == "graph":
+        # A graph project has no hierarchical database path configured at all,
+        # so without this arm the run dies on the unset key below — which reads
+        # as a broken project rather than as the posture it is.
+        raise click.UsageError(
+            "This project runs the graph channel-finder paradigm, which ships no "
+            "channel database: the seeded graph store is the database.\n"
+            "build-ttl derives a corpus from database files, so name them both: "
+            "--channel-db PATH for a hierarchical database and --descriptions PATH "
+            "for the in-context database of the same machine."
+        )
+
     raw = get_config_value(CHANNEL_DB_CONFIG_KEY, None)
     if not isinstance(raw, str) or not raw:
         raise click.UsageError(
@@ -601,14 +620,21 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
     return path
 
 
-def _load_channel_map(db_path: Path) -> Mapping[str, Any]:
-    """Expand *db_path* into its flat address map.
+def _load_channel_map(db_path: Path) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Expand *db_path* into its flat address map, keeping the file's own blocks.
+
+    Expansion throws the tree away — the channel map holds addresses and
+    nothing else — but the tree is where the per-level prose lives, so the raw
+    payload is handed back beside the map rather than re-read later.  The
+    database class's own value dict is untouched: the prose is read from the
+    file's ``tree`` block, not from the expanded entries.
 
     Args:
         db_path: A hierarchical channel database.
 
     Returns:
-        The expanded map, keyed by colon-grammar address.
+        Tuple of (the expanded map keyed by colon-grammar address, the raw
+        database payload — its ``tree`` and ``hierarchy`` blocks).
 
     Raises:
         click.ClickException: When the file cannot be read or expanded.
@@ -616,12 +642,121 @@ def _load_channel_map(db_path: Path) -> Mapping[str, Any]:
     from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 
     try:
-        return HierarchicalChannelDatabase(str(db_path)).channel_map
+        raw = json.loads(db_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, Mapping):
+            raise ValueError("the file is not a JSON object")
+        return HierarchicalChannelDatabase(str(db_path)).channel_map, raw
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise click.ClickException(
             f"Cannot read the channel database at {db_path}: {exc}\n"
             "build-ttl expects a hierarchical database: a 'hierarchy' block naming the "
             "levels, and a 'tree' block holding them."
+        ) from exc
+
+
+def _resolve_descriptions(descriptions: Path | None, db_path: Path) -> Path:
+    """Return *descriptions*, or the in-context database beside *db_path*.
+
+    The fallback is a convenience for the OSPREY source tree, where the two
+    databases of one machine sit together under ``tiers/tier3/``.  A rendered
+    project materializes only the paradigm it runs and prunes the rest, so
+    there is nothing to default to there and both files have to be named.
+
+    Args:
+        descriptions: The ``--descriptions`` value, or ``None``.
+        db_path: The hierarchical database already resolved.
+
+    Returns:
+        The in-context database to read the per-channel prose from.
+
+    Raises:
+        click.UsageError: When nothing was given and *db_path* has no
+            in-context neighbour.
+    """
+    if descriptions is not None:
+        return descriptions
+
+    sibling = db_path.parent / DESCRIPTIONS_FILENAME
+    if sibling.is_file():
+        return sibling
+
+    raise click.UsageError(
+        f"No descriptions database given and there is no {DESCRIPTIONS_FILENAME} "
+        f"beside {db_path}.\n"
+        "That neighbour is how the OSPREY source tree keeps the two databases of one "
+        "machine; a rendered project ships only the paradigm it runs, so name both "
+        "files there: --channel-db PATH --descriptions PATH."
+    )
+
+
+def _load_binding_descriptions(descriptions_path: Path) -> Mapping[str, str]:
+    """Read the per-channel prose out of an in-context database.
+
+    Args:
+        descriptions_path: An in-context database: a ``channels`` list whose
+            entries carry an ``address`` and a ``description``.
+
+    Returns:
+        The prose keyed by full six-token address.  An entry with no address or
+        no text contributes no key, so the join stays exact.
+
+    Raises:
+        click.ClickException: When the file cannot be read or is not one.
+    """
+    try:
+        payload = json.loads(descriptions_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(
+            f"Cannot read the descriptions database at {descriptions_path}: {exc}"
+        ) from exc
+
+    channels = payload.get("channels") if isinstance(payload, Mapping) else None
+    if not isinstance(channels, list):
+        raise click.ClickException(
+            f"The descriptions database at {descriptions_path} has no 'channels' list.\n"
+            "build-ttl expects an in-context database: {'channels': [{'address': ..., "
+            "'description': ...}]}."
+        )
+
+    prose: dict[str, str] = {}
+    for entry in channels:
+        if not isinstance(entry, Mapping):
+            continue
+        address = entry.get("address")
+        text = entry.get("description")
+        if isinstance(address, str) and isinstance(text, str) and text.strip():
+            prose[address] = text.strip()
+    return prose
+
+
+def _resolve_hierarchy_descriptions(raw: Mapping[str, Any], db_path: Path) -> Any:
+    """Read the per-level prose out of a raw hierarchical database payload.
+
+    Args:
+        raw: The database payload, as returned by :func:`_load_channel_map`.
+        db_path: Where it came from, for the error message.
+
+    Returns:
+        The ``HierarchyDescriptions`` for the file's tree.
+
+    Raises:
+        click.ClickException: When the file's levels are not the six-token
+            grammar this verb reads.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.model import (
+        resolve_hierarchy_descriptions,
+    )
+
+    hierarchy = raw.get("hierarchy") if isinstance(raw.get("hierarchy"), Mapping) else {}
+    levels = hierarchy.get("levels") or []
+    tree = raw.get("tree") if isinstance(raw.get("tree"), Mapping) else {}
+    try:
+        return resolve_hierarchy_descriptions(tree, levels)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise click.ClickException(
+            f"Cannot read the level prose in {db_path}: {exc}\n"
+            "build-ttl reads the six-token grammar: RING, SYSTEM, FAMILY, DEVICE, "
+            "FIELD, SUBFIELD."
         ) from exc
 
 
@@ -702,6 +837,13 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
     help="Hierarchical channel database to read. Defaults to the one the project's config names.",
 )
 @click.option(
+    "--descriptions",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="In-context database whose per-channel prose the corpus carries. "
+    "Defaults to the in_context.json beside --channel-db.",
+)
+@click.option(
     # Deliberately not exists=True: when the file is absent this verb says what
     # the fallback would have been, which click's own "does not exist" cannot.
     "--limits",
@@ -716,17 +858,23 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
     help="FAMILY-to-class table. Defaults to the demo-machine table shipped with OSPREY.",
 )
 def build_ttl(
-    output: Path, channel_db: Path | None, limits: Path | None, ontology: Path | None
+    output: Path,
+    channel_db: Path | None,
+    descriptions: Path | None,
+    limits: Path | None,
+    ontology: Path | None,
 ) -> None:
     """Derive a NARAD-convention TTL corpus from the channel database.
 
     OUTPUT is the Turtle file to write. Missing parent directories are
     created, and an existing file is overwritten.
 
-    The corpus describes the machine the channel database already describes:
+    The corpus describes the machine the channel databases already describe:
     one device node per device, one channel binding per address, one class per
-    device family, and a read or write direction on every signal. It is what
-    'osprey knowledge seed-graph' loads into the deployed graph store, and
+    device family, a read or write direction on every signal, and the prose
+    from both databases carried onto the nodes it describes — which is what
+    lets the graph be searched by meaning rather than by address alone. It is
+    what 'osprey knowledge seed-graph' loads into the deployed graph store, and
     what the OSPREY agent searches once it is in there.
 
     Where each input comes from when you do not name it:
@@ -736,6 +884,13 @@ def build_ttl(
                     the OSPREY config, resolved against the config file's own
                     directory. In a rendered project that is
                     data/channel_databases/hierarchical.json.
+      --descriptions
+                    The in_context.json sitting beside the file --channel-db
+                    named. That neighbour is how the OSPREY source tree keeps
+                    the two databases of one machine, under tiers/tier3/. A
+                    rendered project ships only the paradigm it runs, so name
+                    both files yourself there — and a graph-mode project ships
+                    neither, because its store is the database.
       --limits      control_system.limits_checking.database_path from the
                     config. This file is what tells a readback from a
                     setpoint, so the corpus and the write-safety layer agree
@@ -761,10 +916,17 @@ def build_ttl(
     from osprey.services.facility_knowledge.ttl_generator.ontology_map import UnknownFamilyError
 
     db_path = _resolve_channel_db(channel_db)
-    channel_map = _load_channel_map(db_path)
+    descriptions_path = _resolve_descriptions(descriptions, db_path)
+    channel_map, raw_database = _load_channel_map(db_path)
+    binding_descriptions = _load_binding_descriptions(descriptions_path)
+    hierarchy_descriptions = _resolve_hierarchy_descriptions(raw_database, db_path)
 
     try:
-        graph_model = build_model(channel_map)
+        graph_model = build_model(
+            channel_map,
+            hierarchy_descriptions=hierarchy_descriptions,
+            binding_descriptions=binding_descriptions,
+        )
     except ValueError as exc:
         raise click.ClickException(
             f"The channel database at {db_path} holds an address build-ttl cannot read: {exc}\n"

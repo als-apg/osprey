@@ -8,10 +8,26 @@ import into the graph store exactly like the shipped ALS corpus
 
 The output mirrors that corpus triple-for-triple in *shape*: the same prefixes,
 the same predicate spellings, devices carrying the identity and position
-properties, ``narad_sem:ChannelBinding`` nodes carrying exactly ``bindingId`` /
+properties, ``narad_sem:ChannelBinding`` nodes carrying ``bindingId`` /
 ``confidence`` / ``fullPv`` / ``protocol`` and one of
 ``narad_p:readsSignal`` / ``narad_p:writesSignal``, ``narad_sem:SemanticSignal``
 individuals, and an ``owl:Class`` hierarchy joined by ``rdfs:subClassOf``.
+
+**System.** Every device also carries ``narad_p:system`` — the raw system
+token of its address (``MAG``, ``DIAG``, ``VAC``).  It is the coarsest grouping
+the address grammar offers, so a question like "how many vacuum devices are
+there" is one property filter rather than a family-by-family enumeration.  It is
+the token itself, not the prose: ``narad_p:systemDescription`` carries the text.
+
+**Prose.** When the model carries description text, bindings also get
+``narad_p:description`` / ``fieldDescription`` / ``subfieldDescription`` and
+devices get ``familyDescription`` / ``systemDescription`` / ``ringDescription``.
+Each is a distinct predicate carrying at most one value per node — neosemantics
+collapses repeated values of one predicate, so two texts under one name would
+lose data on import.  ``narad_sem:SemanticSignal`` carries no description text
+by design: a signal is keyed ``(FAMILY, FIELD, SUBFIELD)`` without a ring, while
+the prose is ring-qualified, so only the binding's six-token address resolves it
+unambiguously.  Description fields left ``None`` emit nothing at all.
 
 Those are the *Turtle-side* spellings.  neosemantics maps them to uppercase
 relationship types (``HASBINDING``, ``READSSIGNAL``, …) when it imports the
@@ -105,8 +121,11 @@ SEMANTIC_SIGNAL_CLASS_IRI = f"{NARAD_SEM_NS}SemanticSignal"
 # Property local names, in the narad_p namespace.
 P_BINDING_ID = "bindingId"
 P_CONFIDENCE = "confidence"
+P_DESCRIPTION = "description"
 P_DEVICE_ID = "deviceId"
 P_FACILITY = "facility"
+P_FAMILY_DESCRIPTION = "familyDescription"
+P_FIELD_DESCRIPTION = "fieldDescription"
 P_FULL_PV = "fullPv"
 P_HAS_BINDING = "hasBinding"
 P_ORDINAL_IN_FACILITY = "ordinalInFacility"
@@ -114,11 +133,33 @@ P_ORDINAL_IN_SECTION = "ordinalInSection"
 P_PROTOCOL = "protocol"
 P_RAW_TYPE = "rawType"
 P_READS_SIGNAL = "readsSignal"
+P_RING_DESCRIPTION = "ringDescription"
 P_S_POSITION_M = "sPositionM"
 P_SECTION_CODE = "sectionCode"
 P_SOURCE_NAME = "sourceName"
 P_SOURCE_SECTION_ID = "sourceSectionId"
+P_SUBFIELD_DESCRIPTION = "subfieldDescription"
+P_SYSTEM = "system"
+P_SYSTEM_DESCRIPTION = "systemDescription"
 P_WRITES_SIGNAL = "writesSignal"
+
+#: Prose predicates on a ``narad_sem:ChannelBinding``, paired with the
+#: :class:`~osprey.services.facility_knowledge.ttl_generator.model.ChannelBinding`
+#: attribute each reads.  Emission follows this order.
+_BINDING_DESCRIPTION_FIELDS: tuple[tuple[str, str], ...] = (
+    (P_DESCRIPTION, "description"),
+    (P_FIELD_DESCRIPTION, "field_description"),
+    (P_SUBFIELD_DESCRIPTION, "subfield_description"),
+)
+
+#: Prose predicates on a device node, paired with the
+#: :class:`~osprey.services.facility_knowledge.ttl_generator.model.Device`
+#: attribute each reads.  Emission follows this order.
+_DEVICE_DESCRIPTION_FIELDS: tuple[tuple[str, str], ...] = (
+    (P_FAMILY_DESCRIPTION, "family_description"),
+    (P_SYSTEM_DESCRIPTION, "system_description"),
+    (P_RING_DESCRIPTION, "ring_description"),
+)
 
 #: Properties declared ``a owl:ObjectProperty`` — they point at another node.
 OBJECT_PROPERTY_NAMES: tuple[str, ...] = (P_HAS_BINDING, P_READS_SIGNAL, P_WRITES_SIGNAL)
@@ -129,8 +170,11 @@ PROPERTY_NAMES: tuple[str, ...] = tuple(
         (
             P_BINDING_ID,
             P_CONFIDENCE,
+            P_DESCRIPTION,
             P_DEVICE_ID,
             P_FACILITY,
+            P_FAMILY_DESCRIPTION,
+            P_FIELD_DESCRIPTION,
             P_FULL_PV,
             P_HAS_BINDING,
             P_ORDINAL_IN_FACILITY,
@@ -138,10 +182,14 @@ PROPERTY_NAMES: tuple[str, ...] = tuple(
             P_PROTOCOL,
             P_RAW_TYPE,
             P_READS_SIGNAL,
+            P_RING_DESCRIPTION,
             P_S_POSITION_M,
             P_SECTION_CODE,
             P_SOURCE_NAME,
             P_SOURCE_SECTION_ID,
+            P_SUBFIELD_DESCRIPTION,
+            P_SYSTEM,
+            P_SYSTEM_DESCRIPTION,
             P_WRITES_SIGNAL,
         )
     )
@@ -300,6 +348,33 @@ def _prop(name: str) -> str:
     return f"{NARAD_PROPERTY_NS}{name}"
 
 
+def _description_triples(
+    subject: str, source: object, fields: tuple[tuple[str, str], ...]
+) -> list[tuple[str, str, _Term]]:
+    """Prose triples for one node, one per described level.
+
+    Args:
+        subject: IRI of the node the text hangs on.
+        source: The model object holding the description attributes.
+        fields: ``(property local name, attribute name)`` pairs, in emission
+            order — :data:`_BINDING_DESCRIPTION_FIELDS` or
+            :data:`_DEVICE_DESCRIPTION_FIELDS`.
+
+    Returns:
+        One triple per attribute that holds text.  An attribute that is ``None``
+        contributes nothing, so a model built without prose serialises exactly as
+        it did before any description reached it.  Every name appears at most
+        once, which is what keeps neosemantics from collapsing two texts into
+        one on import.
+    """
+    triples: list[tuple[str, str, _Term]] = []
+    for name, attribute in fields:
+        text = getattr(source, attribute)
+        if text is not None:
+            triples.append((subject, _prop(name), _text(text)))
+    return triples
+
+
 def _device_triples(device: Device, ontology: OntologyMap) -> list[tuple[str, str, _Term]]:
     """Triples for one device node, in ``als_gtb.ttl``'s shape.
 
@@ -326,7 +401,9 @@ def _device_triples(device: Device, ontology: OntologyMap) -> list[tuple[str, st
         (subject, _prop(P_SECTION_CODE), _text(device.section_code)),
         (subject, _prop(P_SOURCE_NAME), _text(device.source_name)),
         (subject, _prop(P_SOURCE_SECTION_ID), _text(device.source_section_id)),
+        (subject, _prop(P_SYSTEM), _text(device.system)),
     ]
+    triples.extend(_description_triples(subject, device, _DEVICE_DESCRIPTION_FIELDS))
     triples.extend(
         (subject, _prop(P_HAS_BINDING), _iri(binding_iri)) for binding_iri in device.binding_iris
     )
@@ -342,10 +419,11 @@ def _binding_triples(binding: ChannelBinding, predicate: str) -> list[tuple[str,
             local name, chosen from its signal group's direction.
 
     Returns:
-        The six triples ``als_gtb.ttl`` gives a binding.
+        The six triples ``als_gtb.ttl`` gives a binding, plus one prose triple
+        for each of :data:`_BINDING_DESCRIPTION_FIELDS` the binding carries.
     """
     subject = binding.iri
-    return [
+    triples: list[tuple[str, str, _Term]] = [
         (subject, RDF_TYPE, _iri(CHANNEL_BINDING_CLASS_IRI)),
         (subject, _prop(P_BINDING_ID), _text(binding.binding_id)),
         (subject, _prop(P_CONFIDENCE), _text(binding.confidence)),
@@ -353,10 +431,19 @@ def _binding_triples(binding: ChannelBinding, predicate: str) -> list[tuple[str,
         (subject, _prop(P_PROTOCOL), _text(binding.protocol)),
         (subject, _prop(predicate), _iri(binding.signal_iri)),
     ]
+    triples.extend(_description_triples(subject, binding, _BINDING_DESCRIPTION_FIELDS))
+    return triples
 
 
 def _signal_triples(group: SignalGroup) -> list[tuple[str, str, _Term]]:
-    """Triples for one ``narad_sem:SemanticSignal`` individual."""
+    """Triples for one ``narad_sem:SemanticSignal`` individual.
+
+    A type and a label, and deliberately no prose: a signal is keyed
+    ``(FAMILY, FIELD, SUBFIELD)`` while the hierarchy's field and subfield texts
+    are ring-qualified, so several rings' texts would land on one signal and
+    neosemantics would keep only one of them.  The prose goes on the bindings,
+    whose six-token address resolves every text exactly.
+    """
     return [
         (group.iri, RDF_TYPE, _iri(SEMANTIC_SIGNAL_CLASS_IRI)),
         (group.iri, RDFS_LABEL, _text(group.name)),
@@ -381,8 +468,10 @@ def _vocabulary_triples() -> list[tuple[str, str, _Term]]:
     ``narad_sem:SemanticSignal`` is a bare ``owl:Class`` and
     ``narad_sem:ChannelBinding`` is an ``owl:Class`` under ``owl:Thing``, exactly
     as ``als_gtb.ttl`` declares them.  Every ``narad_p:`` property the corpus
-    uses is declared too; ``narad_p:hasBinding`` is declared as both a datatype
-    and an object property, again mirroring the shipped corpus.
+    uses is declared too — :data:`PROPERTY_NAMES` is the single list, so the six
+    description properties are declared here as ``owl:DatatypeProperty`` by
+    being in it.  ``narad_p:hasBinding`` is declared as both a datatype and an
+    object property, again mirroring the shipped corpus.
     """
     triples: list[tuple[str, str, _Term]] = [
         (SEMANTIC_SIGNAL_CLASS_IRI, RDF_TYPE, _iri(OWL_CLASS)),

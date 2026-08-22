@@ -15,7 +15,9 @@ a generated file that nobody counts can drift silently: a change to the channel
 database, the direction pass, or the emitter would quietly ship a different
 graph. The census below (512 devices, 2908 bindings, 396 written and 2512 read
 signals) is the demo machine as of the corpus committed beside this test, and
-the 396 writes are exactly its `:SP` addresses.
+the 396 writes are exactly its `:SP` addresses. The prose census sits beside it:
+three description predicates on every binding, three more plus the SYSTEM token
+on every device, and none of the six on a semantic signal.
 
 The uppercase check guards the other half of the pipeline. neosemantics imports
 a predicate IRI under the local name it finds, so `narad_p:hasBinding` becomes
@@ -63,6 +65,16 @@ EXPECTED_DEVICES = 512
 EXPECTED_BINDINGS = 2908
 EXPECTED_WRITES = 396
 EXPECTED_READS = 2512
+
+#: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
+#: channel's own sentence and the text of the two address tokens it ends in.
+BINDING_DESCRIPTION_PREDICATES = ("description", "fieldDescription", "subfieldDescription")
+
+#: Prose predicates carried once by every device node, from the tree levels
+#: above it, plus the SYSTEM token itself — the one address token the device
+#: IRI does not spell, so it ships as data a query can filter on.
+DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription", "ringDescription")
+DEVICE_TOKEN_PREDICATES = ("system",)
 
 #: n10s' uppercase spellings of the three relationship types the shipped
 #: example queries use. Any of these in the corpus means the queries miss.
@@ -163,6 +175,54 @@ def test_binding_and_signal_census(graph) -> None:
     assert count("hasBinding") == EXPECTED_BINDINGS
     assert count("writesSignal") == EXPECTED_WRITES
     assert count("readsSignal") == EXPECTED_READS
+
+
+def test_prose_census(graph) -> None:
+    """Every binding and every device carries its prose, exactly once.
+
+    The subject counts are what make this a census rather than a spot check: a
+    predicate appearing 2,908 times spread over 40 bindings would satisfy a
+    triple count and import into a graph where most channels have no text at
+    all. neosemantics keeps one value per property unless told otherwise, so a
+    doubled predicate is also silent data loss at seed time.
+    """
+    from rdflib import URIRef
+
+    def subjects(local_name: str) -> set:
+        return set(graph.subjects(URIRef(NARAD_PROPERTY + local_name), None))
+
+    def triples(local_name: str) -> int:
+        return len(list(graph.triples((None, URIRef(NARAD_PROPERTY + local_name), None))))
+
+    for predicate in BINDING_DESCRIPTION_PREDICATES:
+        assert triples(predicate) == EXPECTED_BINDINGS, (
+            f"narad_p:{predicate} appears {triples(predicate)} times, not once per binding."
+        )
+        assert len(subjects(predicate)) == EXPECTED_BINDINGS
+
+    for predicate in DEVICE_DESCRIPTION_PREDICATES + DEVICE_TOKEN_PREDICATES:
+        assert triples(predicate) == EXPECTED_DEVICES, (
+            f"narad_p:{predicate} appears {triples(predicate)} times, not once per device."
+        )
+        assert len(subjects(predicate)) == EXPECTED_DEVICES
+
+
+def test_semantic_signals_carry_no_description(graph) -> None:
+    """No prose predicate lands on a ``narad_sem:SemanticSignal``.
+
+    A signal is keyed without a ring, and the tree's field and subfield prose is
+    written per ring — so text on a signal could only be one ring's wording
+    standing in for every ring's. The corpus puts that text on bindings, whose
+    address carries all six tokens.
+    """
+    from rdflib import RDF, URIRef
+
+    signals = set(graph.subjects(RDF.type, URIRef(NARAD_SEMANTICS + "SemanticSignal")))
+    assert signals, "The corpus declares no semantic signals at all"
+
+    for predicate in BINDING_DESCRIPTION_PREDICATES + DEVICE_DESCRIPTION_PREDICATES:
+        described = signals & set(graph.subjects(URIRef(NARAD_PROPERTY + predicate), None))
+        assert not described, f"narad_p:{predicate} is on {len(described)} semantic signals."
 
 
 def test_every_device_carries_a_semantic_class(graph) -> None:

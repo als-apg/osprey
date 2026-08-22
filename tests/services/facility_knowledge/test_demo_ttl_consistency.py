@@ -24,7 +24,11 @@ across the artifacts:
   ``channel_limits.json`` grants write access to. This is the load-bearing one:
   the limits file is what the write path actually enforces, so a corpus that
   disagrees would have the agent proposing writes the connector refuses, or
-  worse, describing an enforced setpoint as read-only.
+  worse, describing an enforced setpoint as read-only;
+- every channel's prose reaches the corpus, and reaches it on the right node.
+  The prose is the whole point of searching a graph by meaning: a corpus whose
+  bindings carry no description is one the agent can only query by address,
+  which is what the channel finder already does better.
 
 The direction *source* is asserted too. The generator has a grammar fallback
 (``:SP`` writes, everything else reads) that happens to agree with the shipped
@@ -63,6 +67,11 @@ DEMO_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 #: Tier-3 hierarchical channel database — the colon-grammar source of truth.
 CHANNEL_DB_PATH = DEMO_DATA / "channel_databases/tiers/tier3/hierarchical.json"
 
+#: Tier-3 in-context database — the same 2,908 channels with a sentence each.
+#: It is the second input ``build-ttl`` reads, and the only source of the
+#: per-binding prose; the hierarchical tree describes levels, not channels.
+DESCRIPTIONS_PATH = DEMO_DATA / "channel_databases/tiers/tier3/in_context.json"
+
 #: Channel limits — the write-safety layer the runtime actually enforces.
 LIMITS_PATH = DEMO_DATA / "channel_limits.json"
 
@@ -79,6 +88,36 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: at once still trips something.
 EXPECTED_CHANNELS = 2908
 EXPECTED_WRITABLE = 396
+EXPECTED_DEVICES = 512
+
+#: Prose predicates on ``narad_sem:ChannelBinding``, one per binding: the
+#: channel's own sentence, then the text of the FIELD and SUBFIELD tokens its
+#: address ends in. The last two live on the binding rather than on the signal
+#: they belong to because the tree qualifies them by ring, and a signal is
+#: keyed without one.
+BINDING_DESCRIPTION_PREDICATES = ("description", "fieldDescription", "subfieldDescription")
+
+#: Prose predicates on every device node, from the three tree levels above the
+#: device: its FAMILY, its SYSTEM and its RING.
+DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription", "ringDescription")
+
+#: Distinct texts behind the device predicates — the tree's whole family, system
+#: and ring vocabulary. Counting the distinct values, not just the triples,
+#: is what says the texts were joined by path rather than broadcast.
+EXPECTED_DISTINCT_DEVICE_TEXTS = {
+    "familyDescription": 28,
+    "systemDescription": 8,
+    "ringDescription": 3,
+}
+
+#: Every ``_description`` in the hierarchical tree, by level. All 247 have to
+#: land somewhere in the corpus: a level whose text is dropped is a whole
+#: vocabulary the agent cannot search by.
+EXPECTED_HIERARCHY_TEXTS = {"ring": 3, "system": 8, "family": 28, "field": 66, "subfield": 142}
+
+#: Distinct ``narad_p:system`` tokens — SYSTEM is the one address token the
+#: device IRI does not carry, so it is emitted as data.
+EXPECTED_DISTINCT_SYSTEMS = 4
 
 #: How many members of a set difference a failure message names before eliding.
 _MAX_REPORTED = 20
@@ -152,11 +191,60 @@ def channel_map() -> dict[str, dict]:
 
 
 @pytest.fixture(scope="module")
-def directed_model_and_report(channel_map: dict[str, dict]) -> tuple[Any, Any]:
-    """The generator's model, with directions resolved from the limits file."""
+def hierarchy_descriptions() -> Any:
+    """The tree's prose, read through ``build-ttl``'s own reader.
+
+    The verb's helper rather than a re-derivation: this file regenerates the
+    committed corpus and compares it, so the regeneration has to start from
+    exactly the inputs ``osprey knowledge build-ttl`` starts from. A private
+    import is the price of that — a local copy of the read would let the verb
+    change how it joins prose while this guard kept reporting the committed
+    corpus as current.
+
+    It reads the *raw* database rather than the expanded channel map: expansion
+    keeps addresses and drops everything the tree said about the levels they
+    are built from.
+    """
+    from osprey.cli.knowledge_cmd import _resolve_hierarchy_descriptions
+
+    raw = json.loads(CHANNEL_DB_PATH.read_text(encoding="utf-8"))
+    return _resolve_hierarchy_descriptions(raw, CHANNEL_DB_PATH)
+
+
+@pytest.fixture(scope="module")
+def binding_descriptions() -> dict[str, str]:
+    """The in-context database's per-channel prose, keyed by address.
+
+    Read through ``build-ttl``'s own helper, for the reason
+    :func:`hierarchy_descriptions` gives: which entries contribute prose (an
+    empty description contributes none) is the verb's rule, not this file's.
+    """
+    from osprey.cli.knowledge_cmd import _load_binding_descriptions
+
+    return dict(_load_binding_descriptions(DESCRIPTIONS_PATH))
+
+
+@pytest.fixture(scope="module")
+def directed_model_and_report(
+    channel_map: dict[str, dict],
+    hierarchy_descriptions: Any,
+    binding_descriptions: dict[str, str],
+) -> tuple[Any, Any]:
+    """The generator's model, with directions resolved from the limits file.
+
+    Both prose inputs are supplied, because both are what the committed corpus
+    was built from — a model built from the addresses alone would regenerate to
+    a corpus missing every description, and the isomorphism check below would
+    report that as drift in the committed file.
+    """
     from osprey.services.facility_knowledge.ttl_generator import direction, model
 
-    return direction.resolve_and_assign(model.build_model(channel_map), LIMITS_PATH)
+    built = model.build_model(
+        channel_map,
+        hierarchy_descriptions=hierarchy_descriptions,
+        binding_descriptions=binding_descriptions,
+    )
+    return direction.resolve_and_assign(built, LIMITS_PATH)
 
 
 @pytest.fixture(scope="module")
@@ -388,6 +476,160 @@ def test_demo_ttl_generator_refuses_a_mixed_direction_group(tmp_path: Path) -> N
     message = str(error)
     assert "(DIPOLE, CURRENT, SP)" in message
     assert dissenter in message
+
+
+# ---------------------------------------------------------------------------
+# The corpus carries the prose both databases hold
+# ---------------------------------------------------------------------------
+
+
+def test_every_binding_carries_the_channel_prose(
+    committed_graph: Any, binding_descriptions: dict[str, str]
+) -> None:
+    """Each binding's ``description`` is its own channel's sentence.
+
+    Keyed by ``fullPv`` and compared as a mapping, so a corpus that carried the
+    right *number* of descriptions with the joins shifted by one fails here
+    rather than passing a count check.
+    """
+    from rdflib import URIRef
+
+    full_pv = URIRef(NARAD_PROPERTY + "fullPv")
+    described = {
+        str(pv): str(text)
+        for binding, text in _objects_by_predicate(committed_graph, "description")
+        for pv in committed_graph.objects(binding, full_pv)
+    }
+
+    assert len(described) == EXPECTED_CHANNELS
+    assert described == binding_descriptions, (
+        "Binding prose is not the in-context database's.\n"
+        + _difference_report(
+            set(described),
+            set(binding_descriptions),
+            "the TTL corpus",
+            DESCRIPTIONS_PATH.name,
+        )
+    )
+
+
+def test_every_binding_carries_its_field_and_subfield_prose(committed_graph: Any) -> None:
+    """The address' last two tokens are described on every binding.
+
+    One value per predicate per binding: neosemantics keeps a single value for a
+    property it is not told is multi-valued, so two texts under one predicate
+    would import as whichever arrived last.
+    """
+
+    for predicate in BINDING_DESCRIPTION_PREDICATES:
+        pairs = list(_objects_by_predicate(committed_graph, predicate))
+        subjects = {subject for subject, _ in pairs}
+        assert len(pairs) == EXPECTED_CHANNELS, (
+            f"narad_p:{predicate} appears {len(pairs)} times, not {EXPECTED_CHANNELS}."
+        )
+        assert len(subjects) == EXPECTED_CHANNELS, (
+            f"narad_p:{predicate} carries more than one value on some binding."
+        )
+
+
+def test_every_device_carries_its_family_system_and_ring_prose(committed_graph: Any) -> None:
+    """Device prose comes from the three tree levels above the device.
+
+    The distinct-text counts are the assertion that matters: 28 families, 8
+    systems and 3 rings is the tree's vocabulary, and a join that fell back to a
+    single default would still put a text on all 512 devices.
+    """
+
+    for predicate in DEVICE_DESCRIPTION_PREDICATES:
+        pairs = list(_objects_by_predicate(committed_graph, predicate))
+        assert len(pairs) == EXPECTED_DEVICES, (
+            f"narad_p:{predicate} appears {len(pairs)} times, not once per device."
+        )
+        assert len({subject for subject, _ in pairs}) == EXPECTED_DEVICES
+        distinct = len({str(text) for _, text in pairs})
+        assert distinct == EXPECTED_DISTINCT_DEVICE_TEXTS[predicate], (
+            f"narad_p:{predicate} has {distinct} distinct texts, not "
+            f"{EXPECTED_DISTINCT_DEVICE_TEXTS[predicate]}."
+        )
+
+
+def test_every_hierarchy_description_reaches_the_corpus(hierarchy_descriptions: Any) -> None:
+    """All 247 strings the tree holds are somewhere in the corpus.
+
+    Read off the file's text rather than the parsed graph: this is about no
+    level's vocabulary being dropped on the way in, and the level a text landed
+    on is what the two tests above are for.
+    """
+    corpus_text = TTL_PATH.read_text(encoding="utf-8")
+    for level, expected in EXPECTED_HIERARCHY_TEXTS.items():
+        texts = getattr(hierarchy_descriptions, level)
+        assert len(texts) == expected, (
+            f"The tree describes {len(texts)} {level} nodes, not {expected}."
+        )
+        missing = {
+            path for path, text in texts.items() if text.replace('"', '\\"') not in corpus_text
+        }
+        assert not missing, (
+            f"{len(missing)} {level} descriptions never reached the corpus: "
+            + _sample({":".join(path) for path in missing})
+        )
+
+
+def test_semantic_signals_carry_no_prose(committed_graph: Any) -> None:
+    """Signals are deliberately text-free.
+
+    A ``SemanticSignal`` stands for a ``(FAMILY, FIELD, SUBFIELD)`` group with no
+    ring in its key, while the tree's field and subfield texts are written per
+    ring — 20 of the 113 groups would have had to pick one ring's wording. The
+    bindings carry that text instead, and a description turning up here means
+    something started guessing.
+    """
+    from rdflib import RDF, URIRef
+
+    signals = set(
+        committed_graph.subjects(
+            RDF.type, URIRef("https://narad.example.org/schema/shared_semantics/SemanticSignal")
+        )
+    )
+    assert signals, "The corpus declares no semantic signals at all"
+
+    described = {
+        signal
+        for signal in signals
+        for predicate in BINDING_DESCRIPTION_PREDICATES + DEVICE_DESCRIPTION_PREDICATES
+        if (signal, URIRef(NARAD_PROPERTY + predicate), None) in committed_graph
+    }
+    assert not described, f"{len(described)} semantic signals carry description prose: " + _sample(
+        {str(signal) for signal in described}
+    )
+
+
+def test_every_device_carries_its_system_token(committed_graph: Any, directed_model: Any) -> None:
+    """SYSTEM is emitted as data because the device IRI does not carry it.
+
+    Compared against the model rather than counted, so a device landing under
+    the wrong system — the failure a count cannot see — fails here.
+    """
+    from rdflib import URIRef
+
+    corpus_systems = {
+        (str(subject), str(token))
+        for subject, token in _objects_by_predicate(committed_graph, "system")
+    }
+    model_systems = {(device.iri, device.system) for device in directed_model.devices}
+
+    assert len(corpus_systems) == EXPECTED_DEVICES
+    assert len({token for _, token in corpus_systems}) == EXPECTED_DISTINCT_SYSTEMS
+    assert corpus_systems == model_systems, (
+        "narad_p:system disagrees with the address grammar.\n"
+        + _difference_report(
+            {f"{iri} {token}" for iri, token in corpus_systems},
+            {f"{iri} {token}" for iri, token in model_systems},
+            "the TTL corpus",
+            "the derived model",
+        )
+    )
+    assert URIRef(NARAD_PROPERTY + "system") in set(committed_graph.predicates())
 
 
 # ---------------------------------------------------------------------------

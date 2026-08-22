@@ -111,7 +111,8 @@ class TestCanonicalSettings:
     def test_graph_config_matches_prototype(self):
         assert N10S_GRAPH_CONFIG == {
             "handleVocabUris": "MAP",
-            "handleMultival": "OVERWRITE",
+            "handleMultival": "ARRAY",
+            "multivalPropList": ["http://www.w3.org/2004/02/skos/core#altLabel"],
             "keepLangTag": False,
             "handleRDFTypes": "LABELS_AND_NODES",
             "applyNeo4jNaming": True,
@@ -132,6 +133,37 @@ class TestCanonicalSettings:
         assert isinstance(COMMIT_SIZE, int)
         assert COMMIT_SIZE > 0
 
+    def test_altlabel_is_the_only_array_valued_property(self):
+        """ARRAY mode without a prop list would turn *every* property into a list."""
+        assert N10S_GRAPH_CONFIG["handleMultival"] == "ARRAY"
+        assert N10S_GRAPH_CONFIG["multivalPropList"] == [f"{NARAD_PREFIXES['skos']}altLabel"]
+
+
+class TestNormalize:
+    """Config values are compared through one funnel, whatever shape n10s uses."""
+
+    def test_booleans_render_lowercase(self):
+        assert graph_seeder._normalize(True) == "true"
+        assert graph_seeder._normalize(False) == "false"
+        assert graph_seeder._normalize("false") == "false"
+
+    def test_scalars_pass_through_stripped(self):
+        assert graph_seeder._normalize("  MAP  ") == "MAP"
+        assert graph_seeder._normalize(10_000) == "10000"
+
+    def test_sequences_and_comma_strings_agree(self):
+        """n10s hands a multi-valued param back as a list or as a comma string."""
+        assert graph_seeder._normalize(["b", "a"]) == "a,b"
+        assert graph_seeder._normalize("a,b") == "a,b"
+        assert graph_seeder._normalize(["b", "a"]) == graph_seeder._normalize("a,b")
+
+    def test_sequence_order_does_not_matter(self):
+        assert graph_seeder._normalize(("b", "a")) == graph_seeder._normalize(["a", "b"])
+        assert graph_seeder._normalize("b, a") == graph_seeder._normalize("a,b")
+
+    def test_empty_sequence_renders_empty(self):
+        assert graph_seeder._normalize([]) == ""
+
 
 # ---------------------------------------------------------------------------
 # bootstrap
@@ -146,7 +178,7 @@ class TestBootstrapConstraint:
         [
             {},  # no config
             {_SHOW: _config_rows()},  # canonical config
-            {_SHOW: _config_rows({"handleMultival": "ARRAY"})},  # drifted config
+            {_SHOW: _config_rows({"handleMultival": "OVERWRITE"})},  # drifted config
         ],
         ids=["no-config", "canonical-config", "drifted-config"],
     )
@@ -201,7 +233,7 @@ class TestBootstrapConfigGate:
 
     def test_drifted_config_names_the_differing_keys(self):
         session = FakeSession(
-            {_SHOW: _config_rows({"handleMultival": "ARRAY", "keepLangTag": True})}
+            {_SHOW: _config_rows({"handleMultival": "OVERWRITE", "keepLangTag": True})}
         )
         result = bootstrap(session)
 
@@ -223,6 +255,39 @@ class TestBootstrapConfigGate:
         assert "--force" in message
         assert "handleVocabUris" in message
 
+    def test_multival_prop_list_as_a_list_is_not_drift(self):
+        """Some n10s builds return the prop list as a list, in any order."""
+        session = FakeSession(
+            {_SHOW: _config_rows({"multivalPropList": list(N10S_GRAPH_CONFIG["multivalPropList"])})}
+        )
+        assert bootstrap(session).status is BootstrapStatus.ALREADY_CANONICAL
+
+    def test_multival_prop_list_as_a_comma_string_is_not_drift(self):
+        """Others stringify it; both must read as the canonical value."""
+        session = FakeSession(
+            {
+                _SHOW: _config_rows(
+                    {"multivalPropList": ",".join(N10S_GRAPH_CONFIG["multivalPropList"])}
+                )
+            }
+        )
+        assert bootstrap(session).status is BootstrapStatus.ALREADY_CANONICAL
+
+    def test_overwrite_multival_is_drift(self):
+        """A store initialized under OVERWRITE loses every altLabel but the last."""
+        session = FakeSession({_SHOW: _config_rows({"handleMultival": "OVERWRITE"})})
+        result = bootstrap(session)
+
+        assert result.status is BootstrapStatus.DIFFERS
+        assert result.differing_keys == ("handleMultival",)
+        assert "handleMultival" in result.message
+
+    def test_missing_multival_prop_list_is_drift(self):
+        rows = [row for row in _config_rows() if row["param"] != "multivalPropList"]
+        result = bootstrap(FakeSession({_SHOW: rows}))
+        assert result.status is BootstrapStatus.DIFFERS
+        assert result.differing_keys == ("multivalPropList",)
+
     def test_extra_live_keys_are_not_drift(self):
         """n10s reports keys osprey does not pin; only load-bearing keys count."""
         rows = _config_rows() + [{"param": "classLabel", "value": "Class"}]
@@ -238,7 +303,7 @@ class TestBootstrapPrefixes:
         [
             {},
             {_SHOW: _config_rows()},
-            {_SHOW: _config_rows({"handleMultival": "ARRAY"})},
+            {_SHOW: _config_rows({"handleMultival": "OVERWRITE"})},
         ],
         ids=["no-config", "canonical-config", "drifted-config"],
     )

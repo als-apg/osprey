@@ -179,6 +179,7 @@ class TestVocabularySpelling:
             "narad_p:sectionCode",
             "narad_p:sourceName",
             "narad_p:sourceSectionId",
+            "narad_p:system",
             "narad_p:writesSignal",
             "rdfs:label",
             "rdfs:subClassOf",
@@ -263,7 +264,7 @@ class TestNodeShapes:
     def test_device_properties_never_land_on_a_binding(
         self, graph: Graph, synthetic_model: model.GraphModel
     ) -> None:
-        device_only = ("sourceName", "sectionCode", "sPositionM", "ordinalInSection")
+        device_only = ("sourceName", "sectionCode", "sPositionM", "ordinalInSection", "system")
         for binding in synthetic_model.bindings:
             subject = URIRef(binding.iri)
             for name in device_only:
@@ -497,3 +498,244 @@ class TestShippedDemoMachine:
         }
         for family in sorted(families):
             assert ontology.class_for(family) is not None
+
+
+# ---------------------------------------------------------------------------
+# Description predicates
+# ---------------------------------------------------------------------------
+
+#: Hierarchy prose for the described fixture — one text per level, ring-qualified.
+_HIERARCHY_TEXTS = model.HierarchyDescriptions(
+    ring={("SR",): "Storage ring"},
+    system={("SR", "MAG"): "Storage ring magnet system"},
+    family={("SR", "MAG", "DIPOLE"): "Storage ring bending dipoles"},
+    field={("SR", "MAG", "DIPOLE", "CURRENT"): "Dipole coil current"},
+    subfield={("SR", "MAG", "DIPOLE", "CURRENT", "SP"): "Commanded dipole current"},
+)
+
+#: Per-channel prose, keyed by the six-token address exactly as in_context.json is.
+_BINDING_TEXTS = {
+    "SR:MAG:DIPOLE:01:CURRENT:SP": "Storage ring dipole 01 current setpoint",
+    "SR:MAG:DIPOLE:01:CURRENT:RB": "Storage ring dipole 01 current readback",
+}
+
+#: Two SR channels the fixture describes and one BR channel it deliberately does
+#: not — the undescribed one proves an exact join leaves neighbours alone.
+_DESCRIBED_ADDRESSES = (
+    "SR:MAG:DIPOLE:01:CURRENT:SP",
+    "SR:MAG:DIPOLE:01:CURRENT:RB",
+    "BR:MAG:QF:01:CURRENT:RB",
+)
+
+#: The six prose predicates, in the order the emitter declares them.
+_DESCRIPTION_NAMES = (
+    emitter.P_DESCRIPTION,
+    emitter.P_FIELD_DESCRIPTION,
+    emitter.P_SUBFIELD_DESCRIPTION,
+    emitter.P_FAMILY_DESCRIPTION,
+    emitter.P_SYSTEM_DESCRIPTION,
+    emitter.P_RING_DESCRIPTION,
+)
+
+
+def _build_described() -> model.GraphModel:
+    """The described fixture model, built fresh so insertion order can be varied."""
+    return _directed(
+        model.build_model(
+            {address: {} for address in _DESCRIBED_ADDRESSES},
+            hierarchy_descriptions=_HIERARCHY_TEXTS,
+            binding_descriptions=_BINDING_TEXTS,
+        )
+    )
+
+
+def _block(ttl: str, rendered_subject: str) -> list[str]:
+    """Return the lines of one subject block, found by its rendered subject term."""
+    for block in ttl.split("\n\n"):
+        if block.startswith(f"{rendered_subject} "):
+            return block.splitlines()
+    raise AssertionError(f"{rendered_subject} has no block in the emitted Turtle")
+
+
+class TestDescriptionPredicates:
+    """Prose reaches bindings and devices, under six distinct one-value predicates."""
+
+    @pytest.fixture(scope="class")
+    def described_model(self) -> model.GraphModel:
+        return _build_described()
+
+    @pytest.fixture(scope="class")
+    def described_ttl(self, described_model: model.GraphModel, ontology: OntologyMap) -> str:
+        return emitter.serialize_turtle(described_model, ontology)
+
+    @pytest.fixture(scope="class")
+    def described_graph(self, described_model: model.GraphModel, ontology: OntologyMap) -> Graph:
+        return emitter.build_graph(described_model, ontology)
+
+    def test_described_binding_renders_the_exact_literal_lines(self, described_ttl: str) -> None:
+        setpoint = model.binding_iri("SR", "DIPOLE01", "CURRENT", "SP")
+        lines = _block(described_ttl, f"<{setpoint}>")
+        assert '    narad_p:description "Storage ring dipole 01 current setpoint" ;' in lines
+        assert '    narad_p:fieldDescription "Dipole coil current" ;' in lines
+        assert '    narad_p:subfieldDescription "Commanded dipole current" ;' in lines
+
+    def test_described_device_renders_the_exact_literal_lines(self, described_ttl: str) -> None:
+        lines = _block(described_ttl, f"<{model.device_iri('SR', 'DIPOLE01')}>")
+        assert '    narad_p:familyDescription "Storage ring bending dipoles" ;' in lines
+        assert '    narad_p:ringDescription "Storage ring" ;' in lines
+        assert '    narad_p:systemDescription "Storage ring magnet system" .' in lines
+
+    def test_each_prose_predicate_carries_exactly_one_value_per_node(
+        self, described_graph: Graph, described_model: model.GraphModel
+    ) -> None:
+        # n10s collapses repeated values of one predicate, so two texts under one
+        # name would silently lose data on import.
+        for name in _DESCRIPTION_NAMES:
+            for subject in set(described_graph.subjects(_prop(name), None)):
+                assert len(list(described_graph.objects(subject, _prop(name)))) == 1, name
+        binding = URIRef(model.binding_iri("SR", "DIPOLE01", "CURRENT", "SP"))
+        device = URIRef(model.device_iri("SR", "DIPOLE01"))
+        assert set(described_graph.predicates(binding, None)) == {
+            URIRef(f"{emitter.RDF_NS}type"),
+            _prop("bindingId"),
+            _prop("confidence"),
+            _prop("description"),
+            _prop("fieldDescription"),
+            _prop("fullPv"),
+            _prop("protocol"),
+            _prop("subfieldDescription"),
+            _prop("writesSignal"),
+        }
+        assert {
+            _prop("familyDescription"),
+            _prop("systemDescription"),
+            _prop("ringDescription"),
+        } <= set(described_graph.predicates(device, None))
+        assert described_model.devices  # the fixture really did build devices
+
+    def test_an_exact_join_leaves_the_undescribed_nodes_bare(self, described_graph: Graph) -> None:
+        binding = URIRef(model.binding_iri("BR", "QF01", "CURRENT", "RB"))
+        device = URIRef(model.device_iri("BR", "QF01"))
+        for name in _DESCRIPTION_NAMES:
+            assert (binding, _prop(name), None) not in described_graph, name
+            assert (device, _prop(name), None) not in described_graph, name
+
+    def test_semantic_signals_carry_no_prose(
+        self, described_graph: Graph, described_model: model.GraphModel
+    ) -> None:
+        allowed = {URIRef(f"{emitter.RDF_NS}type"), URIRef(emitter.RDFS_LABEL)}
+        for group in described_model.signal_groups:
+            subject = URIRef(group.iri)
+            assert set(described_graph.predicates(subject, None)) == allowed
+
+    def test_a_model_without_prose_emits_no_description_clause(
+        self, synthetic_model: model.GraphModel, synthetic_ttl: str, ontology: OntologyMap
+    ) -> None:
+        graph = emitter.build_graph(synthetic_model, ontology)
+        for name in _DESCRIPTION_NAMES:
+            assert (None, _prop(name), None) not in graph, name
+        # Every prose clause is indented; only the vocabulary block may name the
+        # predicates, and there they are subjects at column zero.
+        assert [
+            line
+            for line in synthetic_ttl.splitlines()
+            if line.startswith("    narad_p:") and "escription" in line
+        ] == []
+
+    def test_prose_does_not_disturb_determinism(self, ontology: OntologyMap) -> None:
+        forward = _build_described()
+        first = emitter.serialize_turtle(forward, ontology)
+        assert emitter.serialize_turtle(forward, ontology) == first
+        backward = _directed(
+            model.build_model(
+                {address: {} for address in reversed(_DESCRIBED_ADDRESSES)},
+                hierarchy_descriptions=_HIERARCHY_TEXTS,
+                binding_descriptions=dict(reversed(list(_BINDING_TEXTS.items()))),
+            )
+        )
+        assert emitter.serialize_turtle(backward, ontology) == first
+
+    def test_described_text_parses_back_to_the_built_graph(
+        self, described_model: model.GraphModel, ontology: OntologyMap, described_ttl: str
+    ) -> None:
+        parsed = Graph()
+        parsed.parse(data=described_ttl, format="turtle")
+        assert isomorphic(parsed, emitter.build_graph(described_model, ontology))
+
+    @pytest.mark.parametrize("name", _DESCRIPTION_NAMES)
+    def test_every_prose_predicate_is_declared_in_the_vocabulary(
+        self, synthetic_ttl: str, name: str
+    ) -> None:
+        assert name in emitter.PROPERTY_NAMES
+        assert name not in emitter.OBJECT_PROPERTY_NAMES
+        assert f"narad_p:{name} a owl:DatatypeProperty ." in synthetic_ttl
+
+
+# ---------------------------------------------------------------------------
+# The system token
+# ---------------------------------------------------------------------------
+
+
+class TestSystemProperty:
+    """Every device carries its system token under ``narad_p:system``."""
+
+    @pytest.fixture(scope="class")
+    def graph(self, synthetic_model: model.GraphModel, ontology: OntologyMap) -> Graph:
+        return emitter.build_graph(synthetic_model, ontology)
+
+    def test_every_device_carries_exactly_one_system_literal(
+        self, graph: Graph, synthetic_model: model.GraphModel
+    ) -> None:
+        assert synthetic_model.devices  # the fixture really did build devices
+        for device in synthetic_model.devices:
+            objects = list(graph.objects(URIRef(device.iri), _prop("system")))
+            assert objects == [Literal(device.system)], device.address
+
+    def test_system_renders_the_exact_literal_line(
+        self, synthetic_ttl: str, ontology: OntologyMap
+    ) -> None:
+        # Sorted by IRI, ``system`` is a device's last clause unless the device
+        # also carries prose, where ``systemDescription`` follows it.
+        magnet = _block(synthetic_ttl, f"<{model.device_iri('SR', 'DIPOLE01')}>")
+        assert '    narad_p:system "MAG" .' in magnet
+        vacuum = _block(synthetic_ttl, f"<{model.device_iri('SR', 'GAUGESR01')}>")
+        assert '    narad_p:system "VAC" .' in vacuum
+        described = emitter.serialize_turtle(_build_described(), ontology)
+        lines = _block(described, f"<{model.device_iri('SR', 'DIPOLE01')}>")
+        assert '    narad_p:system "MAG" ;' in lines
+        assert '    narad_p:systemDescription "Storage ring magnet system" .' in lines
+
+    def test_system_is_declared_as_a_datatype_property(self, synthetic_ttl: str) -> None:
+        assert "system" in emitter.PROPERTY_NAMES
+        assert "system" not in emitter.OBJECT_PROPERTY_NAMES
+        assert "narad_p:system a owl:DatatypeProperty ." in synthetic_ttl
+
+    def test_the_system_token_is_not_the_system_description(self, graph: Graph) -> None:
+        # Two predicates, two meanings: the token a query filters on, and the
+        # ring-qualified prose.  A model without prose carries only the token.
+        device = URIRef(model.device_iri("SR", "DIPOLE01"))
+        assert (device, _prop("system"), Literal("MAG")) in graph
+        assert (device, _prop("systemDescription"), None) not in graph
+
+    def test_system_emission_stays_deterministic(self, ontology: OntologyMap) -> None:
+        forward = _directed(model.build_model({address: {} for address in _SYNTHETIC_ADDRESSES}))
+        first = emitter.serialize_turtle(forward, ontology)
+        assert emitter.serialize_turtle(forward, ontology) == first
+        backward = _directed(
+            model.build_model({address: {} for address in reversed(_SYNTHETIC_ADDRESSES)})
+        )
+        assert emitter.serialize_turtle(backward, ontology) == first
+
+    def test_system_text_parses_back_to_the_built_graph(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap, synthetic_ttl: str
+    ) -> None:
+        parsed = Graph()
+        parsed.parse(data=synthetic_ttl, format="turtle")
+        assert isomorphic(parsed, emitter.build_graph(synthetic_model, ontology))
+
+    def test_every_device_in_the_shipped_corpus_carries_a_system(
+        self, real_graph: Graph, real_model: model.GraphModel
+    ) -> None:
+        subjects = set(real_graph.subjects(_prop("system"), None))
+        assert len(subjects) == _REAL_DEVICES
+        assert subjects == {URIRef(device.iri) for device in real_model.devices}

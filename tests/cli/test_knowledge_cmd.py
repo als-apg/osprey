@@ -8,6 +8,8 @@ Covers:
 - ``knowledge seed-from-ttl <ttl> <bundle>`` writes stubs on first run,
   is idempotent on re-run, skips diffs without --force, overwrites with
   --force, and exits cleanly when rdflib is absent.
+- Importing the command group pulls in neither rdflib nor neo4j: both belong
+  to verbs that import them inside the command body.
 - ``knowledge seed-graph [ttl]`` reaches each of the five seeding states
   against a stubbed graph store, resolves a configured relative ``ttl_path``
   against the config file's directory rather than the process CWD, and turns
@@ -18,6 +20,8 @@ Covers:
 from __future__ import annotations
 
 import hashlib
+import subprocess
+import sys
 import textwrap
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -834,3 +838,42 @@ def test_seed_graph_unreachable_store_is_a_clean_error(
     assert result.exit_code != 0
     assert "bolt://localhost:7699" in _flat(result)
     assert "Traceback" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Import isolation
+# ---------------------------------------------------------------------------
+
+
+#: Ceiling on the isolation subprocess. Importing a CLI module is fast; a hang
+#: here is a failure, not a wait.
+_IMPORT_TIMEOUT_S = 120
+
+_ISOLATION_SOURCE = """\
+import sys
+
+import osprey.cli.knowledge_cmd  # noqa: F401
+
+leaked = sorted(m for m in sys.modules if m.split(".")[0] in {"rdflib", "neo4j"})
+assert not leaked, "leaked into sys.modules: " + repr(leaked)
+print("OK")
+"""
+
+
+def test_importing_knowledge_cmd_pulls_in_no_rdflib_or_neo4j() -> None:
+    """The module imports without either heavy dependency.
+
+    ``build-ttl`` reads two JSON databases and hands them to the pure model;
+    only the emitter needs rdflib and only ``seed-graph`` needs the driver, and
+    both are imported inside the command body. A fresh interpreter is used so
+    that a package pytest already loaded cannot make this pass by accident.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", _ISOLATION_SOURCE],
+        capture_output=True,
+        text=True,
+        timeout=_IMPORT_TIMEOUT_S,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "OK" in result.stdout

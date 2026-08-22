@@ -30,7 +30,7 @@ The address grammar is the six-token colon form used by the demo machine::
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from osprey.services.facility_knowledge.seeder import NARAD_PREFIXES
@@ -137,6 +137,155 @@ def parse_address(addr: str) -> Address:
             "every token of RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD must be non-empty"
         )
     return Address(*tokens)
+
+
+# ---------------------------------------------------------------------------
+# Hierarchy descriptions
+#
+# The hierarchical channel database is a tree of tokens, and most of its nodes
+# carry a ``_description`` string.  The expanded channel map throws that prose
+# away — it keeps only the addresses — so the generator reads it back off the
+# raw tree.  Prose is keyed by the full path down to the node that carries it,
+# never by the token alone: ``SR:MAG:QF:*:CURRENT:SP`` and
+# ``BR:MAG:QF:*:CURRENT:SP`` share their last three tokens but describe two
+# different machines.
+# ---------------------------------------------------------------------------
+
+#: Key that carries a node's prose in the hierarchical channel database.
+DESCRIPTION_KEY = "_description"
+
+#: Level types the hierarchical database understands.  A ``tree`` level is keyed
+#: by its tokens; an ``instances`` level is one placeholder node whose tokens are
+#: generated from an ``_expansion`` rule and carry no prose of their own.
+TREE_LEVEL = "tree"
+INSTANCE_LEVEL = "instances"
+
+#: The level grammar this module reads, in address order.  It is the six-token
+#: colon form with the device level generated rather than enumerated.
+_EXPECTED_LEVELS: tuple[tuple[str, str], ...] = (
+    ("ring", TREE_LEVEL),
+    ("system", TREE_LEVEL),
+    ("family", TREE_LEVEL),
+    ("device", INSTANCE_LEVEL),
+    ("field", TREE_LEVEL),
+    ("subfield", TREE_LEVEL),
+)
+
+
+@dataclass(frozen=True)
+class HierarchyDescriptions:
+    """Prose from the hierarchical tree, one map per described level.
+
+    Every map is keyed by the path of tokens down to the node the text sits on,
+    with the generated device token left out — it names no node in the tree.
+    Levels the tree leaves undescribed are simply absent from their map.
+
+    Args:
+        ring: Ring prose, keyed ``(RING,)``.
+        system: System prose, keyed ``(RING, SYSTEM)``.
+        family: Family prose, keyed ``(RING, SYSTEM, FAMILY)``.
+        field: Field prose, keyed ``(RING, SYSTEM, FAMILY, FIELD)``.
+        subfield: Subfield prose, keyed ``(RING, SYSTEM, FAMILY, FIELD, SUBFIELD)``.
+    """
+
+    ring: Mapping[tuple[str], str]
+    system: Mapping[tuple[str, str], str]
+    family: Mapping[tuple[str, str, str], str]
+    field: Mapping[tuple[str, str, str, str], str]
+    subfield: Mapping[tuple[str, str, str, str, str], str]
+
+
+def resolve_hierarchy_descriptions(
+    tree: Mapping[str, object],
+    levels: Sequence[Mapping[str, object]],
+) -> HierarchyDescriptions:
+    """Read every ``_description`` out of a raw hierarchical tree.
+
+    Pure and deterministic: no I/O, no ``rdflib``, the input is left untouched
+    and each returned map iterates in sorted key order.
+
+    Args:
+        tree: The raw ``tree`` section of the hierarchical channel database —
+            the unexpanded one, since the expanded channel map keeps only
+            addresses.  Keys starting with ``_`` are metadata, not tokens.
+        levels: The database's ``hierarchy.levels`` list, each entry a mapping
+            with a ``name`` and a ``type``.
+
+    Returns:
+        The :class:`HierarchyDescriptions` for *tree*.  Text is trimmed of
+        surrounding whitespace; nodes whose description is missing, blank or
+        not a string contribute no key.
+
+    Raises:
+        ValueError: If *levels* is not the six-token grammar this module reads
+            (RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD, with DEVICE the one
+            generated level).
+    """
+    _check_levels(levels)
+    collected: dict[str, dict[tuple[str, ...], str]] = {
+        name: {} for name, kind in _EXPECTED_LEVELS if kind == TREE_LEVEL
+    }
+    _collect_descriptions(tree, (), 0, collected)
+    return HierarchyDescriptions(
+        ring=dict(sorted(collected["ring"].items())),
+        system=dict(sorted(collected["system"].items())),
+        family=dict(sorted(collected["family"].items())),
+        field=dict(sorted(collected["field"].items())),
+        subfield=dict(sorted(collected["subfield"].items())),
+    )
+
+
+def _check_levels(levels: Sequence[Mapping[str, object]]) -> None:
+    """Refuse a level list that is not the grammar the five maps are named for."""
+    given = tuple((str(level.get("name", "")), str(level.get("type", ""))) for level in levels)
+    if given != _EXPECTED_LEVELS:
+        expected = ", ".join(f"{name} ({kind})" for name, kind in _EXPECTED_LEVELS)
+        actual = ", ".join(f"{name} ({kind})" for name, kind in given) or "no levels"
+        raise ValueError(f"Hierarchy level grammar is {actual}; this generator reads {expected}")
+
+
+def _collect_descriptions(
+    node: Mapping[str, object],
+    path: tuple[str, ...],
+    level_index: int,
+    collected: dict[str, dict[tuple[str, ...], str]],
+) -> None:
+    """Walk one level of *node*, recording prose and descending into its children."""
+    if level_index >= len(_EXPECTED_LEVELS):
+        return
+    name, kind = _EXPECTED_LEVELS[level_index]
+
+    if kind == INSTANCE_LEVEL:
+        # One placeholder node named for the level (``DEVICE``); its generated
+        # tokens are not part of any description path, so the path is unchanged.
+        for token, child in node.items():
+            if token.upper() == name.upper() and isinstance(child, Mapping):
+                _collect_descriptions(child, path, level_index + 1, collected)
+        return
+
+    for token, child in node.items():
+        if token.startswith("_") or not isinstance(child, Mapping):
+            continue
+        key = (*path, token)
+        text = child.get(DESCRIPTION_KEY)
+        if isinstance(text, str) and text.strip():
+            collected[name][key] = text.strip()
+        _collect_descriptions(child, key, level_index + 1, collected)
+
+
+def _lookup_description(source: Mapping[object, object] | None, key: object) -> str | None:
+    """Return the prose *source* holds for *key*, or ``None``.
+
+    The join is exact: a key the mapping does not hold contributes no text.
+    Nothing is borrowed from a shorter path or a sibling token, because the
+    prose is ring-qualified and a near-miss would describe a different machine.
+    """
+    if source is None:
+        return None
+    text = source.get(key)
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +397,11 @@ class Device:
         device_id: ``narad_p:deviceId`` literal.
         source_section_id: ``narad_p:sourceSectionId`` literal.
         binding_iris: IRIs of this device's bindings, in binding order.
+        family_description: Prose for this device's ``(RING, SYSTEM, FAMILY)``
+            path, or ``None`` when the caller supplied no hierarchy prose or
+            the tree describes no such node.
+        system_description: Prose for this device's ``(RING, SYSTEM)`` path.
+        ring_description: Prose for this device's ring.
     """
 
     ring: str
@@ -264,6 +418,9 @@ class Device:
     device_id: str
     source_section_id: str
     binding_iris: tuple[str, ...]
+    family_description: str | None = None
+    system_description: str | None = None
+    ring_description: str | None = None
 
     @property
     def key(self) -> tuple[str, str, str, str]:
@@ -292,6 +449,12 @@ class ChannelBinding:
         signal_key: ``(FAMILY, FIELD, SUBFIELD)`` of the signal group.
         signal_name: Local name of the SemanticSignal individual.
         signal_iri: IRI of the SemanticSignal individual.
+        description: Prose for this channel, or ``None`` when the caller
+            supplied none for this address.
+        field_description: Prose for the address's ``(RING, SYSTEM, FAMILY,
+            FIELD)`` path, or ``None``.
+        subfield_description: Prose for the address's full ``(RING, SYSTEM,
+            FAMILY, FIELD, SUBFIELD)`` path, or ``None``.
     """
 
     address: Address
@@ -305,6 +468,9 @@ class ChannelBinding:
     signal_key: tuple[str, str, str]
     signal_name: str
     signal_iri: str
+    description: str | None = None
+    field_description: str | None = None
+    subfield_description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -315,6 +481,12 @@ class SignalGroup:
     member binding describes the same physical quantity on a different device.
     That is what lets a later pass decide read/write direction once per group
     and assert it holds for all members.
+
+    A group carries no prose by design.  The hierarchical tree's field and
+    subfield text is ring-qualified, and a group's key has no ring in it — the
+    same ``(FAMILY, FIELD, SUBFIELD)`` in two rings would offer two texts.  The
+    prose therefore hangs off :class:`ChannelBinding`, whose address resolves
+    every text exactly.
 
     Args:
         family: Family token.
@@ -391,14 +563,32 @@ class GraphModel:
 # ---------------------------------------------------------------------------
 
 
-def build_model(channel_map: Mapping[str, Mapping]) -> GraphModel:
+def build_model(
+    channel_map: Mapping[str, Mapping],
+    *,
+    hierarchy_descriptions: HierarchyDescriptions | None = None,
+    binding_descriptions: Mapping[str, str] | None = None,
+) -> GraphModel:
     """Derive the graph model from an expanded channel map.
+
+    Prose is optional and purely additive: with both description arguments left
+    out, every node's text fields are ``None`` and the model is exactly the one
+    the keys alone describe.  When prose is supplied it is attached by **exact
+    join** — an address or path the caller has no text for keeps ``None``
+    rather than borrowing a neighbour's.
 
     Args:
         channel_map: The expanded map from
             :class:`~osprey.services.channel_finder.databases.hierarchical.HierarchicalChannelDatabase`.
             Only the **keys** are read — they are the colon-grammar addresses —
             so the model does not depend on the value shape.
+        hierarchy_descriptions: Prose from the hierarchical tree, as returned by
+            :func:`resolve_hierarchy_descriptions`.  Its ring, system and family
+            maps land on :class:`Device`; its field and subfield maps land on
+            :class:`ChannelBinding`, which is the only node whose key carries
+            the ring the text is qualified by.
+        binding_descriptions: Per-channel prose keyed by full six-token address,
+            for :attr:`ChannelBinding.description`.
 
     Returns:
         The derived :class:`GraphModel`.
@@ -439,12 +629,27 @@ def build_model(channel_map: Mapping[str, Mapping]) -> GraphModel:
             signal_key=address.signal_key,
             signal_name=group_name,
             signal_iri=signal_iri(group_name),
+            description=_lookup_description(binding_descriptions, address.text),
+            field_description=_lookup_description(
+                None if hierarchy_descriptions is None else hierarchy_descriptions.field,
+                (ring, address.system, address.family, address.field),
+            ),
+            subfield_description=_lookup_description(
+                None if hierarchy_descriptions is None else hierarchy_descriptions.subfield,
+                (ring, address.system, address.family, address.field, address.subfield),
+            ),
         )
         bindings_by_device[address.device_key].append(binding)
         groups.setdefault(address.signal_key, []).append(binding.full_pv)
 
     devices = tuple(
-        _build_device(key, ordinal_in_section[key], index + 1, bindings_by_device[key])
+        _build_device(
+            key,
+            ordinal_in_section[key],
+            index + 1,
+            bindings_by_device[key],
+            hierarchy_descriptions,
+        )
         for index, key in enumerate(device_keys)
     )
     bindings = tuple(binding for key in device_keys for binding in bindings_by_device[key])
@@ -472,8 +677,13 @@ def _build_device(
     section_ordinal: int,
     facility_ordinal: int,
     bindings: list[ChannelBinding],
+    descriptions: HierarchyDescriptions | None = None,
 ) -> Device:
-    """Assemble one :class:`Device` from its identity tuple and ordinals."""
+    """Assemble one :class:`Device` from its identity tuple and ordinals.
+
+    The device's three texts resolve off its own ``(RING, SYSTEM, FAMILY)``
+    path, which is unique per device population, so no tie-break is needed.
+    """
     ring, system, family, device = key
     name = source_name(family, device)
     return Device(
@@ -491,4 +701,13 @@ def _build_device(
         device_id=device_id(ring, name),
         source_section_id=source_section_id(ring),
         binding_iris=tuple(binding.iri for binding in bindings),
+        family_description=_lookup_description(
+            None if descriptions is None else descriptions.family, (ring, system, family)
+        ),
+        system_description=_lookup_description(
+            None if descriptions is None else descriptions.system, (ring, system)
+        ),
+        ring_description=_lookup_description(
+            None if descriptions is None else descriptions.ring, (ring,)
+        ),
     )
