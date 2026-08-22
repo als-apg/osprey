@@ -22,6 +22,9 @@ data/
 │   └── cross_paradigm/queries/           # Staged query sets, one per tier
 ├── channel_limits.json                    # Per-channel write limits
 ├── machine_state_channels.json            # Channels shown in the machine-state view
+├── ariel/
+│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
+│   └── README.md                         # Vocabulary format walkthrough
 ├── facility_knowledge/                    # Markdown knowledge bundle
 ├── lattice/                               # Accelerator lattice files
 └── simulation/                            # Mock-connector scenarios
