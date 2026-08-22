@@ -30,18 +30,15 @@ runs, because a graph test that quietly passes without a graph is worse than
 no test at all.
 
 The container recipe — pinned n10s jar bind-mounted at ``/plugins`` instead of
-``NEO4J_PLUGINS``, APOC copied out of the image — is the one
-``tests/integration/test_graphdb_store.py`` established; see that module's
-docstring for why ``NEO4J_PLUGINS`` is deliberately unset.
+``NEO4J_PLUGINS``, APOC copied out of the image — is the shared one in
+``tests/_graphdb_container.py``; see that module's docstring for why
+``NEO4J_PLUGINS`` is deliberately unset.
 """
 
 from __future__ import annotations
 
-import io
 import json
 import logging
-import os
-import tarfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib.resources import files
@@ -49,14 +46,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import requests
 from fastmcp.exceptions import ToolError
 
-from tests._container_support import (
-    is_docker_available,
-    is_image_present,
-    start_or_skip,
-    stop_quietly,
+from tests._container_support import start_or_skip, stop_quietly
+from tests._graphdb_container import (
+    GRAPHDB_TEST_PASSWORD,
+    GRAPHDB_TEST_USERNAME,
+    NEO4J_IMAGE,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,26 +61,6 @@ logger = logging.getLogger(__name__)
 # group is what keeps every such file on one xdist worker.
 pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
 
-
-# ---------------------------------------------------------------------------
-# Pins (same as tests/integration/test_graphdb_store.py — see its docstring)
-# ---------------------------------------------------------------------------
-
-NEO4J_IMAGE = "neo4j:5.20-community"
-N10S_VERSION = "5.20.0"
-N10S_JAR_URL = (
-    f"https://github.com/neo4j-labs/neosemantics/releases/download/"
-    f"{N10S_VERSION}/neosemantics-{N10S_VERSION}.jar"
-)
-N10S_JAR_ENV = "OSPREY_TEST_N10S_JAR"
-IMAGE_LABS_DIR = "/var/lib/neo4j/labs"
-
-#: Satisfies the deploy-time validator's rules for ``GRAPHDB_PASSWORD``
-#: (>= 8 characters, no ``/``).  It is set into the environment for the
-#: duration of a context fixture and never printed: the connection resolver
-#: reads it from ``GRAPHDB_PASSWORD`` exactly as a deployment does.
-GRAPHDB_TEST_PASSWORD = "ospreytest1234"
-GRAPHDB_TEST_USERNAME = "neo4j"
 
 # --- Counts verified in phase 1 for the shipped als_gtb.ttl ----------------
 # Identical to tests/integration/test_graphdb_store.py; re-stated rather than
@@ -142,91 +118,15 @@ NARAD_RELATIONSHIP_TYPES = ("HASBINDING", "READSSIGNAL", "WRITESSIGNAL", "SUBCLA
 # ---------------------------------------------------------------------------
 
 
-def _fetch_n10s_jar(dest_dir: Path) -> None:
-    """Put the pinned neosemantics jar in *dest_dir*, or skip the module."""
-    target = dest_dir / f"neosemantics-{N10S_VERSION}.jar"
-
-    override = os.environ.get(N10S_JAR_ENV)
-    if override:
-        source = Path(override).expanduser()
-        if not source.is_file():
-            pytest.skip(f"{N10S_JAR_ENV} points at {source}, which is not a file")
-        target.write_bytes(source.read_bytes())
-        logger.info(f"n10s jar taken from {N10S_JAR_ENV}={source}")
-        return
-
-    try:
-        with requests.get(N10S_JAR_URL, timeout=120, stream=True) as response:
-            response.raise_for_status()
-            with target.open("wb") as handle:
-                for chunk in response.iter_content(chunk_size=1 << 20):
-                    handle.write(chunk)
-    except requests.exceptions.RequestException as exc:
-        pytest.skip(
-            f"could not download the neosemantics jar from {N10S_JAR_URL} ({exc}); "
-            f"set {N10S_JAR_ENV} to a local copy to run this test offline"
-        )
-    logger.info(f"n10s jar downloaded to {target} ({target.stat().st_size} bytes)")
-
-
-def _copy_bundled_apoc(dest_dir: Path) -> None:
-    """Copy the image's own APOC jar into *dest_dir* without starting anything."""
-    import docker
-
-    client = docker.from_env()
-    container = client.containers.create(NEO4J_IMAGE)
-    try:
-        stream, _stat = container.get_archive(IMAGE_LABS_DIR)
-        archive = io.BytesIO(b"".join(stream))
-        copied = []
-        with tarfile.open(fileobj=archive) as tar:
-            for member in tar.getmembers():
-                name = Path(member.name).name
-                if not (member.isfile() and name.startswith("apoc") and name.endswith(".jar")):
-                    continue
-                extracted = tar.extractfile(member)
-                if extracted is None:  # pragma: no cover - defensive
-                    continue
-                (dest_dir / name).write_bytes(extracted.read())
-                copied.append(name)
-    finally:
-        container.remove(force=True)
-
-    if not copied:  # pragma: no cover - would mean the image changed shape
-        pytest.skip(f"no APOC jar found under {IMAGE_LABS_DIR} in {NEO4J_IMAGE}")
-    logger.info(f"APOC taken from the image: {', '.join(copied)}")
-
-
 @pytest.fixture(scope="module")
-def graph_mcp_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A directory holding n10s + APOC, resolved once for this module.
+def graph_mcp_plugin_dir(graphdb_plugin_dir: Path) -> Path:
+    """n10s + APOC, from the session-wide resolver (tests/_graphdb_container).
 
-    The loud-skip gate for the whole module lives here: it is the first thing
-    every store fixture depends on, so an unreachable daemon is reported once,
-    with its reason, instead of as a wall of unexplained skips.
+    The loud-skip gate for the whole module lives in that resolver: it is the
+    first thing every store fixture depends on, so an unreachable daemon is
+    reported once, with its reason, instead of as a wall of unexplained skips.
     """
-    if not is_docker_available():
-        pytest.skip(
-            "docker daemon is not reachable — the graph MCP tools can only be "
-            "verified against a real Neo4j + neosemantics store"
-        )
-
-    if not is_image_present(NEO4J_IMAGE):
-        import docker
-
-        logger.info(f"pulling {NEO4J_IMAGE} (not present locally)")
-        try:
-            docker.from_env().images.pull(NEO4J_IMAGE)
-        except Exception as exc:
-            pytest.skip(f"could not pull {NEO4J_IMAGE}: {exc}")
-
-    plugin_dir = tmp_path_factory.mktemp("graph-mcp-plugins")
-    _fetch_n10s_jar(plugin_dir)
-    _copy_bundled_apoc(plugin_dir)
-    for jar in plugin_dir.glob("*.jar"):
-        jar.chmod(0o644)
-    plugin_dir.chmod(0o755)
-    return plugin_dir
+    return graphdb_plugin_dir
 
 
 def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:

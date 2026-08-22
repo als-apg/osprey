@@ -16,37 +16,25 @@ Counts only, never wall clock: seeding time depends on the host's disk and on
 whether the image was cold, and a timing assertion here would fail on a loaded
 CI runner while proving nothing about the graph.
 
-**Why the container starts without ``NEO4J_PLUGINS``.** The shipped compose
-template sets it, and the Neo4j entrypoint honours it by fetching the n10s jar
-from GitHub *on every container start* — which would put a release download on
-the critical path of this test each time it runs, and make it fail on a host
-with no egress to github.com even when the image is already local.  This
-fixture instead resolves both jars once per session and bind-mounts them at
-``/plugins``, setting the procedure allowlist/unrestricted variables directly —
-they are the only other thing ``NEO4J_PLUGINS`` would have done.  n10s comes
-from a pinned release URL (cacheable, and overridable offline via
-``OSPREY_TEST_N10S_JAR``); APOC is *bundled in the image* at
-``/var/lib/neo4j/labs`` and is copied out of it, so it costs no network at all.
-The resulting container loads the same two plugins a deployed graphdb does.
+The container recipe — the pinned image, the n10s jar (from the pinned release
+or from ``OSPREY_TEST_N10S_JAR``), the APOC jar copied out of the image, and the
+procedure allowlist that replaces ``NEO4J_PLUGINS`` — lives in
+:mod:`tests._graphdb_container`, which every graph lane shares.  Without Docker,
+without the image, or without the jar this module skips and says which.
 """
 
 from __future__ import annotations
 
-import io
 import logging
-import os
-import tarfile
 from importlib.resources import files
 from pathlib import Path
 
 import pytest
-import requests
 
-from tests._container_support import (
-    is_docker_available,
-    is_image_present,
-    start_or_skip,
-    stop_quietly,
+from tests._graphdb_container import (
+    GRAPHDB_TEST_PASSWORD,
+    GRAPHDB_TEST_USERNAME,
+    graphdb_store,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,39 +46,8 @@ pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
 
 
 # ---------------------------------------------------------------------------
-# Pins
+# Verified counts for the shipped als_gtb.ttl
 # ---------------------------------------------------------------------------
-
-#: Same server pin as the shipped compose template.  Load-bearing twice over:
-#: neosemantics publishes no build for 5.23+, and the n10s release below is the
-#: build made for exactly this server line.
-NEO4J_IMAGE = "neo4j:5.20-community"
-
-#: neosemantics release matching :data:`NEO4J_IMAGE`.  n10s versions track the
-#: server they are built against, so this moves with the image pin or not at
-#: all — a mismatched jar loads and then fails every procedure call.
-N10S_VERSION = "5.20.0"
-
-N10S_JAR_URL = (
-    f"https://github.com/neo4j-labs/neosemantics/releases/download/"
-    f"{N10S_VERSION}/neosemantics-{N10S_VERSION}.jar"
-)
-
-#: Escape hatch for hosts with no egress to github.com: point it at an already
-#: downloaded neosemantics jar and the fixture mounts that instead of fetching.
-N10S_JAR_ENV = "OSPREY_TEST_N10S_JAR"
-
-#: Where the image keeps the APOC jar it would otherwise copy into /plugins.
-IMAGE_LABS_DIR = "/var/lib/neo4j/labs"
-
-#: Password for the throwaway store.  Satisfies the same rule the deploy-time
-#: validator enforces on ``GRAPHDB_PASSWORD`` (>= 8 chars, no ``/``), so the
-#: composite ``NEO4J_AUTH`` this becomes is shaped like a real one.
-GRAPHDB_TEST_PASSWORD = "ospreytest1234"
-
-GRAPHDB_TEST_USERNAME = "neo4j"
-
-# --- Verified counts for the shipped als_gtb.ttl ---------------------------
 # Source: ~/code/als-ontology/neo4j/queries/als-operator-queries.cypher, whose
 # header records these as verified against this snapshot on 2026-05-28.
 
@@ -158,134 +115,15 @@ RETURN count(DISTINCT d) AS n
 # ---------------------------------------------------------------------------
 
 
-def _fetch_n10s_jar(dest_dir: Path) -> None:
-    """Put the pinned neosemantics jar in *dest_dir*, or skip the session.
-
-    A jar named by :data:`N10S_JAR_ENV` is used as-is; otherwise the pinned
-    release is downloaded.  A download failure skips rather than fails: it says
-    something about the host's network, not about the graph store.
-    """
-    target = dest_dir / f"neosemantics-{N10S_VERSION}.jar"
-
-    override = os.environ.get(N10S_JAR_ENV)
-    if override:
-        source = Path(override).expanduser()
-        if not source.is_file():
-            pytest.skip(f"{N10S_JAR_ENV} points at {source}, which is not a file")
-        target.write_bytes(source.read_bytes())
-        logger.info(f"n10s jar taken from {N10S_JAR_ENV}={source}")
-        return
-
-    try:
-        with requests.get(N10S_JAR_URL, timeout=120, stream=True) as response:
-            response.raise_for_status()
-            with target.open("wb") as handle:
-                for chunk in response.iter_content(chunk_size=1 << 20):
-                    handle.write(chunk)
-    except requests.exceptions.RequestException as exc:
-        pytest.skip(
-            f"could not download the neosemantics jar from {N10S_JAR_URL} ({exc}); "
-            f"set {N10S_JAR_ENV} to a local copy to run this test offline"
-        )
-
-    logger.info(f"n10s jar downloaded to {target} ({target.stat().st_size} bytes)")
-
-
-def _copy_bundled_apoc(dest_dir: Path) -> None:
-    """Copy the image's own APOC jar into *dest_dir*.
-
-    APOC ships inside ``neo4j:*-community`` and the entrypoint only *moves* it
-    into ``/plugins`` when ``NEO4J_PLUGINS`` asks for it.  Since this fixture
-    does not set that variable, it does the move itself — from a container that
-    is created and never started, so nothing but a filesystem read happens.
-    """
-    import docker
-
-    client = docker.from_env()
-    container = client.containers.create(NEO4J_IMAGE)
-    try:
-        stream, _stat = container.get_archive(IMAGE_LABS_DIR)
-        archive = io.BytesIO(b"".join(stream))
-        copied = []
-        with tarfile.open(fileobj=archive) as tar:
-            for member in tar.getmembers():
-                name = Path(member.name).name
-                if not (member.isfile() and name.startswith("apoc") and name.endswith(".jar")):
-                    continue
-                extracted = tar.extractfile(member)
-                if extracted is None:  # pragma: no cover - defensive
-                    continue
-                (dest_dir / name).write_bytes(extracted.read())
-                copied.append(name)
-    finally:
-        container.remove(force=True)
-
-    if not copied:  # pragma: no cover - would mean the image changed shape
-        pytest.skip(f"no APOC jar found under {IMAGE_LABS_DIR} in {NEO4J_IMAGE}")
-    logger.info(f"APOC taken from the image: {', '.join(copied)}")
-
-
-@pytest.fixture(scope="session")
-def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A directory holding n10s + APOC, resolved once for the whole session.
-
-    Session-scoped because the expensive half is a release download and the
-    container that mounts it is session-scoped too.
-    """
-    if not is_docker_available():
-        pytest.skip("docker daemon is not reachable")
-
-    if not is_image_present(NEO4J_IMAGE):
-        # Pull explicitly: the APOC copy below reads the image directly and,
-        # unlike ``containers.run``, ``containers.create`` does not pull for us.
-        # Testcontainers would have pulled the same image moments later anyway.
-        import docker
-
-        logger.info(f"pulling {NEO4J_IMAGE} (not present locally)")
-        try:
-            docker.from_env().images.pull(NEO4J_IMAGE)
-        except Exception as exc:
-            pytest.skip(f"could not pull {NEO4J_IMAGE}: {exc}")
-
-    plugin_dir = tmp_path_factory.mktemp("graphdb-plugins")
-    _fetch_n10s_jar(plugin_dir)
-    _copy_bundled_apoc(plugin_dir)
-
-    # The server runs as a non-root user and only ever reads these.
-    for jar in plugin_dir.glob("*.jar"):
-        jar.chmod(0o644)
-    plugin_dir.chmod(0o755)
-    return plugin_dir
-
-
 @pytest.fixture(scope="session")
 def graphdb_uri(graphdb_plugin_dir: Path):
     """Start the graph store and yield its bolt URI.
 
-    The environment mirrors the shipped compose template minus
-    ``NEO4J_PLUGINS`` — see the module docstring for why that one is left out
-    and what replaces it.
+    Session-scoped: this module reads the store rather than wiping it, so one
+    seeded container serves every test here.
     """
-    try:
-        from testcontainers.community.neo4j import Neo4jContainer
-    except ImportError:  # pragma: no cover - depends on the installed extras
-        pytest.skip("testcontainers' neo4j module is not installed")
-
-    def _build() -> Neo4jContainer:
-        container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
-        container.with_volume_mapping(str(graphdb_plugin_dir), "/plugins", "rw")
-        # The allowlist is the half of NEO4J_PLUGINS that is not a download:
-        # without it every n10s.* call fails with "not on the allowlist", and
-        # n10s needs the unrestricted grant because it calls into APOC.
-        container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
-        container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
-        return container
-
-    container = start_or_skip(_build, label="graphdb (neo4j + n10s)")
-    try:
-        yield container.get_connection_url()
-    finally:
-        stop_quietly(container)
+    with graphdb_store(graphdb_plugin_dir) as uri:
+        yield uri
 
 
 @pytest.fixture(scope="session")

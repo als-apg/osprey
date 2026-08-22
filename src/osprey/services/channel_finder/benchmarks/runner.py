@@ -32,10 +32,19 @@ from osprey.services.channel_finder.benchmarks.models import (
     BenchmarkRun,
     QueryResult,
 )
+from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
 logger = logging.getLogger(__name__)
 
-# Map paradigm names to their config key path for the database
+# Map paradigm names to their config key path for the database.
+#
+# Deliberately NOT derived from
+# :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`: every entry here
+# is a ``database.path`` config key, so only paradigms backed by a database
+# file the harness can open belong in this map. A paradigm whose store is a
+# service rather than a file has no path to name and stays out.
+# ``tests/build/test_mode_registry_single_source.py`` pins which paradigms are
+# excluded, so the gap stays a decision rather than an oversight.
 PARADIGM_CONFIG_KEYS: dict[str, list[str]] = {
     "in_context": [
         "channel_finder",
@@ -61,17 +70,41 @@ PARADIGM_CONFIG_KEYS: dict[str, list[str]] = {
 }
 
 
+# Cypher for the graph paradigm's channel census.
+#
+# ``ChannelBinding`` is the graph's channel: one node per address the facility
+# exposes, so counting them answers the same question the file paradigms answer
+# by counting rows in their database.
+#
+# This census is the one place in the graph paradigm that deliberately does NOT
+# go through :class:`osprey.mcp_server.graph.server_context.GraphContext`. That
+# context resolves the *ambient* process configuration and primes the
+# ConfigBuilder singleton — right for a server running inside a rendered
+# project, wrong here: the benchmark runner is a tool acting *on* a project
+# directory it was handed, from a working directory that is usually the repo
+# root. So the census reads the project's own ``services.graphdb`` block and
+# opens a session through the seeder's connection helper instead, which takes
+# the three connection fields as plain arguments and closes the driver behind
+# it.
+GRAPH_CHANNEL_COUNT_CYPHER = "MATCH (b:ChannelBinding) RETURN count(b) AS n"
+
+
 def read_db_path_from_config(project_dir: Path, paradigm: str) -> Path:
     """Read the database path from a project's config.yml.
 
     Args:
         project_dir: Root of the initialized OSPREY project.
-        paradigm: One of ``in_context``, ``hierarchical``, ``middle_layer``.
+        paradigm: A paradigm listed in :data:`PARADIGM_CONFIG_KEYS` — one whose
+            channel store is a database file this helper can name a path to.
 
     Returns:
         Resolved absolute Path to the database file.
 
     Raises:
+        PipelineModeError: If ``paradigm`` has no entry in
+            :data:`PARADIGM_CONFIG_KEYS`, so there is no database file to point
+            at. Callers that also handle service-backed paradigms branch before
+            reaching here.
         KeyError: If the config key path is missing.
         FileNotFoundError: If config.yml does not exist.
     """
@@ -84,7 +117,13 @@ def read_db_path_from_config(project_dir: Path, paradigm: str) -> Path:
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
 
-    keys = PARADIGM_CONFIG_KEYS[paradigm]
+    try:
+        keys = PARADIGM_CONFIG_KEYS[paradigm]
+    except KeyError:
+        raise PipelineModeError(
+            f"Pipeline mode {paradigm!r} has no channel database file to read "
+            f"(file-backed modes: {', '.join(PARADIGM_CONFIG_KEYS)})"
+        ) from None
     node = config
     for key in keys:
         node = node[key]
@@ -167,8 +206,29 @@ class BenchmarkRunner:
             return yaml.safe_load(f) or {}
 
     def _count_channels(self) -> int:
-        """Count channels in the active pipeline's database."""
+        """Count the channels the active pipeline can retrieve.
+
+        The file paradigms count rows in their database file, and a file they
+        cannot read leaves the count at zero: it labels a saved run, it does not
+        score one, so it must not take a benchmark down.
+
+        The graph paradigm has no database file — its channels live in the
+        store — so it is counted by asking the store, and store errors are
+        allowed to propagate. A run whose store is unreachable has nothing
+        truthful to say about the count, and a plausible-looking
+        ``channel_count`` of zero saved beside real scores would misreport the
+        corpus the agent searched.
+
+        Returns:
+            The number of channels behind the active paradigm.
+
+        Raises:
+            Exception: Whatever the graph store raises, on the graph paradigm —
+                unreachable store, refused credentials, failed query.
+        """
         mode = self._resolve_pipeline_mode()
+        if mode == "graph":
+            return self._count_graph_channels()
         try:
             db_path = read_db_path_from_config(self.project_dir, mode)
             if not db_path.exists():
@@ -191,10 +251,58 @@ class BenchmarkRunner:
         except Exception:
             return 0
 
+    def _count_graph_channels(self) -> int:
+        """Count ``ChannelBinding`` nodes in the project's graph store.
+
+        Reads ``services.graphdb`` from the project's own config — the block
+        that carries an external store's ``uri``/``username``, or nothing at
+        all for a deployed store, whose address is then derived from the port
+        it publishes on. The password comes from ``GRAPHDB_PASSWORD`` in the
+        environment either way.
+
+        The ``neo4j`` driver is imported inside
+        :func:`~osprey.services.facility_knowledge.seeder.graph_seeder.open_session`,
+        which also closes it, so importing this module costs no driver.
+
+        Returns:
+            The store's ``ChannelBinding`` count.
+
+        Raises:
+            RuntimeError: If the store answers the count query with no row.
+            Exception: Whatever the driver raises when the store cannot be
+                reached or the query fails.
+        """
+        from osprey.deployment.graphdb_service import resolve_graphdb_connection
+        from osprey.services.facility_knowledge.seeder import graph_seeder
+
+        services = self._read_config().get("services") or {}
+        connection = resolve_graphdb_connection(services.get("graphdb"))
+        with graph_seeder.open_session(
+            connection.uri, connection.username, connection.password
+        ) as session:
+            record = session.run(GRAPH_CHANNEL_COUNT_CYPHER).single()
+        if record is None:
+            raise RuntimeError(
+                f"The graph store at {connection.uri} returned no row for the "
+                f"channel census ({GRAPH_CHANNEL_COUNT_CYPHER})."
+            )
+        return int(record["n"])
+
     def _resolve_pipeline_mode(self) -> str:
-        """Read the active pipeline mode from config."""
+        """Read the active pipeline mode from config.
+
+        Raises:
+            PipelineModeError: If the project configures no
+                ``channel_finder.pipeline_mode``. Every result the run saves is
+                labelled with the paradigm, so a run that cannot name its own
+                paradigm would produce unattributable numbers.
+        """
         config = self._read_config()
-        return config["channel_finder"]["pipeline_mode"]
+        mode = (config.get("channel_finder") or {}).get("pipeline_mode")
+        if not mode:
+            config_path = self.project_dir / "config.yml"
+            raise PipelineModeError(f"No channel_finder.pipeline_mode configured in {config_path}")
+        return str(mode)
 
     def _resolve_queries_path(self) -> Path:
         """Resolve the benchmark queries file path.

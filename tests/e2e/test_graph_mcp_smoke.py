@@ -70,7 +70,6 @@ its own gating decorators instead.
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import os
@@ -78,22 +77,16 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-import requests
 import yaml
 
 from osprey.agent_runner import expected_mcp_servers
-from tests._container_support import (
-    is_docker_available,
-    is_image_present,
-    start_or_fail,
-    stop_quietly,
-)
+from tests._container_support import start_or_fail, stop_quietly
+from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, NEO4J_IMAGE
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -127,25 +120,12 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Pins (same recipe as tests/integration/test_graph_mcp.py — see its docstring)
+# Pins (the shared recipe in tests/_graphdb_container.py — see its docstring)
 # ---------------------------------------------------------------------------
 
-NEO4J_IMAGE = "neo4j:5.20-community"
-N10S_VERSION = "5.20.0"
-N10S_JAR_URL = (
-    f"https://github.com/neo4j-labs/neosemantics/releases/download/"
-    f"{N10S_VERSION}/neosemantics-{N10S_VERSION}.jar"
-)
-N10S_JAR_ENV = "OSPREY_TEST_N10S_JAR"
-IMAGE_LABS_DIR = "/var/lib/neo4j/labs"
+#: This module publishes bolt on a fixed host port (the render's config.yml
+#: names it), unlike the ephemeral-port stores the shared recipe starts.
 BOLT_PORT = 7687
-
-#: Password for the throwaway store. Satisfies the same rule the deploy-time
-#: validator enforces on ``GRAPHDB_PASSWORD`` (>= 8 characters, no ``/``), so
-#: the composite ``NEO4J_AUTH`` it becomes is shaped like a real one. It travels
-#: to the MCP server the way a deployment delivers it — through the project's
-#: ``.env`` — and is never printed, logged, or interpolated into a URI.
-GRAPHDB_TEST_PASSWORD = "ospreytest1234"
 
 
 # ---------------------------------------------------------------------------
@@ -263,99 +243,16 @@ def fabricated_addresses(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_n10s_jar(dest_dir: Path) -> None:
-    """Put the pinned neosemantics jar in *dest_dir*, or skip the module.
-
-    A jar named by :data:`N10S_JAR_ENV` is used as-is; otherwise the pinned
-    release is downloaded. A download failure skips rather than fails: it says
-    something about the host's network, not about the feature under test.
-    """
-    target = dest_dir / f"neosemantics-{N10S_VERSION}.jar"
-
-    override = os.environ.get(N10S_JAR_ENV)
-    if override:
-        source = Path(override).expanduser()
-        if not source.is_file():
-            pytest.skip(f"{N10S_JAR_ENV} points at {source}, which is not a file")
-        target.write_bytes(source.read_bytes())
-        logger.info(f"n10s jar taken from {N10S_JAR_ENV}={source}")
-        return
-
-    try:
-        with requests.get(N10S_JAR_URL, timeout=180, stream=True) as response:
-            response.raise_for_status()
-            with target.open("wb") as handle:
-                for chunk in response.iter_content(chunk_size=1 << 20):
-                    handle.write(chunk)
-    except requests.exceptions.RequestException as exc:
-        pytest.skip(
-            f"could not download the neosemantics jar from {N10S_JAR_URL} ({exc}); "
-            f"set {N10S_JAR_ENV} to a local copy to run this test offline"
-        )
-    logger.info(f"n10s jar downloaded to {target} ({target.stat().st_size} bytes)")
-
-
-def _copy_bundled_apoc(dest_dir: Path) -> None:
-    """Copy the image's own APOC jar into *dest_dir* without starting anything."""
-    import docker
-
-    client = docker.from_env()
-    container = client.containers.create(NEO4J_IMAGE)
-    try:
-        stream, _stat = container.get_archive(IMAGE_LABS_DIR)
-        archive = io.BytesIO(b"".join(stream))
-        copied = []
-        with tarfile.open(fileobj=archive) as tar:
-            for member in tar.getmembers():
-                name = Path(member.name).name
-                if not (member.isfile() and name.startswith("apoc") and name.endswith(".jar")):
-                    continue
-                extracted = tar.extractfile(member)
-                if extracted is None:  # pragma: no cover - defensive
-                    continue
-                (dest_dir / name).write_bytes(extracted.read())
-                copied.append(name)
-    finally:
-        container.remove(force=True)
-
-    if not copied:  # pragma: no cover - would mean the image changed shape
-        pytest.skip(f"no APOC jar found under {IMAGE_LABS_DIR} in {NEO4J_IMAGE}")
-    logger.info(f"APOC taken from the image: {', '.join(copied)}")
-
-
 @pytest.fixture(scope="module")
-def graph_smoke_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A directory holding n10s + APOC, resolved once for this module.
+def graph_smoke_plugin_dir(graphdb_plugin_dir: Path) -> Path:
+    """n10s + APOC, from the session-wide resolver (tests/_graphdb_container).
 
-    The module's loud-skip gate lives here, because this is the first thing the
-    store fixture depends on: an unreachable daemon is reported once, with its
-    reason, rather than as an unexplained skip on the acceptance test.
+    The module's loud-skip gate lives in that resolver, because this is the
+    first thing the store fixture depends on: an unreachable daemon is reported
+    once, with its reason, rather than as an unexplained skip on the
+    acceptance test.
     """
-    if not is_docker_available():
-        pytest.skip(
-            "docker daemon is not reachable — the graph MCP acceptance test can "
-            "only be run against a real Neo4j + neosemantics store"
-        )
-
-    if not is_image_present(NEO4J_IMAGE):
-        # Pull explicitly: the APOC copy reads the image directly and, unlike
-        # ``containers.run``, ``containers.create`` does not pull for us.
-        import docker
-
-        logger.info(f"pulling {NEO4J_IMAGE} (not present locally)")
-        try:
-            docker.from_env().images.pull(NEO4J_IMAGE)
-        except Exception as exc:
-            pytest.skip(f"could not pull {NEO4J_IMAGE}: {exc}")
-
-    plugin_dir = tmp_path_factory.mktemp("graph-smoke-plugins")
-    _fetch_n10s_jar(plugin_dir)
-    _copy_bundled_apoc(plugin_dir)
-    # The server runs as a non-root user and only ever reads these.
-    for jar in plugin_dir.glob("*.jar"):
-        jar.chmod(0o644)
-    plugin_dir.chmod(0o755)
-    return plugin_dir
+    return graphdb_plugin_dir
 
 
 @pytest.fixture(scope="module")

@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder import naming
 from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER
 
@@ -568,21 +569,29 @@ def format_middle_layer(channels: list[dict], tier_spec: TierSpec) -> dict:
 # Query validation
 # ---------------------------------------------------------------------------
 
+# The paradigms tier 3 publishes: every registered paradigm except ``graph``.
+#
+# ``graph`` is excluded deliberately, and by subtraction rather than by a
+# hand-written list so registering a file-backed paradigm joins tier 3 without a
+# second edit here. A tier view is a JSON database file this module writes and
+# then cross-checks query-by-query; the graph paradigm has no such file — its
+# store is seeded from the corpus TTL, so there is nothing under
+# ``tiers/tier3/`` to name. Graph's equivalent of this cross-check is the
+# corpus-vs-database PV-set equality asserted by
+# ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.
+_TIER3_PARADIGMS: tuple[str, ...] = tuple(sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"}))
+
 # Paradigms published per tier. Tier 1 ships the flat ``in_context`` view only;
-# tier 3 ships all three cross-paradigm views. Query validation checks each
-# tier's targeted PVs against exactly the paradigms declared here, and callers
-# iterating "all tiers" iterate these keys — there is no tier 2.
+# tier 3 ships every tier view. Query validation checks each tier's targeted PVs
+# against exactly the paradigms declared here, and callers iterating "all tiers"
+# iterate these keys — there is no tier 2.
 TIER_PARADIGMS: dict[int, tuple[str, ...]] = {
     1: ("in_context",),
-    3: ("in_context", "hierarchical", "middle_layer"),
+    3: _TIER3_PARADIGMS,
 }
 
 # Filename each paradigm view is stored under within a tier directory.
-_PARADIGM_FILENAMES: dict[str, str] = {
-    "in_context": "in_context.json",
-    "hierarchical": "hierarchical.json",
-    "middle_layer": "middle_layer.json",
-}
+_PARADIGM_FILENAMES: dict[str, str] = {name: f"{name}.json" for name in _TIER3_PARADIGMS}
 
 
 def collect_middle_layer_pvs(data: dict) -> set[str]:

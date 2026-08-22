@@ -173,6 +173,12 @@ async def mcp_client_session(
     (``in_context``, ``hierarchical``, or ``middle_layer``) as a
     subprocess and connects via stdio transport.
 
+    The ``graph`` paradigm is deliberately not among them. Its package would
+    spawn fine — the module path formats the same way — but this session only
+    ever serves the ReAct loop below, and graph is an SDK-only paradigm
+    (``backends.create_backend`` refuses ReAct for it). Naming it here would
+    advertise a benchmark path that is neither run nor claimed.
+
     Args:
         env: Extra environment variables merged on top of the default
             ``{"OSPREY_CONFIG": ...}`` dict. Caller-supplied keys win on
