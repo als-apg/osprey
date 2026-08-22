@@ -618,7 +618,12 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     # is a no-op that does NOT bump the revision, so a rerun (or a sibling test
     # staging the same plan) would pin an already-consumed revision and the
     # enqueue below would 409 draft_revision_already_launched.
-    _request(BLUESKY_WEB_URL, "/draft?client_id=panels-deploy-e2e", "DELETE")
+    _request(
+        BLUESKY_WEB_URL,
+        "/draft?client_id=panels-deploy-e2e",
+        "DELETE",
+        headers=_auth_headers(),
+    )
     status, patched = _request(
         BLUESKY_WEB_URL,
         "/draft",
@@ -628,6 +633,7 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
             "plan_args_patch": deployed_stack.plan_args,
             "client_id": "panels-deploy-e2e",
         },
+        headers=_auth_headers(),
     )
     assert status == 200, f"PATCH /draft (via sidecar) failed: {status} {patched}"
     _assert_no_token("draft response", patched)
@@ -749,7 +755,7 @@ def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> Non
     # No /runs/{id}/stop at all -- the path template isn't registered on the
     # sidecar for any method, so it 404s regardless of verb. (The halt lives on
     # the queue surface: POST /queue/stop and POST /queue/abort.)
-    status, body = _request(BLUESKY_WEB_URL, "/runs/not-a-real-run-id/stop", "GET")
+    status, body = _sidecar_get("/runs/not-a-real-run-id/stop")
     assert status == 404, f"expected no GET /runs/{{id}}/stop route, got {status}: {body}"
     status, body = _sidecar_post("/runs/not-a-real-run-id/stop", {})
     assert status == 404, f"expected no POST /runs/{{id}}/stop route, got {status}: {body}"
