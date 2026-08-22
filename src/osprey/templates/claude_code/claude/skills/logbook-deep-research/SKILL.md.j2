@@ -47,6 +47,11 @@ results are findings, not dead ends.**
   exact phrases the user supplied.
 - Try multiple formulations: synonyms, term order variations,
   operator-vs-event vocabulary.
+- When a facility vocabulary is configured, `keyword_search` expands shorthand
+  and acronyms by default (`capabilities` reports `vocabulary.expand_by_default`);
+  pass `expand_query: true`/`false` to force or suppress it, and check
+  `expanded_terms` for what was applied. It also accepts `*` globs (3+ literal
+  characters, e.g. `BPM*`) and `/regex/` tokens for control-system names.
 
 ### 2b. Semantic search
 
