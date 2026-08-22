@@ -796,3 +796,288 @@ class TestSearchResultRendering:
 
         assert result.exit_code == 0
         assert "No results found" in result.stdout
+
+
+# A vocabulary file with exactly three errors: an empty canonical, an unknown
+# kind, and an empty forms list.
+_THREE_ERRORS = """
+concepts:
+  - canonical: ""
+    kind: acronym
+    forms: ["bpm"]
+  - canonical: beam position monitor
+    kind: sideways
+    forms: ["bpm"]
+  - canonical: radio frequency
+    kind: acronym
+    forms: []
+"""
+
+# One form bound to two concepts: legal, one warning, no errors.
+_AMBIGUOUS = """
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms: ["t/s", "ts"]
+  - canonical: timing system
+    kind: acronym
+    forms: ["ts"]
+"""
+
+
+def _flat(text: str) -> str:
+    """Collapse rich's wrapping and indentation so phrases can be asserted on."""
+    return " ".join(text.split())
+
+
+class TestVocabCheckCommand:
+    """``osprey ariel vocab-check`` — the database-free vocabulary validator."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture
+    def no_config(self, monkeypatch):
+        """Run with no ``ariel`` section at all, as a bare checkout would."""
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {} if key == "ariel" else default,
+        )
+
+    def _write(self, tmp_path, body):
+        path = tmp_path / "vocabulary.yml"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_group_help_lists_vocab_check_and_qmd_resync(self, runner):
+        result = runner.invoke(ariel_group, ["--help"])
+        assert result.exit_code == 0
+        assert "vocab-check" in result.output
+        assert "qmd-resync" in result.output
+
+    def test_vocab_check_help_documents_defaults_and_exit_codes(self, runner):
+        result = runner.invoke(ariel_group, ["vocab-check", "--help"])
+        assert result.exit_code == 0
+        flat = _flat(result.output)
+        assert "Validate a facility vocabulary file" in flat
+        assert "ariel.vocabulary.path" in flat
+        assert "Exit codes" in flat
+
+    def test_three_error_file_exits_one_listing_every_error(self, runner, tmp_path, no_config):
+        path = self._write(tmp_path, _THREE_ERRORS)
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
+
+        assert result.exit_code == 1
+        flat = _flat(result.stderr)
+        assert "3 error(s)" in flat
+        assert "'canonical' must be a non-empty string" in flat
+        assert "unknown kind 'sideways'" in flat
+        assert "'forms' must be a non-empty list, got an empty list" in flat
+
+    def test_warnings_only_file_exits_zero_and_prints_the_warning(
+        self, runner, tmp_path, no_config
+    ):
+        path = self._write(tmp_path, _AMBIGUOUS)
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
+
+        assert result.exit_code == 0
+        warning = _flat(result.stderr)
+        assert 'form "ts" is bound to 2 concepts' in warning
+        assert "troubleshoot" in warning
+        assert "timing system" in warning
+        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+
+    def test_clean_file_reports_the_concept_count(self, runner, tmp_path, no_config):
+        path = self._write(
+            tmp_path,
+            "concepts:\n  - canonical: beam position monitor\n"
+            "    kind: acronym\n    forms: ['bpm']\n",
+        )
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
+
+        assert result.exit_code == 0
+        assert result.stderr.strip() == ""
+        assert "Vocabulary OK: 1 concepts" in _flat(result.stdout)
+
+    def test_missing_file_is_a_vocabulary_error_not_a_usage_error(
+        self, runner, tmp_path, no_config
+    ):
+        result = runner.invoke(ariel_group, ["vocab-check", str(tmp_path / "absent.yml")])
+
+        assert result.exit_code == 1
+        assert "vocabulary file not found" in _flat(result.stderr)
+
+    def test_no_path_and_no_config_explains_both_ways_to_name_one(self, runner, no_config):
+        result = runner.invoke(ariel_group, ["vocab-check"])
+
+        assert result.exit_code == 1
+        assert "pass PATH or set ariel.vocabulary.path" in _flat(result.stderr)
+
+    def test_explicit_path_needs_no_project_config(self, runner, tmp_path, monkeypatch):
+        """Outside a project directory the config loader raises; PATH must still work."""
+        path = self._write(tmp_path, _AMBIGUOUS)
+
+        def _no_project(key, default=None):
+            raise FileNotFoundError("No config.yml found in current directory")
+
+        monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
+
+        assert result.exit_code == 0
+        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+
+    def test_no_path_outside_a_project_still_reports_the_missing_config(self, runner, monkeypatch):
+        def _no_project(key, default=None):
+            raise FileNotFoundError("No config.yml found in current directory")
+
+        monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
+
+        result = runner.invoke(ariel_group, ["vocab-check"])
+
+        assert result.exit_code != 0
+        assert "config.yml" in _flat(result.output) or isinstance(
+            result.exception, FileNotFoundError
+        )
+
+    def test_configured_path_is_used_when_no_argument_is_given(self, runner, tmp_path, monkeypatch):
+        path = self._write(tmp_path, _AMBIGUOUS)
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: (
+                {"vocabulary": {"enabled": True, "path": str(path)}} if key == "ariel" else default
+            ),
+        )
+
+        result = runner.invoke(ariel_group, ["vocab-check"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+
+    def test_json_emits_one_document_and_still_exits_one_on_errors(
+        self, runner, tmp_path, no_config
+    ):
+        import json as json_mod
+
+        path = self._write(tmp_path, _THREE_ERRORS)
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path), "--json"])
+
+        assert result.exit_code == 1
+        document = json_mod.loads(result.stdout)
+        assert document["status"] == "invalid"
+        assert document["path"] == str(path)
+        assert document["concepts"] == 0
+        assert len(document["errors"]) == 3
+        assert document["warnings"] == []
+
+    def test_json_on_a_clean_file_exits_zero(self, runner, tmp_path, no_config):
+        import json as json_mod
+
+        path = self._write(tmp_path, _AMBIGUOUS)
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path), "--json"])
+
+        assert result.exit_code == 0
+        document = json_mod.loads(result.stdout)
+        assert document["status"] == "ok"
+        assert document["concepts"] == 2
+        assert len(document["warnings"]) == 1
+
+
+class TestStatusVocabularyLine:
+    """The ``Vocabulary:`` line of ``osprey ariel status`` survives a dead database."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture(autouse=True)
+    def _config(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
+        )
+
+    def _patch_status(self, monkeypatch, result):
+        async def fake_get_status(config_dict, *, config_dir=None):
+            return result
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.get_status", fake_get_status
+        )
+
+    def test_invalid_vocabulary_is_printed_even_when_the_database_is_down(
+        self, runner, monkeypatch
+    ):
+        self._patch_status(
+            monkeypatch,
+            {
+                "status": "error",
+                "message": "Cannot connect to the ARIEL database.",
+                "vocabulary": {
+                    "status": "invalid",
+                    "concepts": 0,
+                    "errors": ["ariel.vocabulary.path: /x/vocabulary.yml — not found"],
+                },
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary: INVALID (1 errors). Run: osprey ariel vocab-check" in _flat(
+            result.stdout
+        )
+
+    def test_valid_vocabulary_reports_its_concept_count(self, runner, monkeypatch):
+        self._patch_status(
+            monkeypatch,
+            {
+                "status": "error",
+                "message": "boom",
+                "vocabulary": {"status": "ok", "concepts": 20, "errors": []},
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary: OK (20 concepts)" in _flat(result.stdout)
+
+    def test_disabled_vocabulary_says_so(self, runner, monkeypatch):
+        self._patch_status(
+            monkeypatch,
+            {
+                "status": "error",
+                "message": "ARIEL not configured",
+                "vocabulary": {"status": "disabled", "concepts": 0, "errors": []},
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary: disabled" in _flat(result.stdout)
+
+    def test_json_document_carries_the_vocabulary_key(self, runner, monkeypatch):
+        import json as json_mod
+
+        self._patch_status(
+            monkeypatch,
+            {
+                "status": "error",
+                "message": "boom",
+                "vocabulary": {"status": "invalid", "concepts": 0, "errors": ["e"]},
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status", "--json"])
+
+        assert result.exit_code == 0
+        document = json_mod.loads(result.stdout)
+        assert document["vocabulary"]["status"] == "invalid"
