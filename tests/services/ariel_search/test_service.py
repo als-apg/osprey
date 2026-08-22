@@ -867,6 +867,7 @@ class TestAdvancedParamsWiring:
             "max_results",
             "start_date",
             "end_date",
+            "parsed",
         }
 
 

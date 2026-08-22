@@ -269,6 +269,13 @@ class ARIELSearchResult:
         sources: Entry IDs used as sources
         search_modes_used: Names of the search modules that were executed
         reasoning: Explanation of results
+        diagnostics: Structured diagnostics from the executed search
+        expanded_terms: Vocabulary expansion actually applied to this search,
+            one ``{"original": str, "alternatives": [str, ...]}`` mapping per
+            expanded span. Empty when no vocabulary is configured, when the
+            caller switched expansion off, or when the executed search ran
+            without it -- it reports what the search contained, never what was
+            merely offered.
     """
 
     entries: tuple[dict[str, Any], ...]
@@ -277,6 +284,7 @@ class ARIELSearchResult:
     search_modes_used: tuple[str, ...] = field(default_factory=tuple)
     reasoning: str = ""
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
+    expanded_terms: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
 @dataclass
