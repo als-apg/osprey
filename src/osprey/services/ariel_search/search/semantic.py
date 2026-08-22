@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.search.base import ParameterDescriptor, SearchToolDescriptor
+from osprey.services.ariel_search.search.base import (
+    ModuleOutput,
+    ParameterDescriptor,
+    SearchToolDescriptor,
+    module_result,
+)
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -18,6 +23,7 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search.base import QueryExpansion
 
 logger = get_logger("ariel")
 
@@ -36,8 +42,9 @@ async def semantic_search(
     end_date: datetime | None = None,
     author: str | None = None,
     source_system: str | None = None,
+    query_expansion: QueryExpansion | None = None,
     **kwargs: Any,
-) -> list[tuple[EnhancedLogbookEntry, float]]:
+) -> list[tuple[EnhancedLogbookEntry, float]] | ModuleOutput:
     """Execute semantic similarity search.
 
     Generates an embedding for the query and finds similar entries
@@ -56,12 +63,23 @@ async def semantic_search(
         end_date: Filter entries before this time
         author: Filter by author name (ILIKE match)
         source_system: Filter by source system (exact match)
+        query_expansion: Resolved vocabulary expansion for this query, passed by
+            the service only when one was actually resolved. When present, its
+            `flattened_text` is embedded in place of `query` -- the whole query
+            is the matching text for semantic search, and it is never truncated.
 
     Returns:
-        List of (entry, similarity_score) tuples sorted by similarity
+        Without `query_expansion`: the list of (entry, similarity_score) tuples
+        sorted by similarity -- the bare-list contract every direct caller
+        relies on today, returned unchanged.
+
+        With `query_expansion`: a `ModuleOutput` carrying those same tuples as
+        `entries` and the applied expansion groups as `expansion`. The shape is
+        conditional so that the many direct callers of this function keep the
+        return value they have always received; the service unwraps either form.
     """
     if not query.strip():
-        return []
+        return module_result([], query_expansion)
 
     logger.info(
         f"semantic_search: query={query!r}, max_results={max_results}, "
@@ -83,7 +101,7 @@ async def semantic_search(
     model_name = config.get_search_model()
     if not model_name:
         logger.warning("No semantic search model configured")
-        return []
+        return module_result([], query_expansion)
 
     # Priority: search module provider > embedding provider > default
     provider_name = (
@@ -103,16 +121,18 @@ async def semantic_search(
     base_url = provider_config.get("base_url") or embedder.default_base_url
     api_key = provider_config.get("api_key")
 
+    embed_text = query_expansion.flattened_text if query_expansion else query
+
     try:
         embeddings = embedder.execute_embedding(
-            texts=[query],
+            texts=[embed_text],
             model_id=model_name,
             base_url=base_url,
             api_key=api_key,
         )
         if not embeddings or not embeddings[0]:
             logger.error("Failed to generate query embedding")
-            return []
+            return module_result([], query_expansion)
 
         query_embedding = embeddings[0]
 
@@ -128,7 +148,7 @@ async def semantic_search(
 
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
-        return []
+        return module_result([], query_expansion)
 
     results = await repository.semantic_search(
         query_embedding=query_embedding,
@@ -154,7 +174,7 @@ async def semantic_search(
             pass  # Don't let diagnostic check break the search path
 
     logger.info(f"semantic_search: returning {len(results)} results")
-    return results
+    return module_result(results, query_expansion)
 
 
 class SemanticSearchInput(BaseModel):
@@ -180,6 +200,13 @@ class SemanticSearchInput(BaseModel):
     end_date: datetime | None = Field(
         default=None,
         description="Filter entries created before this time (inclusive)",
+    )
+    expand_query: bool | None = Field(
+        default=None,
+        description=(
+            "Apply the facility vocabulary expansion (shorthand/acronyms). "
+            "None = the configured default (capabilities().vocabulary.expand_by_default)"
+        ),
     )
 
 
@@ -232,4 +259,5 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         execute=semantic_search,
         format_result=format_semantic_result,
         needs_embedder=True,
+        accepts_expansion=True,
     )

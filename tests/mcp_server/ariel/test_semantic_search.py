@@ -9,15 +9,22 @@ from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
-def _make_search_result(entries, reasoning="", sources=()):
-    """Build a mock ARIELSearchResult."""
+def _make_search_result(entries, reasoning="", sources=(), diagnostics=(), expanded_terms=()):
+    """Build a mock ARIELSearchResult.
+
+    ``diagnostics`` and ``expanded_terms`` are set explicitly on every result:
+    a MagicMock auto-attribute is neither iterable nor JSON-serializable, so
+    leaving them unset would fail the envelope build rather than the assertion
+    under test.
+    """
     result = MagicMock()
     result.entries = tuple(entries)
     result.answer = None
     result.reasoning = reasoning
     result.sources = tuple(sources)
     result.search_modes_used = ("semantic",)
-    result.diagnostics = ()
+    result.diagnostics = tuple(diagnostics)
+    result.expanded_terms = tuple(expanded_terms)
     result.pipeline_details = None
     return result
 
@@ -166,3 +173,208 @@ async def test_semantic_search_service_error(tmp_path, monkeypatch):
 
     data = _exc_ctx["envelope"]
     assert "Embedding service down" in data["error_message"]
+
+
+@pytest.mark.unit
+async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatch):
+    """A broken facility vocabulary is a fixable config problem, not an internal error."""
+    from osprey.services.ariel_search.exceptions import VocabularyError
+
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.search.side_effect = VocabularyError(
+        ["vocabulary.yml: duplicate term 'ts'"],
+    )
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
+            await fn(query="test")
+
+    data = _exc_ctx["envelope"]
+    assert "ariel.vocabulary.path" in data["error_message"]
+    assert "vocabulary.yml: duplicate term 'ts'" in data["error_message"]
+    assert any(
+        "disable ariel.vocabulary.enabled or repoint ariel.vocabulary.path" in s
+        for s in data["suggestions"]
+    )
+
+
+# --- vocabulary expansion ---------------------------------------------------
+
+TS_GROUP = {"original": "ts", "alternatives": ["troubleshoot", "timing system"]}
+
+
+def _service_returning(mock_result):
+    """An ARIEL service mock whose search returns *mock_result*."""
+    mock_service = AsyncMock()
+    mock_service.search.return_value = mock_result
+    return mock_service
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", [True, False])
+async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+    """An explicit expand_query reaches the service as an advanced parameter."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = _service_returning(_make_search_result([]))
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        await fn(query="ts on the bpm", expand_query=value)
+
+    assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
+
+
+@pytest.mark.unit
+async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
+    """Silence leaves the deployment's ``expand_by_default`` in charge."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = _service_returning(_make_search_result([]))
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        await fn(query="ts on the bpm")
+
+    assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
+
+
+@pytest.mark.unit
+async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
+    """Semantic mode expands over the whole query and says what it embedded."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_result = _make_search_result(
+        [make_mock_entry(entry_id="e1", raw_text="troubleshooting the timing system")],
+        expanded_terms=[TS_GROUP],
+    )
+    mock_service = _service_returning(mock_result)
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        result = await fn(query="ts fault", expand_query=True)
+
+    data = extract_response_dict(result)
+    assert data["expanded_terms"] == [TS_GROUP]
+    assert data["expanded_terms"][0]["alternatives"] == ["troubleshoot", "timing system"]
+
+
+@pytest.mark.unit
+async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
+    """A search that expanded nothing says why, in the same envelope."""
+    from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_result = _make_search_result(
+        [],
+        diagnostics=[
+            SearchDiagnostic(
+                level=DiagnosticLevel.INFO,
+                source="service.semantic",
+                message="expansion skipped: semantic is not in ariel.vocabulary.expand_modes",
+                category="expansion",
+            )
+        ],
+    )
+    mock_service = _service_returning(mock_result)
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        result = await fn(query="ts fault")
+
+    data = extract_response_dict(result)
+    assert data["expanded_terms"] == []
+    assert data["diagnostics"][0]["level"] == "info"
+    assert data["diagnostics"][0]["category"] == "expansion"
+    assert "expand_modes" in data["diagnostics"][0]["message"]
+
+
+@pytest.mark.unit
+async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatch):
+    """A cancelled statement is an error, not an empty result set."""
+    from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_result = _make_search_result(
+        [],
+        diagnostics=[
+            SearchDiagnostic(
+                level=DiagnosticLevel.ERROR,
+                source="service.timeout",
+                message="Search timed out: vector scan exceeded 10.0s limit",
+                category="timeout",
+            )
+        ],
+        expanded_terms=[TS_GROUP],
+    )
+    mock_service = _service_returning(mock_result)
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        with assert_raises_error(error_type="search_timeout") as _exc_ctx:
+            await fn(query="ts fault")
+
+    data = _exc_ctx["envelope"]
+    assert "exceeded 10.0s" in data["error_message"]
+    assert data["details"]["expanded_terms"] == [TS_GROUP]
+    assert data["details"]["diagnostics"][0]["source"] == "service.timeout"
+
+
+@pytest.mark.unit
+async def test_degraded_result_is_still_not_an_error(tmp_path, monkeypatch):
+    """Only ERROR diagnostics of a statement-fault category raise (#276).
+
+    The graceful-degradation path returns an empty result with a WARNING, and
+    that must keep reading as a normal answer.
+    """
+    from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_result = _make_search_result(
+        [],
+        reasoning="Semantic search is unavailable. Use keyword search instead.",
+        diagnostics=[
+            SearchDiagnostic(
+                level=DiagnosticLevel.WARNING,
+                source="service.semantic",
+                message="embeddings are not configured",
+                category="degraded",
+            )
+        ],
+    )
+    mock_service = _service_returning(mock_result)
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        result = await fn(query="ts fault")
+
+    data = extract_response_dict(result)
+    assert not data.get("error", False)
+    assert data["diagnostics"][0]["level"] == "warning"

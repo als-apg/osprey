@@ -16,7 +16,14 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.capabilities")
 async def capabilities() -> str:
     """Report available ARIEL search capabilities.
 
-    Returns enabled search modules, search modes, and the embedding provider.
+    Returns enabled search modules, search modes, the embedding provider, the
+    facility vocabulary, and the parameters every search mode accepts.
+
+    ``vocabulary`` reports whether this deployment ships a facility vocabulary,
+    how many concepts it holds, and whether expansion is applied by default.
+    When it is enabled, the search tools' ``expand_query`` argument overrides
+    that default per call; when it is disabled the argument is a no-op and
+    ``shared_parameters`` carries no ``expand_query`` entry.
 
     ``search_modes`` lists the search modules that are both registered and
     enabled — the modes a ``search`` call may actually route to. It is derived
@@ -36,7 +43,8 @@ async def capabilities() -> str:
     try:
         context = get_ariel_context()
         config = context.config
-        modes = get_capabilities(config)["categories"]["direct"]["modes"]
+        caps = get_capabilities(config)
+        modes = caps["categories"]["direct"]["modes"]
 
         return json.dumps(
             {
@@ -45,6 +53,8 @@ async def capabilities() -> str:
                 "embedding": {
                     "provider": config.embedding.provider,
                 },
+                "vocabulary": caps["vocabulary"],
+                "shared_parameters": caps["shared_parameters"],
             },
             default=str,
         )
