@@ -47,6 +47,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   session had since taken its place.
 - A web terminal that cannot resume its stored session now falls back to a
   fresh one instead of stopping at "[Process exited]".
+- A subagent's written summary no longer lands in the gallery category that
+  holds its computed results. `submit_response` filed its Markdown under a
+  category derived from the agent's name — so a pyAT summary and the JSON
+  numbers it describes both appeared as "Lattice Analysis", and neither the
+  gallery nor the agent could tell them apart. The summary is now an "Agent
+  Response", and a `data_type` you pass is no longer overridden.
 - Timeseries previews in the workspace gallery render again in CDN-mode
   (non-offline) deployments: the lazy Plotly loader now uses the same
   CDN-or-vendored URL resolution as the gallery's other vendor assets

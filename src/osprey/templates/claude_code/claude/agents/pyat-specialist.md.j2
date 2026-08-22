@@ -206,10 +206,15 @@ Follow this sequence so both a machine-readable channel and a human summary exis
    submit_response(
        title="...",
        content="<your prose summary>",
-       data_type="lattice_analysis",
+       data_type="agent_response",
        source_agent="pyat-specialist",
    )
    ```
+
+   The prose is an `agent_response`, not a `lattice_analysis`. That category
+   holds the JSON results artifact from step 1 and nothing else, which is what
+   makes the check in step 2 mean something: if `artifact_list` returns a
+   Markdown entry there, the results artifact was never saved.
 
 5. **Echo the confirmed results artifact id(s)** in your reply so the parent can
    reference or re-delegate them.
