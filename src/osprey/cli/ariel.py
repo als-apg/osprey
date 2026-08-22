@@ -12,6 +12,7 @@ import asyncio
 import json
 import sys
 from contextlib import nullcontext
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
@@ -61,6 +62,42 @@ def _load_ariel_config() -> dict:
         )
         raise SystemExit(1)
     return config_dict
+
+
+def _config_dir() -> Path | None:
+    """Return the directory of the config.yml this CLI run is reading.
+
+    A relative ``ariel.vocabulary.path`` names a file next to that config, not
+    next to whatever directory the operator happened to run from — so every
+    process reading the same config finds the same vocabulary file. Delegates
+    to the framework rule rather than restating it.
+
+    Returns:
+        The config's parent directory, or None when it cannot be determined, in
+        which case the shared resolver falls back to its own rule.
+    """
+    from osprey.utils.config_paths import resolve_config_dir
+
+    return resolve_config_dir()
+
+
+def _report_vocabulary(vocabulary: dict | None) -> None:
+    """Print the one-line vocabulary verdict of ``osprey ariel status``.
+
+    Args:
+        vocabulary: The ``vocabulary`` block of the status result, or None when
+            the result predates it (nothing is printed then).
+    """
+    if not vocabulary:
+        return
+    status = vocabulary.get("status")
+    if status == "ok":
+        output.report(f"Vocabulary: OK ({vocabulary.get('concepts', 0)} concepts)")
+    elif status == "invalid":
+        count = len(vocabulary.get("errors") or [])
+        output.report(f"Vocabulary: INVALID ({count} errors). Run: osprey ariel vocab-check")
+    else:
+        output.report("Vocabulary: disabled")
 
 
 def _handle_db_error(e: Exception) -> None:
@@ -200,7 +237,7 @@ def status_command(output_json: bool) -> None:
     # Under ``--json`` the whole body runs in machine mode, so every renderer
     # line goes to stderr and stdout carries one document for a script to parse.
     with output.machine_mode() if output_json else nullcontext():
-        result = asyncio.run(get_status(config_dict))
+        result = asyncio.run(get_status(config_dict, config_dir=_config_dir()))
 
         if output_json:
             _emit_json_document(result)
@@ -208,6 +245,12 @@ def status_command(output_json: bool) -> None:
 
         output.report(f"ARIEL Status: {result['status']}")
         output.note(result["message"])
+
+        # Outside the guard below on purpose: the vocabulary is read from the
+        # config file, so its line is exactly as true with the database down as
+        # with it up, and that is when an operator most needs to read it.
+        _report_vocabulary(result.get("vocabulary"))
+
         if result["status"] != "error":
             output.report("")
             output.section(
@@ -719,6 +762,84 @@ def qmd_resync_command(rebuild: bool) -> None:
 
     output.report("")
     output.section(f"Mirror: {result.mirror_path}", rows)
+
+
+@ariel_group.command("vocab-check")
+@click.argument("path", required=False, type=click.Path(path_type=Path))
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+def vocab_check_command(path: Path | None, output_json: bool) -> None:
+    """Validate a facility vocabulary file.
+
+    A vocabulary file lists the shorthand operators type beside the words the
+    logbook actually uses, so that a search for 't/s' also finds
+    'troubleshoot'. This command reads one and reports every problem in it, so
+    a broken file is found at build time rather than by a search that quietly
+    stops expanding.
+
+    Checks the file named by PATH. With no PATH it checks the file named by
+    ariel.vocabulary.path in config.yml — resolved relative to that config
+    file, exactly as the web panel and the MCP server resolve it. No database
+    is needed either way.
+
+    \b
+    Exit codes:
+        0  the file is valid; warnings, if any, are printed
+        1  the file has errors, all of which are listed
+
+    Warnings never fail the check. They report the things that are legal but
+    worth knowing: a form bound to more than one concept (it expands to every
+    one of them), a form that can never match because a longer one always wins,
+    and a word PostgreSQL's English text search discards.
+
+    \b
+    Example:
+        osprey ariel vocab-check                     # the configured file
+        osprey ariel vocab-check data/ariel/vocabulary.yml
+        osprey ariel vocab-check --json              # one JSON document
+    """
+    from osprey.services.ariel_search.cli_operations import check_vocabulary
+
+    try:
+        config_dict = get_config_value("ariel", {}) or {}
+    except FileNotFoundError:
+        # An explicit PATH needs no project config at all; only the
+        # "check the configured file" form depends on one being reachable.
+        if path is None:
+            raise
+        config_dict = {}
+
+    # Under ``--json`` the whole body runs in machine mode, so every renderer
+    # line goes to stderr and stdout carries one document for a script to parse.
+    with output.machine_mode() if output_json else nullcontext():
+        result = check_vocabulary(
+            config_dict,
+            str(path) if path is not None else None,
+            config_dir=_config_dir(),
+        )
+
+        if output_json:
+            _emit_json_document(result)
+            if result["status"] != "ok":
+                raise SystemExit(1)
+            return
+
+        if result["status"] == "error":
+            output.fail("no vocabulary file to check", result["message"])
+            raise SystemExit(1)
+
+        for warning in result["warnings"]:
+            output.warn(warning)
+
+        if result["errors"]:
+            where = f": {result['path']}" if result["path"] else ""
+            output.fail(
+                f"vocabulary file has {len(result['errors'])} error(s){where}",
+                "\n".join(result["errors"]),
+                "fix every problem listed above, then run this check again",
+            )
+            raise SystemExit(1)
+
+        output.report(f"Vocabulary OK: {result['concepts']} concepts ({result['path']})")
 
 
 __all__ = ["ariel_group"]
