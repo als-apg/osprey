@@ -54,6 +54,14 @@ export function formatHumanTimestamp(timestamp) {
  */
 
 /**
+ * One vocabulary expansion that was actually applied to the query: the term
+ * the operator typed and every canonical form it was expanded to.
+ * @typedef {Object} ExpandedTerm
+ * @property {string} original
+ * @property {string[]} alternatives
+ */
+
+/**
  * Format a timestamp for display.
  * @param {string} [timestamp] - ISO timestamp
  * @returns {string} Formatted date/time
@@ -398,6 +406,70 @@ export function renderDiagnosticsBar(diagnostics) {
   `;
 }
 
+/**
+ * Render the query-expansion strip for the Expert results header: one pair per
+ * applied expansion, e.g. `ts -> troubleshoot, timing system`. An entry whose
+ * term expanded to several canonicals is ONE pair with the canonicals joined by
+ * commas, never one pair per canonical, so the strip mirrors the backend's
+ * `expanded_terms` groups exactly.
+ * @param {ExpandedTerm[]} [expandedTerms] - Applied expansions from the search response
+ * @returns {string} HTML string (empty when nothing was expanded)
+ */
+export function renderExpansionBanner(expandedTerms) {
+  const groups = (expandedTerms ?? []).filter(
+    (t) => t && t.original && (t.alternatives?.length ?? 0) > 0
+  );
+  if (groups.length === 0) return '';
+
+  const pairs = groups.map((t) => {
+    const alternatives = t.alternatives.map((a) => escapeHtml(a)).join(', ');
+    return '<span class="expansion-pair">' +
+      `<code class="expansion-original">${escapeHtml(t.original)}</code>` +
+      ` &rarr; ${alternatives}</span>`;
+  }).join('');
+
+  return `
+    <div class="expansion-banner" data-testid="expansion-banner">
+      <span class="expansion-label">Expanded</span>
+      ${pairs}
+    </div>
+  `;
+}
+
+/**
+ * Render the degraded-configuration banner shown above the search form.
+ *
+ * Blocking (`configuration_invalid`) renders `#config-invalid-banner` and the
+ * caller disables the search controls; non-blocking (`configuration_warning`)
+ * renders `#config-warning-banner` with the form left usable. Both carry
+ * `data-testid="config-banner"`.
+ * @param {string[]} [configErrors] - Configuration errors reported by /api/capabilities
+ * @param {string|null} [remedy] - Operator-facing fix derived from the error class
+ * @param {boolean} [blocking] - True for configuration_invalid
+ * @returns {string} HTML string
+ */
+export function renderConfigBanner(configErrors, remedy, blocking = false) {
+  const id = blocking ? 'config-invalid-banner' : 'config-warning-banner';
+  const variant = blocking ? 'config-banner-invalid' : 'config-banner-warning';
+  const title = blocking
+    ? 'Search unavailable \u2014 configuration invalid'
+    : 'Configuration warning \u2014 search still available';
+  const items = (configErrors ?? [])
+    .map((e) => `<li class="config-banner-error">${escapeHtml(e)}</li>`)
+    .join('');
+  const remedyHtml = remedy
+    ? `<p class="config-banner-remedy">${escapeHtml(remedy)}</p>`
+    : '';
+
+  return `
+    <div id="${id}" class="config-banner ${variant}" role="alert" data-testid="config-banner">
+      <p class="config-banner-title">${title}</p>
+      <ul class="config-banner-errors">${items}</ul>
+      ${remedyHtml}
+    </div>
+  `;
+}
+
 // Re-exported from the shared design-system dom module. The import above creates
 // a real local binding, so internal call sites and the `export default {…}`
 // object below keep resolving `escapeHtml`, and importer files (dashboard.js,
@@ -428,6 +500,8 @@ export default {
   renderEntryCardSimple,
   renderAnswerBox,
   renderDiagnosticsBar,
+  renderExpansionBanner,
+  renderConfigBanner,
   renderLoading,
   renderEmptyState,
   renderErrorState,

@@ -15,7 +15,7 @@ def _get_capabilities():
     return get_tool_fn(capabilities)
 
 
-def _setup_registry(tmp_path, monkeypatch, search_modules=None):
+def _setup_registry(tmp_path, monkeypatch, search_modules=None, vocabulary=None):
     """Write a config, initialize the framework registry and the ARIEL context.
 
     The framework registry must be initialized because ``capabilities`` now
@@ -26,6 +26,8 @@ def _setup_registry(tmp_path, monkeypatch, search_modules=None):
         monkeypatch: Pytest monkeypatch fixture, used to chdir.
         search_modules: Optional ``search_modules`` config block. Defaults to
             keyword and semantic both enabled.
+        vocabulary: Optional ``vocabulary`` config block. Omitted entirely by
+            default, which is the no-vocabulary deployment.
     """
     monkeypatch.chdir(tmp_path)
     if search_modules is None:
@@ -33,14 +35,13 @@ def _setup_registry(tmp_path, monkeypatch, search_modules=None):
             "keyword": {"enabled": True},
             "semantic": {"enabled": True, "model": "nomic-embed-text"},
         }
-    config = json.dumps(
-        {
-            "ariel": {
-                "database": {"uri": "postgresql://localhost/test"},
-                "search_modules": search_modules,
-            }
-        }
-    )
+    ariel: dict = {
+        "database": {"uri": "postgresql://localhost/test"},
+        "search_modules": search_modules,
+    }
+    if vocabulary is not None:
+        ariel["vocabulary"] = vocabulary
+    config = json.dumps({"ariel": ariel})
     (tmp_path / "config.yml").write_text(config)
     get_registry().initialize()
     initialize_ariel_context()
@@ -126,3 +127,118 @@ async def test_capabilities_no_registry_import():
                 assert not node.module.startswith("osprey.registry"), (
                     "capabilities must NOT import from osprey.registry"
                 )
+
+
+# --- vocabulary ---------------------------------------------------------------
+
+VOCABULARY_YML = """
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms:
+      - t/s
+      - ts
+  - canonical: beam position monitor
+    kind: acronym
+    forms:
+      - bpm
+  - canonical: radio frequency
+    kind: acronym
+    forms:
+      - rf
+"""
+
+
+def _write_vocabulary(tmp_path):
+    """Write a three-concept vocabulary file and return its absolute path."""
+    path = tmp_path / "vocabulary.yml"
+    path.write_text(VOCABULARY_YML)
+    return str(path)
+
+
+def _shared_parameter_names(data):
+    """The names of the shared parameters the payload advertises."""
+    return [parameter["name"] for parameter in data["shared_parameters"]]
+
+
+@pytest.mark.unit
+async def test_capabilities_reports_the_vocabulary(tmp_path, monkeypatch):
+    """An agent learns the vocabulary exists and how big it is."""
+    _setup_registry(
+        tmp_path,
+        monkeypatch,
+        vocabulary={"enabled": True, "path": _write_vocabulary(tmp_path)},
+    )
+
+    fn = _get_capabilities()
+    data = json.loads(await fn())
+
+    assert data["vocabulary"] == {
+        "enabled": True,
+        "concepts": 3,
+        "expand_by_default": True,
+    }
+
+
+@pytest.mark.unit
+async def test_capabilities_advertises_expand_query_when_enabled(tmp_path, monkeypatch):
+    """The per-call toggle is advertised only where it does something."""
+    _setup_registry(
+        tmp_path,
+        monkeypatch,
+        vocabulary={"enabled": True, "path": _write_vocabulary(tmp_path)},
+    )
+
+    fn = _get_capabilities()
+    data = json.loads(await fn())
+
+    assert "expand_query" in _shared_parameter_names(data)
+
+
+@pytest.mark.unit
+async def test_capabilities_omits_expand_query_when_disabled(tmp_path, monkeypatch):
+    """No vocabulary means no toggle to click and no capability to explain."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    fn = _get_capabilities()
+    data = json.loads(await fn())
+
+    assert data["vocabulary"] == {
+        "enabled": False,
+        "concepts": 0,
+        "expand_by_default": False,
+    }
+    assert "expand_query" not in _shared_parameter_names(data)
+    assert "max_results" in _shared_parameter_names(data)
+
+
+@pytest.mark.unit
+async def test_capabilities_reports_expand_by_default_off(tmp_path, monkeypatch):
+    """A deployment that ships the vocabulary switched off says so."""
+    _setup_registry(
+        tmp_path,
+        monkeypatch,
+        vocabulary={
+            "enabled": True,
+            "path": _write_vocabulary(tmp_path),
+            "expand_by_default": False,
+        },
+    )
+
+    fn = _get_capabilities()
+    data = json.loads(await fn())
+
+    assert data["vocabulary"]["expand_by_default"] is False
+    expand = next(p for p in data["shared_parameters"] if p["name"] == "expand_query")
+    assert expand["default"] is False
+
+
+@pytest.mark.unit
+async def test_capabilities_docstring_explains_the_vocabulary_block(tmp_path, monkeypatch):
+    """The docstring is a prompt surface: it must name what it now returns."""
+    from osprey.mcp_server.ariel.tools.capabilities import capabilities
+
+    doc = get_tool_fn(capabilities).__doc__ or ""
+
+    assert "vocabulary" in doc
+    assert "expand_query" in doc

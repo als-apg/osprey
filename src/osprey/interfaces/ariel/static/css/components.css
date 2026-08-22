@@ -540,6 +540,81 @@ textarea.input {
   margin-right: var(--space-1);
 }
 
+/* === Query Expansion Strip === */
+.expansion-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border-left: 2px solid var(--color-info);
+  background: var(--color-info-bg);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.expansion-label {
+  font-weight: var(--weight-semibold);
+  color: var(--color-info);
+}
+
+.expansion-pair {
+  font-family: var(--font-mono);
+}
+
+.expansion-original {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+/* === Configuration Banner === */
+.config-banner {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border-left: 2px solid var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.config-banner-warning {
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+.config-banner-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-error);
+}
+
+.config-banner-warning .config-banner-title {
+  color: var(--color-warning);
+}
+
+.config-banner-errors {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-1) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.config-banner-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.config-banner-remedy {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
 /* === Pipeline Details === */
 .pipeline-details {
   border-radius: var(--radius-md);

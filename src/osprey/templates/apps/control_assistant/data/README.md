@@ -23,6 +23,9 @@ data/
 ├── channel_limits.json                    # Per-channel write limits
 ├── machine_state_channels.json            # Channels shown in the machine-state view
 ├── demo_machine.ttl                       # Knowledge-graph corpus (graph paradigm)
+├── ariel/
+│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
+│   └── README.md                         # Vocabulary format walkthrough
 ├── facility_knowledge/                    # Markdown knowledge bundle
 ├── lattice/                               # Accelerator lattice files
 └── simulation/                            # Mock-connector scenarios

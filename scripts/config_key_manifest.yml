@@ -537,9 +537,86 @@ keys:
   ariel.ingestion.adapter: {covered-by: ariel.ingestion}
   ariel.ingestion.source_url: {evidence: 'source_url'}
   ariel.default_search_mode: {evidence: 'default_search_mode'}
-  ariel.search_modules: {evidence: 'search_modules'}
+  # The facility vocabulary: shorthand the operators type, mapped to the words
+  # the logbook prose actually uses. Read ONCE at config parse — the file is
+  # loaded by ARIELConfig.from_dict, not lazily on first search — so each leaf
+  # anchors on its own reader in config.py rather than a covered-by chain. That
+  # matters here for the same reason it does for the hybrid knobs above: a
+  # present-but-malformed knob is refused, never defaulted, and the refusal
+  # message IS the reader, so the regex dies with it.
+  ariel.vocabulary:
+    evidence: 'config_dict\.get\("vocabulary"\)'
+  ariel.vocabulary.enabled:
+    evidence: '_vocab_bool\(data, "enabled"'
+    note: >-
+      The off switch. Shipped false everywhere except the control_assistant
+      bundle, which ships the example vocabulary as the format tutorial. False
+      means nothing is read at all, so a stale `path` left behind is inert
+      rather than a startup failure.
+  ariel.vocabulary.path:
+    evidence: '_VOCABULARY_PREFIX\}\.path must be a non-empty string'
+    note: >-
+      Config-relative, resolved against the directory holding config.yml — the
+      same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
+      with no value here is a validate() error rather than a silent no-op, and
+      a file that fails to load is stored as a keyed error, never swallowed.
+  ariel.vocabulary.expand_by_default:
+    evidence: '_vocab_bool\(data, "expand_by_default"'
+    note: >-
+      Whether a request that expresses no preference gets expansion. Shipped
+      explicitly as true beside `enabled`, because the per-request
+      `expand_query` argument overrides it and an operator reading the config
+      should be able to see which way the default falls.
+  ariel.vocabulary.canonical_to_acronym:
+    evidence: '_vocab_bool\(data, "canonical_to_acronym"'
+    note: >-
+      Default true: a query that spells a phrase out should still reach entries
+      that wrote the acronym.
+  ariel.vocabulary.canonical_to_shorthand:
+    evidence: '_vocab_bool\(data, "canonical_to_shorthand"'
+    note: >-
+      Default false, the opposite of its acronym sibling: expanding prose into
+      operator shorthand adds noise far more often than recall.
+  ariel.vocabulary.expand_modes:
+    rendered: false
+    evidence: '_VOCABULARY_PREFIX\}\.expand_modes names no enabled search'
+    note: >-
+      Unset — the shipped state — means "all enabled modes"; the key exists so a
+      facility whose hybrid reranking degrades under expansion can drop `hybrid`
+      without giving up keyword expansion. An entry naming a module that is
+      unknown or not enabled is a validate() error, so the templates omit the
+      key rather than shipping a list that would rot as modules are toggled —
+      hence `rendered: false`: the omission is the design, and the default "every
+      enabled search module" can never go stale because nothing restates it.
+  ariel.search_modules:
+    evidence: 'config_dict\.get\("search_modules", \{\}\)\.items\(\)'
   ariel.search_modules.keyword: {covered-by: ariel.search_modules}
   ariel.search_modules.keyword.enabled: {covered-by: ariel.search_modules.keyword}
+  # The keyword module's pattern knobs. Same rule as the hybrid stanza below,
+  # for the same reason: SearchModuleConfig.from_dict keeps only `enabled`,
+  # `provider`, `model` and `settings`, so a knob written as a sibling of
+  # `enabled` is inert forever with no error. Each leaf therefore anchors on the
+  # type refusal that proves the nested spelling is the one being read — the
+  # refusal message IS the reader, so the regex dies with it.
+  ariel.search_modules.keyword.settings:
+    evidence: '_SETTINGS_PREFIX = "search_modules\.keyword\.settings"'
+  ariel.search_modules.keyword.settings.patterns_enabled:
+    evidence: '_SETTINGS_PREFIX\}\.patterns_enabled must be a boolean'
+    note: >-
+      Shipped as `true`, matching DEFAULT_PATTERNS_ENABLED: `/regex/` spans and
+      `*` globs are what an operator reaches for first. False makes both forms
+      ordinary full-text tokens — the escape hatch for a facility whose entry
+      text is full of literal asterisks. A present-but-malformed value is
+      refused, never defaulted, because defaulting it would leave the
+      deployment on the behaviour it explicitly asked to leave.
+  ariel.search_modules.keyword.settings.pattern_timeout_seconds:
+    evidence: '_SETTINGS_PREFIX\}\.pattern_timeout_seconds must be a number'
+    note: >-
+      Shipped as `10.0`, matching DEFAULT_PATTERN_TIMEOUT_SECONDS. The envelope
+      is applied only to a search that actually emitted a `~*` predicate, so a
+      pattern-free query is untouched by it. Never clamped up into range: a
+      configured `0` means the deployment believes it disabled the envelope,
+      and answering that with a silent ten seconds is worse than naming the key.
   ariel.search_modules.semantic: {covered-by: ariel.search_modules}
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic}
@@ -959,7 +1036,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 296
+  expected_union_size: 305
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on

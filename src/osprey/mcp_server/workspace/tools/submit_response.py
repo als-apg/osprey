@@ -16,14 +16,6 @@ from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.submit_response")
 
-# Map well-known agent names to categories
-_AGENT_CATEGORY_MAP: dict[str, str] = {
-    "channel-finder": "channel_finder",
-    "logbook-search": "logbook_research",
-    "logbook-deep-research": "logbook_research",
-    "pyat-specialist": "lattice_analysis",
-}
-
 
 @mcp.tool()
 async def submit_response(
@@ -102,8 +94,12 @@ async def submit_response(
                 default=str,
             )
 
-        # Determine category from agent name or data_type
-        category = _AGENT_CATEGORY_MAP.get(agent, data_type)
+        # The category is the declared data_type, never the agent's name. An
+        # agent-derived category would put this prose in the same bucket as the
+        # structured results the agent saves through save_artifact(), leaving
+        # that bucket unable to say which of the two it holds. Grouping by agent
+        # is already served by source_agent below.
+        category = data_type
 
         store = get_artifact_store()
         tool_name = agent if agent else "submit_response"

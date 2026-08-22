@@ -544,3 +544,266 @@ class TestSearchIntegration:
         # E002 should appear in both
         assert "E002" in keyword_ids, f"E002 not in keyword results: {keyword_ids}"
         assert "E002" in semantic_ids, f"E002 not in semantic results: {semantic_ids}"
+
+
+# =============================================================================
+# Vocabulary expansion through the MCP surface
+# =============================================================================
+#
+# Harness-integrity lane (`tests/e2e/README.md`): an operator-facing surface is
+# driven end to end, but every assertion is model-independent OSPREY behavior --
+# the vocabulary file is loaded from the config directory, the expansion is
+# applied to a real PostgreSQL full-text search, and the MCP server refuses to
+# start when the configured vocabulary file is missing.
+
+#: The entry seeded for the expansion scenario. Its prose contains ONLY the
+#: canonical forms ("troubleshoot", "beam position monitor"), never the
+#: shorthand, so a hit for ``ts bpm`` can only come from the vocabulary.
+VOCAB_ENTRY_ID = "VOCAB-E2E-1"
+
+VOCAB_ENTRY_TEXT = (
+    "Had to troubleshoot the beam position monitor offset after the orbit drift this morning."
+)
+
+#: The vocabulary the ``control_assistant`` app template ships, used verbatim.
+SHIPPED_VOCABULARY_PATH = (
+    Path(__file__).parent.parent.parent
+    / "src"
+    / "osprey"
+    / "templates"
+    / "apps"
+    / "control_assistant"
+    / "data"
+    / "ariel"
+    / "vocabulary.yml"
+)
+
+
+def _write_vocabulary_project(project_dir: Path, database_uri: str, vocabulary_path: str) -> Path:
+    """Render a minimal project whose config.yml configures a vocabulary.
+
+    Args:
+        project_dir: Directory to write ``config.yml`` into.
+        database_uri: The ARIEL database the project points at.
+        vocabulary_path: Value of ``ariel.vocabulary.path``, relative to
+            ``project_dir`` -- the interesting case, since a relative path must
+            resolve against the config file's directory and not the CWD.
+
+    Returns:
+        The path of the written ``config.yml``.
+    """
+    config_path = project_dir / "config.yml"
+    config_path.write_text(
+        "project_name: ariel-vocabulary-e2e\n"
+        "registry_path: null\n"
+        "ariel:\n"
+        "  database:\n"
+        f"    uri: {database_uri}\n"
+        "  search_modules:\n"
+        "    keyword:\n"
+        "      enabled: true\n"
+        "  vocabulary:\n"
+        "    enabled: true\n"
+        f"    path: {vocabulary_path}\n"
+    )
+    return config_path
+
+
+@pytest.fixture(scope="module")
+def vocabulary_project_dir(tmp_path_factory, e2e_database_url: str) -> Path:
+    """A project directory carrying the shipped vocabulary at a RELATIVE path.
+
+    The vocabulary is copied to ``data/ariel/vocabulary.yml`` and referenced as
+    that relative path, so the test exercises resolution against the directory
+    of the config file the process actually loaded.
+    """
+    import shutil
+
+    # A moved or deleted template is a repo regression, never a reason to skip.
+    assert SHIPPED_VOCABULARY_PATH.exists(), (
+        f"Shipped vocabulary missing: {SHIPPED_VOCABULARY_PATH}"
+    )
+
+    project_dir = tmp_path_factory.mktemp("ariel-vocabulary-project")
+    vocabulary_dir = project_dir / "data" / "ariel"
+    vocabulary_dir.mkdir(parents=True)
+    shutil.copy(SHIPPED_VOCABULARY_PATH, vocabulary_dir / "vocabulary.yml")
+
+    _write_vocabulary_project(project_dir, e2e_database_url, "data/ariel/vocabulary.yml")
+    return project_dir
+
+
+@pytest.fixture(scope="module")
+async def vocabulary_seeded_entry(seeded_ariel_db):
+    """Seed one entry whose prose contains only the canonical forms.
+
+    Added on top of ``seeded_ariel_db`` through the same repository and embedder
+    it uses, and deleted again at teardown. Its ID deliberately does not start
+    with ``E``, so the seeding fixture's own ``LIKE 'E%'`` cleanup never touches
+    it and the existing exact-count assertions stay true.
+    """
+    from datetime import UTC, datetime
+
+    from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+
+    repository = seeded_ariel_db["repository"]
+    entry = {
+        "entry_id": VOCAB_ENTRY_ID,
+        "source_system": "ALS eLog",
+        "timestamp": datetime(2024, 1, 20, 8, 15, tzinfo=UTC),
+        "author": "oper_vocab",
+        "raw_text": VOCAB_ENTRY_TEXT,
+        "attachments": [],
+        "metadata": {},
+        "enhancement_status": {},
+    }
+    await repository.upsert_entry(entry)
+
+    try:
+        embeddings = OllamaEmbeddingProvider().execute_embedding(
+            texts=[VOCAB_ENTRY_TEXT],
+            model_id="nomic-embed-text",
+        )
+        if embeddings and embeddings[0]:
+            await repository.store_text_embedding(
+                entry_id=VOCAB_ENTRY_ID,
+                embedding=embeddings[0],
+                model_name="nomic-embed-text",
+            )
+    except Exception as e:  # pragma: no cover - embedding is not load-bearing here
+        logger.warning(f"Failed to embed {VOCAB_ENTRY_ID}: {e}")
+
+    yield entry
+
+    async with seeded_ariel_db["pool"].connection() as conn:
+        try:
+            await conn.execute(
+                "DELETE FROM text_embeddings_nomic_embed_text WHERE entry_id = %s",
+                [VOCAB_ENTRY_ID],
+            )
+        except Exception:
+            pass  # Table may not exist
+        await conn.execute(
+            "DELETE FROM enhanced_entries WHERE entry_id = %s",
+            [VOCAB_ENTRY_ID],
+        )
+
+
+@pytest.fixture
+def vocabulary_mcp_context(vocabulary_project_dir: Path, monkeypatch):
+    """Boot the ARIEL MCP server context against the vocabulary project.
+
+    Chdir'ing into the project makes it the config the server resolves, exactly
+    as a deployed container does (its WORKDIR is the project root). The registry
+    is initialized because the search service dispatches modes through it.
+    """
+    from osprey.mcp_server.ariel.server_context import (
+        initialize_ariel_context,
+        reset_ariel_context,
+    )
+    from osprey.registry import initialize_registry, reset_registry
+    from osprey.utils.workspace import reset_config_cache
+
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    monkeypatch.chdir(vocabulary_project_dir)
+    reset_config_cache()
+
+    reset_registry()
+    initialize_registry(auto_export=False)
+
+    context = initialize_ariel_context()
+    yield context
+
+    reset_ariel_context()
+    reset_config_cache()
+
+
+async def _keyword_search_envelope(expand_query):
+    """Call the ARIEL ``keyword_search`` MCP tool and parse its JSON envelope."""
+    import json
+
+    from osprey.mcp_server.ariel.tools.keyword_search import keyword_search
+    from tests.mcp_server.conftest import get_tool_fn
+
+    raw = await get_tool_fn(keyword_search)(
+        query="ts bpm",
+        max_results=10,
+        expand_query=expand_query,
+    )
+    return json.loads(raw)
+
+
+@pytest.mark.harness_benchmark
+async def test_vocabulary_expansion_through_mcp_keyword_search(
+    vocabulary_seeded_entry, vocabulary_mcp_context
+):
+    """``ts bpm`` finds a canonical-only entry, and only with expansion on."""
+    context = vocabulary_mcp_context
+    assert context.config.vocabulary_active, (
+        f"Vocabulary not active: {context.config.vocabulary_errors}"
+    )
+
+    try:
+        expanded = await _keyword_search_envelope(True)
+
+        assert not expanded.get("error"), expanded
+        assert expanded["results_found"] >= 1, expanded
+        hits = {entry["entry_id"]: entry for entry in expanded["entries"]}
+        assert VOCAB_ENTRY_ID in hits, f"Expected {VOCAB_ENTRY_ID} in {sorted(hits)}"
+        assert hits[VOCAB_ENTRY_ID]["score"] > 0, hits[VOCAB_ENTRY_ID]
+
+        assert expanded["expanded_terms"] == [
+            {"original": "ts", "alternatives": ["troubleshoot"]},
+            {"original": "bpm", "alternatives": ["beam position monitor"]},
+        ]
+
+        # Same query, expansion explicitly refused: nothing bridges the
+        # shorthand to the prose, so the entry is not reachable at all.
+        unexpanded = await _keyword_search_envelope(False)
+        assert not unexpanded.get("error"), unexpanded
+        assert VOCAB_ENTRY_ID not in {entry["entry_id"] for entry in unexpanded["entries"]}
+        assert unexpanded["expanded_terms"] == []
+
+        # No preference stated: expand_by_default decides, and its default is on.
+        defaulted = await _keyword_search_envelope(None)
+        assert not defaulted.get("error"), defaulted
+        assert VOCAB_ENTRY_ID in {entry["entry_id"] for entry in defaulted["entries"]}
+        assert defaulted["expanded_terms"] == expanded["expanded_terms"]
+    finally:
+        await context.shutdown()
+
+
+@pytest.mark.harness_benchmark
+async def test_vocabulary_mcp_server_refuses_to_start_without_vocabulary_file(
+    tmp_path, monkeypatch
+):
+    """A configured-but-missing vocabulary refuses MCP startup, naming the key.
+
+    No database is contacted before the refusal, so this holds on a host with
+    no ARIEL Postgres at all.
+    """
+    from osprey.mcp_server.ariel.server_context import (
+        initialize_ariel_context,
+        reset_ariel_context,
+    )
+    from osprey.utils.workspace import reset_config_cache
+
+    _write_vocabulary_project(
+        tmp_path,
+        "postgresql://ariel:ariel@localhost:5999/does_not_exist",
+        "data/missing.yml",
+    )
+
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    reset_config_cache()
+
+    from osprey.services.ariel_search.exceptions import ConfigurationError
+
+    try:
+        with pytest.raises(ConfigurationError) as excinfo:
+            initialize_ariel_context()
+        assert "ariel.vocabulary.path" in str(excinfo.value), str(excinfo.value)
+    finally:
+        reset_ariel_context()
+        reset_config_cache()

@@ -63,12 +63,22 @@ from tests._container_support import is_docker_available
 from tests.integration._qmd_ariel_support import (
     DEFAULT_QMD_SIDECAR_IMAGE,
     QMD_IMAGE_ENV,
+    VOCABULARY_AUTHOR,
+    VOCABULARY_DISTRACTOR_ROWS,
+    VOCABULARY_ENTRY_ID,
+    VOCABULARY_EXPECTED_PAIRS,
+    VOCABULARY_PROSE,
+    VOCABULARY_QUERY,
+    VOCABULARY_SOURCE_SYSTEM,
+    VOCABULARY_TIMESTAMP,
     build_sidecar_container,
     open_migrated_repository,
     qmd_ariel_config_dict,
+    qmd_ariel_vocabulary_config,
     qmd_sidecar_image,
     start_qmd_sidecar,
     wait_for_indexed,
+    write_vocabulary_file,
 )
 
 # xdist_group("docker") pins every container-starting module onto one worker: a
@@ -307,6 +317,34 @@ def _seed_rows() -> list[dict[str, Any]]:
             raw_text=f"The {AUTHORITY_TOKEN} interlock was reset by the floor operator.",
         )
     )
+
+    # The vocabulary group: one prose entry written entirely in canonical
+    # phrases, plus the near misses that give an unexpanded query something to
+    # prefer over it. Its own group on purpose — see VOCABULARY_ENTRY_ID for why
+    # it must stay out of SAFE_ROWS, which wait_for_indexed counts and three
+    # post-filter tests compare against exactly.
+    #
+    # These four rows grew the indexed corpus from 19 documents to 23 (the rows
+    # here plus the ORPHAN_ID mirror file, which has no row). No assertion in the
+    # module depends on the total: every group is isolated by its own token,
+    # author and year, so the exact-set comparisons and wait_for_indexed's
+    # `len(hits) >= len(SAFE_ROWS)` are unaffected. What the total does consume is
+    # headroom — `_safe_ids(results) == SAFE_IDS` needs all seven safe rows inside
+    # the sidecar's configured candidate_limit of 40, and the corpus is now 23 of
+    # those 40. A further group seeded here should raise that limit alongside it.
+    for entry_id, text in [
+        (VOCABULARY_ENTRY_ID, VOCABULARY_PROSE),
+        *VOCABULARY_DISTRACTOR_ROWS,
+    ]:
+        rows.append(
+            _entry(
+                entry_id,
+                author=VOCABULARY_AUTHOR,
+                source_system=VOCABULARY_SOURCE_SYSTEM,
+                timestamp=VOCABULARY_TIMESTAMP,
+                raw_text=text,
+            )
+        )
     return rows
 
 
@@ -1072,3 +1110,311 @@ class TestPostgresIsAuthoritative:
         assert entry["entry_id"] == AUTHORITY_ID
         assert entry["raw_text"] == row["raw_text"]
         assert lie not in entry["raw_text"]
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary expansion
+# ---------------------------------------------------------------------------
+
+
+#: ``candidateLimit`` for the two reranked queries, and the only reason these
+#: cases pass one at all. **Measured defect, not a tuning preference:** with the
+#: lane's configured 40, the reranker's candidate set covers the whole corpus,
+#: which includes the 256 KB ``pathological-content`` document — and a reranked
+#: query over that document wedges the qmd daemon permanently. It stops
+#: answering ``/mcp`` and ``/health`` alike while its container stays up, so
+#: every later test in this module fails too, against a session-scoped sidecar
+#: no test can restart. Reproduced outside pytest: an 11-document corpus reranks
+#: in ~2 s, the same corpus plus one 256 KB document never returns, and the
+#: daemon is dead for every session afterwards. Ten keeps the giant document out
+#: of the candidate set for these two queries — measured, it does not enter the
+#: top ten for either — without weakening what the reranked ordering proves.
+#: That exclusion is a ranking accident rather than a structural guarantee, which
+#: is why :func:`_assert_the_giant_document_is_out_of_the_candidate_set` reads
+#: the precondition before either reranked query is sent.
+RERANK_CANDIDATE_LIMIT = 10
+
+
+class _RecordingClient:
+    """A real ``QMDClient`` that remembers the query text it was handed.
+
+    Everything except :meth:`query` is delegated untouched, so the sidecar sees
+    exactly the request it would otherwise have seen — this records what crossed
+    the wire, it does not stand in for it.
+    """
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.queries: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate every other attribute — ``is_configured``, ``is_available``."""
+        return getattr(self._client, name)
+
+    def query(self, collection: str, query: str, **kwargs: Any) -> Any:
+        """Record the query text, then run the real one."""
+        self.queries.append(query)
+        return self._client.query(collection, query, **kwargs)
+
+
+@pytest.fixture(scope="session")
+def vocabulary_file(tmp_path_factory) -> Path:
+    """The ``vocabulary.yml`` the expansion cases load, written once."""
+    return write_vocabulary_file(Path(tmp_path_factory.mktemp("qmd_ariel_vocabulary")))
+
+
+@pytest.fixture
+def framework_registry(monkeypatch):
+    """Route the service's mode lookup through the real framework registry.
+
+    The service resolves ``hybrid`` through ``get_registry()``, which builds
+    itself from a project ``config.yml`` this test process does not have. A
+    framework-only :class:`RegistryManager` needs no config and registers the
+    same real modules, so the dispatch under test is the shipped one — not a
+    stand-in descriptor that could agree with a service that had drifted.
+    """
+    from osprey.registry.manager import RegistryManager
+
+    registry = RegistryManager()
+    registry.initialize(silent=True)
+    monkeypatch.setattr("osprey.registry.get_registry", lambda *a, **k: registry)
+    return registry
+
+
+async def _service_search(
+    world: _World,
+    vocabulary_path: Path,
+    client: Any,
+    *,
+    expand_query: bool,
+    rerank: bool | None = None,
+    candidate_limit: int | None = None,
+    expand_modes: list[str] | None = None,
+    max_results: int = 10,
+):
+    """Run one hybrid search through the real service, vocabulary enabled.
+
+    The service is the layer that owns expansion (it resolves ``expand_query``
+    against ``expand_by_default`` and ``expand_modes`` and decides whether the
+    module is handed a ``query_expansion``), so these cases go through it rather
+    than calling ``hybrid_search`` directly the way the rest of this module does.
+
+    ``client`` and ``rerank`` travel in ``advanced_params``, which the service
+    forwards to the module as keyword arguments: that is how a per-call
+    ``rerank=True`` reaches the sidecar while the lane's config keeps
+    ``search_modules.hybrid.settings.rerank: false`` for every other test.
+
+    Args:
+        world: The sidecar world, for its config dict.
+        vocabulary_path: The vocabulary file to load.
+        client: Client for the sidecar, passed straight through to the module.
+        expand_query: The caller's explicit ``expand_query`` control.
+        rerank: Per-call rerank override, or None to leave config's value.
+        candidate_limit: Per-call ``candidateLimit`` override, or None for
+            config's 40. See :data:`RERANK_CANDIDATE_LIMIT`.
+        expand_modes: ``ariel.vocabulary.expand_modes``, or None for the default.
+        max_results: Result cap.
+
+    Returns:
+        The ``ARIELSearchResult``.
+    """
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.service import create_ariel_service
+
+    config = ARIELConfig.from_dict(
+        qmd_ariel_vocabulary_config(world.config_dict, vocabulary_path, expand_modes=expand_modes)
+    )
+    advanced: dict[str, Any] = {"expand_query": expand_query, "client": client}
+    if rerank is not None:
+        advanced["rerank"] = rerank
+    if candidate_limit is not None:
+        advanced["candidate_limit"] = candidate_limit
+
+    async with await create_ariel_service(config) as service:
+        return await service.search(
+            VOCABULARY_QUERY,
+            mode="hybrid",
+            max_results=max_results,
+            advanced_params=advanced,
+        )
+
+
+def _result_ids(result) -> list[str]:
+    """The entry ids of an ``ARIELSearchResult``, in ranking order."""
+    return [entry["entry_id"] for entry in result.entries]
+
+
+def _assert_the_giant_document_is_out_of_the_candidate_set(client: Any, query: str) -> None:
+    """Fail in one line rather than hang, if the wedge precondition has moved.
+
+    :data:`RERANK_CANDIDATE_LIMIT` protects the reranked cases by *ranking
+    accident*: the 256 KB ``pathological-content`` document simply does not reach
+    the top ten for these queries. Nothing structural keeps it out, so a corpus
+    edit, a model bump or a reworded needle could pull it in — and the symptom
+    would not be a failed assertion but a wedged daemon and a timed-out step,
+    with the module's other 45 tests failing behind it.
+
+    A non-reranked query at the same limit returns exactly the candidate set the
+    reranker would be handed (same shape ``wait_for_indexed`` uses), so this
+    reads the precondition directly, before anything reranked runs.
+
+    Args:
+        client: A ``QMDClient`` pointed at the sidecar.
+        query: The exact query text that is about to be sent reranked.
+    """
+    hits = client.query(
+        ARIEL_COLLECTION,
+        query,
+        limit=RERANK_CANDIDATE_LIMIT,
+        rerank=False,
+        candidate_limit=RERANK_CANDIDATE_LIMIT,
+    )
+    reported = [Path(hit.file).name for hit in hits]
+    giant = f"{encode_entry_id(HOSTILE_IDS['clean'])}.md"
+
+    assert giant not in reported, (
+        f"the 256 KB {HOSTILE_IDS['clean']!r} document entered the reranker's candidate set "
+        f"for {query!r} — reranking it WEDGES the qmd daemon permanently (it answers neither "
+        f"/mcp nor /health afterwards, failing every later test in this module). Refusing to "
+        f"send the reranked query. Candidate set: {reported}. "
+        f"See RERANK_CANDIDATE_LIMIT for the measurement."
+    )
+
+
+class TestVocabularyExpansionReachesTheSidecar:
+    """Expansion changes what the sidecar ranks, measured against the real one.
+
+    The seeded ``VOCABULARY_ENTRY_ID`` row is written entirely in canonical
+    phrases (``troubleshoot``, ``beam position monitor``) and the query entirely
+    in facility shorthand (``t/s bpm``), so nothing lexical connects them — and
+    ``VOCABULARY_DISTRACTOR_ROWS`` gives the unexpanded query somewhere else to
+    go, without which the sidecar's vector leg reaches the entry unaided and the
+    comparison measures nothing. Measured on this corpus, twice on fresh
+    containers and fresh indexes, byte-identical both times: **rank 2 expanded**
+    (one slot of headroom under the top-3 assertion) and **rank 7 unexpanded**
+    (four slots below the same boundary). How many distractor rows it takes to
+    sit there is itself measured — see ``VOCABULARY_DISTRACTOR_ROWS``.
+
+    Reranking is switched on **per call** here — the one place in this module
+    where rank quality is the assertion — while the lane's config keeps
+    ``rerank: false`` for every other test, which is what keeps the rest of the
+    suite at its measured 0.85 s per query. See :data:`RERANK_CANDIDATE_LIMIT`
+    for the one knob that has to travel with it.
+    """
+
+    async def test_expansion_lifts_the_canonical_entry_into_the_top_three(
+        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+    ):
+        """The differential: same query, same corpus, expansion the only change.
+
+        Both halves run in one test on purpose. Split apart, a change in the
+        corpus or the reranker could move the entry for reasons that have
+        nothing to do with expansion and each half would still look sound; the
+        claim being made is a comparison, so it is asserted as one.
+        """
+        # The reranked calls below are the ones that can wedge the daemon, so the
+        # precondition that keeps them safe is read first — for the expanded query
+        # as it actually crosses the wire, which only the module can spell.
+        recorder = _RecordingClient(sidecar_client)
+        await _service_search(sidecar_world, vocabulary_file, recorder, expand_query=True)
+        for wire_query in (recorder.queries[0], VOCABULARY_QUERY):
+            _assert_the_giant_document_is_out_of_the_candidate_set(sidecar_client, wire_query)
+
+        expanded = await _service_search(
+            sidecar_world,
+            vocabulary_file,
+            sidecar_client,
+            expand_query=True,
+            rerank=True,
+            candidate_limit=RERANK_CANDIDATE_LIMIT,
+        )
+        unexpanded = await _service_search(
+            sidecar_world,
+            vocabulary_file,
+            sidecar_client,
+            expand_query=False,
+            rerank=True,
+            candidate_limit=RERANK_CANDIDATE_LIMIT,
+        )
+
+        assert VOCABULARY_ENTRY_ID in _result_ids(expanded)[:3], (
+            f"the expanded query did not surface {VOCABULARY_ENTRY_ID!r} in the top 3: "
+            f"{_result_ids(expanded)}"
+        )
+        assert VOCABULARY_ENTRY_ID not in _result_ids(unexpanded)[:3], (
+            "the unexpanded query already reaches the entry, so this measures nothing: "
+            f"{_result_ids(unexpanded)}"
+        )
+
+    async def test_expanded_terms_name_both_shorthand_pairs(
+        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+    ):
+        """The transparency payload the caller sees alongside the results.
+
+        The entry-count assertion is not decoration: a search that fails is
+        still reported with the expansion it carried, so without it this case
+        would pass just as happily against a sidecar that never answered.
+        """
+        result = await _service_search(
+            sidecar_world, vocabulary_file, sidecar_client, expand_query=True
+        )
+
+        assert result.entries, f"the search returned nothing: {result.reasoning}"
+        pairs = {group["original"]: tuple(group["alternatives"]) for group in result.expanded_terms}
+        assert pairs == VOCABULARY_EXPECTED_PAIRS
+
+    async def test_the_sidecar_receives_the_flattened_query(
+        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+    ):
+        """Expansion has to reach the daemon, not merely the result payload.
+
+        Without this, a module that resolved an expansion and then queried with
+        the raw text would still satisfy the transparency assertion above.
+        """
+        recorder = _RecordingClient(sidecar_client)
+
+        await _service_search(sidecar_world, vocabulary_file, recorder, expand_query=True)
+
+        assert len(recorder.queries) == 1, recorder.queries
+        sent = recorder.queries[0]
+        assert sent != VOCABULARY_QUERY
+        for alternatives in VOCABULARY_EXPECTED_PAIRS.values():
+            for alternative in alternatives:
+                assert alternative in sent, f"{alternative!r} missing from {sent!r}"
+
+
+class TestVocabularyExpandModesGateTheSidecar:
+    """``expand_modes`` that omits ``hybrid`` leaves this module unexpanded."""
+
+    async def test_keyword_only_expand_modes_sends_the_unexpanded_query(
+        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+    ):
+        """A usable vocabulary the caller asked for, scoped away from hybrid.
+
+        Both halves matter: an empty ``expanded_terms`` alone would also be
+        produced by a module that expanded the query and forgot to report it,
+        and an unexpanded query alone would also be produced by a vocabulary
+        that failed to load.
+
+        What this test does **not** rule out on its own is that same failed
+        load: ``ARIELConfig.from_dict`` does not raise when a vocabulary file
+        cannot be read — it collects the problems into ``vocabulary_errors`` and
+        leaves ``loaded_vocabulary`` unset — and an inert vocabulary produces
+        exactly these two observations. That the session's vocabulary file loads
+        is proved by
+        :meth:`TestVocabularyExpansionReachesTheSidecar.test_expanded_terms_name_both_shorthand_pairs`,
+        which runs the same file through the same fixture and reads real
+        expansions back. This case is only meaningful alongside it.
+        """
+        recorder = _RecordingClient(sidecar_client)
+
+        result = await _service_search(
+            sidecar_world,
+            vocabulary_file,
+            recorder,
+            expand_query=True,
+            expand_modes=["keyword"],
+        )
+
+        assert result.expanded_terms == ()
+        assert recorder.queries == [VOCABULARY_QUERY]
