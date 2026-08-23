@@ -153,8 +153,11 @@ class TestSuccessPayload:
         ]
         context(_FakeContext(QueryResult(rows=rows, truncated=False)))
 
+        # LIMIT well above the row count: a plain success carries no guidance.
+        # A result that exactly fills its own LIMIT does, and is covered by
+        # test_result_filling_its_own_limit_carries_guidance below.
         payload = extract_response_dict(
-            read_cypher_fn(query="MATCH (d:Resource) RETURN d.sourceName AS device LIMIT 2")
+            read_cypher_fn(query="MATCH (d:Resource) RETURN d.sourceName AS device LIMIT 10")
         )
 
         assert payload["columns"] == ["device", "section"]
@@ -193,6 +196,30 @@ class TestSuccessPayload:
         assert _MAX_ROWS_KEY in guidance
         assert "200" in guidance
         assert "LIMIT" in guidance
+
+    def test_result_filling_its_own_limit_carries_guidance(self, context):
+        rows = [{"device": "DIPOLE01"}, {"device": "DIPOLE02"}]
+        context(_FakeContext(QueryResult(rows=rows, truncated=False)))
+
+        payload = extract_response_dict(
+            read_cypher_fn(query="MATCH (d:Resource) RETURN d.sourceName AS device LIMIT 2")
+        )
+
+        assert payload["truncated"] is False, "the store held nothing back — the query did"
+        guidance = " ".join(payload["guidance"])
+        assert "LIMIT 2" in guidance
+        assert "count()" in guidance
+
+    def test_limit_one_is_exempt_from_the_own_limit_guidance(self, context):
+        # Aggregates and existence probes fill LIMIT 1 by design, so flagging
+        # them would cry wolf on the shape example_queries recommends most.
+        context(_FakeContext(QueryResult(rows=[{"n": 7}], truncated=False)))
+
+        payload = extract_response_dict(
+            read_cypher_fn(query="MATCH (d:Resource) RETURN count(d) AS n LIMIT 1")
+        )
+
+        assert "guidance" not in payload
 
     def test_no_match_against_a_seeded_store_is_an_empty_success(self, context):
         ctx = context(_FakeContext(QueryResult(rows=[], truncated=False), empty=False))
