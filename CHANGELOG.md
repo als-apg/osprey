@@ -53,13 +53,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   letter-leading hash such as `ada92cb5d92a588d1b93__mypyc` passed straight
   through and was advertised to the agent as a top-level import.
 - Feedback sent by GitHub or Email no longer arrives without its session
-  context because nobody knew about the paste step. The context travels by
-  clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:
-  ticking the context box on an outbound channel shows a paste hint, and the
-  post-send confirmation tells the sender the full report is on the clipboard.
-  The session id also rides inline in the prefilled body when context is
-  attached, so a message can be matched to the deployment's own record even
-  when the paste never happened.
+  context because nobody knew about the paste step. The context cannot fit a
+  prefilled URL, so with the context box ticked the flow is now one honest
+  paste: the whole report (text, metadata, context) is copied to the
+  clipboard, the draft opens with a single paste-here line instead of a
+  partial body that a paste would duplicate, and the dialog states both steps
+  before the button is pressed. Without context the draft opens complete and
+  the clipboard is left alone. The browser and the full session id now ride
+  in the composed report itself, and "Copy session context" moved out of the
+  action row onto the checkbox's own row, enabled whenever a session exists.
 - The prefilled issue title / mail subject is no longer the first line of the
   report text. It is now a stable "OSPREY feedback" title, suffixed with a
   short session id when context is attached.
