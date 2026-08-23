@@ -105,7 +105,37 @@ The `osprey.runtime` API enforces:
 
 Direct {{ protocol_name }} calls skip all of these protections.
 
-## Write Operations
+{% if target_switch_enabled | default(false) %}## Which Machine You Are Talking To
+
+This deployment can point the same tools at either of two machines:
+
+- **live** — the real accelerator. A write here moves real hardware.
+- **va** — the virtual accelerator, a simulation that answers the same channel
+  names. A write here moves nothing real.
+
+One of them is active at a time, and every approval prompt names the active
+target, so the operator sees which machine a write would land on before they
+approve it. Read that line rather than assuming a default — a session may
+already have been switched, and the channel names look the same either way.
+
+`control_target` reports the roster: which targets this deployment has, which
+one is active, and whether the other can be switched to right now. It is the
+authority on availability. Do not infer it from a config file, from an endpoint
+seen earlier, or from a channel that happened to answer.
+
+`control_target_set` is the only way to change targets, and it is approval-gated
+like any other write, so the operator decides. Nothing else moves a session
+between machines — not an environment variable, not a config edit, not a
+restart. When a request needs the other machine, ask for it with
+`control_target_set` and say why.
+
+Channels the deny list refuses stay refused on every target. That list says
+which channels this deployment will never write, not which machine is active,
+so switching to the virtual accelerator does not unlock a denied channel —
+and switching in order to reach one is not a workaround, it is the same
+refusal one step later.
+
+{% endif %}## Write Operations
 
 For scripts that write to the control system, use the `execute` MCP tool directly
 with `execution_mode: "readwrite"` — the `execute` tool defaults to readonly

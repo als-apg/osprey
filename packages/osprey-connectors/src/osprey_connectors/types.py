@@ -137,6 +137,68 @@ def resolve_target(section: Any, target: Any) -> str:
     )
 
 
+def switch_capable(section: Any) -> bool:
+    """Whether a deployment can be pointed at either target.
+
+    The predicate itself, in the module that already owns "which connector type
+    does a target mean here". Two layers ask the question and must never answer
+    it differently: the controls server decides from it whether its tools are
+    served by a connector-host child, and the build decides from it whether the
+    agent's frozen safety rule describes a switchable machine at all. A build
+    that promises a switch the runtime will not perform is worse than one that
+    never mentions it.
+
+    Three conditions, none of which is sufficient alone:
+
+    1. **Both targets resolve** to a connector type at all
+       (:func:`resolve_target`, which raises rather than guess a live machine).
+    2. **The deployment's own control system is one of the two targets.**
+       ``resolve_target`` answers ``live`` for configs with no business
+       switching: a ``mock`` deployment that happens to carry an ``epics`` block
+       resolves ``live`` to ``epics``, and treating that as switchable would
+       point a session at a real machine the config never selected. Requiring
+       the baseline target to resolve back to ``control_system.type`` rules it
+       out.
+    3. **Both types have a non-empty connector block**, since that block is what
+       a connector is configured from.
+
+    Deliberately *not* checked: ``probe_channel``, the gateways table, the
+    operator acknowledgment. Those decide whether a target may be switched *to*
+    — a per-switch question answered with a reason the operator is told. This is
+    the coarser question of whether the deployment is in the two-target world.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes. Callers holding a whole
+            rendered config pass ``config.get("control_system")``.
+
+    Returns:
+        ``True`` when both targets are configured and consistent. Never raises:
+        every malformed, partial or contradictory config is simply not capable.
+    """
+    if not isinstance(section, dict):
+        return False
+    try:
+        types_by_target = {
+            target: resolve_target(section, target) for target in (TARGET_LIVE, TARGET_VA)
+        }
+    except ValueError:
+        return False
+
+    declared = resolve_control_system_type(section)
+    baseline = TARGET_VA if declared == VIRTUAL_ACCELERATOR else TARGET_LIVE
+    if types_by_target[baseline] != declared:
+        return False
+
+    connector = section.get("connector")
+    if not isinstance(connector, dict):
+        return False
+    return all(
+        isinstance(connector.get(name), dict) and bool(connector.get(name))
+        for name in types_by_target.values()
+    )
+
+
 def _live_type(section: Any) -> str:
     """The control system type that reaches this deployment's real machine."""
     baseline = resolve_control_system_type(section)
