@@ -19,6 +19,18 @@ The HTTP primitives (``_http_get_json`` / ``_http_get_bytes`` /
 ``_http_post_drive`` / ``_http_post_open``) are module-level so tests can patch
 the network boundary.
 
+Control-system target
+---------------------
+The bridge addresses one running Phoebus product, whose PV context was fixed
+when that product started: a session-level control-system target switch does
+not re-address it. Phoebus therefore stays pinned to the deployment baseline,
+and these tools say so rather than letting the discrepancy pass silently —
+``phoebus_drive`` refuses outright while the session is switched, and every
+read tool prepends one informational line to its normal output. Both strings
+come from :mod:`osprey.mcp_server.control_system.target_banner`, shared with
+the health runtime's equivalent row. On the baseline nothing is added and the
+output is byte-identical.
+
 Display addressing
 ------------------
 Every tool that accepts a ``display`` argument supports three forms:
@@ -63,6 +75,13 @@ from pathlib import Path
 import anyio
 from fastmcp.exceptions import ToolError
 
+from osprey.mcp_server.control_system.target_banner import (
+    BASELINE_REFUSAL_ERROR_TYPE,
+    PHOEBUS_SUBJECT,
+    baseline_pinned_line,
+    baseline_refusal,
+    prepend_line,
+)
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
     _post_json_with_response,
@@ -441,6 +460,9 @@ async def phoebus_perceive(display: str = "active") -> str:
     Returns:
         JSON ``{"status": "success", "display": <ref>, "perception": {...}}`` where
         ``perception`` is the bridge's stable schema (``display`` + ``widgets``).
+        While the session target differs from the deployment baseline, one
+        informational line naming both targets precedes that JSON (see the
+        module docstring).
     """
     _check_explicit_display(display)  # raises phoebus_handle_required if enforced
     path = f"/perceive?display={urllib.parse.quote(display)}"
@@ -456,7 +478,10 @@ async def phoebus_perceive(display: str = "active") -> str:
             _bridge_error_message(body, status),
             ["Check the display reference; list displays with phoebus_list_displays."],
         )
-    return json.dumps({"status": "success", "display": display, "perception": body})
+    return prepend_line(
+        baseline_pinned_line(PHOEBUS_SUBJECT),
+        json.dumps({"status": "success", "display": display, "perception": body}),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +504,9 @@ async def phoebus_perceive_region(
     Returns:
         JSON ``{"status": "success", "display": <ref>, "perception": {...}}`` whose
         widget list is filtered to the rectangle and sorted top-left first.
+        While the session target differs from the deployment baseline, one
+        informational line naming both targets precedes that JSON (see the
+        module docstring).
     """
     if w <= 0 or h <= 0:
         return make_error("validation_error", f"w and h must be > 0 (got w={w}, h={h}).")
@@ -492,7 +520,10 @@ async def phoebus_perceive_region(
         )
     if status != 200:
         return make_error("phoebus_error", _bridge_error_message(body, status))
-    return json.dumps({"status": "success", "display": display, "perception": body})
+    return prepend_line(
+        baseline_pinned_line(PHOEBUS_SUBJECT),
+        json.dumps({"status": "success", "display": display, "perception": body}),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +550,9 @@ async def phoebus_snapshot(
 
     Returns:
         JSON artifact response including the saved file path. Use the Read tool on
-        that path to view the snapshot.
+        that path to view the snapshot. While the session target differs from the
+        deployment baseline, one informational line naming both targets precedes
+        that JSON (see the module docstring).
     """
     if not (0 < dpi <= 8):
         return make_error("validation_error", f"dpi must be in (0, 8] (got {dpi}).")
@@ -556,6 +589,10 @@ async def phoebus_snapshot(
     fpath = _snapshot_dir() / f"phoebus_{safe}_{ts}.png"
     fpath.write_bytes(content)
 
+    # Resolved once so both success paths below — artifact response and the
+    # bare-path fallback — carry the identical label.
+    label = baseline_pinned_line(PHOEBUS_SUBJECT)
+
     try:
         from osprey.stores.artifact_store import get_artifact_store
 
@@ -584,19 +621,22 @@ async def phoebus_snapshot(
             },
             category="screenshot",
         )
-        return json.dumps(entry.to_tool_response(), default=str)
+        return prepend_line(label, json.dumps(entry.to_tool_response(), default=str))
     except ToolError:
         raise
     except Exception:
         # ArtifactStore unavailable (e.g. minimal context) — still return the path.
         logger.exception("phoebus_snapshot: artifact save failed; returning raw path")
-        return json.dumps(
-            {
-                "status": "success",
-                "filepath": str(fpath),
-                "bytes": len(content),
-                "view_hint": f"Use Read tool on {fpath} to view the snapshot.",
-            }
+        return prepend_line(
+            label,
+            json.dumps(
+                {
+                    "status": "success",
+                    "filepath": str(fpath),
+                    "bytes": len(content),
+                    "view_hint": f"Use Read tool on {fpath} to view the snapshot.",
+                }
+            ),
         )
 
 
@@ -633,7 +673,18 @@ async def phoebus_drive(
     Returns:
         JSON ``{"status": "success", "fired": <bool>, "detail": <str>}``. ``fired``
         is false when no interactive control was resolved or the mode bypassed it.
+
+    Refuses outright while the session's control-system target differs from the
+    deployment baseline: the bridge drives the baseline's Phoebus, so the drive
+    would land on a target this session has left (see the module docstring).
     """
+    # Checked before argument validation: the refusal is a fact about session
+    # state and holds for every argument, so an operator on the wrong target
+    # should learn that rather than first be sent to fix a typo'd verb.
+    refusal = baseline_refusal(PHOEBUS_SUBJECT, "Driving a Phoebus widget")
+    if refusal is not None:
+        return make_error(BASELINE_REFUSAL_ERROR_TYPE, refusal[0], refusal[1])
+
     verb_l = verb.lower()
     mode_l = mode.lower()
     if verb_l not in ("click", "type"):
