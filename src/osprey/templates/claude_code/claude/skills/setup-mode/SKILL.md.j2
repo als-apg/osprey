@@ -128,11 +128,17 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
 | `control_system.limits_checking.allow_unlisted_channels` | Hot | Hooks re-read on each call |
 | `approval.mode` | Hot | Hooks re-read on each call |
-| `control_system.type` | Cold | Requires MCP server restart |
+| `control_system.type` | Cold | Requires MCP server restart. To change target for this session, use `control_target_set` (run-time switch, asks for approval) — do not rebuild to switch target |
+| `control_system.target_switch.drain_timeout_s` | Cold | Read when a switch drains in-flight work, from the config the server cached at launch — requires MCP server restart |
+| `control_system.target_switch.probe_interval_s` | Cold | The target prober reads its interval once at server start — requires MCP server restart |
+| `control_system.target_switch.live_gateway_acknowledged` | Cold | The operator's acknowledgment that the named live gateway is the real machine — requires MCP server restart before the live target is switchable |
+| `control_system.connector.<target>.probe_channel` | Cold | Like every other `control_system.connector.*` key: read when the connector is built — requires MCP server restart |
 | `archiver.*` | Cold | Requires MCP server restart |
 | `.mcp.json` changes | Cold | Requires new Claude Code session |
 | `.claude/settings.json` | Cold | Requires new Claude Code session |
 | Hook scripts | Cold | Requires new Claude Code session |
+
+Switching control target is not a config change: `control_system.type` only sets the target the agent starts on, and the `control_target_set` tool switches live ↔ virtual at run time for the current session (it asks for approval first). Never send an operator to `osprey build` to change target.
 
 ---
 

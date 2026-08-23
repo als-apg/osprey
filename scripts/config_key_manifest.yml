@@ -239,7 +239,7 @@ keys:
   control_system.connector.epics: {covered-by: control_system.connector}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics}
   control_system.connector.epics.gateways: {evidence: 'gateways'}
-  control_system.connector.epics.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.epics.gateways.read_only: {evidence: 'gateways\.get\("read_only", \{\}\)'}
   control_system.connector.epics.gateways.read_only.address: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.port: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.use_name_server: {evidence: 'use_name_server'}
@@ -251,7 +251,7 @@ keys:
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file'}
   control_system.connector.virtual_accelerator.gateways: {evidence: 'gateways'}
-  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'gateways\.get\("read_only", \{\}\)'}
   control_system.connector.virtual_accelerator.gateways.read_only.address: {covered-by: control_system.connector.virtual_accelerator.gateways.read_only}
   control_system.connector.virtual_accelerator.gateways.read_only.use_name_server:
     evidence: 'use_name_server'
@@ -259,6 +259,40 @@ keys:
   control_system.connector.virtual_accelerator.gateways.write_access.address: {covered-by: control_system.connector.virtual_accelerator.gateways.write_access}
   control_system.connector.virtual_accelerator.gateways.write_access.use_name_server:
     evidence: 'use_name_server'
+  control_system.connector.virtual_accelerator.probe_channel:
+    forward-declared: true
+    note: >-
+      The channel the target switch reads to prove this target is reachable
+      before it becomes the active one. Written by the templates ahead of the
+      switch's own reader (this branch); a target without one is ineligible,
+      which is why the VA block ships it set and the epics block does not.
+  control_system.connector.epics.probe_channel:
+    rendered: false
+    forward-declared: true
+    note: >-
+      Same key, commented in both templates that carry an epics block. A live
+      probe channel is facility-specific and cannot be guessed, and an unset
+      one leaves the live target un-switchable-to rather than falsely
+      eligible — the fail-closed direction.
+
+  # ── Control-system target switch ────────────────────────────────────
+  control_system.target_switch:
+    forward-declared: true
+    note: >-
+      Tuning + acknowledgment block for the running-session control-system
+      target switch. Rendered ahead of its readers on this branch.
+  control_system.target_switch.drain_timeout_s: {forward-declared: true}
+  control_system.target_switch.probe_interval_s: {forward-declared: true}
+  control_system.target_switch.live_gateway_acknowledged:
+    rendered: false
+    forward-declared: true
+    note: >-
+      Commented in every template that renders an epics block. The operator
+      sets it to their OWN live gateway hostname; the shipped example is a
+      real-hostname-SHAPED string on purpose (an actually-real one in the
+      control_assistant template, a neutral one in the project template), so
+      nothing can string-test a value for "still the default". Only
+      set-and-non-empty is ever checked.
 
   # ── Archiver ────────────────────────────────────────────────────────
   archiver: {evidence: 'get_config_value\("archiver", \{\}\)'}
@@ -866,13 +900,21 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 284
+  expected_union_size: 289
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
     it. Because it cannot fail, it only stays useful if it is re-derived
     whenever a template's key set changes; it had drifted 9 low before the qmd
     blocks landed, which is exactly how a soft counter stops being a signal.
+    284 -> 289 absorbs two separate movements, recorded here so the arithmetic
+    stays checkable: the target-switch work adds exactly FOUR rendered paths
+    (control_system.target_switch{,.drain_timeout_s,.probe_interval_s} and
+    control_system.connector.virtual_accelerator.probe_channel — the generic
+    template's new virtual_accelerator block introduces no path the
+    control_assistant template did not already render), and the remaining ONE
+    is pre-existing drift measured at this branch's base: archiver.auto_bin_points
+    landed with #117 with a `keys` entry but without bumping this counter.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
