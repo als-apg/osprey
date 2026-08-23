@@ -159,6 +159,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey init` now prints a composition card under its report: who can sign
+  in (each user's persona, rights, login method and port), what the agent runs
+  on (model, MCP servers, bundled toolkit), what machine it talks to
+  (connector, archiver, channel database) and what else runs beside it. The
+  card is derived from the resolved profile, so it shows exactly the
+  deployment about to be built — useful reading while a chained `--up` pulls
+  its images.
 - ARIEL search now speaks your control room's shorthand. Drop a
   `vocabulary.yml` in your project, set `ariel.vocabulary.enabled: true` and
   point `ariel.vocabulary.path` at it, and a search for `t/s bpm` also finds
