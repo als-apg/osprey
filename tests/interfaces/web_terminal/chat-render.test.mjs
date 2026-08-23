@@ -266,6 +266,28 @@ describe('tool vocabulary', () => {
     expect(normaliseToolName('mcp__osprey__phoebus_drive')).toBe('phoebus_drive');
   });
 
+  test('normaliseToolName strips underscored server names too', () => {
+    // Framework servers whose names contain underscores, and any
+    // facility-declared server named the same way.
+    expect(normaliseToolName('mcp__osprey_workspace__submit_response')).toBe(
+      'submit_response'
+    );
+    expect(normaliseToolName('mcp__osprey_facility_knowledge__list_concepts')).toBe(
+      'list_concepts'
+    );
+    expect(normaliseToolName('mcp__als_custom_srv__do_thing')).toBe('do_thing');
+  });
+
+  test('facility-knowledge tools resolve their operator phrase', () => {
+    // The TOOL_PHRASES "Facility knowledge" section must be reachable.
+    expect(
+      toolPhrase({
+        type: 'tool_use',
+        tool_name_raw: 'mcp__osprey_facility_knowledge__list_concepts',
+      })
+    ).toBe('browsing facility knowledge');
+  });
+
   test('the raw name maps even when the display name is unhelpful', () => {
     expect(
       activityLabel({
