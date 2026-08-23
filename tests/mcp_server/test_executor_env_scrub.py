@@ -15,8 +15,8 @@ import yaml
 
 from osprey.mcp_server.python_executor.executor import execute_code
 from osprey.mcp_server.sandbox_env import (
-    _SENSITIVE_ENV_EXACT,
-    _SENSITIVE_ENV_SUFFIXES,
+    SENSITIVE_ENV_EXACT,
+    SENSITIVE_ENV_SUFFIXES,
     scrub_sensitive_env,
 )
 
@@ -75,6 +75,24 @@ def test_scrub_removes_event_dispatcher_token():
 
 
 @pytest.mark.unit
+def test_scrub_removes_terminal_secret():
+    """OSPREY_TERMINAL_SECRET is dropped: it authenticates a web-terminal session."""
+    env = {"OSPREY_TERMINAL_SECRET": "secret", "PATH": "/usr/bin"}
+    scrubbed = scrub_sensitive_env(env)
+    assert "OSPREY_TERMINAL_SECRET" not in scrubbed
+    assert scrubbed["PATH"] == "/usr/bin"
+
+
+@pytest.mark.unit
+def test_scrub_removes_panel_token():
+    """OSPREY_PANEL_TOKEN is dropped: no sandbox has business calling panel routes."""
+    env = {"OSPREY_PANEL_TOKEN": "secret", "PATH": "/usr/bin"}
+    scrubbed = scrub_sensitive_env(env)
+    assert "OSPREY_PANEL_TOKEN" not in scrubbed
+    assert scrubbed["PATH"] == "/usr/bin"
+
+
+@pytest.mark.unit
 def test_scrub_generalizes_to_future_launch_tokens():
     """Any future *_LAUNCH_TOKEN name is scrubbed without a code change."""
     env = {"SOME_OTHER_BRIDGE_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -114,10 +132,25 @@ def test_scrub_empty_env():
 @pytest.mark.unit
 def test_sensitive_env_constants_are_tuples():
     """Constants are tuples (immutable, module-level security constants — not config)."""
-    assert isinstance(_SENSITIVE_ENV_EXACT, tuple)
-    assert isinstance(_SENSITIVE_ENV_SUFFIXES, tuple)
-    assert "EVENT_DISPATCHER_TOKEN" in _SENSITIVE_ENV_EXACT
-    assert "_LAUNCH_TOKEN" in _SENSITIVE_ENV_SUFFIXES
+    assert isinstance(SENSITIVE_ENV_EXACT, tuple)
+    assert isinstance(SENSITIVE_ENV_SUFFIXES, tuple)
+    assert "EVENT_DISPATCHER_TOKEN" in SENSITIVE_ENV_EXACT
+    assert "OSPREY_TERMINAL_SECRET" in SENSITIVE_ENV_EXACT
+    assert "OSPREY_PANEL_TOKEN" in SENSITIVE_ENV_EXACT
+    assert "_LAUNCH_TOKEN" in SENSITIVE_ENV_SUFFIXES
+
+
+@pytest.mark.unit
+def test_sensitive_env_constants_are_reexports_of_canonical_module():
+    """The names are re-exported from osprey.utils.sensitive_env, not re-typed here.
+
+    Identity (not equality) is asserted: a second literal list that happened to
+    agree today could silently drift from the canonical one tomorrow.
+    """
+    from osprey.utils import sensitive_env as canonical
+
+    assert SENSITIVE_ENV_EXACT is canonical.SENSITIVE_ENV_EXACT
+    assert SENSITIVE_ENV_SUFFIXES is canonical.SENSITIVE_ENV_SUFFIXES
 
 
 # ---------------------------------------------------------------------------

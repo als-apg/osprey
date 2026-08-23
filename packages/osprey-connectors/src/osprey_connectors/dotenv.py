@@ -10,7 +10,9 @@ from __future__ import annotations
 import fcntl
 import os
 import tempfile
-from collections.abc import Mapping
+import threading
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -245,6 +247,71 @@ class ProfileEnvAppendResult:
     conflicts: tuple[EnvConflict, ...]
 
 
+#: One ``threading.RLock`` per locked path, so two threads of one process
+#: serialize against each other as well: ``flock`` is held per open file
+#: DESCRIPTION and would let a second thread's independent ``open`` walk
+#: straight through the first's lock.
+_ENV_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_ENV_LOCK_REGISTRY_GUARD = threading.Lock()
+#: Paths this THREAD already holds the flock for, so a nested acquisition
+#: yields instead of blocking on itself (see :func:`env_file_lock`).
+_env_lock_state = threading.local()
+
+
+@contextmanager
+def env_file_lock(env_path: Path) -> Iterator[None]:
+    """Hold the exclusive lock guarding one ``.env``'s read-modify-write.
+
+    THE serialization point for these files, and the reason there is a public
+    one: every writer here rewrites the whole file through
+    :func:`atomic_write`, so a writer that reads, filters and replaces without
+    the lock silently DISCARDS anything a concurrent writer committed in
+    between. Several processes append to the same repo ``.env`` as a matter of
+    course -- ``osprey up`` persisting a minted service token, ``osprey build``
+    writing its derived keys, profile seeding -- so this is a routine race, not
+    a theoretical one.
+
+    The lock lives in a sibling ``<name>.lock`` rather than on the ``.env``
+    itself precisely because :func:`atomic_write`'s ``os.replace`` swaps the
+    inode out from under any lock held on the file. The lock file is created if
+    absent and is never removed: unlinking it would let two processes hold locks
+    on two different inodes and believe they were serialized.
+
+    **Re-entrant within one thread.** A caller that needs several operations to
+    be one critical section -- dropping a stale assignment and appending its
+    replacement, say -- wraps them in this and may still call
+    :func:`append_profile_env`, which takes the lock again and finds it already
+    held. Without that, the inner acquisition would open a SECOND file
+    description and ``flock`` would deadlock the process against itself.
+
+    :param env_path: The ``.env`` being guarded. Its parent directory must
+        exist and be writable, since the lock file is created beside it.
+    :raises OSError: If the lock file cannot be created or opened.
+    """
+    key = str(Path(env_path).resolve())
+    with _ENV_LOCK_REGISTRY_GUARD:
+        thread_lock = _ENV_THREAD_LOCKS.setdefault(key, threading.RLock())
+
+    held: set[str] = getattr(_env_lock_state, "held", None) or set()
+    _env_lock_state.held = held
+
+    with thread_lock:
+        if key in held:
+            # Already inside an outer `env_file_lock` on this path, in this
+            # thread. Re-locking would block forever on our own flock.
+            yield
+            return
+        lock_path = Path(key).with_name(Path(key).name + ".lock")
+        with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            held.add(key)
+            try:
+                yield
+            finally:
+                held.discard(key)
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
 def append_profile_env(
     profile_env_path: Path,
     entries: Mapping[str, str],
@@ -279,13 +346,8 @@ def append_profile_env(
     The parent directory is *not* created: a missing profile directory raises,
     which is the signal the caller's degraded path is looking for.
     """
-    lock_path = profile_env_path.with_name(profile_env_path.name + ".lock")
-    with open(lock_path, "a+", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        try:
-            return _append_profile_env_locked(profile_env_path, entries, section_banner)
-        finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    with env_file_lock(profile_env_path):
+        return _append_profile_env_locked(profile_env_path, entries, section_banner)
 
 
 def _append_profile_env_locked(

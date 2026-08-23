@@ -83,6 +83,17 @@ services:
       # project .env when unset (see container_lifecycle.py's per-service
       # token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
+      # The operator credential for this sidecar's own web gate
+      # (WebAuthMiddleware): a browser logs in through the `?token=` exchange,
+      # a non-browser client sends it as `X-Osprey-Terminal-Secret`. No
+      # :-default for the same reason as the launch token above; `osprey up`
+      # mints it into the project .env (container_lifecycle's per-service
+      # token-mint map).
+      OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
+      # Marks the container shape for web_auth: an empty secret then refuses
+      # startup naming the variable, instead of minting a value that is
+      # announced only to the container log and reachable by nobody.
+      OSPREY_TERMINAL_BIND_HOST: "0.0.0.0"
     volumes:
       # Bind-mount source is relative to the compose project directory
       # (build/services/), not this file's own subdir — hence the

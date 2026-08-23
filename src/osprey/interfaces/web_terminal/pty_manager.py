@@ -28,11 +28,33 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
 
     Layers the PTY-specific keys on top of :func:`build_base_child_env` (which
     strips Claude Code session vars while preserving the telemetry master switch,
-    resolves the auth-token conflict, and augments ``PATH``): sets the terminal
-    type variables, then applies any caller-supplied ``extra_env`` last.
+    drops the sensitive credentials named by
+    :mod:`osprey.utils.sensitive_env`, resolves the auth-token conflict, and
+    augments ``PATH``): sets the terminal type variables, then applies any
+    caller-supplied ``extra_env`` last.
+
+    This is the one launch path where the credential deny step is real removal
+    rather than a no-op: the result becomes the PTY child's *complete*
+    ``env=``, so a dropped name is gone from the agent session and from the MCP
+    servers it spawns. The SDK paths overlay their dict onto ``os.environ``
+    instead and get no such guarantee — see
+    :mod:`osprey.agent_runner.clean_env` for which names that leaves open where.
+
+    ``extra_env`` is applied last, after the strip, and is therefore the seam
+    through which a caller can deliberately re-introduce a credential the base
+    helper removed. That is intentional — a launcher that has decided a
+    particular child may hold a particular token says so here — but it means
+    the deny step is a default, not an invariant: read the caller's
+    ``extra_env`` before concluding a name cannot reach the child. Today the
+    real caller,
+    :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`,
+    re-introduces exactly one: ``OSPREY_PANEL_TOKEN``, the panel-tier-only
+    credential the agent's panel tools and hooks would otherwise be answered
+    401 for. It never re-introduces the operator secret.
 
     Args:
-        extra_env: Additional environment variables to overlay last.
+        extra_env: Additional environment variables to overlay last. Wins over
+            everything the base helper resolved, including its credential strip.
 
     Returns:
         The fully resolved environment dict for the child process.

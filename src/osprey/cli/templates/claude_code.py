@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import warnings
@@ -31,6 +32,36 @@ logger = logging.getLogger("osprey.cli.templates")
 # must be denied. Module-level so tests can assert against the same set the
 # renderer actually uses instead of re-declaring it.
 _MIXED_READ_WRITE_TEMPLATES = {"python"}
+
+#: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
+#:
+#: This is the interactive permission layer's hard floor: entries land in
+#: ``permissions.deny``, which Claude Code refuses without ever offering an
+#: approval prompt. ``Bash`` and ``Edit`` are the two that matter most — they
+#: are the unmediated shell-out and unmediated file-patch escape hatches around
+#: every other control the profile installs.
+#:
+#: Three consumers share this one definition, and they must not fork:
+#:
+#: * ``settings.json.j2`` renders it, in this order, into ``permissions.deny``
+#:   (minus anything a facility lists under ``permissions.remove_deny``). It
+#:   arrives there as the ``deny_defaults`` context key, written by
+#:   :func:`config_derived_context` so BOTH render paths carry it.
+#: * The build lint checks that every write-capable built-in is either denied
+#:   here or gated by a ``PreToolUse`` hook rule.
+#: * ``tests/agent_runner/test_write_tools.py`` guards that the headless
+#:   read-only floor is never more permissive than this interactive one.
+#:
+#: Order is load-bearing only in that it fixes the rendered array's order;
+#: appending is always safe, reordering churns every built project's diff.
+DENY_DEFAULTS: tuple[str, ...] = (
+    "Bash",
+    "Edit",
+    "WebFetch",
+    "WebSearch",
+    "mcp__plugin_playwright_playwright__*",
+    "mcp__plugin_context7_context7__*",
+)
 
 
 def apply_textbooks_root(ctx: dict, project_dir: Path) -> None:
@@ -258,6 +289,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "control_system_write_tools": control_system.get("write_tools", []),
         # Control system type for protocol-aware safety rules
         "control_system_type": control_system.get("type", "mock"),
+        # The interactive deny floor settings.json.j2 renders into
+        # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
+        # build lint and the read-only-floor drift test cannot fork.
+        "deny_defaults": list(DENY_DEFAULTS),
     }
 
 
@@ -1039,6 +1074,260 @@ def _declared_hook_rule(entry: dict, event: str, name: str) -> dict:
     }
 
 
+#: Built-in Claude Code tools that can write — to the filesystem, or (``Bash``)
+#: to anything the shell reaches. Every generated profile must gate each of
+#: these — either by hard-denying it in ``permissions.deny`` or by matching it
+#: with a ``PreToolUse`` hook rule — so a profile can never ship able to write
+#: with no gate at all.
+#:
+#: ``Bash`` and ``Edit`` are here for the reason :data:`DENY_DEFAULTS` names
+#: them first: they are the unmediated shell-out and unmediated file-patch
+#: escape hatches around every other control the profile installs. Their only
+#: gate in a shipped preset is that :data:`DENY_DEFAULTS` denies them — and
+#: ``claude_code.permissions.remove_deny`` lets a facility take that away, which
+#: before this entry did so with no lint and no warning. Listing them here is
+#: what makes ``remove_deny: ["Bash"]`` a build failure unless something else
+#: actually gates the tool.
+#:
+#: The memory-guard hook's ``Write|MultiEdit|NotebookEdit`` matcher is what
+#: gates the other three in the shipped presets; see
+#: :func:`_lint_write_tools_are_gated`.
+_WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
+    "Bash",
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "NotebookEdit",
+)
+
+
+def _rendered_deny_list(ctx: dict) -> list[str]:
+    """Reproduce the ``permissions.deny`` array ``settings.json.j2`` will render.
+
+    Mirrors the template's own construction exactly: the ``deny_defaults`` floor
+    (the hoisted :data:`DENY_DEFAULTS` constant, minus anything a facility lists
+    under ``permissions.remove_deny``) followed by the facility ``permissions.deny``
+    entries. Reproduced in Python from the same context keys the template reads —
+    never regex-parsed out of the rendered JSON — so the lint and the template
+    share one source and cannot silently drift.
+
+    A context that is missing ``deny_defaults`` yields an empty floor here, which
+    is exactly the silent-empty-deny hazard :func:`_lint_write_tools_are_gated`
+    guards against.
+
+    Args:
+        ctx: The render context, read for ``deny_defaults`` and
+            ``facility_permissions``.
+
+    Returns:
+        The deny entries, in render order.
+    """
+    facility = ctx.get("facility_permissions") or {}
+    remove_deny = facility.get("remove_deny", []) or []
+    deny = [d for d in (ctx.get("deny_defaults") or []) if d not in remove_deny]
+    deny.extend(facility.get("deny", []) or [])
+    return deny
+
+
+#: Provenance tags for the ``PreToolUse`` matchers the lint reads.
+#:
+#: ``framework`` rules come from OSPREY's own wiring — a selected framework hook
+#: (``fw_pre_rules``) or an enabled server's registry ``hooks_pre`` — so the
+#: build knows which script runs and that it emits an explicit
+#: ``permissionDecision``. ``profile`` rules are whatever the profile declared
+#: under ``claude_code.hooks.PreToolUse``: vetted to exist and to be wired
+#: correctly, but never inspected for what they decide.
+_MATCHER_FRAMEWORK = "framework"
+_MATCHER_PROFILE = "profile"
+
+
+def _pretooluse_matchers(ctx: dict, fw_pre_rules: list[dict]) -> list[tuple[str, str]]:
+    """Every ``PreToolUse`` matcher ``settings.json.j2`` will render, with provenance.
+
+    Concatenates the same three sources the template does, in the same spirit:
+    the framework hook rules (``fw_pre_rules``, e.g. the memory-guard hook), each
+    enabled server's ``hooks_pre`` rules, and the profile's declared
+    ``PreToolUse`` wiring. Every rule is a plain dict carrying a ``"matcher"``
+    key, so access is uniform.
+
+    Each matcher is paired with where it came from — :data:`_MATCHER_FRAMEWORK`
+    for the first two sources, :data:`_MATCHER_PROFILE` for the third — because
+    the lint treats the two differently: see
+    :func:`_lint_write_tools_are_gated`.
+
+    Args:
+        ctx: The render context, read for ``servers`` and ``declared_hooks``.
+        fw_pre_rules: The framework PreToolUse rules just computed by
+            :func:`_build_framework_hook_rules`.
+
+    Returns:
+        ``(matcher, provenance)`` pairs, in render order.
+    """
+    matchers: list[tuple[str, str]] = [
+        (rule.get("matcher", ""), _MATCHER_FRAMEWORK) for rule in (fw_pre_rules or [])
+    ]
+    for srv in ctx.get("servers", []) or []:
+        if srv.get("enabled"):
+            matchers.extend(
+                (rule.get("matcher", ""), _MATCHER_FRAMEWORK)
+                for rule in (srv.get("hooks_pre") or [])
+            )
+    declared = ctx.get("declared_hooks") or {}
+    matchers.extend(
+        (rule.get("matcher", ""), _MATCHER_PROFILE) for rule in (declared.get("PreToolUse") or [])
+    )
+    return matchers
+
+
+#: Characters whose presence makes Claude Code read a hook matcher as a regular
+#: expression rather than an exact tool name. Kept as a set so
+#: :func:`_matcher_covers` can decide per matcher which mode applies, the same
+#: way Claude Code does.
+_REGEX_METACHARACTERS = frozenset(r".^$*+?{}[]()|\\")
+
+#: Matcher spellings that gate every tool. Claude Code accepts the literal
+#: ``"*"``, an empty string, and an omitted ``matcher`` key as "all tools";
+#: ``".*"`` reaches the same place through the regex path.
+_MATCH_ALL_MATCHERS = frozenset({"*", ".*", ""})
+
+
+def _matcher_covers(matcher: str | None, tool: str) -> bool:
+    """Whether one ``PreToolUse`` matcher gates ``tool``.
+
+    Mirrors how Claude Code itself resolves a hook matcher, because a lint that
+    read them more narrowly would refuse builds whose hooks genuinely do gate the
+    tool. Recognised, in this order:
+
+    * **Match-all** — the literal ``"*"``, the regex ``".*"``, an empty string,
+      or ``None`` (an omitted ``matcher`` key). All four run the hook on every
+      tool call, so all four cover every tool.
+    * **Regex** — any matcher containing a regex metacharacter
+      (:data:`_REGEX_METACHARACTERS`) is compiled and matched **unanchored**,
+      the way Claude Code matches it. So ``"Write.*"``, ``"^(Write|Edit)$"`` and
+      ``"Write|MultiEdit|NotebookEdit"`` (the memory-guard hook's own matcher)
+      all cover ``Write``, and ``"Edit.*"`` also covers ``NotebookEdit`` —
+      unanchored is what Claude Code does, so it is what this reports.
+    * **Exact alternation** — otherwise, and as the fallback when a matcher
+      containing metacharacters is not a compilable regex, the matcher is split
+      on ``|`` and each alternative compared for equality.
+
+    An author who wants a matcher this lint will read as covering a tool can
+    therefore spell it as the bare tool name, as a ``|`` alternation, or as any
+    regex that matches the name.
+
+    Args:
+        matcher: The matcher string (``None`` for an omitted ``matcher`` key).
+        tool: The tool name to test for.
+
+    Returns:
+        ``True`` when ``tool`` is gated by this matcher.
+    """
+    if matcher is None:
+        return True
+    matcher = matcher.strip()
+    if matcher in _MATCH_ALL_MATCHERS:
+        return True
+    if any(char in _REGEX_METACHARACTERS for char in matcher):
+        try:
+            if re.search(matcher, tool):
+                return True
+        except re.error:
+            pass  # Not a compilable regex; fall through to exact alternation.
+    return tool in [part.strip() for part in matcher.split("|")]
+
+
+def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
+    """Refuse to build a profile that can write with no gate.
+
+    Every write-capable built-in (:data:`_WRITE_CAPABLE_BUILTINS`) must be
+    gated in one of two ways: hard-denied in the rendered ``permissions.deny``
+    floor, OR matched by a ``PreToolUse`` hook rule. Either is accepted, and the
+    distinction is load-bearing: Claude Code resolves permissions ``deny`` > ``ask``
+    > ``allow``, so a hook ``allow`` can never override a ``deny``. Denying
+    ``Write``/``MultiEdit``/``NotebookEdit`` outright would therefore permanently
+    block legitimate memory writes (Write/MultiEdit to the Claude memory files)
+    and artifact notebook edits (NotebookEdit to the agent-data tree). The
+    memory-guard ``PreToolUse`` rule is what legitimately gates them instead —
+    allowing the good paths and denying the rest — so the lint takes a matcher as
+    sufficient. ``Bash`` and ``Edit`` have no such legitimate path and are gated
+    by :data:`DENY_DEFAULTS`; the lint is what makes removing them from that
+    floor via ``claude_code.permissions.remove_deny`` a build failure rather than
+    a silent widening.
+
+    An empty rendered deny floor is itself the hazard this guards against: a
+    context missing ``deny_defaults`` renders an EMPTY ``permissions.deny`` array
+    silently (a settings.json that looks whole but denies nothing). With an empty
+    floor, a write-capable tool passes only if a ``PreToolUse`` rule still gates
+    it; if none does, the build is refused rather than shipping an ungated writer.
+
+    **What a matcher does and does not prove.** The lint checks that a covering
+    rule EXISTS; it cannot check that the hook behind it ever refuses anything.
+    A ``PreToolUse`` hook that exits 0 without emitting a ``permissionDecision``
+    falls through to the normal permission flow — i.e. it allows — and one that
+    exits non-zero (or fails to launch) is a non-blocking error that also lets
+    the call proceed. The framework hooks OSPREY wires emit an explicit
+    ``permissionDecision``, so a :data:`_MATCHER_FRAMEWORK` matcher is a real
+    gate. A matcher the profile itself declares under
+    ``claude_code.hooks.PreToolUse`` is not inspected at all, so it satisfies the
+    lint while proving only that a script runs — which is why a tool gated by
+    nothing but a profile-declared matcher is allowed through with a build-time
+    warning rather than silently. (Refusing outright was considered and rejected:
+    no framework hook matches ``Bash`` or ``Edit``, and ``deny`` outranks
+    ``allow``, so refusing would make a facility-gated shell unbuildable by any
+    means rather than merely loud.)
+
+    Args:
+        ctx: The render context, carrying the rendered deny floor
+            (``deny_defaults`` + ``facility_permissions``) and the PreToolUse
+            sources (``servers``, ``declared_hooks``).
+        fw_pre_rules: The framework PreToolUse rules just computed for this
+            render, before they are written into ``ctx``.
+
+    Raises:
+        BuildProfileError: Naming the first write-capable built-in that is
+            neither hard-denied nor matched by any ``PreToolUse`` rule.
+    """
+    deny = _rendered_deny_list(ctx)
+    matchers = _pretooluse_matchers(ctx, fw_pre_rules)
+    for tool in _WRITE_CAPABLE_BUILTINS:
+        if tool in deny:
+            continue
+        covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
+        if covering:
+            if all(src == _MATCHER_PROFILE for _, src in covering):
+                logger.warning(
+                    "%s is not in permissions.deny and is gated only by a "
+                    "PreToolUse matcher this profile declares itself (%s). The "
+                    "build checks that the rule exists, not that the hook "
+                    "refuses anything — a hook that exits without a "
+                    "permissionDecision allows the call. Verify that hook denies "
+                    "what it is there to deny.",
+                    tool,
+                    ", ".join(repr(m) for m, _ in covering),
+                )
+            continue
+        floor_note = (
+            " The rendered permissions.deny floor is empty, so nothing is denied "
+            "at the permission layer — check that deny_defaults reached the render "
+            "context."
+            if not deny
+            else ""
+        )
+        raise BuildProfileError(
+            f"The generated profile would ship able to run {tool!r} with no gate: "
+            f"{tool!r} is neither in permissions.deny nor matched by any PreToolUse "
+            "hook rule. A profile must not be able to write with no gate. "
+            "Wire the memory-guard hook (its 'Write|MultiEdit|NotebookEdit' matcher "
+            f"gates the three file-writing built-ins), or add {tool!r} to "
+            "permissions.deny — if it is missing because "
+            f"claude_code.permissions.remove_deny lists {tool!r}, drop that entry. "
+            "A PreToolUse matcher satisfies this check by existing; the build "
+            "cannot tell whether the hook behind it refuses anything, so a hook "
+            "used as the gate must emit an explicit permissionDecision of 'deny' "
+            f"(exiting 0 with no output allows the call).{floor_note}"
+        )
+
+
 def create_claude_code_integration(
     template_root: Path,
     jinja_env,
@@ -1085,6 +1374,13 @@ def create_claude_code_integration(
     fw_pre, fw_post = _build_framework_hook_rules(ctx.get("selected_hooks", []))
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post
+
+    # Build-time safety lint: refuse to render a profile in which any
+    # write-capable built-in (Write/MultiEdit/NotebookEdit) is neither hard-denied
+    # nor gated by a PreToolUse hook. Runs on both render paths (create + regen)
+    # because both funnel through here, and before any file is written so a
+    # failing profile never lands a half-rendered .claude/ tree.
+    _lint_write_tools_are_gated(ctx, fw_pre)
 
     files_created = 0
 

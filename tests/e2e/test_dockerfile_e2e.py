@@ -64,6 +64,7 @@ Skipped entirely when docker is unavailable. Excluded from the main e2e-tests
 CI job (runs in its own dockerfile-e2e job).
 """
 
+import http.cookiejar
 import json
 import os
 import platform
@@ -73,6 +74,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -413,17 +415,62 @@ def _wait_for_health(base_url: str, cid: str, timeout: float) -> None:
     pytest.fail(f"server never became healthy ({last_err}):\n{_container_logs(cid)}")
 
 
-def _post_chat(base_url: str, prompt: str, timeout: float) -> dict:
-    """POST a prompt to the buffered chat endpoint, return the JSON body."""
+# The launcher prints its one-time login URL as `Open: http://<host>:<port>/?token=<secret>`
+# (mint_and_announce). The container mints its OWN operator secret, so the token
+# can only be recovered from its logs — the whole reason this parses the printed
+# URL rather than assuming a bare, credential-less base URL.
+_OPEN_URL_RE = re.compile(r"Open:\s*(http://\S+\?token=\S+)")
+
+
+def _login_opener(base_url: str, cid: str) -> urllib.request.OpenerDirector:
+    """Exchange the container's printed ``?token=`` login URL for a session cookie.
+
+    Every ``/api/*`` route on the deployed image is now behind the web-auth gate,
+    so an unauthenticated ``POST /api/chat`` is refused ``401``. A browser gets in
+    by following the ``Open: …?token=…`` URL the launcher prints, which
+    ``GET``s to a ``303`` that sets an ``HttpOnly`` session cookie; this does the
+    same, returning a cookie-jar-backed opener that carries that session on every
+    subsequent request.
+
+    The token is read from the container's FULL logs (not the tailed view), since
+    the ``Open:`` line is printed once at startup and would scroll out of a short
+    tail by the time the agent turn runs.
+    """
+    logs = subprocess.run(["docker", "logs", cid], capture_output=True, text=True, timeout=15)
+    match = _OPEN_URL_RE.search(logs.stdout + logs.stderr)
+    assert match, f"container never printed an 'Open: …?token=…' login URL:\n{_container_logs(cid)}"
+    login_url = match.group(1)
+    # The token identifies the container's secret; the exchange itself must be
+    # driven at the host-mapped base_url, so swap the authority the container
+    # announced (its internal :8087) for the reachable one.
+    token_query = urllib.parse.urlparse(login_url).query
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+    )
+    with opener.open(f"{base_url}/?{token_query}", timeout=15) as resp:
+        assert resp.status == 200, f"token exchange did not resolve to 200 (got {resp.status})"
+    return opener
+
+
+def _post_chat(
+    base_url: str, opener: urllib.request.OpenerDirector, prompt: str, timeout: float
+) -> dict:
+    """POST a prompt to the buffered chat endpoint, return the JSON body.
+
+    Sent through the cookie-bearing *opener* from :func:`_login_opener` with a
+    same-origin ``Origin`` header: ``/api/chat`` is a mutating cookie-authenticated
+    route, so the web-auth gate refuses it ``403`` without an ``Origin`` matching
+    the app's external origin (derived from the request ``Host`` = *base_url*).
+    """
     # chat_id is a required field — it keys the server-side ChatSessionPool.
     # A single fixed id is enough for this one-turn smoke test.
     req = urllib.request.Request(
         f"{base_url}/api/chat?stream=false",
         data=json.dumps({"prompt": prompt, "chat_id": "e2e"}).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Origin": base_url},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with opener.open(req, timeout=timeout) as resp:
         assert resp.status == 200, f"chat returned HTTP {resp.status}"
         return json.loads(resp.read())
 
@@ -474,7 +521,8 @@ def test_generated_image_serves_agent_over_http(built_image):
         _wait_for_health(base_url, cid, HEALTH_TIMEOUT)
 
         try:
-            data = _post_chat(base_url, CHAT_PROMPT, CHAT_TIMEOUT)
+            opener = _login_opener(base_url, cid)
+            data = _post_chat(base_url, opener, CHAT_PROMPT, CHAT_TIMEOUT)
         except urllib.error.HTTPError as exc:
             pytest.fail(f"chat HTTP {exc.code}: {exc.read()[:2000]!r}\n{_container_logs(cid)}")
 

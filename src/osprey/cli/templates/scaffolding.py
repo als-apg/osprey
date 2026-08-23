@@ -57,6 +57,7 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
     "DISPATCH_WORKER_TOKEN": "authenticates the dispatch worker back to the dispatcher",
     "BLUESKY_LAUNCH_TOKEN": "arms the Bluesky bridge's plan-launch endpoint",
     "BLUESKY_TILED_API_KEY": "the key the bridge presents to the co-deployed Tiled catalog",
+    "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
     "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "MONGO_ROOT_PASSWORD": "archiver store root password (the seeder, recorder and agent all authenticate with it)",

@@ -108,6 +108,13 @@ USERS_ENV_NAME: str = USERS_ENV_FILENAME
 #: of how the outside world reaches the service.
 PROBE_HOST: str = "localhost"
 
+#: Where a per-user web terminal answers a probe. Not ``/``: the application
+#: asks every caller for a credential, and the deploy host's probe has none, so
+#: ``/`` would report a perfectly healthy terminal as down. This route is the
+#: one the app's auth gate lets through unauthenticated, for exactly this kind
+#: of liveness question.
+TERMINAL_LIVENESS_PATH: str = "/health"
+
 
 @dataclass(frozen=True)
 class Probe:
@@ -380,6 +387,12 @@ def build_verify_context(
                 divider="Web tier",
                 heading="Web terminal",
                 probes=web_probes,
+                comment=(
+                    "The landing page is nginx's own file, served before anything asks",
+                    "the caller for a credential. A terminal is the application, which",
+                    "answers an uncredentialed GET / with a 401 — so it is probed at",
+                    f"{TERMINAL_LIVENESS_PATH}, the route its auth gate lets through.",
+                ),
             )
         )
 
@@ -585,7 +598,18 @@ def _web_terminals(profile: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
-    """Probe the nginx landing page and one terminal per roster user."""
+    """Probe the nginx landing page and one terminal per roster user.
+
+    The two halves answer at different paths, and the difference is not
+    cosmetic. The landing page is nginx's own file, served before anything
+    asks the caller for a credential, so ``/`` is exactly what an operator
+    opening the deployment sees. A per-user terminal is the application, and
+    the application now refuses an uncredentialed request to ``/`` with a 401;
+    a probe pointed there would report every healthy terminal as down. Each
+    terminal is probed at its unauthenticated liveness route instead, which
+    is the same route its container healthcheck uses and the only one the
+    app's auth gate lets through without a credential.
+    """
     web = _web_terminals(profile)
     if web is None:
         return ()
@@ -610,7 +634,14 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
             continue
         if not name:
             continue
-        probes.append(Probe(kind="http", label=f"terminal ({name})", port=base + index))
+        probes.append(
+            Probe(
+                kind="http",
+                label=f"terminal ({name})",
+                port=base + index,
+                path=TERMINAL_LIVENESS_PATH,
+            )
+        )
 
     return tuple(sorted(probes, key=lambda probe: probe.port))
 

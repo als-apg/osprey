@@ -132,11 +132,34 @@ ones are skipped and logged, so one bad panel never breaks the others.
 
 .. warning::
 
-   The Web Terminal has **no application-level login**. Turning on
-   ``allow_runtime_panels`` serves whatever panels are on disk to anyone who can
-   reach the port — right for the intended single-operator, local setup, but a
-   facility that exposes the terminal more widely should put its own
-   authentication in front of it.
+   Turning on ``allow_runtime_panels`` serves **whatever panels are on disk**.
+   The Web Terminal authenticates every request, so only a signed-in operator
+   reaches them — but it makes no judgement about what a panel does. Treat
+   ``panels/`` as trusted code, and leave discovery off on a deployment where
+   more people can drop a folder there than you would hand the terminal to.
+
+.. note::
+
+   A panel that reaches a backend does so through the web terminal's panel
+   proxy, and the proxy is deliberately strict about credentials. On every
+   request it forwards to a panel backend it strips the ``cookie``,
+   ``authorization``, and ``x-osprey-terminal-secret`` headers, and it
+   re-injects the operator secret *only* toward backends declared as loopback
+   in your config. The practical consequence: a backend that authenticates its
+   own callers with a cookie or an ``Authorization`` header — Grafana, for
+   example — cannot be driven as a custom panel, because the proxy will never
+   pass those credentials through to it.
+
+   The return direction is just as strict. A panel's response is served from
+   the terminal's own address, so any header that would act on *that* address
+   rather than on the panel is stripped: ``Set-Cookie``, ``Clear-Site-Data``,
+   ``Refresh``, ``WWW-Authenticate``, and CORS (``Access-Control-*``). A backend
+   therefore cannot log the operator out, send them off to another site, or pop
+   a login box that looks like the terminal's own. A redirect is relayed rather
+   than followed, so the browser re-requests the new address and that request is
+   authenticated like any other — unless the redirect points at a third site,
+   which is refused with a ``502`` so that a terminal URL never forwards an
+   operator somewhere the panel picked.
 
 Panel layouts ("presets")
 -------------------------

@@ -6,6 +6,10 @@ Covers URL construction (config + env precedence), the fire-and-forget
 ``fetch_panels`` reading live panel state (including the layout-report
 freshness fields), and ``notify_panel_register`` / ``notify_panel_arrange``
 mapping HTTP outcomes to their structured dicts.
+
+Also covers the panel-token bearer header the three client paths attach: sent
+only when ``OSPREY_PANEL_TOKEN`` holds a non-blank value, re-read on every
+request, and a rejected credential (401) degrading quietly rather than raising.
 """
 
 from __future__ import annotations
@@ -257,7 +261,7 @@ def test_fetch_panels_returns_payload_with_freshness_fields():
         patch("urllib.request.urlopen", return_value=_panels_response(body)) as urlopen,
     ):
         data = http.fetch_panels()
-    assert urlopen.call_args.args[0] == "http://wt/api/panels"
+    assert urlopen.call_args.args[0].full_url == "http://wt/api/panels"
     assert data is not None
     assert data["open_tiles"] == ["artifacts", "lattice"]
     assert data["open_tiles_age_s"] == 4.5
@@ -431,3 +435,237 @@ def test_notify_panel_focus_omits_url_when_none():
     _url, payload = post.call_args.args
     assert payload == {"panel": "p1", "source": "agent"}
     assert "url" not in payload
+
+
+# ---------------------------------------------------------------------------
+# panel-token bearer header
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def panel_token(monkeypatch):
+    """Set (or clear) ``OSPREY_PANEL_TOKEN`` for the duration of one test.
+
+    The module's latch is reset around every test by the root conftest, so a
+    token one test saw cannot leak into a sibling asserting "no carrier means
+    no header".
+    """
+
+    def _apply(value: str | None) -> None:
+        if value is None:
+            monkeypatch.delenv("OSPREY_PANEL_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("OSPREY_PANEL_TOKEN", value)
+
+    return _apply
+
+
+@pytest.mark.unit
+def test_post_json_sends_bearer_when_token_set(panel_token):
+    panel_token("panel-secret")
+    with patch("urllib.request.urlopen") as urlopen:
+        http.post_json("http://localhost:1/api", {"a": 1})
+    req = urlopen.call_args.args[0]
+    assert req.get_header("Authorization") == "Bearer panel-secret"
+    # The header is additive: the JSON content type is still declared.
+    assert req.headers["Content-type"] == "application/json"
+
+
+@pytest.mark.unit
+def test_post_json_omits_authorization_when_token_unset(panel_token):
+    """No carrier means no header at all — never a bare ``Bearer``."""
+    panel_token(None)
+    with patch("urllib.request.urlopen") as urlopen:
+        http.post_json("http://localhost:1/api", {"a": 1})
+    req = urlopen.call_args.args[0]
+    assert req.get_header("Authorization") is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_post_json_omits_authorization_when_token_blank(panel_token, blank):
+    """A blank carrier counts as absent — an uninterpolated compose var is ``""``."""
+    panel_token(blank)
+    with patch("urllib.request.urlopen") as urlopen:
+        http.post_json("http://localhost:1/api", {"a": 1})
+    req = urlopen.call_args.args[0]
+    assert req.get_header("Authorization") is None
+
+
+@pytest.mark.unit
+def test_bearer_survives_the_process_closing_its_own_carrier(panel_token):
+    """An in-process app construction scrubs ``OSPREY_PANEL_TOKEN``; the
+    client keeps the value it already saw.
+
+    Saving an artifact can auto-launch the artifact companion inside the MCP
+    server process, and building that app closes both credential carriers in
+    ``os.environ``.  The bearer must not vanish with them.
+    """
+    from osprey.interfaces.web_auth import close_env_carriers
+
+    panel_token("panel-secret")
+    with patch("urllib.request.urlopen") as urlopen:
+        http.post_json("http://localhost:1/api", {})
+        close_env_carriers()
+        assert "OSPREY_PANEL_TOKEN" not in __import__("os").environ
+        http.post_json("http://localhost:1/api", {})
+        after = urlopen.call_args.args[0].get_header("Authorization")
+    assert after == "Bearer panel-secret"
+
+
+@pytest.mark.unit
+def test_latch_never_invents_a_token(panel_token):
+    """A process that never held a carrier sends no bearer, latch or not."""
+    panel_token(None)
+    assert http._panel_auth_headers() == {}
+    panel_token("")
+    assert http._panel_auth_headers() == {}
+
+
+@pytest.mark.unit
+def test_post_json_reads_token_at_request_time(panel_token):
+    """The token is read per request, never captured once at import."""
+    panel_token("first")
+    with patch("urllib.request.urlopen") as urlopen:
+        http.post_json("http://localhost:1/api", {})
+        first = urlopen.call_args.args[0].get_header("Authorization")
+        panel_token("second")
+        http.post_json("http://localhost:1/api", {})
+        second = urlopen.call_args.args[0].get_header("Authorization")
+    assert (first, second) == ("Bearer first", "Bearer second")
+
+
+@pytest.mark.unit
+def test_post_json_401_stays_silent_and_non_fatal(panel_token):
+    """A rejected credential degrades quietly: warn, return None, never raise."""
+    panel_token("stale")
+    err = urllib.error.HTTPError(
+        url="http://localhost:1/api", code=401, msg="Unauthorized", hdrs=None, fp=None
+    )
+    with (
+        patch("urllib.request.urlopen", side_effect=err),
+        patch.object(http, "logger") as mock_logger,
+    ):
+        assert http.post_json("http://localhost:1/api", {"a": 1}) is None
+    logged = [str(c) for c in mock_logger.warning.call_args_list]
+    assert any("non-fatal" in msg for msg in logged)
+
+
+@pytest.mark.unit
+def test_post_json_with_response_sends_bearer(panel_token):
+    panel_token("panel-secret")
+    resp = MagicMock()
+    resp.status = 200
+    resp.read.return_value = b"{}"
+    cm = MagicMock()
+    cm.__enter__.return_value = resp
+    with patch("urllib.request.urlopen", return_value=cm) as urlopen:
+        http._post_json_with_response("http://x/y", {"k": "v"})
+    req = urlopen.call_args.args[0]
+    assert req.get_header("Authorization") == "Bearer panel-secret"
+    assert req.headers["Content-type"] == "application/json"
+
+
+@pytest.mark.unit
+def test_post_json_with_response_omits_authorization_when_token_unset(panel_token):
+    panel_token(None)
+    resp = MagicMock()
+    resp.status = 200
+    resp.read.return_value = b"{}"
+    cm = MagicMock()
+    cm.__enter__.return_value = resp
+    with patch("urllib.request.urlopen", return_value=cm) as urlopen:
+        http._post_json_with_response("http://x/y", {})
+    assert urlopen.call_args.args[0].get_header("Authorization") is None
+
+
+@pytest.mark.unit
+def test_post_json_with_response_401_returns_status(panel_token):
+    """A 401 is a status to report, not an exception — no retry, no raise."""
+    panel_token("stale")
+    err = urllib.error.HTTPError(url="http://x/y", code=401, msg="Unauthorized", hdrs=None, fp=None)
+    err.read = lambda: b'{"detail": "missing or invalid panel token"}'
+    with patch("urllib.request.urlopen", side_effect=err) as urlopen:
+        status, body = http._post_json_with_response("http://x/y", {})
+    assert status == 401
+    assert body == {"detail": "missing or invalid panel token"}
+    assert urlopen.call_count == 1
+
+
+@pytest.mark.unit
+def test_notify_panel_register_surfaces_401_detail(panel_token):
+    """The 401 reaches the tool as a normal rejection dict, not a crash."""
+    panel_token("stale")
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(
+            http,
+            "_post_json_with_response",
+            return_value=(401, {"detail": "missing or invalid panel token"}),
+        ),
+    ):
+        out = http.notify_panel_register("p1", "Panel 1", "http://up")
+    assert out == {
+        "ok": False,
+        "status": 401,
+        "detail": "missing or invalid panel token",
+    }
+
+
+@pytest.mark.unit
+def test_fetch_panels_sends_bearer(panel_token):
+    panel_token("panel-secret")
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch("urllib.request.urlopen", return_value=_panels_response(b"{}")) as urlopen,
+    ):
+        http.fetch_panels()
+    req = urlopen.call_args.args[0]
+    assert req.full_url == "http://wt/api/panels"
+    assert req.get_method() == "GET"
+    assert req.get_header("Authorization") == "Bearer panel-secret"
+
+
+@pytest.mark.unit
+def test_fetch_panels_omits_authorization_when_token_unset(panel_token):
+    panel_token(None)
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch("urllib.request.urlopen", return_value=_panels_response(b"{}")) as urlopen,
+    ):
+        http.fetch_panels()
+    assert urlopen.call_args.args[0].get_header("Authorization") is None
+
+
+@pytest.mark.unit
+def test_fetch_panels_401_returns_none_silently(panel_token):
+    """A rejected read is indistinguishable from an absent terminal: None, no raise."""
+    panel_token("stale")
+    err = urllib.error.HTTPError(
+        url="http://wt/api/panels", code=401, msg="Unauthorized", hdrs=None, fp=None
+    )
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch("urllib.request.urlopen", side_effect=err) as urlopen,
+        patch.object(http, "logger") as mock_logger,
+    ):
+        assert http.fetch_panels() is None
+    assert mock_logger.warning.called
+    assert urlopen.call_count == 1
+
+
+@pytest.mark.unit
+def test_fetch_panels_header_failure_degrades_to_none():
+    """Building the credential header is inside the guard, not ahead of it.
+
+    ``fetch_panels`` promises ``None`` whenever panel state cannot be had, so a
+    failure assembling the bearer header must take the same quiet path as an
+    unreachable terminal rather than raising into ``panel_tools`` callers.
+    """
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_panel_auth_headers", side_effect=RuntimeError("no env")),
+        patch.object(http, "logger") as mock_logger,
+    ):
+        assert http.fetch_panels() is None
+    assert mock_logger.warning.called

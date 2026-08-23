@@ -163,6 +163,22 @@ def print_call_to_action(repo_root: Path | str, state: str) -> None:
     otherwise. A backend-only project has no front door to send anyone to, and
     the card's ``next`` row is already the right answer for it.
 
+    The address is the deployment's own external origin -- the value each
+    terminal checks a mutating request's ``Origin`` against -- not the deploy
+    host's loopback. Sending an operator to an address the terminals refuse
+    every write from produces a deployment that looks healthy and works for
+    nothing. When no origin can be derived the loopback address is printed with
+    a note saying it serves the landing page alone.
+
+    A multi-user deployment with no login wall gets one line more. There the
+    landing page routes to a terminal that answers nothing without a credential,
+    and the ONLY way to a first session is that user's own ``?token=`` URL — so
+    an operator told to "open the landing page" and nothing else is looking at a
+    door with no handle. The URLs themselves are deliberately not printed here:
+    each carries a live operator secret, and this output is read over shoulders,
+    pasted into tickets and captured whole by CI logs. The verb that prints one
+    user's URL is named instead.
+
     :param repo_root: The deployment repo
     :param state: One of ``created``, ``built``, ``running``, ``stopped``
     """
@@ -175,7 +191,28 @@ def print_call_to_action(repo_root: Path | str, state: str) -> None:
         return
     output.report("")
     output.report(f"Everything is running. Open {facts.landing_url} to start.")
+    if not facts.landing_url_is_external_origin:
+        # The address is the deploy host's own loopback, which is where the
+        # landing page answers and nowhere a terminal will accept a write: each
+        # one checks a mutating request's Origin against the deployment's
+        # declared origin, and this is not it. Said here rather than left to be
+        # discovered as a 403 inside a container.
+        output.note(
+            "this address serves the landing page only -- set deploy.fqdn (or "
+            "modules.web_terminals.external_origin) to the address browsers reach "
+            "this deployment on, or every write from a terminal is refused"
+        )
     if facts.logins:
         pairs = " · ".join(f"{user} / {password}" for user, password in facts.logins)
         output.section("", [("sign in as", pairs)])
         output.note("these logins come from profile.yml; change them in .env")
+    if facts.token_login_users:
+        output.section(
+            "",
+            [("open a terminal with", f"osprey users login-url {facts.token_login_users[0]}")],
+        )
+        output.note(
+            "these terminals have no login page: "
+            f"{', '.join(facts.token_login_users)} each need their own "
+            "login URL, which carries that user's secret -- treat it like a password"
+        )
