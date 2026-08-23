@@ -1491,6 +1491,7 @@ def _report(
     pin.
     """
     from .phase_reporter import current_reporter
+    from .profile_card import print_profile_card
     from .profile_cmd import _skipped_keys_note
 
     echo = current_reporter().echo
@@ -1508,6 +1509,12 @@ def _report(
 
     for line in _ci_report(deploy_files, target):
         echo(line)
+
+    # Last, so the report keeps its shape: files first, then what the profile
+    # those files describe consists of. It stays on screen through everything a
+    # chained `--up` does, which is the point — the composition is what someone
+    # reads while the containers pull.
+    print_profile_card(materialized.resolved, materialized.persona_deltas)
 
 
 def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
