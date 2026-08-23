@@ -150,6 +150,28 @@ def test_ariel_standalone_puts_the_graph_tools_on_the_subagent_only(built_ariel_
     )
 
 
+def test_the_rendered_agent_ships_the_snapshot_placeholder(built_ariel_standalone_project):
+    """The build ships the marker pair the seed-time bake rewrites.
+
+    ``prompt_snapshot.apply_snapshot`` refuses a file without both markers, so
+    a build that dropped them would leave every deployment's agent on the
+    placeholder-forever path — tools still work, but the seed-time capture
+    silently never lands.
+    """
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    text = (
+        built_ariel_standalone_project / ".claude" / "agents" / "facility-knowledge-graph.md"
+    ).read_text(encoding="utf-8")
+
+    assert prompt_snapshot.SNAPSHOT_BEGIN in text
+    assert prompt_snapshot.SNAPSHOT_END in text
+    assert text.find(prompt_snapshot.SNAPSHOT_BEGIN) < text.find(prompt_snapshot.SNAPSHOT_END)
+    assert "No snapshot has been captured yet" in text, (
+        "the placeholder must say why the section is empty and what fills it"
+    )
+
+
 # ---------------------------------------------------------------------------
 # channel_finder_standalone: a subagent with no graph store
 # ---------------------------------------------------------------------------

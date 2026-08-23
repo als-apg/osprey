@@ -381,6 +381,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   delegating to it, exactly as address lookups delegate to the channel finder.
   Safety, output-style, setup-mode and diagnose prompts name the agent where
   they enumerate its siblings.
+- The store's schema and the curated examples are baked into that agent's
+  rendered prompt at seed time: whichever verb seeds or re-verifies the store
+  (`osprey up`'s staging step, `osprey knowledge seed-graph`) captures them
+  from the live store — property lists complete, example parameters narrowed
+  to the seeded corpus — and rewrites the prompt's snapshot section, stamped
+  with the seed marker's checksum. The agent starts oriented instead of
+  spending its first turn on `example_queries`/`get_schema`; both tools stay
+  registered as the recovery path for a store re-seeded out of band.
 - `osprey knowledge build-ttl` generates a Turtle corpus from a project's
   hierarchical channel database (`--channel-db`) and the matching in-context
   database (`--descriptions`), deriving devices from the channel-name grammar,

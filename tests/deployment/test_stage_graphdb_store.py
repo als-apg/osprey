@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey.services.facility_knowledge.seeder import graph_seeder
+from osprey.services.facility_knowledge.seeder import graph_seeder, prompt_snapshot
 
 TTL_TEXT = "@prefix ex: <http://example.org/> .\nex:beam a ex:Device .\n"
 
@@ -124,11 +124,22 @@ def graphdb_stubs(monkeypatch, tmp_path):
         state["events"].append("marker")
         state["markers"].append(sha256)
 
+    def _bake_snapshot(session, render_dir):
+        state["events"].append("bake")
+        state["baked_dirs"].append(render_dir)
+        if state["bake_error"] is not None:
+            raise state["bake_error"]
+        return [render_dir / ".claude" / "agents" / prompt_snapshot.AGENT_FILENAME]
+
+    state["baked_dirs"] = []
+    state["bake_error"] = None
+
     monkeypatch.setattr(graph_seeder, "open_session", _open_session)
     monkeypatch.setattr(graph_seeder, "bootstrap", _bootstrap)
     monkeypatch.setattr(graph_seeder, "resource_count", _resource_count)
     monkeypatch.setattr(graph_seeder, "import_ttl", _import_ttl)
     monkeypatch.setattr(graph_seeder, "write_marker", _write_marker)
+    monkeypatch.setattr(prompt_snapshot, "bake_snapshot", _bake_snapshot)
     return state
 
 
@@ -149,12 +160,22 @@ def test_the_store_is_started_on_its_own(graphdb_stubs, tmp_path):
 def test_the_staging_runs_its_steps_in_order(graphdb_stubs, tmp_path):
     """Each step depends on the one before: nothing may be imported into a store
     that is not up, not bootstrapped, or not known to be empty -- and the marker
-    is written last, because it is what claims the import succeeded."""
+    is written last among the store steps, because it is what claims the import
+    succeeded; the prompt snapshot follows it, because it must describe a store
+    whose marker vouches for the corpus."""
     # Act
     _stage(GRAPHDB_CONFIG, tmp_path)
 
     # Assert
-    assert graphdb_stubs["events"] == ["up", "wait", "bootstrap", "count", "import", "marker"]
+    assert graphdb_stubs["events"] == [
+        "up",
+        "wait",
+        "bootstrap",
+        "count",
+        "import",
+        "marker",
+        "bake",
+    ]
 
 
 def test_an_empty_graph_with_a_ttl_path_is_seeded(graphdb_stubs, tmp_path):
@@ -170,7 +191,9 @@ def test_an_empty_graph_with_a_ttl_path_is_seeded(graphdb_stubs, tmp_path):
 def test_a_populated_graph_is_left_alone_and_says_nothing(graphdb_stubs, tmp_path, caplog):
     """The second `osprey up` on the same project. A graph that already carries
     resources is not re-imported, and not complained about either -- this is the
-    normal path, not a problem."""
+    normal path, not a problem. The prompt snapshot IS re-baked: this deploy's
+    build reset the rendered agent prompt to its placeholder, and the redeploy
+    is what fills it back in."""
     # Arrange
     graphdb_stubs["resources"] = 8114
 
@@ -181,7 +204,71 @@ def test_a_populated_graph_is_left_alone_and_says_nothing(graphdb_stubs, tmp_pat
     # Assert
     assert graphdb_stubs["imported"] == []
     assert graphdb_stubs["markers"] == []
+    assert graphdb_stubs["events"] == ["up", "wait", "bootstrap", "count", "bake"]
     assert caplog.text == ""
+
+
+def test_the_snapshot_is_baked_into_the_render_not_the_repo_root(graphdb_stubs, tmp_path):
+    """The rendered agent files live one zone down in ``build/`` — same anchor
+    as the relative ``ttl_path``."""
+    # Act
+    _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert graphdb_stubs["baked_dirs"] == [tmp_path / "build"]
+
+
+def test_a_failed_bake_warns_and_leaves_the_deploy_standing(graphdb_stubs, tmp_path, caplog):
+    """The snapshot is an optimization: without it the agent reads the schema
+    through its tools, so a bake failure must never take the seed — or the
+    deploy — down with it."""
+    # Arrange
+    graphdb_stubs["bake_error"] = RuntimeError("render is read-only")
+
+    # Act
+    with caplog.at_level("WARNING"):
+        _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert: the seed itself completed and was marked.
+    assert graphdb_stubs["imported"] == [TTL_TEXT]
+    assert len(graphdb_stubs["markers"]) == 1
+    assert "render is read-only" in caplog.text
+    assert "through its tools" in caplog.text
+
+
+def test_a_store_that_refused_or_failed_the_seed_is_not_snapshotted(
+    graphdb_stubs, tmp_path, caplog
+):
+    """Both refusal paths stop before the bake: a prompt describing a drifted or
+    half-imported store would be vouching for exactly what the staging just
+    declined to vouch for."""
+    # Arrange: drifted bootstrap.
+    graphdb_stubs["bootstrap"] = graph_seeder.BootstrapResult(
+        status=graph_seeder.BootstrapStatus.DIFFERS, differing_keys=("handleMultival",)
+    )
+
+    # Act
+    with caplog.at_level("WARNING"):
+        _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert "bake" not in graphdb_stubs["events"]
+
+    # Arrange: failed import, fresh event log.
+    graphdb_stubs["bootstrap"] = graph_seeder.BootstrapResult(
+        status=graph_seeder.BootstrapStatus.INITIALIZED
+    )
+    graphdb_stubs["import_result"] = graph_seeder.ImportResult(
+        termination_status="KO", triples_loaded=120, triples_parsed=8114, extra_info="bad IRI"
+    )
+    graphdb_stubs["events"].clear()
+
+    # Act
+    with caplog.at_level("WARNING"):
+        _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert "bake" not in graphdb_stubs["events"]
 
 
 def test_without_a_ttl_path_the_store_is_bootstrapped_and_noted_not_warned(

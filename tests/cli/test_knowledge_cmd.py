@@ -602,6 +602,126 @@ def test_seed_graph_reports_unchanged_on_a_matching_marker(
     assert "bootstrap" not in graph.calls
 
 
+@pytest.fixture()
+def baked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[Path]:
+    """Record ``bake_snapshot`` calls, with the verb pointed at a rendered config.
+
+    ``OSPREY_CONFIG`` names a real file in a tmp render, so the verb's
+    is-there-a-render-here check passes and the recorded call carries the
+    directory the snapshot would land in.
+    """
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    render = tmp_path / "build"
+    render.mkdir()
+    (render / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
+    monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
+
+    calls: list[Path] = []
+
+    def _bake(session: object, render_dir: Path) -> list[Path]:
+        calls.append(render_dir)
+        return [render_dir / ".claude" / "agents" / "facility-knowledge-graph.md"]
+
+    monkeypatch.setattr(prompt_snapshot, "bake_snapshot", _bake)
+    return calls
+
+
+def test_seed_graph_bakes_the_prompt_snapshot_after_seeding(
+    graph: _GraphStub,
+    graph_ttl: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    baked: list[Path],
+    tmp_path: Path,
+) -> None:
+    """A successful seed refreshes the rendered agent prompt from the store."""
+    _patch_config(monkeypatch, {})
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert baked == [tmp_path / "build"]
+    assert "snapshot baked into 1 agent prompt" in _flat(result)
+
+
+def test_seed_graph_bakes_the_prompt_snapshot_even_when_unchanged(
+    graph: _GraphStub,
+    graph_ttl: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    baked: list[Path],
+    tmp_path: Path,
+) -> None:
+    """Unchanged corpus, rebuilt render: the placeholder still needs filling."""
+    _patch_config(monkeypatch, {})
+    graph.marker = _TTL_SHA256
+    graph.resources = 8114
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert "unchanged" in _flat(result).lower()
+    assert baked == [tmp_path / "build"]
+
+
+def test_seed_graph_does_not_snapshot_a_store_it_refused(
+    graph: _GraphStub,
+    graph_ttl: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    baked: list[Path],
+) -> None:
+    """A refusal means the verb does not vouch for the store's contents."""
+    _patch_config(monkeypatch, {})
+    graph.marker = "0" * 64
+    graph.resources = 12
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    assert baked == []
+
+
+def test_seed_graph_survives_a_failed_bake(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The seed already succeeded; a bake failure is reported, not fatal."""
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    _patch_config(monkeypatch, {})
+    render = tmp_path / "build"
+    render.mkdir()
+    (render / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
+    monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
+
+    def _boom(session: object, render_dir: Path) -> list[Path]:
+        raise RuntimeError("render is read-only")
+
+    monkeypatch.setattr(prompt_snapshot, "bake_snapshot", _boom)
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert graph.written_marker == _TTL_SHA256, "the seed itself must have completed"
+    flat = _flat(result)
+    assert "render is read-only" in flat
+    assert "through its tools" in flat
+
+
+def test_seed_graph_notes_when_there_is_no_render_to_bake_into(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Seeding a remote store from a bare shell: the seed lands, the snapshot
+    says where to run the verb from to get one."""
+    _patch_config(monkeypatch, {})
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert graph.written_marker == _TTL_SHA256
+    assert "No rendered project here" in result.output
+
+
 def test_seed_graph_refuses_a_differing_marker_without_force(
     graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

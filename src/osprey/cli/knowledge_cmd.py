@@ -407,6 +407,41 @@ def _refuse_or_continue(graph_seeder: ModuleType, session: Any, *, ttl: Path, di
     return False
 
 
+def _bake_prompt_snapshot(session: Any) -> None:
+    """Bake the just-verified store's schema into the rendered agent prompts.
+
+    Follows every outcome that leaves the store holding a corpus this verb
+    vouches for — seeded, overwritten, unchanged — so a render rebuilt since
+    the last seed gets its placeholder filled back in.  Never fails the verb:
+    an agent whose prompt kept the placeholder reads the schema through its
+    tools at run time, which is the same behavior an unseeded render has.
+
+    Args:
+        session: The verb's open driver session.
+    """
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+    from osprey.utils.workspace import resolve_config_path
+
+    config_file = Path(resolve_config_path())
+    if not config_file.is_file():
+        note(
+            "No rendered project here, so the agent-prompt schema snapshot was left "
+            "alone. Run this verb from the deployment repo to bake it."
+        )
+        return
+
+    try:
+        patched = prompt_snapshot.bake_snapshot(session, config_file.parent)
+    except Exception as exc:  # noqa: BLE001 — the seed already succeeded; report and move on
+        warn(
+            f"The schema snapshot could not be baked into the agent prompt ({exc}); "
+            "the agent will read the schema through its tools instead."
+        )
+        return
+    if patched:
+        note(f"Schema snapshot baked into {len(patched)} agent prompt(s).")
+
+
 @knowledge.command("seed-graph")
 @click.argument(
     "ttl",
@@ -480,6 +515,10 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
                 graph_seeder.wipe(session)
                 note("Wiped the store. Its graph config and seed marker went with the data.")
             elif _refuse_or_continue(graph_seeder, session, ttl=ttl, digest=digest):
+                # Unchanged — but a rebuild since the last seed resets the
+                # rendered agent prompt to its placeholder, so the snapshot is
+                # re-baked even when the corpus is not.
+                _bake_prompt_snapshot(session)
                 return
 
             bootstrapped = graph_seeder.bootstrap(session)
@@ -511,6 +550,7 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
             state = "Overwritten" if force else "Seeded"
             report(f"{state}. The graph store at {connection.uri} now holds {ttl}.")
             note(f"{imported.triples_loaded} triples loaded.")
+            _bake_prompt_snapshot(session)
     except click.ClickException:
         raise
     except ImportError as exc:

@@ -15,20 +15,38 @@ corpus carries bookkeeping the agent must never see or query:
 * Labels neosemantics and the seeder use for their own state are dropped, along
   with anything else underscore-prefixed, so a future bookkeeping label is
   excluded the day it appears rather than the day someone remembers it.
+
+Both rules live in
+:mod:`osprey.services.facility_knowledge.seeder.prompt_snapshot`, whose
+:func:`~osprey.services.facility_knowledge.seeder.prompt_snapshot.collect_schema`
+this tool serves: the seed-time capture baked into the agent prompt and this
+live answer are the same collection, so the exclusions cannot drift apart. This
+module keeps aliases to the shared names so the vocabulary contract stays
+importable from the tool that enforces it.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from fastmcp.exceptions import ToolError
 
 from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
 from osprey.mcp_server.graph.server import make_error, mcp
 from osprey.mcp_server.graph.server_context import GraphStoreError, get_server_context
-from osprey.services.facility_knowledge.seeder import NARAD_PREFIXES
+from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+    BOOKKEEPING_LABELS,
+    BOOKKEEPING_PROPERTIES,
+    collect_schema,
+)
+
+__all__ = [
+    "BOOKKEEPING_LABELS",
+    "BOOKKEEPING_PROPERTIES",
+    "SCHEMA_SAMPLE_SIZE",
+    "get_schema",
+]
 
 logger = logging.getLogger("osprey.mcp_server.graph.tools.get_schema")
 
@@ -37,61 +55,12 @@ logger = logging.getLogger("osprey.mcp_server.graph.tools.get_schema")
 #: A bound rather than a full scan: the answer is a vocabulary for writing
 #: queries, not a census, and every device of a class carries the same keys. Two
 #: hundred is far past the point where a NARAD corpus stops revealing new ones
-#: while staying a cheap query on a corpus of any size.
+#: while staying a cheap query on a corpus of any size. The seed-time capture
+#: passes ``None`` here instead — it runs once per seed and can afford the full
+#: walk.
 SCHEMA_SAMPLE_SIZE = 200
 
-#: Labels holding store state rather than facility knowledge: neosemantics' graph
-#: config and namespace-prefix nodes, and the seeder's own marker.
-BOOKKEEPING_LABELS = frozenset({"_GraphConfig", "_NsPrefDef", "_OspreySeed"})
-
-#: Property names that belong to the bookkeeping nodes above. Filtered on top of
-#: the label exclusion as belt-and-braces: were one of these ever to land on a
-#: knowledge node, listing it would invite the agent to query the seed marker.
-BOOKKEEPING_PROPERTIES = frozenset({"sha256", "seededAt", "kind"})
-
-_LABELS_CYPHER = "CALL db.labels() YIELD label RETURN label ORDER BY label"
-
-_RELATIONSHIP_TYPES_CYPHER = (
-    "CALL db.relationshipTypes() YIELD relationshipType "
-    "RETURN relationshipType ORDER BY relationshipType"
-)
-
-_NAMING_NOTE = (
-    "n10s applyNeo4jNaming: relationship types are uppercased (HASBINDING, "
-    "READSSIGNAL, WRITESSIGNAL, SUBCLASSOF, TYPE); rdf:type is both a label and "
-    "a TYPE edge to a Class node"
-)
-
 _EMPTY_MESSAGE = "The graph holds no Resource nodes — it is bootstrapped but not seeded."
-
-
-def _is_reportable_label(label: str) -> bool:
-    """Whether *label* names facility knowledge rather than store bookkeeping.
-
-    Underscore-prefixed labels are excluded as a class, which already covers
-    :data:`BOOKKEEPING_LABELS`; the named set is kept so the exclusion stays
-    legible and survives a bookkeeping label that does not follow the
-    convention.
-    """
-    return not label.startswith("_") and label not in BOOKKEEPING_LABELS
-
-
-def _sample_cypher(label: str) -> str:
-    """Build the bounded property-name sample for one label.
-
-    The label is interpolated because Cypher takes no parameter in label
-    position. Callers must have rejected any label containing a backtick first —
-    that is the only character that could break out of the quoting.
-    """
-    return (
-        f"MATCH (n:`{label}`) WITH n LIMIT $k UNWIND keys(n) AS key "
-        "RETURN DISTINCT key ORDER BY key"
-    )
-
-
-def _column(rows: list[dict[str, Any]], key: str) -> list[str]:
-    """Pull one column out of query rows, dropping nulls."""
-    return [str(row[key]) for row in rows if row.get(key) is not None]
 
 
 @mcp.tool()
@@ -139,38 +108,14 @@ def get_schema() -> str:
                 [f"Seed it with `{GRAPHDB_SEED_COMMAND}`"],
             )
 
-        labels = [
-            label
-            for label in _column(ctx.run_read(_LABELS_CYPHER).rows, "label")
-            if _is_reportable_label(label)
-        ]
-        relationship_types = _column(
-            ctx.run_read(_RELATIONSHIP_TYPES_CYPHER).rows, "relationshipType"
+        # run_read enforces the read-only transaction and the query timeout, so
+        # binding it as the collection's Cypher seam keeps both guarantees on
+        # every schema query.
+        schema = collect_schema(
+            lambda cypher, params: ctx.run_read(cypher, params or {}).rows,
+            sample_size=SCHEMA_SAMPLE_SIZE,
         )
-
-        properties_by_label: dict[str, list[str]] = {}
-        for label in labels:
-            if "`" in label:
-                # Unquotable in label position, so it cannot be sampled safely.
-                # Left out of properties_by_label entirely rather than mapped to
-                # an empty list, which would claim the label carries no
-                # properties; the label itself still appears in ``labels``.
-                logger.warning("Skipping property sample for label with a backtick: %r", label)
-                continue
-            keys = _column(
-                ctx.run_read(_sample_cypher(label), {"k": SCHEMA_SAMPLE_SIZE}).rows, "key"
-            )
-            properties_by_label[label] = [key for key in keys if key not in BOOKKEEPING_PROPERTIES]
-
-        return json.dumps(
-            {
-                "labels": labels,
-                "relationship_types": relationship_types,
-                "properties_by_label": properties_by_label,
-                "prefixes": dict(NARAD_PREFIXES),
-                "naming": {"note": _NAMING_NOTE, "sample_size": SCHEMA_SAMPLE_SIZE},
-            }
-        )
+        return json.dumps(schema)
 
     except GraphStoreError as exc:
         logger.warning("get_schema failed: %s", exc)

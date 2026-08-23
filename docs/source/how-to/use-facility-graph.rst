@@ -130,6 +130,19 @@ fewest turns:
    notes). It does not dial the store, so a successful reply says nothing about
    whether the graph is up.
 
+In a deployed project the agent rarely needs the first two: whichever verb
+seeds or re-verifies the store — the staging step inside every ``osprey up``,
+or ``osprey knowledge seed-graph`` — captures the live store's schema (property
+lists complete, not sampled) together with the curated examples, and bakes them
+into the rendered ``facility-knowledge-graph`` agent prompt, stamped with the
+seed marker's checksum. The agent starts already knowing the vocabulary and
+goes straight to ``read_cypher``. Because the writer of the snapshot is the
+writer of the store, prompt and graph cannot drift apart silently; a rebuilt
+render resets the prompt to a placeholder, and the next ``up`` fills it back
+in. The tools stay registered as the recovery path — a query that returns zero
+rows for a name the snapshot lists means the store changed out from under it,
+and ``get_schema`` is the arbiter.
+
 Results are bounded in two directions. At most
 ``services.graphdb.query_max_rows`` rows come back — the reply says
 ``truncated: true`` when more matched — and the store cancels a query that

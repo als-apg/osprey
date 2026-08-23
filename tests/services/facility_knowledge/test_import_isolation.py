@@ -448,7 +448,9 @@ FORBIDDEN_DRIVER_APIS = frozenset(
     }
 )
 
-#: Files held to the floor: the whole graph MCP server plus the graph seeder.
+#: Files held to the floor: the whole graph MCP server plus every seeder
+#: module that dials the store (the seeder proper, and the prompt-snapshot
+#: capture that rides its session).
 DRIVER_API_FLOOR_FILES = tuple(
     sorted(
         [*(REPO_ROOT / "src" / "osprey" / "mcp_server" / "graph").rglob("*.py")]
@@ -459,7 +461,14 @@ DRIVER_API_FLOOR_FILES = tuple(
             / "services"
             / "facility_knowledge"
             / "seeder"
-            / "graph_seeder.py"
+            / "graph_seeder.py",
+            REPO_ROOT
+            / "src"
+            / "osprey"
+            / "services"
+            / "facility_knowledge"
+            / "seeder"
+            / "prompt_snapshot.py",
         ]
     )
 )

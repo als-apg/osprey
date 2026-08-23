@@ -4562,6 +4562,11 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
             # The normal second-deploy path: a graph that already carries a
             # corpus is left exactly as it is, and silently — this is not a
             # problem, and a warning here would cry wolf on every redeploy.
+            # The rendered agent prompt is NOT left as it is: this deploy's
+            # build reset it to the placeholder, so it is re-baked from the
+            # live store on every up — which is what keeps prompt and store in
+            # sync by construction rather than by convention.
+            _bake_graph_prompt_snapshot(session, project_dir)
             return
 
         if ttl_path is None:
@@ -4586,6 +4591,33 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
 
         graph_seeder.write_marker(session, graph_seeder.ttl_sha256(text))
         _report_step(f"graph seeded: {imported.triples_loaded} triples")
+        _bake_graph_prompt_snapshot(session, project_dir)
+
+
+def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
+    """Bake the live store's schema into the rendered graph-agent prompts.
+
+    Runs on both staging outcomes — corpus just imported, and corpus already
+    present — because the render is fresh from this deploy's build either way.
+    Never fatal: an agent whose prompt kept the placeholder falls back to
+    calling ``get_schema``/``example_queries`` at run time, which is the same
+    behavior an unseeded render has.
+
+    :param session: The staging step's open driver session.
+    :param project_dir: Root of the built project.
+    """
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    try:
+        patched = prompt_snapshot.bake_snapshot(session, _graphdb_config_dir(project_dir))
+    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+        logger.warning(
+            f"The graph schema snapshot could not be baked into the agent prompt, so the "
+            f"agent will read the schema through its tools instead. Cause: {exc}"
+        )
+        return
+    if patched:
+        _report_step(f"graph schema baked into {len(patched)} agent prompt(s)")
 
 
 def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
