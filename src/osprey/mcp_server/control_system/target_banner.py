@@ -66,9 +66,8 @@ import os
 from dataclasses import dataclass
 
 from osprey.mcp_server.control_system import target_state
-from osprey.mcp_server.control_system.target_state import TARGET_LIVE, TARGET_VA
+from osprey.mcp_server.control_system.target_state import TARGET_LIVE
 from osprey_connectors import types as connector_types
-from osprey_connectors.types import resolve_control_system_type
 from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_banner")
@@ -119,16 +118,14 @@ class TargetSituation:
 def resolve_baseline_target() -> str:
     """The deployment baseline: ``va`` for a virtual accelerator, else ``live``.
 
-    The control-system type comes from
-    :func:`osprey_connectors.types.resolve_control_system_type` — the same
-    resolver the connector factory uses. Re-implementing that mapping here
-    would be a second opinion about what the deployment is, which is exactly
-    the bug this module exists to prevent.
+    The mapping comes from :func:`osprey_connectors.types.baseline_target` —
+    the same predicate the connector-host supervisor and the switch-capability
+    check read. Re-implementing it here would be a second opinion about what the
+    deployment is, which is exactly the bug this module exists to prevent.
     """
     config = load_osprey_config()
     section = config.get("control_system") if isinstance(config, dict) else None
-    cs_type = resolve_control_system_type(section)
-    return TARGET_VA if cs_type == connector_types.VIRTUAL_ACCELERATOR else TARGET_LIVE
+    return connector_types.baseline_target(section)
 
 
 def _int_or_none(value: object) -> int | None:

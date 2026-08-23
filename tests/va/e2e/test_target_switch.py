@@ -75,7 +75,6 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     SwitchError,
 )
 from osprey.mcp_server.control_system.server_context import (
-    ConnectorEntry,
     ControlSystemContext,
     MCPServerConfig,
 )
@@ -83,6 +82,7 @@ from osprey.mcp_server.control_system.tools import channel_write as channel_writ
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors.control_system.base import ChannelValue
+from tests.fixtures.control_context import context_for
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -491,25 +491,6 @@ async def started_on(factory, target: str, **overrides) -> ConnectorHostManager:
     await manager.start(target)
     assert manager.has_child()
     return manager
-
-
-def context_for(manager: ConnectorHostManager) -> ControlSystemContext:
-    """A server context wired to *manager*, without touching a real config.yml.
-
-    ``initialize()`` reads a deployment's config off disk; everything the tools
-    below exercise is downstream of that, so the fields it would have filled are
-    filled here directly. Same shape as ``tests/mcp_server/test_switch_lifecycle.py``.
-    """
-    context = ControlSystemContext()
-    context._config = manager._config
-    context._connector_hosts = manager
-    context._connectors["control_system"] = ConnectorEntry(
-        config=manager._config.control_system, connector_type="control_system"
-    )
-    context._connectors["archiver"] = ConnectorEntry(
-        config=manager._config.archiver, connector_type="archiver"
-    )
-    return context
 
 
 @pytest.fixture

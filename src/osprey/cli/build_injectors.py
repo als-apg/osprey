@@ -699,6 +699,27 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
     return target
 
 
+def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
+    """The facility plan keys every lane's service block carries.
+
+    Each is written ONLY when configured, and the absence is what the compose
+    template's ``{% if %}`` guards read: an unset ``plan_dir`` means no mount
+    and no ``BLUESKY_PLAN_DIRS`` env var at all, and empty ``excluded_plans``
+    means no ``BLUESKY_EXCLUDED_PLANS``. The ``os.pathsep`` join is done
+    Python-side because the Jinja render context has no ``os`` module.
+
+    Shared by both lanes, because plans are a property of the facility rather
+    than of a target — a per-lane restatement is how the two lanes would end up
+    loading different plans from one profile.
+    """
+    keys: dict[str, Any] = {}
+    if bluesky.plan_dir:
+        keys["plan_dir"] = bluesky.plan_dir
+    if bluesky.excluded_plans:
+        keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+    return keys
+
+
 def _inject_bluesky(
     bluesky: BlueskyConfig,
     project_path: Path,
@@ -783,19 +804,7 @@ def _inject_bluesky(
         "tiled_enabled": bluesky.tiled_enabled,
         "tiled_port": bluesky.tiled_port,
     }
-    if bluesky.plan_dir:
-        # Only written when configured — its absence is what keeps a
-        # bridge-only deploy (no facility plan directory) free of the mount:
-        # the compose template's {% if %} guard reads this same key, so an
-        # unset plan_dir means no mount and no BLUESKY_PLAN_DIRS env var at all.
-        svc_config["plan_dir"] = bluesky.plan_dir
-    if bluesky.excluded_plans:
-        # Only written when non-empty — its absence keeps a deploy with no
-        # exclusions free of the variable: the compose template's
-        # {% if %} guard reads this same key, so an empty list means no
-        # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
-        # Python-side because the Jinja render context has no `os` module.
-        svc_config["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+    svc_config.update(_facility_plan_keys(bluesky))
 
     lanes: list[tuple[str, dict[str, Any]]] = [("bluesky", svc_config)]
     if bluesky.second_lane:
@@ -813,10 +822,7 @@ def _inject_bluesky(
         }
         # Plans are a property of the facility, not of a target: both lanes
         # load the same plan directory and hide the same exclusions.
-        if bluesky.plan_dir:
-            second_config["plan_dir"] = bluesky.plan_dir
-        if bluesky.excluded_plans:
-            second_config["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+        second_config.update(_facility_plan_keys(bluesky))
         # No tiled keys: tiled is shared, and lane 1 is where it lives.
         for lane_config, lane_target in ((svc_config, baseline), (second_config, second)):
             lane_config["target"] = lane_target

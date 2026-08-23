@@ -475,6 +475,23 @@ def write_approval_key(tool_input) -> str | None:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
+def _channel_write_summary(tool_input) -> str:
+    """``channel=value`` for every write in the call, or ``""`` if there is none.
+
+    Both approval policies render the same list — one as the whole reason, one as
+    a line under it — so the list is derived once. The legacy single-channel
+    shape (``channel``/``value``) is folded in for display only: a prompt has to
+    name what it was actually handed, whatever spelling the caller used.
+    """
+    channels = tool_input.get("operations", [])
+    if not channels:
+        ch = tool_input.get("channel")
+        val = tool_input.get("value")
+        if ch is not None:
+            channels = [{"channel": ch, "value": val}]
+    return ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
+
+
 def _stamp_binding(record):
     """``(target, generation, server_pid)`` for a stamp, each possibly ``None``.
 
@@ -1851,13 +1868,7 @@ def main():
 
         # For channel_write under selective, treat as always (conservative)
         if short_name == "channel_write":
-            channels = tool_input.get("operations", [])
-            if not channels:
-                ch = tool_input.get("channel")
-                val = tool_input.get("value")
-                if ch is not None:
-                    channels = [{"channel": ch, "value": val}]
-            channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
+            channel_list = _channel_write_summary(tool_input)
             reason = f"Channel write: {channel_list or 'unknown'}"
             log_hook("approval", hook_input, status="ask", detail="channel_write_selective")
             json.dump(build_approval_output(reason, hook_input), sys.stdout)
@@ -1884,13 +1895,7 @@ def main():
             if gallery_link:
                 reason_parts.append(f"\nReview notebook: {gallery_link}")
     elif short_name == "channel_write":
-        channels = tool_input.get("operations", [])
-        if not channels:
-            ch = tool_input.get("channel")
-            val = tool_input.get("value")
-            if ch is not None:
-                channels = [{"channel": ch, "value": val}]
-        channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
+        channel_list = _channel_write_summary(tool_input)
         if channel_list:
             reason_parts.append(f"Channels: {channel_list}")
     elif short_name in _QUEUE_DESCRIBERS:

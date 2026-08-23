@@ -79,6 +79,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_TARGET_UNRESOLVABLE,
     TargetDerivation,
     Verification,
+    connector_block,
     derive_endpoints,
     verify_child_report,
 )
@@ -90,9 +91,9 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
-    resolve_control_system_type,
-    resolve_target,
 )
+from osprey_connectors.types import baseline_target as types_baseline_target
+from osprey_connectors.types import switch_capable as types_switch_capable
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.mcp_server.control_system.server_context import MCPServerConfig
@@ -365,64 +366,47 @@ class _Child:
 # ---------------------------------------------------------------------------
 
 
+def _control_system_section(config: Any) -> Any:
+    """The ``control_system:`` section of a rendered config, or ``None``.
+
+    The module's one door onto the config: every config-derived fact below is a
+    question about this section, and a caller may hand in anything the config
+    layer produced, including nothing at all.
+    """
+    return config.get("control_system") if isinstance(config, dict) else None
+
+
 def baseline_target(config: Any) -> str:
     """The target this deployment's own config selects.
 
-    A virtual-accelerator deployment is baselined on the simulator; everything
-    else — including a mock deployment, whose ``live`` may well be underivable —
-    is baselined on ``live``, because that is the target its ``control_system``
-    section describes.
+    The whole-config spelling of :func:`osprey_connectors.types.baseline_target`,
+    for callers holding a rendered config rather than a ``control_system:``
+    section.
     """
-    section = config.get("control_system") if isinstance(config, dict) else None
-    return TARGET_VA if resolve_control_system_type(section) == VIRTUAL_ACCELERATOR else TARGET_LIVE
+    return types_baseline_target(_control_system_section(config))
 
 
 def switch_capable(config: Any) -> bool:
     """Whether this deployment can be pointed at either target at runtime.
 
-    This is the predicate that decides where the controls server's tools get
-    their connector from, so it is spelled once, here, and read everywhere
-    else. Three things have to hold together — any one of them alone would
-    admit a deployment the child could not serve:
-
-    1. **The deployment's own control system is one of the two targets.**
-       ``resolve_target`` answers "which connector type does ``live`` mean
-       here" from the connector table, and it answers it for configs that have
-       no business switching at all: a ``mock`` deployment with an ``epics``
-       block resolves ``live`` to ``epics``, so serving it from a child on its
-       "baseline" target would silently start talking to a real machine the
-       config never selected. Requiring the baseline target to resolve back to
-       ``control_system.type`` is what rules that out.
-    2. **Both targets resolve** to a connector type at all.
-    3. **Both types have a connector block**, since that block is what the
-       child is configured from.
-
-    Deliberately *not* checked: ``probe_channel``, the gateways table, the FR-8
-    posture. Those decide whether a target may be switched *to*, which is
-    eligibility's question and is answered per switch with a reason. Capability
-    is the coarser question of whether this deployment is in the two-target
-    world at all, and folding a per-target gate into it would silently drop a
-    deployment back to the in-process path for a reason the operator would then
-    never be told.
+    The predicate itself lives in :func:`osprey_connectors.types.switch_capable`,
+    beside the target resolution it is built from, so that the runtime and the
+    build cannot answer it differently. This is the whole-config spelling of it,
+    for callers holding a rendered config rather than a ``control_system:``
+    section; it is what decides where the controls server's tools get their
+    connector from.
     """
-    section = config.get("control_system") if isinstance(config, dict) else None
-    if not isinstance(section, dict):
-        return False
-    try:
-        types_by_target = {
-            target: resolve_target(section, target) for target in (TARGET_LIVE, TARGET_VA)
-        }
-    except ValueError:
-        return False
-    if types_by_target[baseline_target(config)] != resolve_control_system_type(section):
-        return False
-    return all(_connector_block(config, name) for name in types_by_target.values())
+    return types_switch_capable(_control_system_section(config))
 
 
 def _connector_block(config: Any, connector_type: str) -> dict[str, Any]:
-    section = config.get("control_system") if isinstance(config, dict) else None
-    connector = section.get("connector") if isinstance(section, dict) else None
-    block = connector.get(connector_type) if isinstance(connector, dict) else None
+    """The ``control_system.connector.<type>`` block, as a mapping.
+
+    The traversal is eligibility's — one module reads the connector table — and
+    the coercion is this module's: readers here want a mapping to ``.get()``
+    from, not the distinction between an absent block and a malformed one.
+    """
+    block = connector_block(config, connector_type)
     return block if isinstance(block, dict) else {}
 
 
@@ -653,11 +637,6 @@ class ConnectorHostManager:
         """The live child's connector-shaped handle, or ``None`` if there is none."""
         child = self._live_child()
         return child.proxy if child is not None else None
-
-    def active_report(self) -> dict[str, Any] | None:
-        """The live child's post-connect report — what it actually configured."""
-        child = self._live_child()
-        return dict(child.report) if child is not None else None
 
     def child_env(self) -> dict[str, str]:
         """The environment a child is launched with: this one's, minus EPICS.

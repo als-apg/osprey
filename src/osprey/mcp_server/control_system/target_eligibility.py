@@ -247,7 +247,7 @@ def _sub(section: dict[str, Any], name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _connector_block(config: Any, connector_type: str) -> Any:
+def connector_block(config: Any, connector_type: str) -> Any:
     """The ``control_system.connector.<type>`` block, as written."""
     return _sub(_section(config, "control_system"), "connector").get(connector_type)
 
@@ -348,7 +348,7 @@ def derive_endpoints(
     if readonly_run is None:
         readonly_run = is_readonly_run()
 
-    raw_block = _connector_block(config, connector_type)
+    raw_block = connector_block(config, connector_type)
     block = raw_block if isinstance(raw_block, dict) else {}
     # The virtual accelerator is a service this project deploys, so an unset
     # gateway port follows services.virtual_accelerator.port. Filled through the
@@ -466,7 +466,7 @@ def evaluate_eligibility(
 
     connector_type = derivation.connector_type
     block_key = f"control_system.connector.{connector_type}"
-    raw_block = _connector_block(config, connector_type)
+    raw_block = connector_block(config, connector_type)
 
     if not isinstance(raw_block, dict) or not raw_block:
         return Eligibility(

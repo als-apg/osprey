@@ -64,7 +64,6 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     NoConnectorHostError,
 )
 from osprey.mcp_server.control_system.server_context import (
-    ConnectorEntry,
     ControlSystemContext,
     MCPServerConfig,
 )
@@ -78,6 +77,7 @@ from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from tests.fixtures.control_context import context_for
 from tests.integration._mock_pair_connectors import (
     BATCH_CHANNELS,
     LIMITS_CHANNEL,
@@ -214,15 +214,7 @@ async def pair(config_file, monkeypatch):
     )
     manager.reset_state()
 
-    context = ControlSystemContext()
-    context._config = manager._config
-    context._connector_hosts = manager
-    context._connectors["control_system"] = ConnectorEntry(
-        config=manager._config.control_system, connector_type="control_system"
-    )
-    context._connectors["archiver"] = ConnectorEntry(
-        config=manager._config.archiver, connector_type="archiver"
-    )
+    context = context_for(manager)
     # The tools reach the context through the module singleton, so this is what
     # makes channel_read and control_target talk to *this* deployment.
     monkeypatch.setattr(server_context, "_registry", context)

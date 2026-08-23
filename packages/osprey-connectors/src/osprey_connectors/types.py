@@ -137,6 +137,21 @@ def resolve_target(section: Any, target: Any) -> str:
     )
 
 
+def baseline_target(section: Any) -> str:
+    """The target a deployment's own ``control_system:`` section selects.
+
+    ``va`` for a virtual accelerator, ``live`` for everything else — including a
+    mock deployment, whose ``live`` may well be underivable, because ``live`` is
+    still the target its section describes.
+
+    Beside :func:`resolve_control_system_type` rather than restated by each
+    holder, because "which target am I on when nobody has switched" is asked by
+    the supervisor, the switch predicate below, and every baseline-pinned reader
+    — and three answers to it is three ways for one deployment to be described.
+    """
+    return TARGET_VA if resolve_control_system_type(section) == VIRTUAL_ACCELERATOR else TARGET_LIVE
+
+
 def switch_capable(section: Any) -> bool:
     """Whether a deployment can be pointed at either target.
 
@@ -186,8 +201,7 @@ def switch_capable(section: Any) -> bool:
         return False
 
     declared = resolve_control_system_type(section)
-    baseline = TARGET_VA if declared == VIRTUAL_ACCELERATOR else TARGET_LIVE
-    if types_by_target[baseline] != declared:
+    if types_by_target[baseline_target(section)] != declared:
         return False
 
     connector = section.get("connector")

@@ -62,6 +62,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from tests.fixtures.control_context import context_for
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
@@ -217,25 +218,6 @@ async def started_on(factory, target, **overrides):
     await manager.start(target)
     assert manager.has_child()
     return manager
-
-
-def context_for(manager):
-    """A server context wired to *manager*, without touching config.yml.
-
-    ``initialize()`` reads the real deployment's config off disk; everything
-    this file exercises is downstream of that, so the two fields it would have
-    filled are filled here directly.
-    """
-    context = ControlSystemContext()
-    context._config = manager._config
-    context._connector_hosts = manager
-    context._connectors["control_system"] = ConnectorEntry(
-        config=manager._config.control_system, connector_type="control_system"
-    )
-    context._connectors["archiver"] = ConnectorEntry(
-        config=manager._config.archiver, connector_type="archiver"
-    )
-    return context
 
 
 class _NeverBuilt:
