@@ -494,9 +494,12 @@ for your control-system tools. Launch it from any project directory:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
 </pre></div>
 </div>
-<p>It opens in your browser at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>. From there you chat with
-the agent, watch files and plots appear the moment they are created, and switch
-between companion tools without ever leaving the page.</p>
+<p>It opens in your browser at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>. The command prints a
+login URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) at startup that sets a session cookie and then
+redirects to that clean address; the token is the server’s own secret, so treat
+the URL like a password. From there you chat with the agent, watch
+files and plots appear the moment they are created, and switch between companion
+tools without ever leaving the page.</p>
 <figure class="align-center" id="id1">
 <a class="reference internal image-reference" href="../../_images/web_terminal_hero_light.png"><img alt="The OSPREY Web Terminal — a live agent session on the left, the workspace with a beam-current plot on the right" src="../../_images/web_terminal_hero_light.png" style="width: 100%;" />
 </a>

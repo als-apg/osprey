@@ -499,7 +499,7 @@ covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.</p>
 <p>The parts that <em>are</em> set are short. The agent’s capabilities are lists of
-named artifacts from the OSPREY library — ten hooks (three of which form the
+named artifacts from the OSPREY library — eleven hooks (three of which form the
 write-safety chain), three rules, and one output style:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">hooks</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hook-log</span><span class="w">       </span><span class="c1"># Append every tool call to a structured JSONL audit log</span>
@@ -560,6 +560,9 @@ install dependencies. Subsequent builds are near-instant.</p>
 <p>This starts the OSPREY Web Terminal on <a class="reference external" href="http://127.0.0.1:8087">http://127.0.0.1:8087</a> — a browser
 interface with the agent in a terminal pane on the left and a live workspace
 viewer on the right, where plots and other artifacts the agent produces appear.
+The command prints a login URL (<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087/?token=…</span></code>) once, at
+startup; opening it sets a session cookie and redirects to the clean address.
+The token is the server’s own secret, so treat that URL like a password.
 No containers are involved; it is a local process serving your <code class="docutils literal notranslate"><span class="pre">build/</span></code>.
 It refuses to start if there is no build yet, so run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first.</p>
 <p>Useful variations: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--port</span> <span class="pre">9000</span></code> picks another port,

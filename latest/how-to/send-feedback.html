@@ -718,11 +718,11 @@ channel is always available and needs no configuration.</p>
 with no value at all does.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The Web Terminal has <strong>no application-level login</strong>, and neither has the
-feedback dialog. Anyone who can reach the terminal can send a report and have
-it recorded. That is right for the intended single-operator, local setup; a
-facility that exposes the terminal more widely should put its own
-authentication in front of it, as it would for the terminal itself.</p>
+<p>The feedback dialog is behind the terminal’s own gate: only a browser
+holding a session can open it, the same as for any other terminal action. It
+draws no line <em>within</em> a session, though — anyone sitting at a signed-in
+terminal can send a report — so read a stored report as coming from that
+terminal, not from a named person.</p>
 </div>
 </section>
 <section id="named-future-work">

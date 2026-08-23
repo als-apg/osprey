@@ -1816,9 +1816,9 @@ delivers the code, the key launches it.</p>
 stock control-operator agent cannot shell out or browse the web. These defaults
 are overridable per facility from <code class="docutils literal notranslate"><span class="pre">config:</span></code>, using dotted keys:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">claude_code.permissions.remove_deny</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># drop from the deny list</span>
-<span class="w">  </span><span class="nt">claude_code.permissions.allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">                </span><span class="c1"># then allow outright</span>
-<span class="w">  </span><span class="nt">claude_code.permissions.ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">]</span><span class="w">                       </span><span class="c1"># or route to human approval</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.remove_deny</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebFetch&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># drop from the deny list</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">                    </span><span class="c1"># then allow outright</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebFetch&quot;</span><span class="p p-Indicator">]</span><span class="w">                       </span><span class="c1"># or route to human approval</span>
 </pre></div>
 </div>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -1833,7 +1833,8 @@ are overridable per facility from <code class="docutils literal notranslate"><sp
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">remove_deny</span></code></p></td>
-<td><p>Remove entries from the built-in deny defaults</p></td>
+<td><p>Remove entries from the built-in deny defaults. Removing a write-capable
+tool that nothing else gates fails the build — see below</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">deny</span></code></p></td>
 <td><p>Add facility-specific deny entries</p></td>
@@ -1854,7 +1855,26 @@ are overridable per facility from <code class="docutils literal notranslate"><sp
 <p class="admonition-title">Deny wins, and it wins at runtime too</p>
 <p>Permissions resolve as <strong>deny &gt; ask &gt; allow</strong>, and a static <code class="docutils literal notranslate"><span class="pre">deny</span></code> entry
 cannot be overridden during a session — an in-session “allow once” will not
-unblock it. Use <code class="docutils literal notranslate"><span class="pre">ask</span></code> for tools you want gated but still reachable.</p>
+unblock it. Use <code class="docutils literal notranslate"><span class="pre">ask</span></code> for tools you want gated but still reachable. For the
+same reason, listing a tool under <code class="docutils literal notranslate"><span class="pre">ask</span></code> or <code class="docutils literal notranslate"><span class="pre">allow</span></code> does nothing until you
+also remove it from the deny list.</p>
+</div>
+<div class="warning admonition">
+<p class="admonition-title">You cannot un-gate a tool that can write</p>
+<p><code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">Write</span></code>, <code class="docutils literal notranslate"><span class="pre">MultiEdit</span></code> and <code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code> can write
+files or shell out, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a profile in which one of
+them is neither in <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> nor matched by a <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook
+matcher. A <code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;Bash&quot;]</span></code> with nothing put in its place is
+therefore a build failure, not a silent widening. (The shipped presets gate
+the three file-writing tools with the <code class="docutils literal notranslate"><span class="pre">memory-guard</span></code> hook rather than
+denying them, so ordinary memory and notebook writes still work.)</p>
+<p>The build checks that a covering rule <em>exists</em>, not that the hook behind it
+refuses anything: a <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook that exits 0 without a
+<code class="docutils literal notranslate"><span class="pre">permissionDecision</span></code> allows the call. A tool whose only cover is a matcher
+your own profile declares therefore builds with a warning — check that hook
+really denies. Matchers are read the way the agent runtime reads them: the
+bare tool name, a <code class="docutils literal notranslate"><span class="pre">|</span></code> alternation, any regex that matches the name
+(unanchored), or <code class="docutils literal notranslate"><span class="pre">*</span></code>/<code class="docutils literal notranslate"><span class="pre">.*</span></code>/empty for every tool.</p>
 </div>
 </section>
 <section id="services">

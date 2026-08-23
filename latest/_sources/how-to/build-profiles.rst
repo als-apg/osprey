@@ -971,9 +971,9 @@ are overridable per facility from ``config:``, using dotted keys:
 .. code-block:: yaml
 
    config:
-     claude_code.permissions.remove_deny: ["Bash", "WebSearch"]  # drop from the deny list
-     claude_code.permissions.allow: ["WebSearch"]                # then allow outright
-     claude_code.permissions.ask: ["Bash"]                       # or route to human approval
+     claude_code.permissions.remove_deny: ["WebSearch", "WebFetch"]  # drop from the deny list
+     claude_code.permissions.allow: ["WebSearch"]                    # then allow outright
+     claude_code.permissions.ask: ["WebFetch"]                       # or route to human approval
 
 .. list-table::
    :header-rows: 1
@@ -982,7 +982,8 @@ are overridable per facility from ``config:``, using dotted keys:
    * - Key
      - Effect
    * - ``remove_deny``
-     - Remove entries from the built-in deny defaults
+     - Remove entries from the built-in deny defaults. Removing a write-capable
+       tool that nothing else gates fails the build — see below
    * - ``deny``
      - Add facility-specific deny entries
    * - ``allow``
@@ -997,7 +998,28 @@ are overridable per facility from ``config:``, using dotted keys:
 
    Permissions resolve as **deny > ask > allow**, and a static ``deny`` entry
    cannot be overridden during a session — an in-session "allow once" will not
-   unblock it. Use ``ask`` for tools you want gated but still reachable.
+   unblock it. Use ``ask`` for tools you want gated but still reachable. For the
+   same reason, listing a tool under ``ask`` or ``allow`` does nothing until you
+   also remove it from the deny list.
+
+.. admonition:: You cannot un-gate a tool that can write
+   :class: warning
+
+   ``Bash``, ``Edit``, ``Write``, ``MultiEdit`` and ``NotebookEdit`` can write
+   files or shell out, so ``osprey build`` refuses a profile in which one of
+   them is neither in ``permissions.deny`` nor matched by a ``PreToolUse`` hook
+   matcher. A ``remove_deny: ["Bash"]`` with nothing put in its place is
+   therefore a build failure, not a silent widening. (The shipped presets gate
+   the three file-writing tools with the ``memory-guard`` hook rather than
+   denying them, so ordinary memory and notebook writes still work.)
+
+   The build checks that a covering rule *exists*, not that the hook behind it
+   refuses anything: a ``PreToolUse`` hook that exits 0 without a
+   ``permissionDecision`` allows the call. A tool whose only cover is a matcher
+   your own profile declares therefore builds with a warning — check that hook
+   really denies. Matchers are read the way the agent runtime reads them: the
+   bare tool name, a ``|`` alternation, any regex that matches the name
+   (unanchored), or ``*``/``.*``/empty for every tool.
 
 
 .. _profile-services:

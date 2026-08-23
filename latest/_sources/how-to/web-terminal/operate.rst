@@ -7,9 +7,21 @@ Start the Web Terminal from any OSPREY project directory:
 
    osprey web
 
-It boots a local server on ``http://127.0.0.1:8087`` and opens your browser.
+It boots a local server on ``http://127.0.0.1:8087`` and prints a login URL of
+the form ``http://127.0.0.1:8087/?token=…``. Opening that URL (your browser
+opens it for you) sets a session cookie and then redirects to the clean
+``http://127.0.0.1:8087`` address; every later request rides that cookie. The
+URL is printed once, but the token in it is the server's own secret and keeps
+working for as long as that server runs — treat it like a password rather than
+a one-shot code.
+
+If ``OSPREY_TERMINAL_SECRET`` is already set in the environment you launch
+from, ``osprey web`` uses that value rather than minting one, and says so
+instead of printing a URL — the URL was printed wherever that secret came from.
+Unset it and start again to get a freshly minted one.
+
 Override the defaults, or point it at another project, with ``--host``,
-``--port``, and ``--project``.
+``--port``, and ``--repo``.
 
 To keep it running after you close the terminal, start it in the background:
 
@@ -18,8 +30,12 @@ To keep it running after you close the terminal, start it in the background:
    osprey web --detach     # start in the background
    osprey web stop         # stop it again
 
-In background mode the process id and logs are written to ``.osprey-web.pid``
-and ``.osprey-web.log`` in the project directory.
+In background mode the process id and logs are written to
+``var/osprey-web.pid`` and ``var/osprey-web.log`` in the project directory. The
+login token lives only in the running process's memory and is never written to
+disk, so if you lose the printed URL there is no way to recover it: stop the
+server and start it again (``osprey web stop`` then ``osprey web --detach``) to
+mint a fresh one.
 
 What you get
 ------------

@@ -495,16 +495,30 @@
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
 </pre></div>
 </div>
-<p>It boots a local server on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code> and opens your browser.
-Override the defaults, or point it at another project, with <code class="docutils literal notranslate"><span class="pre">--host</span></code>,
-<code class="docutils literal notranslate"><span class="pre">--port</span></code>, and <code class="docutils literal notranslate"><span class="pre">--project</span></code>.</p>
+<p>It boots a local server on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code> and prints a login URL of
+the form <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087/?token=…</span></code>. Opening that URL (your browser
+opens it for you) sets a session cookie and then redirects to the clean
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code> address; every later request rides that cookie. The
+URL is printed once, but the token in it is the server’s own secret and keeps
+working for as long as that server runs — treat it like a password rather than
+a one-shot code.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET</span></code> is already set in the environment you launch
+from, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> uses that value rather than minting one, and says so
+instead of printing a URL — the URL was printed wherever that secret came from.
+Unset it and start again to get a freshly minted one.</p>
+<p>Override the defaults, or point it at another project, with <code class="docutils literal notranslate"><span class="pre">--host</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--port</span></code>, and <code class="docutils literal notranslate"><span class="pre">--repo</span></code>.</p>
 <p>To keep it running after you close the terminal, start it in the background:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web<span class="w"> </span>--detach<span class="w">     </span><span class="c1"># start in the background</span>
 osprey<span class="w"> </span>web<span class="w"> </span>stop<span class="w">         </span><span class="c1"># stop it again</span>
 </pre></div>
 </div>
-<p>In background mode the process id and logs are written to <code class="docutils literal notranslate"><span class="pre">.osprey-web.pid</span></code>
-and <code class="docutils literal notranslate"><span class="pre">.osprey-web.log</span></code> in the project directory.</p>
+<p>In background mode the process id and logs are written to
+<code class="docutils literal notranslate"><span class="pre">var/osprey-web.pid</span></code> and <code class="docutils literal notranslate"><span class="pre">var/osprey-web.log</span></code> in the project directory. The
+login token lives only in the running process’s memory and is never written to
+disk, so if you lose the printed URL there is no way to recover it: stop the
+server and start it again (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--detach</span></code>) to
+mint a fresh one.</p>
 <section id="what-you-get">
 <h2>What you get<a class="headerlink" href="#what-you-get" title="Link to this heading">#</a></h2>
 <p>The window has three working areas plus a header:</p>

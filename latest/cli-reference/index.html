@@ -860,7 +860,13 @@ to reseed all.</p></td>
 Prompts without echoing, and ends that user’s sessions.</p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">login-url</span> <span class="pre">USER</span></code></p></td>
+<td><p>Print the URL that opens that user’s terminal. Only the URL goes to
+stdout, so it can be piped or copied. Refuses for a user who signs in
+through the login page.</p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>Render <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the env file every per-user container runs
 with.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">--env-file</span></code>, <code class="docutils literal notranslate"><span class="pre">-o/--output</span></code></p></td>
@@ -872,6 +878,17 @@ with.</p></td>
 <p><code class="docutils literal notranslate"><span class="pre">--purge</span></code> – Permanently delete a user’s workspace without archiving it (mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--archive</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> – Assume yes to confirmation prompts.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> – Show what would happen without making changes.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span></code> builds the URL from that user’s operator secret in
+the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints for every roster user in
+every auth mode. Opening it once trades the token for a session cookie. It is
+how someone gets in when nginx authenticates nobody — <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code>, or
+a roster entry with <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> — and it is a password: send each person
+only their own. Rotate one by deleting that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code>
+line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again.</p>
+<p>For a user who <em>is</em> behind the login wall the command refuses and names their
+login page instead. The URL would not work for them — the authentication
+service turns the request away before the terminal can read the token — and
+printing it would put a live credential in someone’s inbox for nothing.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env</span></code> renders the same subset a deploy would generate, from the
 same two inputs — the rendered deploy config and the repository root’s env
 chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> then <code class="docutils literal notranslate"><span class="pre">.env</span></code>, so <code class="docutils literal notranslate"><span class="pre">.env</span></code> wins on a key both set) — so
@@ -886,6 +903,7 @@ CI, pass it: without <code class="docutils literal notranslate"><span class="pre
 osprey<span class="w"> </span>users<span class="w"> </span>prune<span class="w"> </span>--dry-run
 osprey<span class="w"> </span>users<span class="w"> </span>seed<span class="w"> </span>alice
 osprey<span class="w"> </span>users<span class="w"> </span>passwd<span class="w"> </span>alice
+osprey<span class="w"> </span>users<span class="w"> </span>login-url<span class="w"> </span>alice
 osprey<span class="w"> </span>users<span class="w"> </span>env<span class="w"> </span>--output<span class="w"> </span>.env.users
 </pre></div>
 </div>
@@ -1124,12 +1142,18 @@ osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w
 <h2>osprey web<a class="headerlink" href="#osprey-web" title="Link to this heading">#</a></h2>
 <p>Launch the Web Terminal interface. See <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>.</p>
 <dl>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Start the web terminal server (default: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>).</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Start the web terminal server (default: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>). On
+startup it prints a login URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) that sets a session cookie
+and then redirects to the clean address. The URL is printed once, but its
+token is the server’s own secret and stays valid for the life of the
+process — treat it like a password.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from config or 8087).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--shell</span> <span class="pre">TEXT</span></code> — Shell command to run (default: <code class="docutils literal notranslate"><span class="pre">claude</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">PATH</span></code> — Deployment repo to act on (default: nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above cwd).</p>
-<p><code class="docutils literal notranslate"><span class="pre">--detach</span></code> — Run in background (PID written to <code class="docutils literal notranslate"><span class="pre">.osprey-web.pid</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--detach</span></code> — Run in background (PID written to <code class="docutils literal notranslate"><span class="pre">var/osprey-web.pid</span></code>). The
+login token is held only in memory; if the printed URL is lost, stop and
+restart the server to mint a new one.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--reload</span></code> — Auto-reload for development.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code></dt><dd><p>Stop a background web terminal server.</p>
@@ -1152,7 +1176,9 @@ ready-to-paste description of the theme to request; the lab itself does not
 write theme files. See <a class="reference internal" href="../how-to/web-terminal/theming.html"><span class="doc">Theming</span></a>.</p>
 <dl>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">theme-lab</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Serve the Theme Lab and open it. The URL is printed as well, so the page can
-be opened by hand if no browser appears.</p>
+be opened by hand if no browser appears. It is a login URL at the server root
+(<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>): opening it sets a session cookie and then redirects to the
+lab itself.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port to serve on (default: an unused port chosen
 automatically).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--no-browser</span></code> — Do not open a browser window; print the URL only.</p>

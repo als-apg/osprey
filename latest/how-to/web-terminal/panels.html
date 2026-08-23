@@ -599,11 +599,33 @@ panel that already meets every rule:</p>
 ones are skipped and logged, so one bad panel never breaks the others.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>The Web Terminal has <strong>no application-level login</strong>. Turning on
-<code class="docutils literal notranslate"><span class="pre">allow_runtime_panels</span></code> serves whatever panels are on disk to anyone who can
-reach the port — right for the intended single-operator, local setup, but a
-facility that exposes the terminal more widely should put its own
-authentication in front of it.</p>
+<p>Turning on <code class="docutils literal notranslate"><span class="pre">allow_runtime_panels</span></code> serves <strong>whatever panels are on disk</strong>.
+The Web Terminal authenticates every request, so only a signed-in operator
+reaches them — but it makes no judgement about what a panel does. Treat
+<code class="docutils literal notranslate"><span class="pre">panels/</span></code> as trusted code, and leave discovery off on a deployment where
+more people can drop a folder there than you would hand the terminal to.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>A panel that reaches a backend does so through the web terminal’s panel
+proxy, and the proxy is deliberately strict about credentials. On every
+request it forwards to a panel backend it strips the <code class="docutils literal notranslate"><span class="pre">cookie</span></code>,
+<code class="docutils literal notranslate"><span class="pre">authorization</span></code>, and <code class="docutils literal notranslate"><span class="pre">x-osprey-terminal-secret</span></code> headers, and it
+re-injects the operator secret <em>only</em> toward backends declared as loopback
+in your config. The practical consequence: a backend that authenticates its
+own callers with a cookie or an <code class="docutils literal notranslate"><span class="pre">Authorization</span></code> header — Grafana, for
+example — cannot be driven as a custom panel, because the proxy will never
+pass those credentials through to it.</p>
+<p>The return direction is just as strict. A panel’s response is served from
+the terminal’s own address, so any header that would act on <em>that</em> address
+rather than on the panel is stripped: <code class="docutils literal notranslate"><span class="pre">Set-Cookie</span></code>, <code class="docutils literal notranslate"><span class="pre">Clear-Site-Data</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Refresh</span></code>, <code class="docutils literal notranslate"><span class="pre">WWW-Authenticate</span></code>, and CORS (<code class="docutils literal notranslate"><span class="pre">Access-Control-*</span></code>). A backend
+therefore cannot log the operator out, send them off to another site, or pop
+a login box that looks like the terminal’s own. A redirect is relayed rather
+than followed, so the browser re-requests the new address and that request is
+authenticated like any other — unless the redirect points at a third site,
+which is refused with a <code class="docutils literal notranslate"><span class="pre">502</span></code> so that a terminal URL never forwards an
+operator somewhere the panel picked.</p>
 </div>
 </section>
 <section id="panel-layouts-presets">

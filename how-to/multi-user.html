@@ -954,9 +954,12 @@ want Docker (or Podman) and your model-provider credentials — the
 </pre></div>
 </div>
 <p>launches the single-user Web Terminal as one local process — no containers, no
-proxy, ready in seconds at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>. It is the fastest way to
-try OSPREY and the right tool whenever one person sits in front of one machine;
-<a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> covers it.</p>
+proxy, ready in seconds at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>. It prints a login URL
+(<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>, once, at startup) that sets a session cookie before
+redirecting to the clean address. The token is that server’s operator secret
+rather than a one-shot code, so treat the URL like a password. It is the
+fastest way to try OSPREY and the right tool whenever one person sits in front
+of one machine; <a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> covers it.</p>
 <p>The multi-user stack is strictly opt-in. It lives in a
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block in the deployment’s built <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, read
 only by the lifecycle verbs (and validated by
@@ -1070,7 +1073,10 @@ preset name, an absolute path, or a path outside <code class="docutils literal n
 rejected by both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">users</span></code> list is the roster — the single source of truth for who
-exists. A bare name (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">carol</span></code>) resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> —
+exists. A name becomes a URL path segment and an environment-variable
+suffix, so it has to match <code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code>; that is checked in
+every auth mode, not only behind a login wall. A bare name (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">carol</span></code>)
+resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> —
 read-only, so a hastily added user lands on the safe side; an entry with
 an explicit <code class="docutils literal notranslate"><span class="pre">persona</span></code> picks its tier, and an optional <code class="docutils literal notranslate"><span class="pre">display_name</span></code>
 becomes that user’s browser tab title. Each user’s host ports are
@@ -1080,6 +1086,14 @@ terminal itself — so alice (index 0) serves her terminal on <code class="docut
 bob (index 1) on <code class="docutils literal notranslate"><span class="pre">9092</span></code>, and ariel (index 2) on <code class="docutils literal notranslate"><span class="pre">9093</span></code>. A panel
 whose <code class="docutils literal notranslate"><span class="pre">*_base_port</span></code> you don’t set falls back to its built-in default,
 so the block above lists them only to make the layout visible.</p>
+<p>One optional key belongs beside these rather than in the roster:
+<code class="docutils literal notranslate"><span class="pre">external_origin</span></code>, the address browsers actually reach this deployment
+on. Leave it out and that address is derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> and
+<code class="docutils literal notranslate"><span class="pre">nginx_port</span></code>, which is right whenever a browser talks to this nginx
+directly. Set it when something else stands in front — a facility load
+balancer terminating TLS, a reverse proxy, a DNS alias — because the
+terminals check it before allowing any action, and nothing here can guess
+what that front door answers on. See <a class="reference internal" href="#multi-user-https"><span class="std std-ref">Serve it over HTTPS</span></a>.</p>
 <p>A persona may also name a landing-page section with <code class="docutils literal notranslate"><span class="pre">landing_group</span></code>.
 Its users are lifted out of the roster’s default section into one of
 that name, drawn as a panel — which is how the page shows a standalone
@@ -1373,11 +1387,24 @@ warm, and returning to the same user reconnects to it.</p>
 </section>
 <section id="require-a-login">
 <span id="multi-user-require-a-login"></span><h2>Require a login<a class="headerlink" href="#require-a-login" title="Link to this heading">#</a></h2>
-<p>With no <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza the stack asks for no credentials and speaks plain
-HTTP: clicking a card on the landing page opens that terminal, and anyone who
-can reach the nginx port can click any card. That posture suits a <strong>single
-trusted host</strong> — a workstation or control-room machine you already trust — and
-nothing beyond it.</p>
+<p>With no <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza nginx asks for no credentials and speaks plain HTTP —
+but the terminals behind it are not open. Each one authenticates every request
+against its own operator secret, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints into the
+deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> for every roster user whether or not authentication is
+on. Clicking a card on the landing page therefore reaches a terminal that
+refuses you until you have opened that user’s login URL once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>login-url<span class="w"> </span>alice
+</pre></div>
+</div>
+<p>The URL carries alice’s secret and trades it for a session cookie. Send each
+person only their own, the way you would send a password; it stays valid until
+you rotate it, which means deleting that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code>
+line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names the
+verb in its summary but never prints the URLs.)</p>
+<p>What this posture does <em>not</em> do is tell one person from another at the front
+door: whoever holds a URL is that user. It suits a <strong>single trusted host</strong> —
+a workstation or control-room machine you already trust — and nothing beyond
+it.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships with password login switched on, in its
 demo posture: each roster user’s password is seeded into the repository’s
 <code class="docutils literal notranslate"><span class="pre">.env</span></code> by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> (<code class="docutils literal notranslate"><span class="pre">alice</span></code>/<code class="docutils literal notranslate"><span class="pre">alice</span></code>, <code class="docutils literal notranslate"><span class="pre">bob</span></code>/<code class="docutils literal notranslate"><span class="pre">bob</span></code> — change them
@@ -1392,8 +1419,11 @@ authentication service joins the stack in its own container, and nginx asks it
 about each request before proxying anything. Nothing depends on the per-user
 containers policing themselves.</p>
 <p>Note that the persona split is a <em>capability</em> boundary, enforced per project —
-it decides what a session may do, never who may open it. Those are separate
-questions, and login answers only the second.</p>
+it decides what a session may do, never who may open it. Login answers the
+separate question of who may open a session. In this multi-user stack that login
+is the per-user auth described above; note that even single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>
+gates every request on a session cookie, handed out by the login URL it prints
+at startup, so “no login” is never the single-user default either.</p>
 <section id="choose-a-method">
 <h3>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h3>
 <p><strong>Passwords</strong>, managed by OSPREY. Nothing extra to run or operate:</p>
@@ -1494,11 +1524,13 @@ opt out of the login wall:</p>
 <span class="w">    </span><span class="nt">login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </pre></div>
 </div>
-<p>With authentication on, that entry is served exactly as the whole deployment is
-with authentication off: no login, no session, open to anyone who can reach the
-nginx port. No password is provisioned for it (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code> refuses
-the name and says why), and nginx never asks the authentication service about
-it. Session cookies still never reach its container.</p>
+<p>With authentication on, that entry sits outside the login wall: nginx never
+asks the authentication service about it, and no password is provisioned for it
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code> refuses the name and says why). Outside the wall is not
+the same as open — the entry is gated exactly as the whole deployment is with
+authentication off, by its own operator secret, so a browser still has to open
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span> <span class="pre">ariel</span></code> once. Cookies from the login wall never reach
+its container.</p>
 <p>Only the literal <code class="docutils literal notranslate"><span class="pre">false</span></code> opts an entry out. Absence, <code class="docutils literal notranslate"><span class="pre">true</span></code>, and any typo
 all mean “login required” — a misspelling can lock an entry down, never open it
 up — and lint reports a non-boolean value. The key is inert while
@@ -1508,14 +1540,15 @@ can reach a control system, write anywhere, or spend provider tokens belongs
 behind the wall.</p>
 </section>
 <section id="serve-it-over-https">
-<h3>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h3>
+<span id="multi-user-https"></span><h3>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h3>
 <p>A session cookie sent over plain HTTP is readable by anything on the path, so a
 deployment with <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> other than <code class="docutils literal notranslate"><span class="pre">none</span></code> and <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code>
 <strong>refuses to render at all</strong> rather than hand out cookies in the clear. You
 therefore have to pick one of two ways to get the connection encrypted.</p>
 <p><strong>Let this nginx terminate TLS.</strong> Set <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">true</span></code> with a certificate
-and key, and nginx serves HTTPS on 443, redirects the plain port to it, and
-marks session cookies so browsers only ever send them over HTTPS. Bringing the
+and key, and nginx serves HTTPS on 443, redirects the plain port to it, and marks
+session cookies — the login wall’s and each terminal’s own — so browsers only
+ever send them over HTTPS. Bringing the
 certificate is still your job, but getting it <em>into</em> the container is not:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tls</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -1549,6 +1582,29 @@ ingress proxy already presents the certificate and forwards to this host, set
 <code class="docutils literal notranslate"><span class="pre">auth.allow_insecure_http:</span> <span class="pre">true</span></code> and leave <code class="docutils literal notranslate"><span class="pre">tls.enabled</span></code> off. This is a
 normal deployment, not a workaround: the browser’s connection is encrypted by
 the thing in front, and the hop it forwards over is yours to keep private.</p>
+<p>This shape needs one key more, and it is <strong>required</strong>, not optional:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">external_origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://terminals.example.org</span><span class="w">   </span><span class="c1"># what the browser reaches</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
+<span class="w">      </span><span class="nt">allow_insecure_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">external_origin</span></code> is the address <strong>browsers</strong> open, which here is the load
+balancer’s, not this host’s. Every terminal refuses a request that would change
+something — a chat message, an approval, a file write — unless the browser says
+it came from that address, and nothing in the rest of this configuration can
+work out what the thing in front answers on. Leave it unset and the
+deployment looks entirely healthy: the containers are up, the landing page
+renders, each terminal opens — and every action taken in one is refused.</p>
+<p>Write it as a bare origin: a scheme, a host, and a port if it is not the
+scheme’s default. No path, no trailing slash. Anything else is refused when you
+build, which is the point — the alternative is finding out from a browser.</p>
+<p>Set it in any deployment where the address people type is not this nginx’s own,
+including a plain reverse proxy or a DNS alias in front of it. When browsers
+reach this nginx directly — every other shape on this page — leave it out and
+the address is derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> and the published port.</p>
 <p>What <code class="docutils literal notranslate"><span class="pre">allow_insecure_http</span></code> is <em>not</em> is a way to postpone certificates on a
 reachable host. With it set and nothing terminating TLS, anyone who can watch
 the traffic can copy a session cookie and become that user. An isolated network
@@ -1578,10 +1634,11 @@ plaintext stays on the deploy host; only the hash reaches a container.</p></li>
 deploy’s output. Nothing can recover it afterwards, so capture it and hand it
 to the person.</p></li>
 </ol>
-<p><code class="docutils literal notranslate"><span class="pre">&lt;USER&gt;</span></code> is the username uppercased with <code class="docutils literal notranslate"><span class="pre">-</span></code> turned into <code class="docutils literal notranslate"><span class="pre">_</span></code>. Because that
-mapping is what keeps one user’s password out of another user’s terminal, an
-authenticated deployment refuses to render when two roster names collide under
-it (<code class="docutils literal notranslate"><span class="pre">alice-b</span></code> and <code class="docutils literal notranslate"><span class="pre">alice_b</span></code>), or when a name falls outside
+<p><code class="docutils literal notranslate"><span class="pre">&lt;USER&gt;</span></code> is the username uppercased with <code class="docutils literal notranslate"><span class="pre">-</span></code> turned into <code class="docutils literal notranslate"><span class="pre">_</span></code>. That mapping
+is what keeps one user’s credentials out of another user’s terminal, and it keys
+each terminal’s operator secret as well as its password — so <em>every</em> deployment,
+authenticated or not, refuses to render when two roster names collide under it
+(<code class="docutils literal notranslate"><span class="pre">alice-b</span></code> and <code class="docutils literal notranslate"><span class="pre">alice_b</span></code>), or when a name falls outside
 <code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code>.</p>
 <p>To change a password later:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>passwd<span class="w"> </span>alice

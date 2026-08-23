@@ -875,8 +875,12 @@ the tool interface, and <strong>pluggable connectors</strong> for protocol-agnos
 </figure>
 <section id="safety-chain">
 <h2>Safety Chain<a class="headerlink" href="#safety-chain" title="Link to this heading">#</a></h2>
-<p>Every tool invocation passes through a configurable chain of <strong>PreToolUse hooks</strong> before reaching
-the MCP server. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
+<p>Every tool call the agent makes through the harness passes through a configurable chain of
+<strong>PreToolUse hooks</strong> before reaching the MCP server. OSPREY’s MCP servers are stdio child
+processes the harness starts — they expose no network port of their own — so every tool call
+that reaches one has already passed the hook chain. That guarantee belongs to the harness: a
+process on the host that runs the server command itself is outside it, which is why host access
+is part of the trust boundary. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
 <pre  class="mermaid">
         flowchart LR
     CC[&quot;Osprey agent&lt;br/&gt;calls channel_write&quot;] --&gt; WC[&quot;writes_check&lt;br/&gt;&lt;i&gt;kill switch&lt;/i&gt;&quot;]

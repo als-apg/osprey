@@ -446,6 +446,11 @@ these verbs act on that roster, which lives in the profile. Every verb takes
      - Change one user's login password (password authentication only).
        Prompts without echoing, and ends that user's sessions.
      - —
+   * - ``login-url USER``
+     - Print the URL that opens that user's terminal. Only the URL goes to
+       stdout, so it can be piped or copied. Refuses for a user who signs in
+       through the login page.
+     - —
    * - ``env``
      - Render ``.env.users``, the env file every per-user container runs
        with.
@@ -458,6 +463,19 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``-y, --yes`` -- Assume yes to confirmation prompts.
 
 ``--dry-run`` -- Show what would happen without making changes.
+
+``osprey users login-url`` builds the URL from that user's operator secret in
+the repository's ``.env``, which ``osprey up`` mints for every roster user in
+every auth mode. Opening it once trades the token for a session cookie. It is
+how someone gets in when nginx authenticates nobody — ``auth.method: none``, or
+a roster entry with ``login: false`` — and it is a password: send each person
+only their own. Rotate one by deleting that user's ``OSPREY_TERMINAL_SECRET_*``
+line from ``.env`` and running ``osprey up`` again.
+
+For a user who *is* behind the login wall the command refuses and names their
+login page instead. The URL would not work for them — the authentication
+service turns the request away before the terminal can read the token — and
+printing it would put a live credential in someone's inbox for nothing.
 
 ``osprey users env`` renders the same subset a deploy would generate, from the
 same two inputs — the rendered deploy config and the repository root's env
@@ -476,6 +494,7 @@ CI, pass it: without ``--output`` the assembled secrets go to the job log.
    osprey users prune --dry-run
    osprey users seed alice
    osprey users passwd alice
+   osprey users login-url alice
    osprey users env --output .env.users
 
 See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
@@ -755,7 +774,11 @@ osprey web
 Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web [OPTIONS]``
-   Start the web terminal server (default: ``http://127.0.0.1:8087``).
+   Start the web terminal server (default: ``http://127.0.0.1:8087``). On
+   startup it prints a login URL (``…/?token=…``) that sets a session cookie
+   and then redirects to the clean address. The URL is printed once, but its
+   token is the server's own secret and stays valid for the life of the
+   process — treat it like a password.
 
    ``-p, --port INTEGER`` — Port (default: from config or 8087).
 
@@ -765,7 +788,9 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--repo PATH`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
 
-   ``--detach`` — Run in background (PID written to ``.osprey-web.pid``).
+   ``--detach`` — Run in background (PID written to ``var/osprey-web.pid``). The
+   login token is held only in memory; if the printed URL is lost, stop and
+   restart the server to mint a new one.
 
    ``--reload`` — Auto-reload for development.
 
@@ -791,7 +816,9 @@ write theme files. See :doc:`/how-to/web-terminal/theming`.
 
 ``osprey theme-lab [OPTIONS]``
    Serve the Theme Lab and open it. The URL is printed as well, so the page can
-   be opened by hand if no browser appears.
+   be opened by hand if no browser appears. It is a login URL at the server root
+   (``…/?token=…``): opening it sets a session cookie and then redirects to the
+   lab itself.
 
    ``-p, --port INTEGER`` — Port to serve on (default: an unused port chosen
    automatically).

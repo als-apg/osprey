@@ -549,9 +549,15 @@ docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </
 docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
 </pre></div>
 </div>
-<p>Then open <a class="reference external" href="http://localhost:8087">http://localhost:8087</a>. Secrets are passed at runtime via
-<code class="docutils literal notranslate"><span class="pre">--env-file</span></code> — the <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> guarantees <code class="docutils literal notranslate"><span class="pre">.env</span></code> itself never
-enters the image.</p>
+<p>Then open <a class="reference external" href="http://localhost:8087">http://localhost:8087</a>. The container’s <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> prints a login
+URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) to its logs at startup; open that URL to set your session
+cookie, after which it redirects to the clean address. Anything that can read
+those logs can read the token, so treat both like a password. If your <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+sets <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET</span></code> itself, the container uses that value and
+explains why it is printing no URL — browse to
+<code class="docutils literal notranslate"><span class="pre">http://localhost:8087/?token=&lt;that</span> <span class="pre">value&gt;</span></code> instead. Secrets are
+passed at runtime via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> — the <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> guarantees
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> itself never enters the image.</p>
 </section>
 <section id="build-arguments">
 <h2>Build Arguments<a class="headerlink" href="#build-arguments" title="Link to this heading">#</a></h2>

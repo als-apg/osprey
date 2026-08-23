@@ -9,9 +9,12 @@ for your control-system tools. Launch it from any project directory:
 
    osprey web
 
-It opens in your browser at ``http://127.0.0.1:8087``. From there you chat with
-the agent, watch files and plots appear the moment they are created, and switch
-between companion tools without ever leaving the page.
+It opens in your browser at ``http://127.0.0.1:8087``. The command prints a
+login URL (``…/?token=…``) at startup that sets a session cookie and then
+redirects to that clean address; the token is the server's own secret, so treat
+the URL like a password. From there you chat with the agent, watch
+files and plots appear the moment they are created, and switch between companion
+tools without ever leaving the page.
 
 .. figure:: /_static/screenshots/web_terminal_hero_light.png
    :alt: The OSPREY Web Terminal — a live agent session on the left, the workspace with a beam-current plot on the right

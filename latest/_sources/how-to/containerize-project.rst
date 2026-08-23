@@ -70,9 +70,15 @@ Quickstart
    docker build -t my-project -f build/Dockerfile .
    docker run --rm -p 8087:8087 --env-file .env my-project
 
-Then open http://localhost:8087. Secrets are passed at runtime via
-``--env-file`` — the ``.dockerignore`` guarantees ``.env`` itself never
-enters the image.
+Then open http://localhost:8087. The container's ``osprey web`` prints a login
+URL (``…/?token=…``) to its logs at startup; open that URL to set your session
+cookie, after which it redirects to the clean address. Anything that can read
+those logs can read the token, so treat both like a password. If your ``.env``
+sets ``OSPREY_TERMINAL_SECRET`` itself, the container uses that value and
+explains why it is printing no URL — browse to
+``http://localhost:8087/?token=<that value>`` instead. Secrets are
+passed at runtime via ``--env-file`` — the ``.dockerignore`` guarantees
+``.env`` itself never enters the image.
 
 Build Arguments
 ===============
