@@ -129,6 +129,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   numbers it describes both appeared as "Lattice Analysis", and neither the
   gallery nor the agent could tell them apart. The summary is now an "Agent
   Response", and a `data_type` you pass is no longer overridden.
+- The pyAT specialist no longer sometimes answers without filing its numbers.
+  Its computed quantities used to be saved by a separate step inside the
+  computing code that the agent could skip — and did, intermittently, leaving
+  a prose answer with no "Lattice Analysis" JSON behind it. The numbers now
+  travel with the answer: `submit_response` takes a `data` dict and files it as
+  the JSON results artifact in the category the agent's definition declares
+  (`results_category:` in its frontmatter), and refuses a hand-in that owes
+  data and carries none. Prose and numbers arrive in one call, so there is no
+  step to skip.
 - Timeseries previews in the workspace gallery render again in CDN-mode
   (non-offline) deployments: the lazy Plotly loader now uses the same
   CDN-or-vendored URL resolution as the gallery's other vendor assets
