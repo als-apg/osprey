@@ -277,9 +277,11 @@ Package: ``osprey.mcp_server.graph``
 
 Read-only Cypher search over the facility knowledge graph -- the
 NARAD-convention RDF corpus held by the ``graphdb`` store. Rendered only where
-``services.graphdb`` is configured. Every query runs in a read transaction, and
-extension procedures, extension functions and ``LOAD CSV`` are refused before
-the store is dialed. See :doc:`/how-to/use-facility-graph`.
+``services.graphdb`` is configured, and called by the
+**facility-knowledge-graph subagent**: the main agent's route to the graph is
+delegation, mirroring the channel finder. Every query runs in a read
+transaction, and extension procedures, extension functions and ``LOAD CSV`` are
+refused before the store is dialed. See :doc:`/how-to/use-facility-graph`.
 
 **Tools:**
 

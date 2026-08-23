@@ -19,7 +19,10 @@ seeded into every web-terminal user's session; per-user additions live in
 Each user's terminal runs a persona-specific project with its own capability
 set. The control-room personas monitor, diagnose, and author and validate
 plans (orbit response matrix, n-dimensional grid scan); only the read-write
-persona can execute writes — setpoint changes and plan runs. A terminal can
+persona can execute writes — setpoint changes and plan runs. Operator
+personas can also ask about the machine's structure — which devices exist,
+where they sit, what each exposes — answered from the facility knowledge
+graph when the deployment configures one. A terminal can
 also host a different product entirely, such as the ARIEL logbook research
 assistant, which carries no control-system tools at all. Capabilities are
 enforced per project — what you can do is defined by the session you are in.

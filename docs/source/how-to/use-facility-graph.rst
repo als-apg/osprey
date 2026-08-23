@@ -7,9 +7,11 @@ Search the Facility Graph
 The facility graph holds the *structure* of the machine: the devices, the
 sections they sit in, the classes they belong to, and the control system
 addresses bound to each one. It is served by the ``graphdb`` store
-(:doc:`deploy-project`), and the OSPREY agent searches it by writing Cypher —
-Neo4j's query language, the graph counterpart of SQL — through the ``graph``
-MCP server. You never write it yourself.
+(:doc:`deploy-project`) and searched by the **facility-knowledge-graph agent**
+— a specialist the main OSPREY agent delegates structural questions to — which
+writes Cypher (Neo4j's query language, the graph counterpart of SQL) through
+the ``graph`` MCP server. You never write it yourself, and neither does the
+main agent: ask it a structural question and the delegation is its own move.
 
 It answers a different kind of question than the :doc:`channel finder
 <use-channel-finder>`. The channel finder turns a phrase into an address —
@@ -21,13 +23,14 @@ which devices share a PV.
 .. admonition:: Two things are called "graph"
    :class: important
 
-   This page is about the ``graph`` MCP server — the main agent's exploration
-   surface over the store. The **graph paradigm** is a different thing wearing
+   This page is about the ``graph`` MCP server — the exploration surface the
+   **facility-knowledge-graph** subagent uses to answer the main agent's
+   structural questions. The **graph paradigm** is a different thing wearing
    the same word: a channel finder mode (``channel_finder.pipeline_mode:
-   graph``) that puts the channel finder subagent on this same store to turn a
-   phrase into an address, under the ``channel-finder`` server name and with a
-   query catalogue written for that job. Same store, different audience — see
-   :doc:`use-channel-finder`.
+   graph``) that puts the *channel finder* subagent on this same store to turn
+   a phrase into an address, under the ``channel-finder`` server name and with
+   a query catalogue written for that job. Same store, two specialist
+   subagents, two jobs — see :doc:`use-channel-finder`.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -216,7 +219,9 @@ Leaving the Graph Tools Out
 
 The server renders wherever ``services.graphdb`` is configured. To keep the
 store but take the tools away from the agent — to shrink the tool surface, or
-while benchmarking something else — turn the server off explicitly:
+while benchmarking something else — turn the server off explicitly. The
+facility-knowledge-graph agent rides the server, so switching it off removes
+the subagent and its roster entry in the same build:
 
 .. code-block:: yaml
 
@@ -412,8 +417,8 @@ Multi-User Operator Terminals
 =============================
 
 The ``control-assistant-readonly`` and ``control-assistant-readwrite`` personas
-(:doc:`multi-user`) get the same graph tools, reading the hosting deployment's
-store. They are attached renders — they deploy no services of their own — so
+(:doc:`multi-user`) get the same facility-knowledge-graph agent and its tools,
+reading the hosting deployment's store. They are attached renders — they deploy no services of their own — so
 they have to be told which port that store is published on. Per-user web
 terminal containers run with ``network_mode: host``, so a container's
 ``localhost`` *is* the deployment host, and both presets pin the bolt port

@@ -33,6 +33,12 @@ and facility-specific behaviors, use the `facility_knowledge` tools:
 - `read_concept` — retrieve a specific concept document by ID
 - `search` — full-text search across the knowledge bundle
 
+{% if "facility-knowledge-graph" in enabled_agents | default([]) %}
+For the machine's *structure* — what exists, where it sits along the beam, what
+a device exposes, which channels read vs write — delegate to the
+**facility-knowledge-graph** agent instead: it queries the facility knowledge
+graph directly.
+{% endif %}
 Do not attempt to enumerate subsystems, devices, or procedures from memory.
 Retrieve them on demand via these tools.
 

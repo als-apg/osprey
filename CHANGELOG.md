@@ -379,6 +379,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   belong to a new `facility-knowledge-graph` subagent: the main agent answers
   structural questions ("what sits in section 7, in beam order?") by
   delegating to it, exactly as address lookups delegate to the channel finder.
+  Safety, output-style, setup-mode and diagnose prompts name the agent where
+  they enumerate its siblings.
 - `osprey knowledge build-ttl` generates a Turtle corpus from a project's
   hierarchical channel database (`--channel-db`) and the matching in-context
   database (`--descriptions`), deriving devices from the channel-name grammar,

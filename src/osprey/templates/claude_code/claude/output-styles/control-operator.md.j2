@@ -83,3 +83,11 @@ State what was computed, not what it physically means:
 ## Logbook Entries
 
 Cite entry IDs. Quote directly when precision matters. Distinguish your words from logbook text.
+{% if "facility-knowledge-graph" in enabled_agents | default([]) %}
+## Structural Answers
+
+When relaying facility-knowledge-graph results: lead with the fact ("the storage
+ring has 36 dipoles"), name the source (the facility knowledge graph), give
+addresses verbatim and positions in meters, and say so when a list was truncated
+rather than presenting it as complete.
+{% endif %}

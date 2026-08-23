@@ -129,7 +129,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
         # ── Rules ────────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="rules/safety",
-            template_path="claude/rules/safety.md",
+            template_path="claude/rules/safety.md.j2",
             output_path=".claude/rules/safety.md",
             description="Safety & tool confinement rules",
         ),

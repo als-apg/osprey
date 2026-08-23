@@ -971,7 +971,9 @@ async def test_emitted_state_key_is_the_key_the_generated_rules_name(tmp_path, m
     assert WRITE_STATE_KEY in data["summary"]["results"][0]
 
     manager = TemplateManager()
-    safety = (manager.template_root / "claude_code/claude/rules/safety.md").read_text()
+    safety = manager.jinja_env.get_template("claude_code/claude/rules/safety.md.j2").render(
+        enabled_agents=[]
+    )
     routing = manager.jinja_env.get_template(
         "claude_code/claude/rules/control-system-safety.md.j2"
     ).render(enabled_servers=[])
