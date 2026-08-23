@@ -5,7 +5,7 @@ Anyone using the Web Terminal can report a problem, or ask for something, from
 the terminal itself — no bug tracker account, no separate form. The **Feedback**
 control sits in the utility cluster at the far end of the panel rail (bottom in
 the default left-hand rail, right-hand end when the rail runs along the top),
-next to the **Documentation** link. Clicking it opens a dialog with a text box,
+next to the **Docs** link. Clicking it opens a dialog with a text box,
 a channel picker, and two attachment checkboxes.
 
 Every submission is recorded on the deployment it was sent from, whichever
@@ -33,13 +33,17 @@ between them keeps the typed text and both checkboxes as they were.
        a control room, and the only one that works with outbound access
        blocked.
    * - **GitHub**
-     - Also opens a prefilled new-issue tab on the configured repository, and
-       puts the whole report — the text plus the session context — on the
-       clipboard to paste in.
+     - Also opens a new-issue tab on the configured repository. Without session
+       context the issue body arrives complete; with it, the whole report —
+       text, metadata, session context — is copied to the clipboard and the
+       issue body is a single line saying to paste it there, because the
+       context is far too large to prefill. The dialog states both steps
+       before the button is pressed.
      - The report belongs upstream, and the sender has a GitHub account.
    * - **Email**
-     - Also opens a prefilled mail draft to the configured address, again with
-       the whole report on the clipboard.
+     - Also opens a mail draft to the configured address, following the same
+       rule: complete when it fits, one paste when session context (or a very
+       long report) is attached.
      - There is a maintainer address to write to and no issue tracker in the
        loop.
 
@@ -70,16 +74,16 @@ authority the sender sees at the moment of deciding.
   development setup this falls back to the account the server runs under).
 
 **Deployment metadata** — the checkbox is **on** by default. It adds the OSPREY
-version and the application name, and that is all it governs: turning it off
-does not remove the text, the timestamp, or the username, which travel either
-way.
+version, the application name, and the sender's browser, and that is all it
+governs: turning it off does not remove the text, the timestamp, or the
+username, which travel either way.
 
 **Session context** — the checkbox is **off** by default, and is greyed out with
 "no session yet" when there is no live session to attach. It adds:
 
-- the session's id — on the GitHub and Email channels this one also appears
-  inline in the prefilled body, so the message can be matched to the
-  deployment's own record even if the paste step below is missed,
+- the session's id — on the GitHub and Email channels the issue title or mail
+  subject also carries a short prefix of it, so the message can be matched to
+  the deployment's own record even if the paste step below is missed,
 - the session's tool-call and agent event log,
 - its chat history,
 - the terminal scrollback,
@@ -111,20 +115,21 @@ what to attach should read the checkbox as governing both.
 Copy session context
 --------------------
 
-On the GitHub and Email channels a second button, **Copy session context**,
-puts the same trimmed context on the clipboard without sending anything and
-without writing a record. It is enabled only when the session-context checkbox
-is ticked and a session exists; otherwise it stays visible but greyed, so it
-never looks like a control that disappeared.
+A small **Copy** button sits on the session-context row itself. It puts the
+same trimmed context on the clipboard without sending anything and without
+writing a record, on any channel. It is enabled whenever a session exists —
+ticking the checkbox is not required, because copying is an explicit act of
+its own; without a session it stays visible but greyed, so it never looks
+like a control that disappeared.
 
 The context never travels inside the prefilled issue or draft itself — a
-``mailto:`` URL in particular is far too small to carry it. Sending on an
-outbound channel already copies the whole report to the clipboard, the
-prefilled body contains a ``paste the copied session context here``
-placeholder to drop it into, and the dialog says so twice: beside the ticked
-checkbox before sending, and in the confirmation afterwards. Reach for this
-button when the clipboard has since been overwritten and the paste still has
-to happen.
+``mailto:`` URL in particular is far too small to carry it. With the checkbox
+ticked, sending on an outbound channel copies the whole report to the
+clipboard and opens the draft with one line saying to paste it; the dialog
+states those two steps before the button is pressed and repeats the paste
+instruction in the confirmation afterwards. Reach for the Copy button when the
+clipboard has since been overwritten, or when only the context itself is
+wanted — for a chat message, say, rather than a report.
 
 .. _feedback-retrieval:
 

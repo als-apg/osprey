@@ -693,6 +693,37 @@ the provider it just probed will actually use, plus what to do about it. The
 reliable habit is to put the value in the env chain and leave your shell out of
 it: that is the one gesture that means the same thing on both providers.</p>
 </section>
+<section id="podman-s-network-backend-required-by-the-bluesky-stack">
+<span id="podman-network-backend"></span><h3>Podman’s network backend (required by the Bluesky stack)<a class="headerlink" href="#podman-s-network-backend-required-by-the-bluesky-stack" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> service puts its bridge, RE Manager and Redis on an internal
+network and dual-homes the queueserver across two networks. Resolving one
+container by name from another is therefore load-bearing, and on Podman that
+depends on which networking backend the host runs:</p>
+<ul class="simple">
+<li><p><strong>netavark</strong> (Podman 4.0+ default) — ships aardvark-dns, which serves
+container-name DNS on every network a container is attached to. <strong>Required.</strong></p></li>
+<li><p><strong>cni</strong> (the legacy backend, still configured on some RHEL 8 hosts) — has no
+aardvark-dns. A dual-homed container receives only its <em>first</em> network’s
+resolver, so <code class="docutils literal notranslate"><span class="pre">bluesky-queueserver</span></code> can never resolve <code class="docutils literal notranslate"><span class="pre">bluesky-redis</span></code>.</p></li>
+</ul>
+<p>On <code class="docutils literal notranslate"><span class="pre">cni</span></code> the queueserver never becomes healthy and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> aborts before
+the web slice renders — the whole deployment is down, on a DNS fact nothing in
+the deploy output points at. So <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> checks the backend up front and
+refuses, before touching a container, when <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> is deployed on a <code class="docutils literal notranslate"><span class="pre">cni</span></code>
+host. Only the Bluesky stack needs this; every other service here runs fine on
+either backend, and a Docker host is unaffected.</p>
+<p>To switch a host over, install <code class="docutils literal notranslate"><span class="pre">aardvark-dns</span></code> and set the backend in
+<code class="docutils literal notranslate"><span class="pre">containers.conf</span></code> (<code class="docutils literal notranslate"><span class="pre">/etc/containers/containers.conf</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">~/.config/containers/containers.conf</span></code> for a rootless deployment):</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[network]</span>
+<span class="na">network_backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;netavark&quot;</span>
+</pre></div>
+</div>
+<p>Existing Podman networks were created by the old backend and must be recreated
+afterwards — <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">network</span> <span class="pre">rm</span></code> for the project’s own networks, or
+<code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">system</span> <span class="pre">reset</span></code> on a host with nothing else to lose. Check the result
+with <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">info</span> <span class="pre">--format</span> <span class="pre">'{{.Host.NetworkBackend}}'</span></code>.</p>
+</section>
 </section>
 <section id="deployment-workflow">
 <h2>Deployment Workflow<a class="headerlink" href="#deployment-workflow" title="Link to this heading">#</a></h2>
@@ -1768,6 +1799,7 @@ containers this page covers.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-provider-changes">What the provider changes</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#no-compose-profiles">No compose profiles</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-var-values-come-from">Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#podman-s-network-backend-required-by-the-bluesky-stack">Podman’s network backend (required by the Bluesky stack)</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a></li>
