@@ -35,6 +35,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The kill-switch e2e tests no longer fail when the agent makes a
+  preparatory read before the denied write: the hook assertion is scoped to
+  the write tool instead of requiring zero approval events overall.
 - `osprey up` now refuses a Bluesky deployment on a Podman host still using
   the legacy `cni` network backend, naming netavark as the requirement and
   the `containers.conf` setting to change. Without aardvark-dns the
