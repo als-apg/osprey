@@ -3,7 +3,8 @@
 Scenarios 9-10: Master kill switch (writes_enabled: false) blocks all writes.
 
 Uses run_sdk_query_with_hooks to exercise the full hook chain. Kill switch
-returns "deny" (not "ask"), so hook_events should be EMPTY.
+returns "deny" (not "ask"), so no hook_event may exist for the denied write —
+preparatory read tools may still legitimately reach the approval callback.
 """
 
 from __future__ import annotations
@@ -88,11 +89,14 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
         f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
-    # Kill switch returns "deny" (not "ask"), so no approval callback fires
-    assert len(result.hook_events) == 0, (
-        f"Expected no hook_events (kill switch denies before ask) "
-        f"but got {len(result.hook_events)}: "
-        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
+    # Kill switch returns "deny" (not "ask"), so the approval callback never
+    # fires for the write tool. Scoped to channel_write: a preparatory read
+    # (e.g. channel_limits) may legitimately reach the callback.
+    write_hook_events = [e for e in result.hook_events if "channel_write" in e.tool_name]
+    assert len(write_hook_events) == 0, (
+        f"Expected no channel_write hook_events (kill switch denies before ask) "
+        f"but got {len(write_hook_events)}: "
+        f"{[(e.tool_name, e.decision) for e in write_hook_events]}"
     )
 
 
@@ -164,9 +168,16 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
         f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
-    # Kill switch returns "deny" (not "ask"), so no approval callback fires
-    assert len(result.hook_events) == 0, (
-        f"Expected no hook_events (kill switch denies before ask) "
-        f"but got {len(result.hook_events)}: "
-        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
+    # Kill switch returns "deny" (not "ask"), so the approval callback never
+    # fires for a write-mode execute. Scoped by execution_mode: a preparatory
+    # readonly execute may legitimately reach the callback.
+    write_hook_events = [
+        e
+        for e in result.hook_events
+        if "execute" in e.tool_name and e.tool_input.get("execution_mode") in ("write", "readwrite")
+    ]
+    assert len(write_hook_events) == 0, (
+        f"Expected no write-mode execute hook_events (kill switch denies before ask) "
+        f"but got {len(write_hook_events)}: "
+        f"{[(e.tool_name, e.decision) for e in write_hook_events]}"
     )

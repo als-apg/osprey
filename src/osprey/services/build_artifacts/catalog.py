@@ -234,7 +234,10 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/memory-guard",
             template_path="claude/hooks/osprey_memory_guard.py",
             output_path=".claude/hooks/osprey_memory_guard.py",
-            description="Write tool gate for Claude memory files",
+            description=(
+                "PreToolUse gate for every file-writing tool: Write/MultiEdit are held "
+                "to Claude memory files, NotebookEdit to the agent-data artifacts tree"
+            ),
         ),
         BuildArtifact(
             canonical_name="hooks/focus-validate",

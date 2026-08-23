@@ -327,11 +327,16 @@ class TestSafetyPreservation:
         assert any("osprey_writes_check.py" in cmd for cmd in hook_commands)
 
     def test_has_memory_guard_hook(self, regen_project):
-        """Write PreToolUse hook for memory guard is present."""
+        """The memory guard survives regen, gating every write tool.
+
+        The matcher is the guard's frontmatter ``tools:`` copied verbatim, so
+        it is also the exact list of tools the guard can refuse. A regen that
+        narrowed it would leave a rule in place and a tool ungated.
+        """
         settings_path = regen_project / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
-        assert "Write" in pre_matchers
+        assert "Write|MultiEdit|NotebookEdit" in pre_matchers
 
     def test_hooks_remain_executable(self, regen_project):
         """After regen, all hook .py files retain executable permissions."""

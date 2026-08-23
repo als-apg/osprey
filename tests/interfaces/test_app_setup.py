@@ -9,6 +9,7 @@ from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.common_middleware import (
     ExceptionLoggingMiddleware,
     NoCacheStaticMiddleware,
+    WebAuthMiddleware,
 )
 
 
@@ -47,15 +48,21 @@ class TestMiddleware:
         assert NoCacheStaticMiddleware in classes
         assert ExceptionLoggingMiddleware in classes
 
-    def test_cors_middleware_present(self, tmp_path):
+    def test_web_auth_middleware_present(self, tmp_path):
+        # The auth gate must be installed on every interface app.
         app = _configure(tmp_path)
         classes = {mw.cls for mw in app.user_middleware}
-        assert CORSMiddleware in classes
+        assert WebAuthMiddleware in classes
 
-    def test_cors_allow_credentials_not_enabled(self, tmp_path):
+    def test_web_auth_middleware_is_outermost(self, tmp_path):
+        # Added last => outermost => runs first, so it authenticates before any
+        # other middleware or route sees the request. Starlette stores
+        # user_middleware outermost-first.
         app = _configure(tmp_path)
-        cors = next(mw for mw in app.user_middleware if mw.cls is CORSMiddleware)
-        # allow_credentials must be left at Starlette's default (False): it is
-        # never passed, so it must not appear as a truthy kwarg.
-        assert not cors.kwargs.get("allow_credentials", False)
-        assert cors.kwargs.get("allow_origins") == ["*"]
+        assert app.user_middleware[0].cls is WebAuthMiddleware
+
+    def test_cors_middleware_absent(self, tmp_path):
+        # Nothing in this system is cross-origin; the CORS layer was removed.
+        app = _configure(tmp_path)
+        classes = {mw.cls for mw in app.user_middleware}
+        assert CORSMiddleware not in classes

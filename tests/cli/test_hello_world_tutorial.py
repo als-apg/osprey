@@ -174,7 +174,7 @@ class TestHelloWorldBuildOutput:
         assert hooks_dir.exists()
 
         # writes-check, approval, and limits are the write-safety chain
-        # among the preset's ten hooks; they map to osprey_writes_check.py,
+        # among the preset's eleven hooks; they map to osprey_writes_check.py,
         # osprey_approval.py, osprey_limits.py
         assert (hooks_dir / "osprey_writes_check.py").exists()
         assert (hooks_dir / "osprey_approval.py").exists()
@@ -182,6 +182,9 @@ class TestHelloWorldBuildOutput:
         # The config-drift SessionStart guard ships in every preset so a
         # hand-edited config.yml never silently runs stale settings (#244).
         assert (hooks_dir / "osprey_config_drift.py").exists()
+        # memory-guard gates Write/MultiEdit to Claude memory files and
+        # NotebookEdit to the agent-data artifacts tree.
+        assert (hooks_dir / "osprey_memory_guard.py").exists()
 
 
 @pytest.mark.unit

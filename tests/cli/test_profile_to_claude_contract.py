@@ -312,7 +312,6 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
         "tools": [
             "mcp__python__execute",
             "mcp__osprey_workspace__submit_response",
-            "mcp__osprey_workspace__artifact_list",
             "mcp__osprey_workspace__artifact_read",
             "Read",
         ],
@@ -407,7 +406,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
         artifacts={
-            "hooks": ["hook-log", "hook-config"],
+            "hooks": ["hook-log", "hook-config", "memory-guard"],
             "rules": ["safety", "timezone"],
             "skills": ["session-report"],
             "output_styles": ["control-operator"],

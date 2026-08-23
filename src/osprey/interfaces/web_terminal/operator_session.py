@@ -15,7 +15,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.sdk_context import build_system_prompt
+from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.utils.config import get_facility_timezone
 
@@ -51,8 +53,52 @@ except ImportError:
     ClaudeSDKError = Exception  # type: ignore[assignment,misc]
     CLIConnectionError = Exception  # type: ignore[assignment,misc]
 
+
+def build_operator_child_env(project_cwd: str | None) -> dict[str, str]:
+    """Build the environment for an SDK-backed operator or chat session.
+
+    Both surfaces that run an :class:`OperatorSession` — the ``/ws/operator``
+    websocket and the ``POST /api/chat`` endpoint — call this instead of
+    :func:`~osprey.agent_runner.clean_env.build_clean_env` directly, so the two
+    cannot drift on what the agent child is allowed to hold.
+
+    On top of the clean base it re-adds exactly one credential: the **panel
+    token**. That is deliberate re-introduction, the SDK counterpart of what
+    :func:`osprey.cli.chat_cmd.chat` does for the PTY-less ``osprey chat``
+    child and what
+    :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`
+    does for the PTY child. The token is the weak, panel-tier-only credential
+    (see :data:`osprey.interfaces.web_auth.PANEL_TIER_ROUTES`); without it the
+    MCP panel tools and the SessionStart/UserPromptSubmit/approval hooks the
+    agent spawns send no bearer at all and are answered 401, which is how the
+    panel tier came to be dead on the default ``osprey web`` launch.
+
+    The **operator secret** is emphatically not re-added, and nothing here
+    reads it. Note what that means on this path: the SDK builds the child's
+    environment as ``{**os.environ, **options.env}``, so a name this function
+    omits is inherited from ``os.environ`` anyway — the operator secret is kept
+    from the child by :func:`osprey.interfaces.web_auth.close_env_carriers`
+    having removed it from ``os.environ`` at app construction, not by its
+    absence here.
+
+    Args:
+        project_cwd: The project directory the session runs in, forwarded to
+            :func:`~osprey.agent_runner.clean_env.build_clean_env` so
+            ``OSPREY_CONFIG`` is resolved from it.
+
+    Returns:
+        A fresh env dict for ``ClaudeAgentOptions.env``.
+    """
+    env = build_clean_env(project_cwd=project_cwd)
+    env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
+    return env
+
+
 # Pattern for MCP tool name prefixes: mcp__<server>__<tool>
-_MCP_PREFIX_RE = re.compile(r"^mcp__[^_]+__")
+# Non-greedy so the FIRST ``__`` after the server name ends the prefix — a
+# server name may itself contain single underscores (osprey_workspace,
+# osprey_facility_knowledge, or any facility-declared server named that way).
+_MCP_PREFIX_RE = re.compile(r"^mcp__.+?__")
 
 # Bound (seconds) for draining an interrupted turn toward its terminal message
 # before the reader is hard-cancelled. Enforced inside OperatorSession.cancel().

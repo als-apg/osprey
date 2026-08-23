@@ -5,7 +5,7 @@ rail by nothing but ``margin-top: auto`` in the left column and
 ``margin-left: auto`` under a top rail — ``.panel-rail`` has no ``flex: 1``, so
 those two declarations are the whole mechanism. A stylesheet edit that drops
 either one leaves the pair riding directly under the panel tabs, where it reads
-as two more nameless tabs. That is a geometry fact: no unit test can see it,
+as two more panel tabs. That is a geometry fact: no unit test can see it,
 because only a real layout engine resolves ``auto`` margins.
 
 Coverage:
@@ -14,6 +14,8 @@ Coverage:
       bottom content edge, and the whole cluster is below the last panel tab.
   (2) ``?rail=top`` — the cluster's right edge sits on the region's right
       content edge, and every visible button fits the 40px strip.
+  (3) both modes — each control's label fits its cell, rather than being
+      quietly ellipsised down to an abbreviation nobody chose.
 
 Run:
     .venv/bin/pytest tests/interfaces/web_terminal/test_feedback_rail_browser.py -v
@@ -234,3 +236,34 @@ def test_utility_cluster_is_pinned_to_the_right_of_the_top_rail(tmp_path, chromi
             assert measured >= 1, "no visible utility button to measure"
         finally:
             page.close()
+
+
+def test_utility_labels_fit_their_cells_uncut(tmp_path, chromium_browser):
+    """Both orientations: the label is fully readable, not ellipsised away.
+
+    "FEEDBACK" is the long one, and in the left column it has 62px minus the
+    cell's own padding to live in. ``text-overflow: ellipsis`` means a label
+    that outgrows its cell degrades silently to "FEEDBA…" rather than
+    overflowing visibly — so the failure this catches is one that no layout
+    exception and no unit test reports. Only a layout engine knows whether the
+    text fits, which is why the check lives here and not in the vitest suite.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _hub_server(workspace) as base_url:
+        for url in (base_url, f"{base_url}/?rail=top"):
+            page = _open_hub_page(chromium_browser, url)
+            try:
+                labels = page.locator("#panel-utility .panel-utility-label")
+                assert labels.count() == 2, "the cluster lost a label"
+
+                overflow = page.evaluate(
+                    "() => Array.from("
+                    "  document.querySelectorAll('#panel-utility .panel-utility-label')"
+                    ").filter((el) => el.scrollWidth > el.clientWidth + 1)"
+                    " .map((el) => el.textContent)"
+                )
+                assert overflow == [], f"utility labels are cut off at {url}: {overflow}"
+            finally:
+                page.close()

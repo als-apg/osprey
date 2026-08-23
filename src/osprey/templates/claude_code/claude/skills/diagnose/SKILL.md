@@ -53,7 +53,7 @@ Query the session log in this order:
    - If timing matters: `session_log(since="<timestamp>")`
 
 **If session_log returns empty results**, this IS evidence. Record it as a finding and note the possible causes:
-- No OSPREY MCP tool calls were made (only built-in tools like Read/Write/Bash were used)
+- No MCP tool calls were made (only built-in tools like Read/Write/Bash were used)
 - The transcript hasn't been written yet (session still in progress, no flush)
 - The agent used only non-MCP tools that don't appear in the session log
 - The MCP server wasn't connected or wasn't running

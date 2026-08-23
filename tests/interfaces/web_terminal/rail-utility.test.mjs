@@ -1,7 +1,7 @@
 /**
  * OSPREY Web Terminal — rail utility cluster (Documentation + Feedback).
  *
- * Three things are pinned here, because each of them is a defect the rail has
+ * Four things are pinned here, because each of them is a defect the rail has
  * already shipped once before:
  *   1. The cluster is a SIBLING of the entry <nav>. panel-rail.js's
  *      createRail() calls railEl.replaceChildren(), so a control parked inside
@@ -10,6 +10,10 @@
  *      the deployment config, never from hardcoded markup.
  *   3. terminal.css ships BOTH orientations. The top rail is a 40px strip; a
  *      62x52 button with no override spills out of it over the workspace.
+ *   4. Each control is NAMED in the cell, and the visible name is inside the
+ *      accessible one. A mark on its own made the operator hover to learn
+ *      what it opens, and an aria-label that drops the visible word takes the
+ *      control away from speech input (WCAG 2.5.3).
  *
  * Geometry itself is not assertable here — happy-dom has no layout engine, so
  * the real boxes are measured in the Playwright suite. What this file guards
@@ -126,8 +130,10 @@ describe('utility cluster markup', () => {
     expect(link.tagName).toBe('A');
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toContain('noopener');
-    expect(link.getAttribute('aria-label')).toBe('Documentation');
-    // The glyph is decorative; the accessible name is the aria-label above.
+    expect(link.getAttribute('aria-label')).toBe('Docs');
+    // The longer phrase the label abbreviates stays reachable as the tooltip.
+    expect(link.getAttribute('title')).toBe('Documentation');
+    // The mark is decorative; the accessible name is the aria-label above.
     expect(qs(link, '.panel-utility-icon').getAttribute('aria-hidden')).toBe('true');
   });
 
@@ -145,8 +151,36 @@ describe('utility cluster markup', () => {
     const button = qs(cluster, '#panel-feedback-btn', HTMLButtonElement);
 
     expect(button.getAttribute('type')).toBe('button');
-    expect(button.getAttribute('aria-label')).toBe('Send feedback');
+    expect(button.getAttribute('aria-label')).toBe('Feedback');
+    expect(button.getAttribute('title')).toBe('Send feedback');
     expect(qs(button, '.panel-utility-icon').getAttribute('aria-hidden')).toBe('true');
+  });
+
+  test('names both controls in the cell, not just in the tooltip', () => {
+    // The marks alone made the operator hover to find out what they open —
+    // every other cell in the column carries its name.
+    const cluster = qs(parseRailRegion(), '#panel-utility');
+
+    for (const [id, label] of [
+      ['#panel-docs-link', 'Docs'],
+      ['#panel-feedback-btn', 'Feedback'],
+    ]) {
+      expect(qs(cluster, `${id} .panel-utility-label`).textContent).toBe(label);
+    }
+  });
+
+  test('keeps the visible label inside the accessible name', () => {
+    // WCAG 2.5.3 (Label in Name): a speech-input user says what they see, so
+    // an aria-label that drops the visible word ("Documentation" over a cell
+    // reading DOCS) makes the control unaddressable by voice.
+    const cluster = qs(parseRailRegion(), '#panel-utility');
+
+    for (const id of ['#panel-docs-link', '#panel-feedback-btn']) {
+      const control = qs(cluster, id);
+      const visible = qs(control, '.panel-utility-label').textContent ?? '';
+      const name = control.getAttribute('aria-label') ?? '';
+      expect(name.toLowerCase()).toContain(visible.toLowerCase());
+    }
   });
 });
 
@@ -172,6 +206,25 @@ describe('utility cluster styling', () => {
     expect(body).toMatch(/border-radius:\s*var\(--radius-xs\);/);
   });
 
+  test('stacks the mark over the label like a panel entry', () => {
+    // Without the column direction the label lands beside an 18px mark in a
+    // 62px cell and ellipsises away to nothing.
+    const body = ruleBody('.panel-utility-btn');
+
+    expect(body).toMatch(/flex-direction:\s*column;/);
+  });
+
+  test('keeps the label on one line inside the 62px cell', () => {
+    const body = ruleBody('.panel-utility-label');
+
+    expect(body).toMatch(/white-space:\s*nowrap;/);
+    expect(body).toMatch(/text-overflow:\s*ellipsis;/);
+    // BUILTIN_PANEL_LABELS ships its labels pre-upper-cased; these are
+    // authored as words so the accessible name reads as words, which leaves
+    // the casing to the stylesheet.
+    expect(body).toMatch(/text-transform:\s*uppercase;/);
+  });
+
   test('lets the hidden attribute win over the button display rule', () => {
     // `[hidden] { display: none }` is a UA rule and loses to any class
     // selector, so a docs anchor hidden by initRailUtility would still paint.
@@ -191,9 +244,12 @@ describe('utility cluster styling', () => {
 
     // The strip is 40px tall and does not clip: a 52px button spills over
     // the dockview area below it.
-    expect(body).toMatch(/width:\s*40px;/);
     expect(body).toMatch(/height:\s*100%;/);
     expect(body).toMatch(/border-radius:\s*0;/);
+    // ...and the stack turns the same corner the panel pills do, so the label
+    // sits beside the mark in a cell wide enough to hold it.
+    expect(body).toMatch(/flex-direction:\s*row;/);
+    expect(body).toMatch(/width:\s*auto;/);
   });
 
   test('gives both controls a drawn SVG mark, not a font glyph', () => {

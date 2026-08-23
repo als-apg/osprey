@@ -447,6 +447,21 @@ class TemplateManager:
         for key, value in claude_code.config_derived_context(rendered_config, project_dir).items():
             ctx.setdefault(key, value)
 
+        # ...except the deny floor, which is NOT the caller's to soften. Every
+        # other key above is project configuration a caller may legitimately
+        # pre-empt; this one is the security floor settings.json renders into
+        # permissions.deny (Bash and Edit among them). While it was a literal
+        # inside settings.json.j2 no caller could reach it at all, and hoisting
+        # it into the context must not quietly hand over that authority: under
+        # setdefault a caller passing deny_defaults=[] would render a project
+        # that denies nothing. Facilities widen or narrow the floor through
+        # config.yml's claude_code.permissions (deny / remove_deny), which the
+        # template applies on top of this list -- that is the supported route,
+        # and it is auditable in the profile. Assigned, not setdefault, so the
+        # framework wins; the build's own path (build_claude_code_context) gets
+        # the same precedence from its ctx.update.
+        ctx["deny_defaults"] = list(claude_code.DENY_DEFAULTS)
+
         claude_code.apply_textbooks_root(ctx, project_dir)
 
         # Resolve servers and agents via the data-driven registry.

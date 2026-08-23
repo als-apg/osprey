@@ -1018,9 +1018,20 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
 
     They are decided in two different places — the template's mount lines and
     :func:`write_web_terminal_artifacts`'s destination — so this resolves the
-    former against the pinned project directory and checks each one is a file
-    the latter actually wrote. Left unchecked, nginx starts with no config and
-    the whole web tier serves 404s.
+    former against the pinned project directory and checks each one against what
+    the latter actually put there. Left unchecked, nginx starts with no config
+    and the whole web tier serves 404s.
+
+    Two mount shapes, one invariant. Most sources are single rendered files. The
+    per-user secret templates are mounted as a DIRECTORY, because nginx's
+    entrypoint envsubsts whatever it finds there — which is exactly why its
+    contents are checked the same way: anything in that directory becomes live
+    nginx config at container start, so a file the writer did not put there
+    (a decommissioned user's leftover snippet) is a header still being injected
+    for someone off the roster. An empty directory is legitimate — a roster
+    whose secrets are not provisioned yet renders no snippets — but the
+    directory itself must exist, or the container runtime materializes it
+    root-owned.
     """
     config = {
         "facility": {"prefix": "als", "name": "ALS"},
@@ -1041,13 +1052,29 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
     written = set(write_web_terminal_artifacts(config, repo_root=tmp_path))
 
     compose = yaml.safe_load(web_compose_file(tmp_path).read_text(encoding="utf-8"))
-    sources = [volume.split(":", 1)[0] for volume in compose["services"]["nginx"]["volumes"]]
+    # Bind mounts only. The envsubst output directory is a tmpfs declared on the
+    # service's own `tmpfs:` key, not in this list: it has no host source and
+    # nothing for the writer to have written.
+    sources = [
+        volume.split(":", 1)[0]
+        for volume in compose["services"]["nginx"]["volumes"]
+        if isinstance(volume, str)
+    ]
 
     assert sources, "the nginx service must mount its rendered config"
+    destinations = {path.resolve() for path in written}
     for source in sources:
         resolved = (tmp_path / source).resolve()
-        assert resolved.is_file(), f"{source} resolves to nothing under the project directory"
-        assert resolved in {path.resolve() for path in written}
+        assert resolved.exists(), f"{source} resolves to nothing under the project directory"
+        if resolved.is_dir():
+            for path in resolved.rglob("*"):
+                if path.is_file():
+                    assert path.resolve() in destinations, (
+                        f"{source} holds {path.name}, which this render did not write"
+                    )
+            continue
+        assert resolved.is_file()
+        assert resolved in destinations
 
 
 # ---------------------------------------------------------------------------

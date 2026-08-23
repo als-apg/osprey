@@ -241,6 +241,14 @@ class TestAgentTextPassesThrough:
         ``stdout=PIPE`` here would put OSPREY between the agent and the reader,
         and every guarantee about the text would then depend on what OSPREY did
         with it next.
+
+        ``env=`` is the one kwarg the spawn is allowed to carry: the agent is
+        launched with a deliberately built environment (the operator secret
+        stripped, the panel token re-added) rather than the parent's
+        ``os.environ``. It redirects nothing, so it is not a capture — hence
+        the assertion names every kwarg that WOULD be one instead of demanding
+        an empty kwargs dict, which would fail on any future non-redirecting
+        argument for a reason unrelated to what this test protects.
         """
         stub_build(lifecycle_repo)
         monkeypatch.setattr("osprey.cli.chat_cmd._launch_companion_servers", lambda p: [])
@@ -250,7 +258,13 @@ class TestAgentTextPassesThrough:
             result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
 
         assert result.exit_code == 0
-        assert fake.run.call_args.kwargs == {}
+        kwargs = fake.run.call_args.kwargs
+        for redirecting in ("stdout", "stderr", "stdin", "capture_output", "input", "text"):
+            assert redirecting not in kwargs, (
+                f"{redirecting}= puts OSPREY between the agent and the reader"
+            )
+        assert set(kwargs) <= {"env"}
+        assert isinstance(kwargs.get("env", {}), dict)
         assert len(fake.run.call_args.args) == 1
 
     def test_agent_text_reaches_the_reader_unchanged(

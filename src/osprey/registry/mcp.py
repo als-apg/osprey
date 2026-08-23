@@ -782,7 +782,21 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
     value — silently defaulting a typo like ``trasnport: ssse`` to HTTP would
     ship a server that can never connect, so the spec is rejected loudly
     instead (matches the missing-command/url handling in resolve_servers).
+
+    The name is validated like an ``extends`` clone name: tool names are
+    ``mcp__<name>__<tool>``, so a ``__`` inside the name (or a trailing
+    ``_``) would make every consumer that splits on the first ``__`` — the
+    transcript reader, the display formatters — silently mis-attribute this
+    server's calls to a differently-named server.
     """
+    if not isinstance(name, str) or not _SERVER_NAME_RE.match(name) or "__" in name:
+        logger.warning(
+            "Invalid custom server name %r — must match [A-Za-z0-9][A-Za-z0-9_-]* "
+            "without '__' and not ending in '_'; skipping",
+            name,
+        )
+        return None
+
     perms = spec.get("permissions", {})
 
     transport = spec.get("transport", "http")
