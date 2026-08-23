@@ -376,6 +376,54 @@ def test_callback_unlocks_the_clicked_user() -> None:
     assert entry.generation_tag == ""
 
 
+def test_callback_stores_the_asserted_subject() -> None:
+    """The re-issued session carries the provider subject the login accepted, so
+    a later verify can name the account without re-contacting the IdP."""
+    with _client(_app(client=FakeOIDCClient(userinfo={"sub": ALICE_SUBJECT}))) as client:
+        client.get(LOGIN_PATH, params={"user": "alice"}, follow_redirects=False)
+        response = client.get(
+            CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
+        )
+
+    entry = _session_from(response).entry("alice")
+    assert entry is not None
+    assert entry.oidc_subject == ALICE_SUBJECT
+
+
+def test_callback_stores_the_configured_subject_when_the_claim_differs() -> None:
+    """The stored subject is the deployment's canonical mapping, not whatever
+    secondary claim the token also happens to carry."""
+    env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_CLAIM": "email"}
+    userinfo = {"sub": "some-opaque-id", "email": ALICE_SUBJECT}
+    with _client(_app(env, FakeOIDCClient(userinfo=userinfo))) as client:
+        client.get(LOGIN_PATH, params={"user": "alice"}, follow_redirects=False)
+        response = client.get(
+            CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
+        )
+
+    entry = _session_from(response).entry("alice")
+    assert entry is not None
+    assert entry.oidc_subject == ALICE_SUBJECT
+
+
+def test_callback_logs_the_accepted_subject(caplog: pytest.LogCaptureFixture) -> None:
+    """The subject is an opaque account identifier, not a credential, so the
+    success line records it — unlike a refusal, which names only a category."""
+    with (
+        caplog.at_level(logging.INFO),
+        _client(_app(client=FakeOIDCClient(userinfo={"sub": ALICE_SUBJECT}))) as client,
+    ):
+        client.get(LOGIN_PATH, params={"user": "alice"}, follow_redirects=False)
+        response = client.get(
+            CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
+        )
+
+    assert response.status_code == 303
+    log = _osprey_log(caplog)
+    assert "succeeded" in log
+    assert ALICE_SUBJECT in log
+
+
 def test_callback_expiry_comes_from_the_configured_lifetime() -> None:
     codec = SessionCodec(SESSION_SECRET, max_age=SESSION_LIFETIME)
     with _client(_app(client=FakeOIDCClient(userinfo={"sub": ALICE_SUBJECT}))) as client:

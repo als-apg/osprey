@@ -234,6 +234,23 @@ class ServerLauncher:
                     host,
                     port,
                 )
+                # That external server is a DIFFERENT process, so it minted its
+                # own OSPREY_TERMINAL_SECRET (and panel token) — not the ones
+                # this hub holds. A companion launched in-thread would share this
+                # process's credentials; a deferred external one does not, so the
+                # panel/operator calls this hub authenticates with its own
+                # secret will be refused (401) by that server. Name the variable
+                # so an operator debugging the mismatch knows which credential
+                # diverged and that re-launching under one hub is the fix.
+                logger.warning(
+                    "%s at %s:%s is an external process this hub does not own; it holds a "
+                    "different OSPREY_TERMINAL_SECRET than this process, so credentialed calls "
+                    "between them will be rejected. Stop the external server and let this hub "
+                    "own it, or point both at the same deployment, if panels do not authenticate.",
+                    self._name,
+                    host,
+                    port,
+                )
                 self._launched = True
             else:
                 # Held by something that does not answer /health; we cannot bind

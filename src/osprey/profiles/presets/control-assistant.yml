@@ -51,10 +51,10 @@ hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
-  - writes-check      # Pre-write safety check: confirm channel is writable
+  - writes-check      # Kill switch: refuse every write while writes_enabled is false
   - limits            # Enforce per-channel min/max limits before writes
   - error-guidance    # Post-error hook that surfaces remediation hints
-  - memory-guard      # Warn when context window approaches threshold
+  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - config-drift      # Warn at session start when the build is out of date
@@ -190,6 +190,12 @@ config:
     # terminal image here rather than pulling it from a registry.
     image_source: local
     nginx_port: 9080            # the landing page everyone opens first
+    # Browsers reach this nginx directly here, so the address they open is
+    # derived from deploy.fqdn and the port above — and that is the address
+    # every terminal checks an action against. Put something in front of this
+    # nginx (a load balancer terminating TLS, a reverse proxy, a DNS alias) and
+    # add `external_origin: https://<what browsers open>` beside this line, or
+    # every action inside a terminal is refused while every page still loads.
     # User number i gets base + i in each family below, so removing a user
     # never shifts anyone else's ports. These all sit above this deployment's
     # own service ports (5064, 8020, 8090/8091/8095) to avoid collisions.

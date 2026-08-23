@@ -174,10 +174,10 @@ hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
-  - writes-check      # Pre-write safety check: confirm channel is writable
+  - writes-check      # Kill switch: refuse every write while writes_enabled is false
   - limits            # Enforce per-channel min/max limits before writes
   - error-guidance    # Post-error hook that surfaces remediation hints
-  - memory-guard      # Warn when context window approaches threshold
+  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - config-drift      # Warn at session start when the build is out of date
@@ -316,6 +316,12 @@ config:
     enabled: true
 @WEB_TERMINALS_IMAGE_SOURCE@
     nginx_port: 9080            # the landing page everyone opens first
+    # Browsers reach this nginx directly here, so the address they open is
+    # derived from deploy.fqdn and the port above — and that is the address
+    # every terminal checks an action against. Put something in front of this
+    # nginx (a load balancer terminating TLS, a reverse proxy, a DNS alias) and
+    # add `external_origin: https://<what browsers open>` beside this line, or
+    # every action inside a terminal is refused while every page still loads.
     # User number i gets base + i in each family below, so removing a user
     # never shifts anyone else's ports. These all sit above this deployment's
     # own service ports (5064, 8020, 8090/8091/8095) to avoid collisions.
@@ -999,6 +1005,7 @@ OSPREY_AUTH_PW_BOB=bob
 # DISPATCH_WORKER_TOKEN=  # event_dispatcher, dispatch_worker — authenticates the dispatch worker back to the dispatcher
 # BLUESKY_LAUNCH_TOKEN=  # bluesky — arms the Bluesky bridge's plan-launch endpoint
 # BLUESKY_TILED_API_KEY=  # bluesky — the key the bridge presents to the co-deployed Tiled catalog
+# OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
@@ -1369,12 +1376,16 @@ if wants services; then
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────
+# The landing page is nginx's own file, served before anything asks
+# the caller for a credential. A terminal is the application, which
+# answers an uncredentialed GET / with a 401 — so it is probed at
+# /health, the route its auth gate lets through.
 if wants web; then
   printf '\\n%s── Web terminal ──%s\\n\\n' "$BOLD" "$RESET"
   probe_http 'landing page'      http://localhost:9080/
-  probe_http 'terminal (alice)'  http://localhost:9091/
-  probe_http 'terminal (bob)'    http://localhost:9092/
-  probe_http 'terminal (ariel)'  http://localhost:9093/
+  probe_http 'terminal (alice)'  http://localhost:9091/health
+  probe_http 'terminal (bob)'    http://localhost:9092/health
+  probe_http 'terminal (ariel)'  http://localhost:9093/health
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────

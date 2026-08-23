@@ -153,15 +153,19 @@ def _open_settings_drawer(page: Page) -> None:
     the first-time warning if shown."""
     page.click(DISPLAY_MENU_BTN_SELECTOR)
     page.click(TRIGGER_SELECTOR)
+    # The trigger click yields exactly one of two states: the first-time
+    # warning overlay (fresh server session) or the drawer opening directly
+    # (already acked). Wait for whichever arrives rather than probing the
+    # warning with a short timeout -- deciding the branch by "did it appear
+    # within N seconds" misreads a slow warning as an absent one under
+    # parallel test load.
     proceed = page.locator(WARNING_PROCEED_SELECTOR)
-    try:
-        expect(proceed).to_be_visible(timeout=2_000)
-        proceed.click()
-    except AssertionError:
-        pass  # already acked this server session -- drawer opened directly
     drawer = page.locator(DRAWER_SELECTOR)
-    expect(drawer).to_have_attribute("open", "", timeout=5_000)
-    expect(drawer).to_have_css("transform", "matrix(1, 0, 0, 1, 0, 0)", timeout=2_000)
+    expect(proceed.or_(page.locator(f"{DRAWER_SELECTOR}[open]"))).to_be_visible(timeout=15_000)
+    if proceed.is_visible():
+        proceed.click()
+    expect(drawer).to_have_attribute("open", "", timeout=15_000)
+    expect(drawer).to_have_css("transform", "matrix(1, 0, 0, 1, 0, 0)", timeout=15_000)
 
 
 def _once_dialog(page: Page, *, accept: bool) -> None:
@@ -227,7 +231,7 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
 
         _open_settings_drawer(page)
         page.locator(SAFETY_CARD_SELECTOR).click()
-        expect(page.locator(".osprey-md-rendered")).to_be_visible(timeout=5_000)
+        expect(page.locator(".osprey-md-rendered")).to_be_visible(timeout=15_000)
 
         # Preview -> Edit: still framework-owned, so this claims the file
         # first (a real confirm() dialog + POST /claim), then switches mode.
@@ -235,10 +239,10 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
         page.locator(".prompts-mode-btn", has_text="Edit").click()
 
         expect(page.locator(".prompts-detail-header .prompts-badge")).to_have_class(
-            "prompts-badge user-owned", timeout=5_000
+            "prompts-badge user-owned", timeout=15_000
         )
         textarea = page.locator(".prompts-edit-textarea")
-        expect(textarea).to_be_visible(timeout=5_000)
+        expect(textarea).to_be_visible(timeout=15_000)
         original_value = textarea.input_value()
         assert "Tool Confinement" in original_value, (
             "expected the claimed file's original content in the edit textarea"
@@ -248,32 +252,32 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
         textarea.fill(original_value + "\nEDITED-BY-SCAFFOLD-DETAIL-PIN-TEST\n")
         discard_btn = page.locator(".prompts-discard-btn")
         save_btn = page.locator(".prompts-save-btn")
-        expect(discard_btn).to_be_enabled(timeout=2_000)
-        expect(save_btn).to_be_enabled(timeout=2_000)
+        expect(discard_btn).to_be_enabled(timeout=15_000)
+        expect(save_btn).to_be_enabled(timeout=15_000)
 
         # The dirty guard vetoes a drawer close via the backdrop -- same
         # composite `registerUnsavedGuard` contract test_osprey_drawer.py
         # pins with a synthetic guard, driven here by a real edit.
         _once_dialog(page, accept=False)
         page.locator(BACKDROP_SELECTOR).click(position={"x": 10, "y": 10})
-        expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=2_000)
+        expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=15_000)
 
         # Discard restores clean state: back to Preview, and (crucially) the
         # content comes from a server refetch of the on-disk file, which was
         # never actually written -- proving the edit was truly discarded,
         # not just hidden client-side.
         discard_btn.click()
-        expect(page.locator(".prompts-mode-btn.active")).to_have_text("Preview", timeout=5_000)
+        expect(page.locator(".prompts-mode-btn.active")).to_have_text("Preview", timeout=15_000)
         expect(page.locator(".prompts-discard-btn")).to_have_count(0)
         preview = page.locator(".osprey-md-rendered")
-        expect(preview).to_be_visible(timeout=5_000)
+        expect(preview).to_be_visible(timeout=15_000)
         expect(preview).to_contain_text("Tool Confinement")
         expect(preview).not_to_contain_text("EDITED-BY-SCAFFOLD-DETAIL-PIN-TEST")
 
         # Clean now -- closing succeeds with no dialog at all (the guard
         # returns true immediately without prompting).
         page.locator(BACKDROP_SELECTOR).click(position={"x": 10, "y": 10})
-        expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
+        expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=15_000)
         page.close()
 
 

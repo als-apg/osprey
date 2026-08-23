@@ -256,6 +256,38 @@ def test_the_health_check_probes_the_dispatcher(rendered: dict[str, str]) -> Non
     )
 
 
+def test_the_web_probes_split_the_perimeter_from_the_application(
+    rendered: dict[str, str],
+) -> None:
+    """Terminals are probed at ``/health``; only the landing page keeps ``/``.
+
+    The two halves of the web group sit on opposite sides of the credential
+    boundary. The landing page is nginx's own file and answers before anything
+    asks the caller for one. A per-user terminal is the application, and the
+    application answers an uncredentialed ``GET /`` with a 401 — which ``curl
+    -sf`` reports as a failure. A probe left on ``/`` therefore paints every
+    healthy terminal as down on every single deploy, and an operator who reads
+    that report twice stops reading it at all.
+
+    Asserted as the exhaustive list of the group's ``http`` targets rather than
+    as a substring, so neither retargeting the landing page onto ``/health``
+    (which would stop checking that nginx serves anything) nor putting a
+    terminal back on ``/`` can pass.
+    """
+    web = re.search(
+        r"^if wants web; then$(.*?)^fi$", rendered["scripts/verify.sh"], re.MULTILINE | re.DOTALL
+    )
+    assert web, "the exemplar enables the web tier, so it must emit a web probe group"
+
+    targets = re.findall(r"^\s*probe_http\s+'([^']+)'\s+(\S+)$", web.group(1), re.MULTILINE)
+    assert targets == [
+        ("landing page", "http://localhost:9080/"),
+        ("terminal (alice)", "http://localhost:9091/health"),
+        ("terminal (bob)", "http://localhost:9092/health"),
+        ("terminal (ariel)", "http://localhost:9093/health"),
+    ]
+
+
 def test_the_tcp_helper_is_emitted_only_where_a_probe_uses_it(
     profile: dict[str, Any], rendered: dict[str, str]
 ) -> None:

@@ -167,9 +167,14 @@ def test_seam_auth_method_set_gates_every_user_behind_its_own_internal_target() 
 def test_seam_login_false_entry_is_served_ungated_while_the_rest_stay_gated() -> None:
     """SEAM 1 (deliberate exemption): a roster entry with `login: false` renders
     with no `auth_request` and no internal verify target, while every other
-    entry keeps both — and the exempt location still strips the origin's cookie
-    jar before proxying, since a public container must never see another user's
-    session cookie."""
+    entry keeps both — and the exempt location gets neither of the two things a
+    gated location gets: no operator-secret `include`, and no cookie strip. Both
+    are bound to the same predicate (authenticated AND not exempt), because an
+    exempt container has no gate here to vouch for a request, so there is no
+    authorized identity to inject a secret for; and the app's own token->cookie
+    session becomes the gate in front of it, which only holds if the browser's
+    cookie is allowed to reach the app rather than being cut on the way in.
+    alice's gated location, by contrast, keeps both."""
     # Arrange
     config = _auth_config(
         [
@@ -184,16 +189,25 @@ def test_seam_login_false_entry_is_served_ungated_while_the_rest_stay_gated() ->
 
     # Assert — exactly one gate, and it is alice's
     assert directives.count("auth_request ") == 1
-    assert "auth_request /_osprey_auth/alice;" in _location_body(nginx_conf, "location /u/alice/")
+    alice_body = _location_body(nginx_conf, "location /u/alice/")
+    assert "auth_request /_osprey_auth/alice;" in alice_body
     assert "location = /_osprey_auth/alice {" in nginx_conf
+
+    # Assert — alice's gated location gets BOTH the operator-secret include and
+    # the cookie strip, the pair the exemption is defined against.
+    assert "include /etc/nginx/osprey/secret-alice.conf;" in alice_body
+    assert 'proxy_set_header Cookie "";' in alice_body
 
     # Assert — ariel is proxied with no gate and no verify target at all
     ariel_body = _location_body(nginx_conf, "location /u/ariel/")
     assert "auth_request" not in _directives(ariel_body)
     assert "location = /_osprey_auth/ariel" not in nginx_conf
 
-    # Assert — the cookie strip survives the exemption
-    assert 'proxy_set_header Cookie "";' in ariel_body
+    # Assert — the exemption drops both halves: no operator secret is injected
+    # (there is no authorized request here to vouch for), and the cookie is NOT
+    # stripped (the app's own session cookie is the gate now and must reach it).
+    assert "include /etc/nginx/osprey/secret-ariel.conf;" not in ariel_body
+    assert 'proxy_set_header Cookie "";' not in ariel_body
 
 
 def test_seam_login_exemption_is_fail_closed_against_typos() -> None:
@@ -243,7 +257,14 @@ def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> Non
 
     # The identity is never reconstructed from client-controlled input — the two
     # places a crafted URL could otherwise smuggle a different username in.
-    assert "$request_uri" not in directives
+    # Scoped to the auth surface: `$request_uri` does appear at http level, as
+    # the SOURCE of the access log's path map — where it is trimmed at the first
+    # `?` and written to a log, never used to authorize anything.
+    auth_surface = directives
+    log_map_start = auth_surface.index("map $request_uri $osprey_log_path {")
+    log_map_end = auth_surface.index("}", log_map_start) + 1
+    auth_surface = auth_surface[:log_map_start] + auth_surface[log_map_end:]
+    assert "$request_uri" not in auth_surface
     assert "X-Original-URI" not in directives
     # `/verify` is reachable only through the internal targets: it is not a
     # location of its own and is not exposed under the public `/auth/` prefix.

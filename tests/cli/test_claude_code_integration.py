@@ -1316,11 +1316,21 @@ class TestFacilityPermissions:
             assert d in deny
 
     def test_facility_remove_deny(self, tmp_path):
-        """remove_deny removes a tool from the default deny list."""
-        data = self._settings(tmp_path, {"remove_deny": ["Bash"]})
+        """remove_deny removes a tool from the default deny list.
+
+        Removed here is ``WebSearch``, not ``Bash``: the build lint
+        (``_lint_write_tools_are_gated``) refuses a profile in which a
+        write-capable built-in — ``Bash`` and ``Edit`` included — is left neither
+        denied nor covered by a PreToolUse matcher, so a ``remove_deny: ["Bash"]``
+        build no longer renders at all. That refusal has its own coverage in
+        tests/cli/test_build_cmd.py; what this asserts is the mechanism, which
+        needs a deny-floor entry the lint does not gate.
+        """
+        data = self._settings(tmp_path, {"remove_deny": ["WebSearch"]})
         deny = data["permissions"]["deny"]
-        assert "Bash" not in deny
+        assert "WebSearch" not in deny
         # Other defaults still present
+        assert "Bash" in deny
         assert "Edit" in deny
         assert "WebFetch" in deny
 

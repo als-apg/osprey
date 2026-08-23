@@ -177,6 +177,11 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "bluesky": ("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY"),
+    # The operator credential for the sidecar's WebAuthMiddleware gate. The
+    # sidecar container declares OSPREY_TERMINAL_BIND_HOST, so an empty secret
+    # refuses startup instead of minting a value nothing outside the container
+    # can learn — the mint here is what makes the deployed panel reachable.
+    "bluesky_web": ("OSPREY_TERMINAL_SECRET",),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     "postgresql": ("ARIEL_DB_PASSWORD",),
     "mongodb": ("MONGO_ROOT_PASSWORD",),

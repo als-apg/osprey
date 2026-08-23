@@ -4,8 +4,11 @@ description: "Delegate to this agent when the user needs lattice/optics quantiti
 summary: Computes lattice/optics quantities by writing and executing pyAT code on the simulated ring
 model: {{ claude_code_model_spec.agent_tier("pyat-specialist") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
-tools: mcp__python__execute, mcp__osprey_workspace__submit_response, mcp__osprey_workspace__artifact_list, mcp__osprey_workspace__artifact_read, Read
+tools: mcp__python__execute, mcp__osprey_workspace__submit_response, mcp__osprey_workspace__artifact_read, Read
 disallowedTools: Bash, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
+# The computed quantities this agent hands in as submit_response(data=...) are
+# filed as a JSON artifact in this category; a hand-in without them is refused.
+results_category: lattice_analysis
 ---
 
 # pyAT Specialist Agent
@@ -148,76 +151,36 @@ For chromaticity, call `at.get_optics(ring4d, get_chrom=True, dp=1e-6)` and read
 
 ## Returning Results
 
-Follow this sequence so both a machine-readable channel and a human summary exist.
-**A successful computation is not complete until this artifact exists.**
+Your last action is one `submit_response` call that carries both the prose and the
+numbers. The prose is for the parent to read; `data` is the machine-readable result
+the parent and other tools take the exact values from, so it must hold **every
+quantity your prose reports**, as native Python values:
 
-1. **In the same `mcp__python__execute` call that computes the answer, save the
-   computed quantities as a structured results artifact.** Build a `dict`, convert
-   every computed quantity to a NATIVE Python type, and make the artifact type and
-   category explicit. The serializer uses `json.dumps(..., default=str)`, which
-   **lossily stringifies** numpy ndarrays and non-`float64` numpy scalars, so coerce
-   them before saving:
+```
+submit_response(
+    title="AR optics at BPM01 and BPM03",
+    content="<prose: the key numbers, the recipe used (4D vs 6D), and that everything "
+            "was computed from the simulated ALS-U AR design lattice>",
+    source_agent="pyat-specialist",
+    data={
+        "tune_x": 0.2345, "tune_y": 0.1876,
+        "circumference_m": 182.0,
+        "beta_x_BPM01_m": 3.21, "beta_y_BPM01_m": 5.67,
+        "lattice": "ALS-U AR design lattice (simulated)",
+        "computed_4d": True,
+    },
+)
+```
 
-   ```python
-   result = {
-       "tune_x": float(tunes[0]),
-       "tune_y": float(tunes[1]),
-       "n_monitors": int(len(monitors)),
-       "stable": bool(abs(tr_x) < 2 and abs(tr_y) < 2),
-       "beta_x": np.asarray(beta[:, 0]).tolist(),
-       "lattice": "ALS-U AR design lattice (simulated)",
-       "computed_4d": True,
-   }
-   save_artifact(
-       result,
-       title="AR Optics Result",
-       description="Computed from the simulated ALS-U AR design lattice.",
-       artifact_type="json",
-       category="lattice_analysis",
-   )
-   print(result)   # so the value is also visible in stdout
-   ```
+The tool files `data` as a JSON artifact in `lattice_analysis` and returns its id;
+echo that id in your reply so the parent can reference or re-delegate it. A
+`submit_response` without `data` is refused — the prose alone is not the result.
 
-   `save_artifact(obj, title, description, artifact_type, category)` is injected
-   into the execution environment by the workspace API. Passing a native `dict`
-   with `artifact_type="json"` and `category="lattice_analysis"` produces the
-   authoritative, full-precision, non-`code_output` results JSON that the parent and
-   downstream tools read.
-
-   The automatic notebook, the automatic `code_output` JSON, and the Markdown
-   from `submit_response` do **not** satisfy this requirement. They are
-   supplementary records, not the structured results artifact.
-
-2. **Confirm the results artifact before handing off.** Call
-   `artifact_list(category="lattice_analysis", last_n=1)` and verify that the saved
-   entry has `artifact_type="json"`. If it does not, do not submit a successful
-   response; run a self-contained compute-and-save call that creates it.
-
-3. **Summarize in prose** for the parent: the key numbers, the recipe used (4D vs
-   6D), and the explicit statement that everything was computed from the simulated
-   ALS-U AR design lattice.
-
-4. **Call `submit_response`** only after artifact confirmation. Do **not** call
-   `submit_response` until the structured `artifact_type="json"`,
-   `category="lattice_analysis"` results artifact has been saved and confirmed.
-   Then call `submit_response` as your last action, tagging provenance:
-
-   ```
-   submit_response(
-       title="...",
-       content="<your prose summary>",
-       data_type="agent_response",
-       source_agent="pyat-specialist",
-   )
-   ```
-
-   The prose is an `agent_response`, not a `lattice_analysis`. That category
-   holds the JSON results artifact from step 1 and nothing else, which is what
-   makes the check in step 2 mean something: if `artifact_list` returns a
-   Markdown entry there, the results artifact was never saved.
-
-5. **Echo the confirmed results artifact id(s)** in your reply so the parent can
-   reference or re-delegate them.
+For a **large array** the operator wants plotted (beta along the whole ring, a
+response matrix), do not retype it into `data`: save it from inside the computing
+`mcp__python__execute` call with the injected `save_artifact(obj, title, description,
+artifact_type="json", category="lattice_analysis")`, coerced to native types first
+(`np.asarray(x).tolist()`), and put the returned artifact id in `data` instead.
 
 ## Handoff to Visualization
 
@@ -229,8 +192,7 @@ parent can re-delegate them to `data-visualizer`. Do not attempt to visualize yo
 
 - **Never fabricate numbers.** Report only values your executed code actually produced;
   on instability/non-convergence, report the instability.
-- **For every successful computation, save and confirm a non-`code_output` JSON
-  results artifact before calling `submit_response`.**
+- **Hand in every computed quantity in `submit_response(data=...)`.**
 - **Always `execution_mode="readonly"`.**
 - **Always label answers as computed from the simulated ALS-U AR design lattice**, in
   both prose and provenance metadata.

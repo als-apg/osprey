@@ -74,3 +74,29 @@ def test_helper_defined_exactly_once():
     """The strip helper function is defined in exactly one place."""
     defs = sum(_source(mod).count("def strip_claude_code_env") for mod in (clean_env, pty_manager))
     assert defs == 1, f"strip_claude_code_env must be defined exactly once; found {defs}"
+
+
+def test_sensitive_strip_delegates_to_the_shared_module():
+    """The credential deny step calls ``sensitive_env``; it never re-lists names.
+
+    The set of sensitive variables is owned by ``osprey.utils.sensitive_env`` so
+    that every hand-off of a parent environment drops the same credentials. This
+    guard fails if ``clean_env`` grows its own copy of a name instead of calling
+    the shared helper.
+    """
+    source = _source(clean_env)
+    assert "strip_sensitive(" in source, (
+        "build_base_child_env() must call strip_sensitive() from "
+        "osprey.utils.sensitive_env to drop credentials from child environments"
+    )
+    forbidden = (
+        '"OSPREY_TERMINAL_SECRET"',
+        '"OSPREY_PANEL_TOKEN"',
+        '"EVENT_DISPATCHER_TOKEN"',
+        '"_LAUNCH_TOKEN"',
+    )
+    for literal in forbidden:
+        assert literal not in source, (
+            f"clean_env.py re-lists the sensitive name {literal} as a code literal; "
+            "the single source is osprey.utils.sensitive_env"
+        )

@@ -139,6 +139,30 @@ class TestResolveServers:
         assert not [s for s in servers if s["name"] == "typo-api"]
         assert "invalid transport" in caplog.text
 
+    def test_resolve_custom_server_double_underscore_name_rejected(self, caplog):
+        """A ``__`` in a custom server name is rejected loudly, like extends clones.
+
+        Tool names are ``mcp__<server>__<tool>``, so a server named
+        ``my__server`` would make every consumer that splits on the first
+        ``__`` (transcript reader, display formatting) silently mis-attribute
+        its calls to a server named ``my``.
+        """
+        ctx = _base_ctx()
+        cfg = {"servers": {"my__server": {"command": "node", "args": ["s.js"]}}}
+        with caplog.at_level("WARNING"):
+            servers = resolve_servers(cfg, ctx)
+        assert not [s for s in servers if s["name"] == "my__server"]
+        assert "my__server" in caplog.text
+
+    def test_resolve_custom_server_trailing_underscore_rejected(self, caplog):
+        """A trailing ``_`` makes ``mcp__<server>__`` ambiguous — rejected."""
+        ctx = _base_ctx()
+        cfg = {"servers": {"srv_": {"command": "node", "args": ["s.js"]}}}
+        with caplog.at_level("WARNING"):
+            servers = resolve_servers(cfg, ctx)
+        assert not [s for s in servers if s["name"] == "srv_"]
+        assert "srv_" in caplog.text
+
     def test_resolve_custom_server_transport_on_stdio_ignored(self, caplog):
         """A command server declaring transport keeps working; the key is ignored loudly."""
         ctx = _base_ctx()
@@ -1033,7 +1057,9 @@ class TestTemplateRendering:
         rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
         data = json.loads(rendered)
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
-        assert "Write" in pre_matchers  # Framework standalone hook (memory-guard)
+        # One matcher covering every write tool: the memory guard's frontmatter
+        # is copied verbatim into the rule, so this string is the guard's reach.
+        assert "Write|MultiEdit|NotebookEdit" in pre_matchers
         assert "mcp__controls__channel_write" in pre_matchers
         post_matchers = [r["matcher"] for r in data["hooks"]["PostToolUse"]]
         assert "NotebookEdit" in post_matchers  # Framework standalone hook (notebook-update)

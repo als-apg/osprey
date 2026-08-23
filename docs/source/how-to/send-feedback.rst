@@ -77,6 +77,9 @@ way.
 **Session context** — the checkbox is **off** by default, and is greyed out with
 "no session yet" when there is no live session to attach. It adds:
 
+- the session's id — on the GitHub and Email channels this one also appears
+  inline in the prefilled body, so the message can be matched to the
+  deployment's own record even if the paste step below is missed,
 - the session's tool-call and agent event log,
 - its chat history,
 - the terminal scrollback,
@@ -114,9 +117,14 @@ without writing a record. It is enabled only when the session-context checkbox
 is ticked and a session exists; otherwise it stays visible but greyed, so it
 never looks like a control that disappeared.
 
-Use it when the prefilled issue or draft is too small to carry the context
-inline: the prefilled body already contains a ``paste the copied session context
-here`` placeholder to drop it into.
+The context never travels inside the prefilled issue or draft itself — a
+``mailto:`` URL in particular is far too small to carry it. Sending on an
+outbound channel already copies the whole report to the clipboard, the
+prefilled body contains a ``paste the copied session context here``
+placeholder to drop it into, and the dialog says so twice: beside the ticked
+checkbox before sending, and in the confirmation afterwards. Reach for this
+button when the clipboard has since been overwritten and the paste still has
+to happen.
 
 .. _feedback-retrieval:
 
@@ -246,11 +254,11 @@ with no value at all does.
 
 .. note::
 
-   The Web Terminal has **no application-level login**, and neither has the
-   feedback dialog. Anyone who can reach the terminal can send a report and have
-   it recorded. That is right for the intended single-operator, local setup; a
-   facility that exposes the terminal more widely should put its own
-   authentication in front of it, as it would for the terminal itself.
+   The feedback dialog is behind the terminal's own gate: only a browser
+   holding a session can open it, the same as for any other terminal action. It
+   draws no line *within* a session, though — anyone sitting at a signed-in
+   terminal can send a report — so read a stored report as coming from that
+   terminal, not from a named person.
 
 Named future work
 -----------------

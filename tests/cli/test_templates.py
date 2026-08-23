@@ -656,7 +656,7 @@ class TestBuiltinPanelRegistryDrift:
             project_name="okf-panel-e2e",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            artifacts={"web_panels": ["okf", "channel-finder"]},
+            artifacts={"hooks": ["memory-guard"], "web_panels": ["okf", "channel-finder"]},
         )
         panels = yaml.safe_load((project_dir / "config.yml").read_text())["web"]["panels"]
 

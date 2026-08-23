@@ -89,7 +89,11 @@ def _mint(
 
 
 def _unlocked(
-    username: str, *, stored: str | None = ALICE_HASH, ttl: float = 600.0
+    username: str,
+    *,
+    stored: str | None = ALICE_HASH,
+    ttl: float = 600.0,
+    subject: str = "",
 ) -> UnlockedUser:
     """An unlocked-user entry expiring ``ttl`` seconds from now.
 
@@ -98,11 +102,14 @@ def _unlocked(
         stored: The stored hash the generation tag is derived from, or ``None``
             for an OIDC entry, which carries no tag.
         ttl: Seconds until the entry lapses; negative for an expired one.
+        subject: The OIDC subject the entry carries, or ``""`` for a password
+            entry and any session minted before the subject was carried.
     """
     return UnlockedUser(
         username=username,
         expires_at=SessionCodec(SESSION_SECRET).now() + ttl,
         generation_tag="" if stored is None else generation_tag(stored),
+        oidc_subject=subject,
     )
 
 
@@ -324,6 +331,45 @@ class TestOidcMode:
             assert _verify(client, "alice", expired).status_code == 401
             app.state.revocation_store.revoke(SESSION_ID, entry.expires_at)
             assert _verify(client, "alice", _mint(entry)).status_code == 401
+
+
+class TestSubjectHeader:
+    """An authorized OIDC request reports the account behind it."""
+
+    SUBJECT_HEADER = "X-Osprey-Auth-Subject"
+    ALICE_SUBJECT = "idp|alice"
+
+    def test_oidc_authorization_returns_the_subject_header(self) -> None:
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.ALICE_SUBJECT))
+        with TestClient(_app(OIDC_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.SUBJECT_HEADER] == self.ALICE_SUBJECT
+
+    def test_password_session_omits_the_subject_header(self) -> None:
+        """A password entry has no subject, so the header is absent, not blank."""
+        cookie = _mint(_unlocked("alice"))
+        with TestClient(_app()) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert self.SUBJECT_HEADER.lower() not in response.headers
+
+    def test_oidc_session_without_a_subject_still_verifies_and_omits_the_header(self) -> None:
+        """Backward compat: a session minted before the subject was carried
+        authorizes exactly as before and simply names no account."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=""))
+        with TestClient(_app(OIDC_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert self.SUBJECT_HEADER.lower() not in response.headers
+
+    def test_a_denied_request_never_carries_the_subject_header(self) -> None:
+        """The header rides only on the 200, never on a refusal."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.ALICE_SUBJECT))
+        with TestClient(_app(OIDC_ENV)) as client:
+            response = _verify(client, "bob", cookie)
+        assert response.status_code == 401
+        assert self.SUBJECT_HEADER.lower() not in response.headers
 
 
 class TestLogging:

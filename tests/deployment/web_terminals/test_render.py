@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from jinja2 import Template
+from jinja2 import Environment, Template
 
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
@@ -21,8 +21,12 @@ from osprey.deployment.web_terminals.ports import (
 )
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
+    TERMINAL_SECRET_HEADER,
     _auth_tls_context,
+    clear_nginx_templates_dir,
+    deployment_external_origin,
     render_web_terminals,
+    terminal_secret_env_var,
 )
 
 # The sidecar's own env-var names, imported rather than spelled out: the compose
@@ -1539,8 +1543,14 @@ def test_nginx_mounts_resolve_into_the_repos_build_zone(tmp_path) -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert
-    sources = [mount.split(":")[0] for mount in compose["services"]["nginx"]["volumes"]]
+    # Assert — bind mounts only. The envsubst output directory is a tmpfs and has
+    # no host source to resolve, so it is declared on the service's own `tmpfs:`
+    # key rather than in this list.
+    sources = [
+        mount.split(":")[0]
+        for mount in compose["services"]["nginx"]["volumes"]
+        if isinstance(mount, str)
+    ]
     resolved = [(tmp_path / source).resolve() for source in sources[:2]]
     assert resolved == [
         web_artifacts_dir(tmp_path) / "nginx" / "nginx.conf",
@@ -2473,13 +2483,26 @@ def test_cookie_strip_spares_the_sidecar_locations() -> None:
 
 
 def test_cookie_strip_absent_when_method_is_none() -> None:
-    """Without authentication there is no auth cookie to keep out of a
-    container, and the render stays byte-identical to its pre-auth self."""
+    """Without authentication the cookie is not CUT — it is the only gate left.
+
+    There is no sidecar session to keep out of a container here, but there is
+    still a shared cookie jar: one origin serves every terminal, so the browser's
+    raw `Cookie` header names every OTHER user's session this browser holds. So
+    the auth-off location forwards exactly one cookie — the one this user's own
+    app issued — and nothing else.
+    """
     # Act
     nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
-    assert "Cookie" not in nginx_conf
+    for user, port in (("alice", 9091), ("bob", 9092), ("carol", 9093)):
+        body = _directives(_location_body(nginx_conf, f"location /u/{user}/"))
+        cookie = f"osprey_terminal_session_{port}"
+        assert f'proxy_set_header Cookie "{cookie}=$cookie_{cookie}";' in body
+        # Never the blanket strip, which would leave this location with no gate
+        # at all, and never a bare forward of the whole jar.
+        assert 'proxy_set_header Cookie "";' not in body
+        assert "$http_cookie" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -3796,3 +3819,917 @@ def test_the_shipped_config_and_the_container_env_name_the_same_variable() -> No
     environment = compose["services"]["web-alice"]["environment"]
     delivered = {entry.split("=", 1)[0] for entry in environment}
     assert declared.group(1) in delivered
+
+
+# ---------------------------------------------------------------------------
+# Per-user operator secret carrier (PLAN Task 5.1)
+#
+# nginx is the only thing that may hold a user's operator secret: it injects it
+# as a request header on the way to that user's terminal, from a snippet whose
+# value envsubst fills in at container start. Two properties are load-bearing
+# and pinned below: NO secret value may reach a rendered artifact, and a render
+# with no secrets in hand (`osprey scaffold web-terminals render`) must be
+# byte-identical to what it produced before this carrier existed.
+# ---------------------------------------------------------------------------
+
+
+def _capture_compose_context(config: dict, **kwargs) -> dict:
+    """Render *config* and return the context handed to docker-compose.web.yml.j2.
+
+    The per-service `terminal_secret_env`/`external_origin` keys are consumed by
+    the compose template (Task 5.3), so the context is the seam where this task's
+    contract is observable. Captured by wrapping the real template's `render`,
+    so the real templates still render and the real output is still produced.
+    """
+    captured: dict = {}
+    real_get_template = Environment.get_template
+
+    def spy(self, name, *args, **kw):  # type: ignore[no-untyped-def]
+        template = real_get_template(self, name, *args, **kw)
+        if name == "docker-compose.web.yml.j2":
+            real_render = template.render
+
+            def capture(**ctx):  # type: ignore[no-untyped-def]
+                captured.update(ctx)
+                return real_render(**ctx)
+
+            template.render = capture
+        return template
+
+    with patch.object(Environment, "get_template", spy):
+        render_web_terminals(config, **kwargs)
+    assert captured, "the compose template was never rendered"
+    return captured
+
+
+def _secrets_for(users: list[str]) -> dict[str, str]:
+    """A plausible `{username: secret}` mapping, with per-user distinct values."""
+    return {user: f"s3cr3t-value-for-{user}" for user in users}
+
+
+def test_render_without_terminal_secrets_returns_exactly_the_three_artifacts() -> None:
+    """The no-secrets render path emits no nginx template snippets at all."""
+    # Act
+    artifacts = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert set(artifacts) == {
+        "docker-compose.web.yml",
+        "nginx/nginx.conf",
+        "nginx/landing.html",
+    }
+
+
+def test_render_is_byte_identical_with_and_without_terminal_secrets() -> None:
+    """Handing the render the secrets changes nothing about the three artifacts:
+    the values live only in the deploy `.env`, and the snippets are additive."""
+    # Arrange — auth on, so there are snippets for the addition to be additive to
+    config = _auth_config(["alice", "bob", "carol"])
+
+    # Act
+    plain = render_web_terminals(copy.deepcopy(config))
+    with_secrets = render_web_terminals(
+        copy.deepcopy(config), terminal_secrets=_secrets_for(["alice", "bob", "carol"])
+    )
+
+    # Assert
+    for artifact in ("docker-compose.web.yml", "nginx/nginx.conf", "nginx/landing.html"):
+        assert with_secrets[artifact] == plain[artifact]
+
+
+def test_terminal_secrets_render_one_snippet_per_gated_roster_user() -> None:
+    """One `secret-<user>.conf.template` per GATED roster user, in the templates
+    directory the nginx service bind-mounts at /etc/nginx/templates."""
+    # Act
+    artifacts = render_web_terminals(
+        _auth_config(["alice", "bob", "carol"]),
+        terminal_secrets=_secrets_for(["alice", "bob", "carol"]),
+    )
+
+    # Assert
+    assert set(artifacts) == {
+        "docker-compose.web.yml",
+        "nginx/nginx.conf",
+        "nginx/landing.html",
+        "nginx/templates/secret-alice.conf.template",
+        "nginx/templates/secret-bob.conf.template",
+        "nginx/templates/secret-carol.conf.template",
+    }
+
+
+def test_no_secret_snippet_is_written_for_a_location_nothing_gates() -> None:
+    """A snippet nothing `include`s is a plaintext secret in the nginx container
+    for no reader.
+
+    nginx emits the include under exactly one predicate — `auth_method != "none"
+    and not svc.login_exempt` — so with authentication off nothing includes
+    anything, and a `login: false` entry is served ungated with the header
+    CLEARED. Neither gets a file. The roster REFUSALS still cover everyone: each
+    user's own container reads its own secret whatever the perimeter does.
+    """
+    # Arrange
+    secrets = _secrets_for(["alice", "bob", "carol"])
+
+    # Act
+    auth_off = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG), terminal_secrets=secrets)
+    mixed = render_web_terminals(
+        _mixed_login_config("kiosk"), terminal_secrets=_secrets_for(["alice", "kiosk"])
+    )
+
+    # Assert
+    assert [path for path in auth_off if path.startswith("nginx/templates/")] == []
+    assert [path for path in mixed if path.startswith("nginx/templates/")] == [
+        "nginx/templates/secret-alice.conf.template"
+    ]
+    # The ungated user's secret is nowhere in the render — not as a file, and not
+    # as the variable an include would have referenced.
+    for content in mixed.values():
+        assert "secret-kiosk.conf" not in content
+
+
+def test_every_secret_snippet_is_included_by_exactly_one_location() -> None:
+    """The set of snippets equals the set of includes, on a mixed roster.
+
+    Stated as an equality rather than as two containments: an include with no
+    file crash-loops nginx at start, and a file with no include is the dead
+    secret above. Both directions have to hold at once.
+    """
+    # Arrange
+    config = _mixed_login_config("kiosk")
+
+    # Act
+    artifacts = render_web_terminals(config, terminal_secrets=_secrets_for(["alice", "kiosk"]))
+
+    # Assert
+    materialized = {
+        Path(path).name.removesuffix(".template")
+        for path in artifacts
+        if path.startswith("nginx/templates/")
+    }
+    included = {
+        Path(path).name
+        for path in re.findall(
+            r"^\s*include (/etc/nginx/osprey/\S+);",
+            artifacts["nginx/nginx.conf"],
+            flags=re.MULTILINE,
+        )
+    }
+    assert materialized == included == {"secret-alice.conf"}
+
+
+def test_a_login_exempt_user_still_needs_a_minted_secret() -> None:
+    """Not writing the snippet does not relax the roster gate.
+
+    The ungated user's own container authenticates every request against that
+    secret — the `?token=` exchange is the only way into it — so a roster where
+    it is missing is still refused, snippet or no snippet.
+    """
+    # Act / Assert
+    with pytest.raises(ValueError, match="OSPREY_TERMINAL_SECRET_KIOSK"):
+        render_web_terminals(_mixed_login_config("kiosk"), terminal_secrets=_secrets_for(["alice"]))
+
+
+def test_terminal_secret_snippet_names_the_variable_never_the_value() -> None:
+    """The snippet is a single `proxy_set_header` naming the per-user variable.
+
+    envsubst substitutes it at nginx start from the deploy `.env`; the value
+    itself must not appear in ANY rendered artifact, which is the whole reason
+    the carrier is a template rather than a rendered conf.
+    """
+    # Arrange
+    secrets = _secrets_for(["alice", "bob", "carol"])
+
+    # Act
+    artifacts = render_web_terminals(
+        _auth_config(["alice", "bob", "carol"]), terminal_secrets=secrets
+    )
+
+    # Assert
+    snippet = artifacts["nginx/templates/secret-alice.conf.template"]
+    # QUOTED: a present-but-empty variable (which the compose carrier's
+    # `${VAR:-}` guarantees for a blank .env entry) then substitutes to an empty
+    # header value, which only that user's app refuses. Unquoted it would emit
+    # `proxy_set_header X-Osprey-Terminal-Secret ;`, which nginx will not parse
+    # — one blank variable taking every terminal in the deployment down.
+    assert 'proxy_set_header X-Osprey-Terminal-Secret "${OSPREY_TERMINAL_SECRET_ALICE}";' in snippet
+    for content in artifacts.values():
+        for secret in secrets.values():
+            assert secret not in content
+
+
+def test_terminal_secret_snippet_carries_only_that_users_variable() -> None:
+    """No user's snippet may name another user's variable: the whole point of a
+    per-location include is that alice's terminal never sees bob's secret."""
+    # Act
+    artifacts = render_web_terminals(
+        _auth_config(["alice", "bob", "carol"]),
+        terminal_secrets=_secrets_for(["alice", "bob", "carol"]),
+    )
+
+    # Assert
+    snippet = artifacts["nginx/templates/secret-bob.conf.template"]
+    assert "OSPREY_TERMINAL_SECRET_ALICE" not in snippet
+    assert "OSPREY_TERMINAL_SECRET_CAROL" not in snippet
+    assert snippet.count("proxy_set_header") == 1
+
+
+def test_terminal_secret_variable_follows_the_shared_env_var_suffix_mapping() -> None:
+    """The suffix comes from `env_var_suffix`, the one definition minting,
+    rendering and the sidecar's own lookup all share — never a second
+    `upper|replace` free to drift from it."""
+    # Arrange
+    config = _auth_config(["alice-b"])
+
+    # Act
+    artifacts = render_web_terminals(config, terminal_secrets=_secrets_for(["alice-b"]))
+
+    # Assert: the FILE is keyed by the username, the VARIABLE by its suffix
+    snippet = artifacts["nginx/templates/secret-alice-b.conf.template"]
+    assert f"${{OSPREY_TERMINAL_SECRET_{env_var_suffix('alice-b')}}}" in snippet
+
+
+def test_render_refuses_a_roster_user_with_no_terminal_secret() -> None:
+    """Fail closed: a user whose secret is missing would get an empty header
+    injected and a terminal that refuses every request behind the proxy."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="OSPREY_TERMINAL_SECRET_BOB"):
+        render_web_terminals(config, terminal_secrets=_secrets_for(["alice", "carol"]))
+
+
+def test_render_refuses_a_blank_terminal_secret() -> None:
+    """An empty value is absence, not a secret — the same reading the app's own
+    credential holder applies to `OSPREY_TERMINAL_SECRET`."""
+    # Arrange
+    secrets = _secrets_for(["alice", "bob", "carol"]) | {"bob": "   "}
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="OSPREY_TERMINAL_SECRET_BOB"):
+        render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG), terminal_secrets=secrets)
+
+
+def test_render_ignores_secrets_for_users_no_longer_on_the_roster() -> None:
+    """A decommissioned user's secret may still sit in the deploy `.env`; the
+    roster decides who gets a snippet, so no header can be injected for them."""
+    # Arrange
+    secrets = _secrets_for(["alice", "bob", "carol", "dave"])
+
+    # Act
+    artifacts = render_web_terminals(
+        _auth_config(["alice", "bob", "carol"]), terminal_secrets=secrets
+    )
+
+    # Assert
+    assert "nginx/templates/secret-dave.conf.template" not in artifacts
+    for content in artifacts.values():
+        assert "OSPREY_TERMINAL_SECRET_DAVE" not in content
+
+
+def test_empty_terminal_secrets_on_an_empty_roster_render_no_snippets() -> None:
+    """A roster-less deployment has nothing to inject and must still render."""
+    # Act
+    artifacts = render_web_terminals(_config([]), terminal_secrets={})
+
+    # Assert
+    assert not [path for path in artifacts if path.startswith("nginx/templates/")]
+
+
+def test_each_service_names_its_own_terminal_secret_variable() -> None:
+    """The compose template (Task 5.3) puts `OSPREY_TERMINAL_SECRET` into each
+    user's container from this per-service variable name."""
+    # Act
+    context = _capture_compose_context(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert [service["terminal_secret_env"] for service in context["services"]] == [
+        f"OSPREY_TERMINAL_SECRET_{env_var_suffix(name)}" for name in ("alice", "bob", "carol")
+    ]
+
+
+def test_service_terminal_secret_variable_is_present_without_any_secrets() -> None:
+    """The variable NAME is not a secret, so it is threaded on every render —
+    the compose reference resolves to empty when the deploy `.env` has none."""
+    # Act
+    context = _capture_compose_context(_config(["alice"]))
+
+    # Assert
+    assert context["services"][0]["terminal_secret_env"] == "OSPREY_TERMINAL_SECRET_ALICE"
+
+
+def test_each_service_carries_the_deployments_external_origin() -> None:
+    """The app checks a mutating request's `Origin` against this value, so it
+    must be the origin a browser actually sends — port-full over plain HTTP."""
+    # Act
+    context = _capture_compose_context(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    for service in context["services"]:
+        assert service["external_origin"] == "http://dls-deploy.dls.example.org:9080"
+
+
+def test_service_external_origin_drops_the_port_under_tls() -> None:
+    """With TLS on, 443 is implicit — the canonical origin serialization, and
+    the one a browser sends. A port-full value would fail every Origin check."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "cert": "/etc/nginx/certs/site.crt",
+        "key": "/etc/nginx/certs/site.key",
+    }
+
+    # Act
+    context = _capture_compose_context(config)
+
+    # Assert
+    for service in context["services"]:
+        assert service["external_origin"] == "https://dls-deploy.dls.example.org"
+
+
+def test_service_external_origin_is_the_one_the_landing_link_uses() -> None:
+    """One origin for the whole deployment: a per-service value that differed
+    from `landing_url` would make a link off the landing page fail the app's
+    own Origin check."""
+    # Act
+    context = _capture_compose_context(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert {service["external_origin"] for service in context["services"]} == {
+        context["landing_url"]
+    }
+
+
+def test_clear_nginx_templates_dir_removes_stale_snippets(tmp_path: Path) -> None:
+    """A decommissioned user's snippet must not survive a re-render: nginx's
+    entrypoint envsubsts every file in the mounted templates directory, so a
+    leftover would keep injecting a header for a user who no longer exists."""
+    # Arrange
+    templates = tmp_path / "nginx" / "templates"
+    templates.mkdir(parents=True)
+    stale = templates / "secret-dave.conf.template"
+    stale.write_text("proxy_set_header X-Osprey-Terminal-Secret ${OSPREY_TERMINAL_SECRET_DAVE};\n")
+    sibling = tmp_path / "nginx" / "nginx.conf"
+    sibling.write_text("server {}\n")
+
+    # Act
+    removed = clear_nginx_templates_dir(tmp_path)
+
+    # Assert
+    assert removed == [stale]
+    assert not stale.exists()
+    assert sibling.exists(), "only the templates directory is cleared"
+
+
+def test_clear_nginx_templates_dir_tolerates_a_first_render(tmp_path: Path) -> None:
+    """Nothing has been written yet on a fresh checkout; that is not an error."""
+    # Act
+    removed = clear_nginx_templates_dir(tmp_path)
+
+    # Assert
+    assert removed == []
+
+
+def test_render_refuses_a_roster_name_that_is_not_one_snippet_filename() -> None:
+    """The name becomes a filename and an nginx `include` argument, so a name
+    carrying a path separator would write outside the cleared templates
+    directory. Refused whatever the auth method: this carrier is rendered even
+    with `auth.method: none`, where the strict username charset is not enforced.
+    """
+    # Arrange
+    config = _config(["alice", "../../etc/nginx/conf.d/evil"])
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="cannot carry an operator secret"):
+        render_web_terminals(
+            config, terminal_secrets={"alice": "a", "../../etc/nginx/conf.d/evil": "b"}
+        )
+
+
+def test_terminal_secret_snippets_stay_inside_the_templates_directory() -> None:
+    """Every emitted path is one file directly under the directory the write
+    seam clears — nothing a re-render would leave behind somewhere else."""
+    # Act
+    artifacts = render_web_terminals(
+        _auth_config(["alice", "bob", "carol"]),
+        terminal_secrets=_secrets_for(["alice", "bob", "carol"]),
+    )
+
+    # Assert
+    snippets = [path for path in artifacts if path.startswith("nginx/templates/")]
+    assert len(snippets) == 3
+    for path in snippets:
+        assert Path(path).parent.as_posix() == "nginx/templates"
+
+
+def test_render_refuses_a_dotted_roster_name_that_derives_an_illegal_variable() -> None:
+    """`env_var_suffix` maps only '-' to '_', so a dot survives into the
+    variable. envsubst does not recognize `${OSPREY_TERMINAL_SECRET_ALICE.B}`,
+    leaves it verbatim, and nginx dies at start with `invalid variable name` —
+    an opaque crash loop the render can refuse instead."""
+    # Arrange
+    config = _config(["alice.b"])
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=r"OSPREY_TERMINAL_SECRET_ALICE\.B"):
+        render_web_terminals(config, terminal_secrets={"alice.b": "a-secret"})
+
+
+def test_a_dotted_roster_name_still_renders_without_terminal_secrets() -> None:
+    """The refusal is scoped to the carrier: a name that renders today must keep
+    rendering on the path that carries no secrets."""
+    # Act
+    artifacts = render_web_terminals(_config(["alice.b"]))
+
+    # Assert
+    assert "web-alice.b" in yaml.safe_load(artifacts["docker-compose.web.yml"])["services"]
+
+
+def test_render_refuses_roster_names_that_collide_on_their_secret_variable() -> None:
+    """`alice-b` and `alice_b` key one variable, so both terminals would be
+    handed the SAME secret — the isolation this carrier exists to establish.
+    Refused with authentication OFF too, where the sidecar's own collision gate
+    (`_check_roster_env_var_collisions`) never runs."""
+    # Arrange
+    config = _config(["alice-b", "alice_b"])
+    secrets = _secrets_for(["alice-b", "alice_b"])
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="OSPREY_TERMINAL_SECRET_ALICE_B"):
+        render_web_terminals(config, terminal_secrets=secrets)
+
+
+def test_case_colliding_roster_names_are_refused_too() -> None:
+    """`Alice` and `alice` are two roster entries and one variable."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="OSPREY_TERMINAL_SECRET_ALICE"):
+        render_web_terminals(
+            _config(["Alice", "alice"]), terminal_secrets=_secrets_for(["Alice", "alice"])
+        )
+
+
+def test_clear_nginx_templates_dir_removes_a_nested_stale_snippet(tmp_path: Path) -> None:
+    """nginx's entrypoint walks the mounted directory recursively, so a snippet
+    one level down is exactly as live as one at the top."""
+    # Arrange
+    nested = tmp_path / "nginx" / "templates" / "old" / "secret-dave.conf.template"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("proxy_set_header X-Osprey-Terminal-Secret ${OSPREY_TERMINAL_SECRET_DAVE};\n")
+
+    # Act
+    removed = clear_nginx_templates_dir(tmp_path)
+
+    # Assert
+    assert removed == [nested]
+    assert not nested.exists()
+    assert not nested.parent.exists()
+
+
+def test_clear_nginx_templates_dir_leaves_an_empty_directory_behind(tmp_path: Path) -> None:
+    """The nginx service bind-mounts this directory: a missing source is
+    materialized by the runtime as a root-owned directory (or refused), which is
+    a confusing failure for a deployment that simply has no snippets yet."""
+    # Act
+    clear_nginx_templates_dir(tmp_path)
+
+    # Assert
+    assert (tmp_path / "nginx" / "templates").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Task 5.2: the gate-bound operator-secret include
+# ---------------------------------------------------------------------------
+
+
+def _secret_include(user: str) -> str:
+    """The include directive one user's gated location is expected to carry."""
+    return f"include /etc/nginx/osprey/secret-{user}.conf;"
+
+
+def _mixed_login_config(exempt: str) -> dict:
+    """An auth-on roster where one entry declared `login: false`."""
+    return _auth_config(
+        [
+            {"name": "alice", "index": 0},
+            {"name": exempt, "index": 1, "login": False},
+        ]
+    )
+
+
+def test_nginx_gated_location_includes_only_its_own_users_secret_snippet() -> None:
+    """Each authenticated location pulls in that user's snippet and no other's.
+
+    The snippet is what sets the operator-secret header, so a location that
+    named a second user's file (or a second user's variable) would make one
+    terminal reachable with another terminal's credential — the isolation this
+    carrier exists to establish.
+    """
+    # Arrange
+    users = ["alice", "bob"]
+
+    # Act
+    nginx_conf = _render_nginx(_auth_config(users))
+
+    # Assert
+    for user in users:
+        body = _location_body(nginx_conf, f"location /u/{user}/")
+        assert _secret_include(user) in body
+        assert terminal_secret_env_var(user) in body
+        for other in users:
+            if other != user:
+                assert _secret_include(other) not in body
+                assert terminal_secret_env_var(other) not in body
+
+
+def test_nginx_secret_include_sits_inside_the_auth_guarded_branch() -> None:
+    """The include is emitted between the `auth_request` and the `proxy_pass`.
+
+    That ordering is the whole point of the task: the directive exists only in
+    a location that gates, and a denied subrequest ends the request before the
+    upstream connection is ever opened — so nothing that failed the gate can
+    carry the header to a terminal.
+    """
+    # Act
+    body = _directives(_location_body(_render_nginx(_auth_config(["alice"])), "location /u/alice/"))
+
+    # Assert
+    assert body.index("auth_request /_osprey_auth/alice;") < body.index(_secret_include("alice"))
+    assert body.index(_secret_include("alice")) < body.index("proxy_pass ")
+
+
+def test_nginx_secret_include_absent_when_auth_method_is_none() -> None:
+    """With no gate in front of the app there is no authorized request for
+    nginx to vouch for, so it injects nothing and the app's own token->cookie
+    session is the only gate — the posture the render had before this carrier
+    existed."""
+    # Act
+    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert "include " not in _directives(nginx_conf)
+    assert "/etc/nginx/osprey/" not in nginx_conf
+
+
+def test_nginx_login_exempt_location_gets_no_secret_and_keeps_its_cookie() -> None:
+    """A `login: false` entry is served ungated, so it is treated exactly like
+    an auth-off deployment: no header injected, and the cookie NOT stripped.
+
+    Stripping it there would break the only gate that entry still has — the
+    app's own token->cookie session, which cannot read a cookie nginx cut.
+    """
+    # Act
+    nginx_conf = _render_nginx(_mixed_login_config("kiosk"))
+    exempt = _location_body(nginx_conf, "location /u/kiosk/")
+    gated = _location_body(nginx_conf, "location /u/alice/")
+
+    # Assert — the exempt location carries neither half
+    assert _secret_include("kiosk") not in exempt
+    assert 'proxy_set_header Cookie "";' not in exempt
+    # Assert — its gated peer in the same render carries both
+    assert _secret_include("alice") in gated
+    assert 'proxy_set_header Cookie "";' in gated
+
+
+def test_nginx_secret_include_and_cookie_strip_share_one_predicate() -> None:
+    """The two effects are gated on one condition and must never diverge.
+
+    A location with the strip but no header authenticates nothing and 401s
+    every request; a location with the header but no strip lets an
+    unauthenticated request carry an operator's session cookie into a container
+    that runs agent-generated code. Asserted across every render shape rather
+    than on one, because the divergence is what a later edit would reintroduce.
+    """
+    # Arrange
+    shapes = {
+        "auth-off": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
+        "auth-on": (_auth_config(["alice", "bob"]), ["alice", "bob"]),
+        "mixed": (_mixed_login_config("kiosk"), ["alice", "kiosk"]),
+    }
+
+    # Act / Assert
+    for shape, (config, users) in shapes.items():
+        nginx_conf = _render_nginx(config)
+        for user in users:
+            body = _location_body(nginx_conf, f"location /u/{user}/")
+            has_secret = _secret_include(user) in body
+            has_strip = 'proxy_set_header Cookie "";' in body
+            assert has_secret == has_strip, f"{shape}/{user}: {has_secret=} {has_strip=}"
+
+
+def test_nginx_secret_include_target_is_outside_the_globbed_conf_d() -> None:
+    """The snippets are envsubst'ed into /etc/nginx/osprey, never conf.d.
+
+    The base image globs `conf.d/*.conf` into `http{}`, where a
+    `proxy_set_header` would apply to EVERY upstream — the auth sidecar
+    included — instead of to one user's location.
+    """
+    # Act
+    nginx_conf = _render_nginx(_auth_config(["alice"]))
+
+    # Assert
+    includes = re.findall(r"^\s*include (\S+);", nginx_conf, flags=re.MULTILINE)
+    assert includes == ["/etc/nginx/osprey/secret-alice.conf"]
+    assert "conf.d" not in includes[0]
+
+
+def test_nginx_secret_include_matches_the_filename_the_renderer_writes() -> None:
+    """The include and the snippet are two halves of one contract.
+
+    nginx refuses to start on a missing include, so a rename on either side
+    must fail here rather than as a crash-looping proxy whose error names
+    neither the user nor the roster.
+    """
+    # Arrange
+    users = ["alice", "bob"]
+    config = _auth_config(users)
+
+    # Act
+    artifacts = render_web_terminals(config, terminal_secrets=_secrets_for(users))
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    snippets = [path for path in artifacts if path.startswith("nginx/templates/")]
+    assert len(snippets) == len(users)
+    for path in snippets:
+        materialized = Path(path).name.removesuffix(".template")
+        assert f"include /etc/nginx/osprey/{materialized};" in nginx_conf
+
+
+def test_nginx_conf_never_spells_the_secret_header_itself() -> None:
+    """The header directive lives in the per-user snippet, not in this conf.
+
+    That is what keeps the secret VALUE out of every rendered artifact: the
+    snippet is an nginx *template* naming a variable, substituted at container
+    start, while this conf is mounted verbatim and would carry whatever it
+    spelled into build/, into git status, and into an image layer.
+    """
+    # Act
+    nginx_conf = _render_nginx(_auth_config(["alice"]))
+
+    # Assert
+    assert TERMINAL_SECRET_HEADER not in nginx_conf
+
+
+# ---------------------------------------------------------------------------
+# Remediation round: the perimeter's header contract, and one derivation of the
+# per-user secret variable
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_secret_env_var_is_the_minting_sides_definition() -> None:
+    """M1: the render side and the mint side derive ONE variable name.
+
+    `render.terminal_secret_env_var` is an alias of
+    `auth_credentials.terminal_secret_var`. Two independent derivations could be
+    minted one way and referenced another, and the failure is invisible until a
+    terminal refuses every request behind a healthy-looking proxy.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import (
+        TERMINAL_SECRET_VAR_PREFIX,
+        terminal_secret_var,
+    )
+    from osprey.deployment.web_terminals.render import TERMINAL_SECRET_ENV_PREFIX
+
+    assert TERMINAL_SECRET_ENV_PREFIX == TERMINAL_SECRET_VAR_PREFIX
+    for name in ("alice", "alice-b", "Bob", "carol_2", "d"):
+        assert terminal_secret_env_var(name) == terminal_secret_var(name)
+
+
+def test_every_terminal_location_clears_the_authorization_header() -> None:
+    """M4: a client-supplied `Authorization` never reaches a terminal.
+
+    The app does accept an `Authorization: Bearer` — the panel token, a narrow
+    tier its own tooling uses — but that traffic is loopback inside the
+    container and never crosses nginx, so clearing the header at the perimeter
+    costs nothing and closes the one route by which a caller could present a
+    credential this proxy did not vouch for. Unconditional, unlike the cookie
+    and secret headers: it is never legitimate here in any auth mode.
+    """
+    # Arrange
+    shapes = {
+        "auth-off": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
+        "auth-on": (_auth_config(["alice", "bob"]), ["alice", "bob"]),
+        "mixed": (_mixed_login_config("kiosk"), ["alice", "kiosk"]),
+    }
+
+    # Act / Assert
+    for shape, (config, users) in shapes.items():
+        nginx_conf = _render_nginx(config)
+        for user in users:
+            body = _directives(_location_body(nginx_conf, f"location /u/{user}/"))
+            assert 'proxy_set_header Authorization "";' in body, f"{shape}/{user}"
+
+
+def test_ungated_locations_clear_the_operator_secret_header() -> None:
+    """M4: where nginx injects no operator secret, it clears the header instead.
+
+    A value arriving in `X-Osprey-Terminal-Secret` on an ungated location came
+    from the client, and the app trusts that header absolutely — forwarding it
+    would let anyone who can reach the port authenticate as the operator.
+    """
+    # Arrange / Act
+    auth_off = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    mixed = _render_nginx(_mixed_login_config("kiosk"))
+    cleared = 'proxy_set_header X-Osprey-Terminal-Secret "";'
+
+    # Assert — every auth-off location clears it
+    for user in ("alice", "bob", "carol"):
+        assert cleared in _directives(_location_body(auth_off, f"location /u/{user}/"))
+
+    # Assert — with auth on, only the exempt location does; the gated one has
+    # the include that SETS it and must not clear it afterwards.
+    assert cleared in _directives(_location_body(mixed, "location /u/kiosk/"))
+    gated = _directives(_location_body(mixed, "location /u/alice/"))
+    assert cleared not in gated
+    assert _secret_include("alice") in gated
+
+
+def test_ungated_locations_forward_only_that_users_own_session_cookie() -> None:
+    """I1: an ungated location narrows the cookie jar to one cookie.
+
+    Cookies ignore ports, so one jar serves this whole origin: the browser's raw
+    `Cookie` header names every OTHER terminal it has unlocked and, with auth
+    on, the sidecar's origin-wide `osprey_auth_session`. These containers run
+    agent-generated code. The cookie cannot be cut here — it is the only gate
+    left in front of the terminal — so exactly one is forwarded.
+    """
+    # Arrange
+    mixed = _render_nginx(_mixed_login_config("kiosk"))
+    exempt = _directives(_location_body(mixed, "location /u/kiosk/"))
+    kiosk_port = allocate_ports(_BASE_PORTS, 1)["web"]
+
+    # Assert
+    cookie = f"osprey_terminal_session_{kiosk_port}"
+    assert f'proxy_set_header Cookie "{cookie}=$cookie_{cookie}";' in exempt
+    assert "$http_cookie" not in exempt
+    # The sidecar's own origin-wide cookie is not among what travels.
+    assert "osprey_auth_session" not in exempt
+
+
+def test_forwarded_cookie_name_comes_from_the_apps_own_helper() -> None:
+    """I1: the perimeter and the app spell the cookie name from one definition.
+
+    A name assembled independently in the template would forward a cookie the
+    app does not read — a terminal that cannot hold a session, with nothing in
+    either end's config to show why.
+    """
+    from osprey.interfaces.common_middleware import session_cookie_name
+
+    # Act
+    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    for index, user in enumerate(("alice", "bob", "carol")):
+        expected = session_cookie_name(allocate_ports(_BASE_PORTS, index)["web"])
+        body = _location_body(nginx_conf, f"location /u/{user}/")
+        assert f'proxy_set_header Cookie "{expected}=$cookie_{expected}";' in body
+
+
+# ---------------------------------------------------------------------------
+# modules.web_terminals.external_origin — the front-terminator escape hatch
+# ---------------------------------------------------------------------------
+
+
+def _external_origin_of(config: dict) -> str:
+    """The origin the render bakes into every per-user container."""
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+    values = [
+        entry.split("=", 1)[1]
+        for entry in compose["services"]["web-alice"]["environment"]
+        if entry.startswith("OSPREY_TERMINAL_EXTERNAL_ORIGIN=")
+    ]
+    assert len(values) == 1, compose["services"]["web-alice"]["environment"]
+    return values[0]
+
+
+def test_external_origin_defaults_to_the_derivation_from_deploy_fqdn() -> None:
+    """Unset, nothing changes: the origin is this nginx's own address."""
+    # Act / Assert
+    assert _external_origin_of(_config(["alice"])) == "http://dls-deploy.dls.example.org:9080"
+
+
+def test_a_configured_external_origin_is_what_every_container_checks_against() -> None:
+    """A load balancer terminating TLS in front of this nginx is what the
+    browser actually reaches, so its address is the origin.
+
+    The browser sends `Origin: https://<facility-host>`; the derivation below
+    would have produced this nginx's own address instead, which no browser in
+    that topology ever sends — so every write, approval and chat message would
+    be refused while every page still loaded.
+    """
+    # Arrange
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
+
+    # Act
+    origin = _external_origin_of(config)
+
+    # Assert — verbatim, and everywhere the deployment states an origin.
+    assert origin == "https://terminals.example.org"
+    artifacts = render_web_terminals(config)
+    assert deployment_external_origin(config) == "https://terminals.example.org"
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+    landing = [
+        entry
+        for entry in compose["services"]["web-alice"]["environment"]
+        if entry.startswith("OSPREY_TERMINAL_LANDING_URL=")
+    ]
+    assert landing == ["OSPREY_TERMINAL_LANDING_URL=https://terminals.example.org"]
+
+
+def test_a_configured_external_origin_removes_the_need_for_deploy_fqdn() -> None:
+    """The override IS the origin, so the value it replaces is not required.
+
+    A facility whose browsers only ever reach the load balancer has no reason to
+    record a browser-reachable name for the deploy host itself.
+    """
+    # Arrange
+    config = _config(["alice"])
+    config["deploy"] = {"host": "dls-deploy"}
+    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
+
+    # Act / Assert
+    assert _external_origin_of(config) == "https://terminals.example.org"
+
+
+def test_the_missing_fqdn_refusal_names_the_override_as_the_other_way_out() -> None:
+    """The operator hitting this is often the one who needs the override."""
+    # Arrange
+    config = _config(["alice"])
+    config["deploy"] = {"host": "dls-deploy"}
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="external_origin"):
+        render_web_terminals(config)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://terminals.example.org/",  # trailing slash
+        "https://terminals.example.org/terminals",  # a path
+        "terminals.example.org",  # no scheme
+        "ftp://terminals.example.org",  # not a scheme this perimeter serves
+        "https://terminals.example.org?x=1",  # a query
+        "https://user:pw@terminals.example.org",  # credentials
+        "https://terminals.example.org:notaport",
+        9080,
+    ],
+)
+def test_render_refuses_an_external_origin_that_is_not_an_origin(value: object) -> None:
+    """Refused at render, not trusted.
+
+    The value is compared against the browser's `Origin` header as a whole
+    string, and a browser writes none of these. Anything but scheme://host[:port]
+    renders a deployment whose pages all load and whose every write answers 403 —
+    a failure with no signal outside a container log.
+    """
+    # Arrange
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["external_origin"] = value
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="external_origin"):
+        render_web_terminals(config)
+
+
+def test_a_blank_external_origin_falls_back_to_the_derivation() -> None:
+    """Absence spelled as an empty string is still absence — the same reading
+    every other optional string key in this module gets."""
+    # Arrange
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["external_origin"] = "   "
+
+    # Act / Assert
+    assert _external_origin_of(config) == "http://dls-deploy.dls.example.org:9080"
+
+
+def test_envsubst_output_tmpfs_is_not_world_readable() -> None:
+    """M5: the directory the operator secrets are substituted into is 0700.
+
+    A tmpfs mounted with no mode lands at 1777 — world-writable, and
+    world-READABLE around files the entrypoint writes at 0644, which are every
+    roster user's operator secret in plaintext. Root-owned 0700 still serves
+    both readers, since the entrypoint writes as root and nginx's master
+    process reads the includes as root.
+
+    The EXACT string is asserted, not a parsed mode, because the spelling is the
+    property under test. The mode has to reach the kernel as octal on both
+    compose providers OSPREY supports: the long-form `volumes:` entry spells it
+    as YAML octal, which podman-compose forwards as the decimal `mode=448` and
+    the kernel rejects. `<path>:mode=0700` on the service-level `tmpfs:` key is
+    passed through unchanged by both.
+    """
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))["docker-compose.web.yml"]
+    )
+
+    # Assert
+    assert compose["services"]["nginx"]["tmpfs"] == ["/etc/nginx/osprey:mode=0700"]
+    # The long form is gone, so the volume list is bind mounts alone — a mapping
+    # there would carry the mode in the unportable spelling.
+    assert all(isinstance(volume, str) for volume in compose["services"]["nginx"]["volumes"]), (
+        compose["services"]["nginx"]["volumes"]
+    )

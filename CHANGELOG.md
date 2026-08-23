@@ -13,6 +13,66 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Security
 
+- Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact
+  gallery, the Theme Lab and the rest — now authenticates every HTTP and
+  WebSocket request, and every launcher that serves one prints a login URL
+  (`http://<host>:<port>/?token=…`) that trades the token for a session cookie
+  and redirects to the clean address. The URL is printed once, but its token is
+  the server's own secret and stays valid for the life of the process: treat it
+  like a password. A backgrounded (`--detach`) server keeps it only in memory,
+  so if you lose the URL, stop and restart to mint a new one.
+- Processes the agent spawns no longer carry that credential, so the agent
+  cannot call the interface APIs that change safety-relevant configuration, and
+  the checks themselves run outside its reasoning. As a consequence, the Bluesky MCP
+  server's queue-launch tool no longer works from the Web Terminal agent;
+  launching a queue from a panel is unaffected.
+- The operator secret no longer lingers in the server process's environment:
+  each interface app clears it as it is built, so an agent the server spawns
+  cannot read it back — on the ordinary foreground launch and inside a per-user
+  container alike. One residual on Linux: a process that already received the
+  secret through `exec` keeps a copy in `/proc/<pid>/environ`, readable by the
+  same user.
+- `osprey chat` starts its agent without `*_LAUNCH_TOKEN` credentials too, so the
+  Bluesky queue-launch tool is disarmed in a chat session as well; panel-click
+  launches from the Web Terminal are unaffected.
+- The terminal's agent can arrange panels again. The low-privilege panel token
+  now reaches the terminal's agent and the chat agent both, so panel tools and
+  session hooks no longer fail silently with a 401.
+- Browsing to a gated page without a session now returns a readable "not signed
+  in" page pointing back at the login link; API calls still get a JSON 401.
+- Mutating requests and WebSocket upgrades are checked against the deployment's
+  external origin on every credential path. A multi-user stack behind nginx must
+  have that origin configured — the generated compose files set it.
+- The Web Terminal's panel proxy now strips `Set-Cookie`, `Clear-Site-Data`,
+  `Refresh`, `WWW-Authenticate` and `Access-Control-*` from panel responses, and
+  relays a backend redirect instead of following it so the browser's re-request
+  is authenticated again. A panel that redirects to a third site is refused with
+  a 502 rather than forwarding the operator, so a panel URL can no longer serve
+  as an open redirect on the terminal's own address. The event-dispatch token is
+  injected only toward a loopback events panel declared in your config.
+- Multi-user: `osprey up` mints a per-user terminal secret for every roster entry
+  in every auth mode, so a deployment with authentication off — or a single
+  `login: false` entry — is gated by its own secret rather than open to anyone
+  who can reach the port. Hand each person their URL with the new `osprey users
+  login-url <user>`, and rotate one by deleting its `OSPREY_TERMINAL_SECRET_*`
+  line from `.env` and re-running `osprey up`. The verb refuses for a user
+  behind the login wall, who signs in through the login page instead.
+- New `modules.web_terminals.external_origin` key: the address browsers actually
+  reach the deployment at. Required when something else terminates TLS in front
+  of the stack's nginx — without it the terminals refuse every write from that
+  address as cross-origin. `osprey up`'s closing card now names this address,
+  not the loopback one.
+- Multi-user hardening: the nginx access log no longer records query strings or
+  `Referer`; a per-user container never receives another user's cookies and
+  `Authorization` is cleared on every proxied terminal request; roster names are
+  held to `[a-z0-9][a-z0-9_-]*` in every auth mode, not only behind a login wall.
+- `osprey build` now refuses a profile in which `Bash`, `Edit`, `Write`,
+  `MultiEdit` or `NotebookEdit` is neither in `permissions.deny` nor covered by a
+  `PreToolUse` hook matcher; a tool covered only by a matcher the profile itself
+  declares builds with a warning instead. The `memory-guard` hook's matcher
+  widened from `Write` to `Write|MultiEdit|NotebookEdit`.
+- `DISPATCH_WORKER_TOKEN` is now stripped from sandboxed executions alongside the
+  other credentials.
 - Readonly Python executions are now enforced at runtime, not just by
   pattern scanning: the sandbox refuses every direct control-system write
   entry point (however the call is spelled), the connectors refuse
@@ -48,6 +108,50 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The pyat-specialist grounding e2e no longer misreads a saved metadata key
   ending in a plane letter (an `index` next to the betas) as the horizontal
   value — a numerically correct results artifact could fail the check.
+- The session event log — and everything built on it: the agent-activity
+  view, feedback bundles, logbook context, and the agent's own `session_log`
+  tool — now records tool calls from every MCP server in the session instead
+  of a fixed five. Calls from `osprey_facility_knowledge`, `phoebus`,
+  `bluesky`, `health`, and any facility-declared custom server were silently
+  dropped, so a sub-agent's work could vanish from a feedback report while
+  the drill-down timeline still showed it.
+- Tool names from servers with underscores in their name (`osprey_workspace`,
+  `osprey_facility_knowledge`, or a facility's own) now display cleanly in
+  the web terminal. The prefix strip assumed no underscores, so the activity
+  strip showed "Mcp Osprey Workspace Submit Response" instead of
+  "Submit Response", and the facility-knowledge tools never resolved their
+  operator phrases ("browsing facility knowledge").
+- The activity view's server badges are colored again for every framework
+  server. The color map still said `workspace` after the server was renamed
+  `osprey_workspace` (so those badges rendered grey), and the facility
+  knowledge, Phoebus, Bluesky, and health servers never had a color at all.
+  A facility's own server takes the neutral badge.
+- A sub-agent that made no MCP tool calls no longer sorts to the top of the
+  event log with an empty timestamp — its start/stop now carry the dispatch
+  time of the Task that launched it.
+- A custom MCP server whose configured name contains `__` (or ends in `_`)
+  is now rejected at build time with a warning, like an `extends` clone
+  name. Tool names are `mcp__<server>__<tool>`, so such a name would make
+  the event log and the display misattribute every call the server makes.
+- Logbook composition no longer sends tool arguments to the configured LLM
+  provider — the session-activity section now carries tool names and result
+  snippets only, matching the feedback report's privacy policy.
+- Feedback sent by GitHub or Email no longer arrives without its session
+  context because nobody knew about the paste step. The context travels by
+  clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:
+  ticking the context box on an outbound channel shows a paste hint, and the
+  post-send confirmation tells the sender the full report is on the clipboard.
+  The session id also rides inline in the prefilled body when context is
+  attached, so a message can be matched to the deployment's own record even
+  when the paste never happened.
+- The prefilled issue title / mail subject is no longer the first line of the
+  report text. It is now a stable "OSPREY feedback" title, suffixed with a
+  short session id when context is attached.
+- The rail's Documentation and Feedback controls now draw SVG marks (open
+  book, speech bubble) instead of font glyphs. The old `ⓘ` read as "About"
+  and rendered oversized; the old `✉` rendered small, painted full-colour
+  emoji on Windows/Android, and promised email for a dialog that also files
+  locally or to GitHub.
 - The web terminal now knows its own session id from the moment it opens.
   It previously waited for the session's transcript file to appear on disk,
   which only happens once the session has content — so a terminal left idle
@@ -66,6 +170,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   numbers it describes both appeared as "Lattice Analysis", and neither the
   gallery nor the agent could tell them apart. The summary is now an "Agent
   Response", and a `data_type` you pass is no longer overridden.
+- The pyAT specialist no longer sometimes answers without filing its numbers.
+  Its computed quantities used to be saved by a separate step inside the
+  computing code that the agent could skip — and did, intermittently, leaving
+  a prose answer with no "Lattice Analysis" JSON behind it. The numbers now
+  travel with the answer: `submit_response` takes a `data` dict and files it as
+  the JSON results artifact in the category the agent's definition declares
+  (`results_category:` in its frontmatter), and refuses a hand-in that owes
+  data and carries none. Prose and numbers arrive in one call, so there is no
+  step to skip.
 - Timeseries previews in the workspace gallery render again in CDN-mode
   (non-offline) deployments: the lazy Plotly loader now uses the same
   CDN-or-vendored URL resolution as the gallery's other vendor assets
@@ -96,6 +209,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey init` now prints a composition card under its report: who can sign
+  in (each user's persona, rights, login method and port), what the agent runs
+  on (model, MCP servers, bundled toolkit), what machine it talks to
+  (connector, archiver, channel database) and what else runs beside it. The
+  card is derived from the resolved profile, so it shows exactly the
+  deployment about to be built — useful reading while a chained `--up` pulls
+  its images.
 - ARIEL search now speaks your control room's shorthand. Drop a
   `vocabulary.yml` in your project, set `ariel.vocabulary.enabled: true` and
   point `ariel.vocabulary.path` at it, and a search for `t/s bpm` also finds
@@ -252,6 +372,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   (`COVERAGE_CORE=sysmon`) rather than on the 3.11 cell, where coverage.py
   falls back to the C tracer. Same coverage numbers, roughly half the unit
   lane's runtime — it had grown to ~36 minutes against its own 40-minute cap.
+
+- `osprey web` now says when it is using an `OSPREY_TERMINAL_SECRET` that was
+  already set in its environment: it prints no login URL (the value is never
+  echoed) and points at where that secret was minted. A multi-user deployment
+  that supplied no secret now stops with a readable message naming the fix
+  instead of a traceback.
+
+- The `hello-world` preset now wires the `memory-guard` hook, eleven hooks in
+  all. Its profile hash moved with it, so an already-deployed hello-world project
+  reports the staleness advisory once; rebuild to clear it.
+
+- The interface apps no longer register CORS middleware. Nothing OSPREY serves is
+  cross-origin, so there was no request path left to allow or restrict.
 
 - The agent's telemetry no longer authenticates to the local OpenObserve store
   as root. `osprey up` starts the store, creates a dedicated ingest service

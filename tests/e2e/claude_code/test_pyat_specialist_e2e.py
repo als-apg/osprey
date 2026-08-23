@@ -10,8 +10,8 @@ Two halves share one deployment-build path:
   ``execution_mode="readonly"`` for the in-memory simulation).
 
 - **Grounding** (:func:`test_pyat_specialist_grounding`): reads the exact
-  floats the subagent saved to its results JSON artifact and checks them
-  against ground truth computed in-test from ``build_ring()`` with the
+  floats the subagent handed in as ``submit_response(data=...)`` — filed by
+  the tool as its results JSON artifact — and checks them against ground truth computed in-test from ``build_ring()`` with the
   *identical* 4D recipe (no pinned numeric literals). An LLM judge confirms
   provenance and simulation-derived labeling in the prose only — numbers are
   never parsed out of prose.
@@ -250,8 +250,8 @@ def _leaves(obj, prefix: str = ""):
 def _coerce_float(value, label: str) -> float:
     """Coerce a saved value to float, failing loudly on a numpy display-repr string.
 
-    The template requires native ``float()`` coercion before ``save_artifact``;
-    a value like ``'np.float64(0.22)'`` means that step was skipped. Surface it
+    The template requires native Python values in ``submit_response(data=...)``;
+    a value like ``'np.float64(0.22)'`` means a numpy repr was handed in instead. Surface it
     as a clear, actionable error rather than an opaque ``ValueError``.
     """
     if isinstance(value, bool):  # bool is an int subclass — never a physics scalar
@@ -261,9 +261,9 @@ def _coerce_float(value, label: str) -> float:
     except (TypeError, ValueError) as exc:
         raise AssertionError(
             f"{label}: expected a numeric value but got {value!r} — likely an "
-            "un-coerced numpy display-repr string. The subagent must convert to "
-            "native float()/int() before save_artifact (per the template's "
-            "'Returning Results' recipe)."
+            "un-coerced numpy display-repr string. The subagent must hand in "
+            "native float()/int() values in submit_response(data=...) (per the "
+            "template's 'Returning Results' recipe)."
         ) from exc
 
 
@@ -333,15 +333,14 @@ def _load_results_artifacts(repo: Path) -> list[tuple[dict, dict]]:
     so the shared root ``<repo>/var/agent_data/artifacts/`` holds every
     artifact this run produced. Filter to ``artifact_type == 'json'`` AND
     ``category != 'code_output'`` — the latter drops the executor's auto-saved
-    code+stdout wrapper (also stored as json), leaving the ``save_artifact``
-    results dicts.
+    code+stdout wrapper (also stored as json), leaving the results dicts filed
+    by ``submit_response(data=...)`` (or by ``save_artifact`` for large arrays).
     """
     index_path = agent_data_dir(repo) / "artifacts" / "artifacts.json"
     assert index_path.exists(), (
         "No artifact index at "
-        f"{index_path} — the pyat-specialist never saved a results artifact. "
-        "save_artifact failures are swallowed upstream (non-fatal), so a missing "
-        "index means the subagent's compute/save pipeline did not complete."
+        f"{index_path} — the pyat-specialist never produced a results artifact: "
+        "its submit_response(data=...) hand-in did not complete."
     )
     index = json.loads(index_path.read_text(encoding="utf-8"))
     artifacts_dir = index_path.parent
@@ -417,13 +416,13 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     results = _load_results_artifacts(repo)
     assert results, (
         "No results JSON artifact found (artifact_type=='json' and "
-        "category!='code_output'). The subagent must save its computed "
-        "quantities via save_artifact(dict, ...). Index entries seen: "
+        "category!='code_output'). The subagent must hand its computed "
+        "quantities in as submit_response(data={...}). Index entries seen: "
         f"{[(e.get('artifact_type'), e.get('category')) for e, _ in _all_index_entries(repo)]}"
     )
 
     # Union the leaves across every results artifact so the check is robust to a
-    # subagent that split its output across more than one save_artifact call.
+    # subagent that split its output across more than one results artifact.
     leaves: list[tuple[str, object]] = []
     for _entry, data in results:
         leaves.extend(_leaves(data))

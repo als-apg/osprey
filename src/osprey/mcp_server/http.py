@@ -62,10 +62,69 @@ def phoebus_bridge_url() -> str:
     return f"http://{host}:{port}"
 
 
+_PANEL_TOKEN_LATCH: str | None = None
+
+
+def reset_panel_token_latch() -> None:
+    """Forget the last panel token :func:`_panel_auth_headers` saw (tests only)."""
+    global _PANEL_TOKEN_LATCH
+    _PANEL_TOKEN_LATCH = None
+
+
+def _panel_auth_headers() -> dict[str, str]:
+    """Build the ``Authorization`` header the terminal API's panel routes want.
+
+    The MCP server is an agent-reachable process, so it carries the *panel
+    token* — a low-privilege credential that unlocks only the panel-coordination
+    routes — and never the operator secret that authorises a browser session.
+
+    The value is read from ``OSPREY_PANEL_TOKEN`` on every call rather than
+    captured at import: the carrier is published into the environment by the
+    launching process, which may happen after this module is first imported.
+
+    The last non-blank value seen is also latched, because this process can
+    lose the carrier from under itself: saving an artifact auto-launches the
+    artifact companion app (``osprey.stores.artifact_store`` ->
+    ``ensure_artifact_server``), and when that happens in-process the app's
+    construction closes both credential carriers in ``os.environ`` — the
+    same scrub every interface app performs so a child it spawns cannot
+    inherit them.  Without the latch every panel call after that point would
+    go out with no bearer and be refused.  The environment is still consulted
+    first, so a value published after import (or rotated) wins over the latch.
+    The latch is never fed from the credential holder: in a process that
+    never held a carrier, ``get_web_credentials()`` would *mint* a token the
+    terminal does not recognise.
+
+    Returns:
+        ``{"Authorization": "Bearer <token>"}`` when the carrier (or the
+        latch) holds a non-blank value, otherwise ``{}``.  Blank counts as
+        absent — an uninterpolated compose variable arrives as ``""`` — and a
+        bare ``"Bearer "`` would be a credential-shaped lie the route has to
+        reject.
+    """
+    global _PANEL_TOKEN_LATCH
+    import os
+
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
+
+    token = os.environ.get(PANEL_TOKEN_ENV, "").strip()
+    if token:
+        _PANEL_TOKEN_LATCH = token
+    elif _PANEL_TOKEN_LATCH:
+        token = _PANEL_TOKEN_LATCH
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:
     """Fire-and-forget JSON POST to a local HTTP endpoint.
 
-    Non-fatal: logs a warning if the target is unreachable.
+    Carries the panel token as a bearer header when one is available
+    (:func:`_panel_auth_headers`).
+
+    Non-fatal: logs a warning if the target is unreachable *or* rejects the
+    call.  That deliberately covers a ``401``: a credential regression makes
+    panel notifications go quiet rather than crashing the tool that emitted
+    them, and nothing here retries.
     Used by focus tools and panel-focus notifications.
     """
     import json as _json
@@ -76,7 +135,7 @@ def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:
         req = urllib.request.Request(
             url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **_panel_auth_headers()},
             method="POST",
         )
         urllib.request.urlopen(req, timeout=timeout)
@@ -89,6 +148,11 @@ def _post_json_with_response(url: str, payload: dict, *, timeout: int = 3) -> tu
 
     Unlike :func:`post_json` this propagates connection-level exceptions so the
     caller can distinguish "server rejected" from "server unreachable".
+
+    Carries the panel token as a bearer header when one is available
+    (:func:`_panel_auth_headers`).  A ``401`` is a rejection like any other: it
+    comes back as ``(401, body)`` for the caller to surface, never raised and
+    never retried.
 
     Args:
         url: Full URL to POST to.
@@ -111,7 +175,7 @@ def _post_json_with_response(url: str, payload: dict, *, timeout: int = 3) -> tu
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **_panel_auth_headers()},
         method="POST",
     )
     try:
@@ -152,20 +216,28 @@ def fetch_panels(timeout: int = 3) -> dict | None:
 
     Returns:
         The parsed JSON payload, or ``None`` when the web terminal is
-        unreachable (CLI-only mode) or answered with something other than a
-        JSON object — callers decide how to surface that.  Read individual
-        keys with ``.get()``; servers predating the layout-report feature omit
-        the three fields entirely.
+        unreachable (CLI-only mode), rejected the panel token (``401`` — a
+        credential regression reads as "no panel state", not as a crash), or
+        answered with something other than a JSON object — callers decide how
+        to surface that.  Read individual keys with ``.get()``; servers
+        predating the layout-report feature omit the three fields entirely.
     """
     import json as _json
     import urllib.request
 
     base = web_terminal_url()
     try:
-        with urllib.request.urlopen(f"{base}/api/panels", timeout=timeout) as resp:
+        # Built inside the guard: assembling the credential header is itself
+        # fallible, and a read helper whose contract is "None when the panel
+        # state cannot be had" must not crash its callers on the way to asking.
+        req = urllib.request.Request(f"{base}/api/panels", headers=_panel_auth_headers())
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = _json.loads(resp.read())
     except Exception as exc:
-        logger.warning("panel fetch failed (web terminal unreachable): %s", exc)
+        logger.warning(
+            "panel fetch failed (web terminal unreachable or rejected the panel token): %s",
+            exc,
+        )
         return None
     return data if isinstance(data, dict) else None
 

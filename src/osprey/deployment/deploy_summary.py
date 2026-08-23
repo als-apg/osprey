@@ -137,13 +137,32 @@ def landing_page_url(config: dict) -> str | None:
     open. A deployment with ``modules.web_terminals`` disabled has no landing
     page at all, which is what ``None`` says.
 
+    THE EXTERNAL ORIGIN, not the loopback address, whenever one can be derived.
+    Every terminal checks a mutating request's ``Origin`` against exactly that
+    value, so a browser that arrived on ``http://127.0.0.1:<port>`` loads every
+    page and then has each write, approval and chat message refused with a 403
+    the operator can only see inside a container. The loopback address is the
+    fallback for a deployment that declares no origin at all — one with the
+    module enabled and no roster, which has no terminal to be wrong about —
+    and :func:`as_built_closing_facts` records which of the two this is so the
+    closing line can say so.
+
     :param config: Loaded configuration dictionary
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     nginx_port = web_terminals.get("nginx_port")
-    if web_terminals.get("enabled") and isinstance(nginx_port, int):
+    if not (web_terminals.get("enabled") and isinstance(nginx_port, int)):
+        return None
+    try:
+        from osprey.deployment.web_terminals.render import deployment_external_origin
+
+        return deployment_external_origin(config)
+    except Exception as exc:
+        # Advisory, like everything else this module derives: a config with no
+        # `deploy.fqdn` and no `external_origin` still has a landing page on the
+        # deploy host, and the closing card marks the address as local-only.
+        logger.debug(f"External origin unavailable, falling back to loopback: {exc}")
         return f"http://127.0.0.1:{nginx_port}"
-    return None
 
 
 def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str]]:
@@ -197,10 +216,27 @@ class ClosingFacts:
         logins still carrying the password ``profile.yml`` declared. Empty
         whenever the operator owns the credentials; see
         :func:`~osprey.deployment.web_terminals.auth_credentials.seeded_logins`.
+    :param token_login_users: Roster users who can only be reached by opening
+        their own ``?token=`` URL, in roster order. These are the entries no
+        login wall stands in front of -- the whole roster when
+        ``auth.method`` is ``none``, and the ``login: false`` entries otherwise
+        -- so the terminal's own gate is the only one and the URL is the only
+        way through it. NOT the URLs themselves: each carries that user's
+        operator secret, and a deploy's closing output is read over shoulders,
+        pasted into tickets and captured by CI logs. The verb that prints one
+        (``osprey users login-url <user>``) is what goes here instead.
+    :param landing_url_is_external_origin: Whether ``landing_url`` is the origin
+        the terminals actually check a mutating request against, or the loopback
+        fallback :func:`landing_page_url` uses when no origin can be derived.
+        False means the address serves the landing page and nothing beyond it --
+        a browser that arrives there is refused on every write -- and the closing
+        line has to say so rather than present it as the way in.
     """
 
     landing_url: str | None
     logins: tuple[tuple[str, str], ...]
+    token_login_users: tuple[str, ...] = ()
+    landing_url_is_external_origin: bool = True
 
 
 def as_built_closing_facts(repo_root: Path | str) -> ClosingFacts:
@@ -223,10 +259,29 @@ def as_built_closing_facts(repo_root: Path | str) -> ClosingFacts:
         return ClosingFacts(
             landing_url=landing_page_url(config),
             logins=tuple(_seeded_logins(root, config)),
+            token_login_users=tuple(token_login_users(config)),
+            landing_url_is_external_origin=_external_origin_is_derivable(config),
         )
     except Exception as exc:
         logger.debug(f"Closing facts skipped: {exc}")
         return ClosingFacts(landing_url=None, logins=())
+
+
+def _external_origin_is_derivable(config: dict) -> bool:
+    """Whether this deployment declares the origin its terminals check against.
+
+    The same call :func:`landing_page_url` makes, asked as a yes/no so the
+    closing line can tell "open this" from "this shows you the landing page and
+    nothing else works from it". Kept as its own reader rather than inferred
+    from the URL's shape: a deployment whose ``deploy.fqdn`` genuinely IS a
+    loopback address would be misread by any string test.
+    """
+    try:
+        from osprey.deployment.web_terminals.render import deployment_external_origin
+
+        return bool(deployment_external_origin(config))
+    except Exception:
+        return False
 
 
 def _seeded_logins(root: Path, config: dict) -> list[tuple[str, str]]:
@@ -254,6 +309,39 @@ def _seeded_logins(root: Path, config: dict) -> list[tuple[str, str]]:
         if entry_requires_login(entry)
     ]
     return seeded_logins(root, names)
+
+
+def token_login_users(config: dict) -> list[str]:
+    """The roster users whose terminal has no login wall in front of it.
+
+    The complement of :func:`_seeded_logins`, and derived from the same two
+    predicates so the two cannot disagree about who has a login. Public because
+    ``osprey users login-url`` asks the same question before it prints anything:
+    the URL is inert for a user behind the wall, so the verb refuses there, and
+    a second spelling of "who has a login page" could send an operator a live
+    secret the deployment would then ignore. With
+    ``auth.method`` at ``none`` that is everybody: nginx runs no login flow and
+    injects no operator secret, so the per-user app's own token->cookie gate is
+    the only one and a browser gets past it exactly once, by opening that user's
+    ``?token=`` URL. With authentication on it is the ``login: false`` entries,
+    which sit outside the wall for the same reason and reach their terminal the
+    same way.
+
+    Returns names, never URLs. The URL carries a live credential; the closing
+    card is not a place to put one.
+    """
+    from osprey.deployment.web_terminals.personas import entry_requires_login, normalize_users
+    from osprey.deployment.web_terminals.render import _auth_tls_context
+
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if not web_terminals.get("enabled"):
+        return []
+    walled = _auth_tls_context(web_terminals).get("auth_method") != "none"
+    return [
+        entry["name"]
+        for entry in normalize_users(web_terminals.get("users"))
+        if not (walled and entry_requires_login(entry))
+    ]
 
 
 def _summary_title(config: dict) -> str:

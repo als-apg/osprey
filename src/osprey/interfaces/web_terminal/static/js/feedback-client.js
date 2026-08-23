@@ -82,10 +82,32 @@ export const NOTICE_CONTEXT_COPIED = 'Session context copied to your clipboard.'
 /** Shown when the bundle response carried no context string. */
 export const NOTICE_EMPTY_BUNDLE = 'This deployment returned no session context.';
 
+/**
+ * Appended to the outbound confirmation when the clipboard carries something
+ * the prefilled body could not: the session context (which never fits a
+ * `mailto:` URL), or text the URL cap forced out. Without this line the sender
+ * has no way to know the paste step exists — the draft looks complete and gets
+ * sent with the placeholder still in it.
+ */
+export const NOTICE_PASTE_GITHUB =
+  'the full report is on your clipboard — paste it over the placeholder in the issue';
+
+/** Email variant of {@link NOTICE_PASTE_GITHUB}. */
+export const NOTICE_PASTE_EMAIL =
+  'the full report is on your clipboard — paste it over the placeholder in the draft';
+
+/**
+ * Prefilled issue title / mail subject. Deliberately generic: the report text
+ * is not a title (a short report would duplicate itself, a long one would be
+ * an arbitrary slice), so the sender is given a stable name to overwrite.
+ */
+export const DEFAULT_TITLE = 'OSPREY feedback';
+
 const REQUEST_FAILED = 'Feedback request failed';
 const TEXT_MIME = 'text/plain';
-const DEFAULT_TITLE = 'OSPREY feedback';
-const TITLE_MAX = 80;
+
+/** UTF-16 length of the session-id prefix quoted in a derived title. */
+const SESSION_TITLE_CHARS = 8;
 
 /**
  * @typedef {object} FeedbackForm
@@ -190,6 +212,10 @@ export async function sendFeedback(form, deps) {
   const [copied, outcome] = await Promise.all([copying, settle(request)]);
   const id = readString(outcome.data, 'id');
   const contextStatus = readString(outcome.data, 'context_status');
+  // The paste step exists whenever the clipboard holds more than the prefilled
+  // body does: always with context attached (it travels only by paste), and
+  // whenever the URL cap forced text out of the body.
+  const needsPaste = form.contextOn === true || link.truncated;
   return {
     ok: outcome.ok,
     id,
@@ -198,7 +224,7 @@ export async function sendFeedback(form, deps) {
     truncated: link.truncated,
     contextStatus,
     error: outcome.error,
-    notice: emit(deps, outboundNotice(outcome.ok, id, contextStatus, copied)),
+    notice: emit(deps, outboundNotice(outcome.ok, id, contextStatus, copied, channel, needsPaste)),
   };
 }
 
@@ -426,7 +452,15 @@ function buildSendBody(form, deps) {
  */
 function buildOutboundLink(form, deps) {
   const buildBody = deps.buildPrefillBody ?? defaultPrefillBody;
-  const metadata = form.metadataOn === true ? (deps.metadata ?? {}) : {};
+  const metadata = form.metadataOn === true ? { ...(deps.metadata ?? {}) } : {};
+  // The session id is the one context fact that fits the body inline, and the
+  // one a maintainer needs to correlate the message with the deployment's own
+  // record even when the paste never happens. It travels under the context
+  // checkbox — with the box unticked no session id reaches the record either,
+  // so there would be nothing for it to correlate with.
+  if (form.contextOn === true && form.sessionId) {
+    metadata.Session = String(form.sessionId);
+  }
   const body = buildBody(String(form.text ?? ''), metadata);
   const title = deriveTitle(form);
 
@@ -441,9 +475,12 @@ function buildOutboundLink(form, deps) {
 }
 
 /**
- * Issue title / mail subject: the first non-blank line of the report, since the
- * dialog has no separate title field. Truncated for readability only — the
- * builders never shorten a title, so an unbounded one would eat the URL budget.
+ * Issue title / mail subject: an explicit `form.title` verbatim, otherwise
+ * {@link DEFAULT_TITLE} — suffixed with a session-id prefix when context is
+ * attached, so two reports from one inbox stay tellable apart and the subject
+ * alone finds the deployment's record. Never derived from the report text: a
+ * short report would become its own title and a long one an arbitrary slice,
+ * and the builders never shorten a title, so it must stay bounded here.
  *
  * @param {FeedbackForm} form
  * @returns {string}
@@ -451,12 +488,10 @@ function buildOutboundLink(form, deps) {
 function deriveTitle(form) {
   const explicit = String(form.title ?? '').trim();
   if (explicit) return explicit;
-  const firstLine = String(form.text ?? '')
-    .split('\n')
-    .map((line) => line.trim())
-    .find(Boolean);
-  if (!firstLine) return DEFAULT_TITLE;
-  return firstLine.length <= TITLE_MAX ? firstLine : `${firstLine.slice(0, TITLE_MAX)}…`;
+  if (form.contextOn === true && form.sessionId) {
+    return `${DEFAULT_TITLE} (session ${String(form.sessionId).slice(0, SESSION_TITLE_CHARS)})`;
+  }
+  return DEFAULT_TITLE;
 }
 
 /**
@@ -501,19 +536,27 @@ function localResult(deps, data) {
 /**
  * The one line to show after an outbound (GitHub/Email) submission, in priority
  * order: a clipboard the user has to act on outranks a missing paper trail,
- * which outranks the ordinary confirmation.
+ * which outranks the ordinary confirmation. The confirmation itself names the
+ * paste step whenever the clipboard carries more than the prefilled body did —
+ * a no-transcript warning keeps its own wording, because "paste the full
+ * report" would promise context the server just said it could not find.
  *
  * @param {boolean} ok
  * @param {string|null} id
  * @param {string|null} contextStatus
  * @param {CopyRung} copied
+ * @param {'local'|'github'|'email'} channel
+ * @param {boolean} needsPaste - the clipboard holds more than the body does
  * @returns {FeedbackNotice}
  */
-function outboundNotice(ok, id, contextStatus, copied) {
+function outboundNotice(ok, id, contextStatus, copied, channel, needsPaste) {
   if (copied === 'none') return { kind: 'error', message: NOTICE_COPY_FAILED };
   if (copied === 'manual') return { kind: 'warning', message: NOTICE_MANUAL_COPY };
   if (!ok) return { kind: 'warning', message: NOTICE_NOT_RECORDED };
-  return recordedNotice(id, contextStatus);
+  const base = recordedNotice(id, contextStatus);
+  if (!needsPaste || base.kind !== 'success') return base;
+  const hint = channel === 'email' ? NOTICE_PASTE_EMAIL : NOTICE_PASTE_GITHUB;
+  return { kind: 'success', message: `${base.message} — ${hint}` };
 }
 
 /**

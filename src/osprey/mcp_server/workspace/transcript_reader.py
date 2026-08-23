@@ -1,4 +1,4 @@
-"""Read Claude Code native transcripts to extract OSPREY tool-call and agent events.
+"""Read Claude Code native transcripts to extract MCP tool-call and agent events.
 
 No audit hook is needed for this: Claude Code already logs every tool call to
 ``<config-dir>/projects/<encoded>/`` as JSONL, and this module reads those
@@ -13,13 +13,7 @@ from osprey.agent_runner.project_paths import claude_project_dir
 
 logger = logging.getLogger("osprey.mcp_server.workspace.transcript_reader")
 
-OSPREY_MCP_PREFIXES = (
-    "mcp__controls__",
-    "mcp__python__",
-    "mcp__osprey_workspace__",
-    "mcp__ariel__",
-    "mcp__channel-finder__",
-)
+_MCP_TOOL_PREFIX = "mcp__"
 
 MAX_RESULT_LENGTH = 500
 MAX_ERROR_RESULT_LENGTH = 2000
@@ -55,22 +49,27 @@ def _extract_text(content_blocks: list) -> str:
     return "\n".join(parts) if parts else ""
 
 
-def _match_osprey_prefix(tool_name: str) -> tuple[str, str, str] | None:
-    """Match a tool name against OSPREY prefixes.
+def _split_mcp_tool_name(tool_name: str) -> tuple[str, str, str] | None:
+    """Split an MCP tool name into (short_name, server, full_name).
 
-    Returns (short_name, server, full_name) or None if no match.
+    Matches structurally on Claude Code's ``mcp__<server>__<tool>`` naming
+    rather than an enumerated server list: every MCP server in a deployed
+    session is deployment-declared (the registry and the profile render the
+    agent's ``.mcp.json``), so the prefix alone is the audit boundary and a
+    facility's custom server is captured without any OSPREY source edit. Only
+    the first ``__`` after the prefix delimits the server — a further ``__``
+    belongs to the tool name. Returns ``None`` for built-in (non-MCP) tools.
     """
-    for prefix in OSPREY_MCP_PREFIXES:
-        if tool_name.startswith(prefix):
-            short_name = tool_name[len(prefix) :]
-            parts = tool_name.split("__")
-            server = parts[1] if len(parts) >= 3 else "unknown"
-            return short_name, server, tool_name
-    return None
+    if not tool_name.startswith(_MCP_TOOL_PREFIX):
+        return None
+    server, sep, short_name = tool_name[len(_MCP_TOOL_PREFIX) :].partition("__")
+    if not sep or not server or not short_name:
+        return None
+    return short_name, server, tool_name
 
 
 class TranscriptReader:
-    """Read Claude Code native JSONL transcripts and extract OSPREY events."""
+    """Read Claude Code native JSONL transcripts and extract MCP events."""
 
     def __init__(self, project_dir: Path | str) -> None:
         self.project_dir = Path(project_dir).resolve()
@@ -104,7 +103,7 @@ class TranscriptReader:
         include_subagents: bool = True,
         agent_id: str | None = None,
     ) -> list[dict]:
-        """Read a single transcript file and extract OSPREY events.
+        """Read a single transcript file and extract MCP events.
 
         Args:
             path: Path to a ``.jsonl`` transcript file.
@@ -159,7 +158,7 @@ class TranscriptReader:
 
                     if tool_name == "Task":
                         task_uses[tool_id] = (block, timestamp)
-                    elif _match_osprey_prefix(tool_name):
+                    elif _split_mcp_tool_name(tool_name):
                         tool_uses[tool_id] = (block, timestamp, session_id)
 
             elif entry_type == "tool_result":
@@ -170,7 +169,9 @@ class TranscriptReader:
 
                 if tool_use_id in tool_uses:
                     block, ts, sid = tool_uses.pop(tool_use_id)
-                    events.append(self._make_tool_event(block, content, is_err, ts, sid, agent_id))
+                    event = self._make_tool_event(block, content, is_err, ts, sid, agent_id)
+                    if event:
+                        events.append(event)
                 elif tool_use_id in task_uses:
                     block, ts = task_uses.pop(tool_use_id)
                     if include_subagents:
@@ -190,9 +191,9 @@ class TranscriptReader:
 
                     if tool_use_id in tool_uses:
                         tu_block, ts, sid = tool_uses.pop(tool_use_id)
-                        events.append(
-                            self._make_tool_event(tu_block, content, is_err, ts, sid, agent_id)
-                        )
+                        event = self._make_tool_event(tu_block, content, is_err, ts, sid, agent_id)
+                        if event:
+                            events.append(event)
                     elif tool_use_id in task_uses:
                         tu_block, ts = task_uses.pop(tool_use_id)
                         if include_subagents:
@@ -231,15 +232,20 @@ class TranscriptReader:
                     )
 
                     sub_prompt = self._read_first_user_text(agent_file)
-                    agent_type = self._match_subagent_to_task(
+                    matched_meta = self._match_subagent_to_task(
                         agent_fname,
                         sub_events,
                         task_meta,
                         matched_task_indices,
                         subagent_prompt=sub_prompt,
                     )
-                    start_ts = sub_events[0].get("timestamp", "") if sub_events else ""
-                    stop_ts = sub_events[-1].get("timestamp", "") if sub_events else ""
+                    agent_type = matched_meta["agent_type"] if matched_meta else ""
+                    # A sub-agent that made no MCP calls has no datable events
+                    # of its own; fall back to the Task's dispatch timestamp so
+                    # its lifecycle doesn't sort (as "") before everything.
+                    fallback_ts = matched_meta["timestamp"] if matched_meta else ""
+                    start_ts = sub_events[0].get("timestamp", "") if sub_events else fallback_ts
+                    stop_ts = sub_events[-1].get("timestamp", "") if sub_events else fallback_ts
 
                     events.append(
                         {
@@ -648,8 +654,12 @@ class TranscriptReader:
         matched: set[int],
         *,
         subagent_prompt: str = "",
-    ) -> str:
+    ) -> dict | None:
         """Match a subagent transcript to a Task metadata entry.
+
+        Returns the matched ``task_meta`` entry (the caller reads its
+        ``agent_type`` and, when the subagent produced no datable events of
+        its own, its ``timestamp``), or ``None`` when nothing matches.
 
         Matching strategies (in priority order):
         1. Prompt comparison — the Task's prompt field should be the subagent's
@@ -664,14 +674,14 @@ class TranscriptReader:
                 task_prompt = meta.get("prompt", "")
                 if task_prompt and task_prompt.strip() == subagent_prompt:
                     matched.add(i)
-                    return meta["agent_type"]
+                    return meta
 
         for i, meta in enumerate(task_meta):
             if i in matched:
                 continue
             if meta.get("result_agent_id") == agent_fname:
                 matched.add(i)
-                return meta["agent_type"]
+                return meta
 
         for i, meta in enumerate(task_meta):
             if i in matched:
@@ -679,14 +689,14 @@ class TranscriptReader:
             tp = meta.get("transcript_path", "")
             if tp and agent_fname in tp:
                 matched.add(i)
-                return meta["agent_type"]
+                return meta
 
         for i, meta in enumerate(task_meta):
             if i not in matched:
                 matched.add(i)
-                return meta["agent_type"]
+                return meta
 
-        return ""
+        return None
 
     def _make_tool_event(
         self,
@@ -699,7 +709,7 @@ class TranscriptReader:
     ) -> dict:
         """Build a tool_call event dict from a tool_use + tool_result pair."""
         tool_name = tool_use_block.get("name", "")
-        match = _match_osprey_prefix(tool_name)
+        match = _split_mcp_tool_name(tool_name)
         if not match:
             return {}
 

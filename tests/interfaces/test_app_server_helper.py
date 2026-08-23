@@ -17,8 +17,10 @@ from fastapi import FastAPI
 
 from osprey.interfaces._serving import run_app_server
 
-# The helper's own readiness budget. A startup *failure* must be reported well
-# inside it rather than consuming the whole budget first.
+# Bound for reporting a startup *failure*. The helper's readiness budget for a
+# slow-but-alive startup is far larger (30 s), but a server whose thread died
+# must be reported well inside even this small bound, never after burning the
+# budget.
 READINESS_BUDGET = 10.0
 
 

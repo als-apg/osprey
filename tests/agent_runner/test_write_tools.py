@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 from pathlib import Path
 
 import osprey
@@ -649,26 +648,64 @@ def test_python_server_registers_only_execute_tools_we_block(tmp_path: Path) -> 
 
 def test_builtin_unsafe_tools_cover_interactive_deny_defaults() -> None:
     """Drift guard: every built-in (non-mcp) tool OSPREY denies interactively
-    (settings.json.j2 deny_defaults) must also be in the headless read-only
-    floor — the headless path must never be more permissive than interactive,
-    since its permission/deny layer is inert under bypassPermissions.
-    """
-    package_root = Path(osprey.__file__).parent
-    settings_j2 = package_root / "templates" / "claude_code" / "claude" / "settings.json.j2"
-    assert settings_j2.exists(), f"settings template not found: {settings_j2}"
+    (DENY_DEFAULTS, rendered into settings.json's permissions.deny) must also be
+    in the headless read-only floor — the headless path must never be more
+    permissive than interactive, since its permission/deny layer is inert under
+    bypassPermissions.
 
-    source = settings_j2.read_text()
-    match = re.search(r"set\s+deny_defaults\s*=\s*(\[[^\]]*\])", source)
-    assert match, "deny_defaults list not found in settings.json.j2"
-    deny_defaults = ast.literal_eval(match.group(1))
+    Reads the constant the renderer itself consumes rather than regex-parsing
+    the Jinja source: the template now takes the list from the render context,
+    so a scrape of the .j2 file would guard a copy nothing ships.
+    """
+    from osprey.cli.templates.claude_code import DENY_DEFAULTS
 
     # Built-in tools are the non-mcp__ entries (mcp__ entries are plugin/facility
     # servers, absent from a built project's query path).
-    builtin_denies = [d for d in deny_defaults if not d.startswith("mcp__")]
-    assert builtin_denies, "expected at least one built-in tool in deny_defaults"
+    builtin_denies = [d for d in DENY_DEFAULTS if not d.startswith("mcp__")]
+    assert builtin_denies, "expected at least one built-in tool in DENY_DEFAULTS"
     for tool in builtin_denies:
         assert tool in _BUILTIN_UNSAFE_TOOLS, (
-            f"{tool!r} is denied interactively (settings.json.j2 deny_defaults) but "
-            f"missing from _BUILTIN_UNSAFE_TOOLS — the headless read-only floor would "
-            f"be more permissive than the interactive policy"
+            f"{tool!r} is denied interactively (DENY_DEFAULTS) but missing from "
+            f"_BUILTIN_UNSAFE_TOOLS — the headless read-only floor would be more "
+            f"permissive than the interactive policy"
         )
+
+
+def test_deny_defaults_reaches_the_render_context() -> None:
+    """The constant is only a policy if the template actually receives it.
+
+    settings.json.j2 no longer declares its own deny list, and Jinja renders a
+    missing name as an empty loop — so a context that drops the key yields a
+    settings.json that denies NOTHING, with no error. config_derived_context is
+    the one funnel both render paths pass through, so pinning the key here is
+    what keeps that from happening. Order matters too: the rendered array
+    follows DENY_DEFAULTS, and reordering churns every built project's diff.
+    """
+    from osprey.cli.templates.claude_code import DENY_DEFAULTS, config_derived_context
+
+    ctx = config_derived_context({}, Path(osprey.__file__).parent)
+    assert ctx["deny_defaults"] == list(DENY_DEFAULTS)
+
+
+def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
+    """A caller-supplied deny_defaults must NOT replace the security floor.
+
+    create_project merges the derived context with setdefault, so a caller's own
+    value wins for every key it carries — correct for project configuration,
+    wrong for this one. While the list lived as a literal inside settings.json.j2
+    no caller could reach it; hoisting it into the render context must not hand
+    that authority over, or `context={"deny_defaults": []}` renders a project
+    whose permissions.deny is empty. Facilities adjust the floor through
+    config.yml's claude_code.permissions instead, which is auditable.
+    """
+    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.cli.templates.manager import TemplateManager
+
+    project_dir = TemplateManager().create_project(
+        project_name="deny-floor-override",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical", "deny_defaults": []},
+    )
+    settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+    assert settings["permissions"]["deny"] == list(DENY_DEFAULTS)

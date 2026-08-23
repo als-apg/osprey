@@ -13,6 +13,7 @@ import os
 import click
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.cli import output
 from osprey.cli.altitude import lift_gate
 from osprey.cli.styles import Messages, Styles, console
 
@@ -446,8 +447,30 @@ def web(ctx, host: str, port: int):
     import uvicorn
 
     from osprey.interfaces.channel_finder.app import create_app
+    from osprey.interfaces.common_middleware import WEB_PORT_ENV
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
 
-    console.print(f"Starting Channel Finder at http://{host}:{port}", style=Styles.SUCCESS)
+    # Publish the settled port before the app is constructed: cookies ignore
+    # ports, so two OSPREY servers on this host share an origin as far as the
+    # browser is concerned, and the port is the only thing keeping their session
+    # cookies apart. ``session_cookie_name()`` reads it from here.
+    os.environ[WEB_PORT_ENV] = str(port)
+
+    # Mint the operator secret in this CLI parent, which becomes the server
+    # (direct-serve: uvicorn.run(app) runs in-process). ``mint_and_announce``
+    # settles the secret and returns the ``?token=`` login URL — the
+    # operator's only way past the auth middleware. ``announce`` is False only
+    # when the secret was already supplied by an ancestor/deployment, so a
+    # supplied secret is never re-echoed here.
+    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
+    login_url = mint_and_announce(host, port)
+
+    output.report(f"Starting Channel Finder at http://{host}:{port}")
+    if announce:
+        # ``output.report`` rather than ``console.print``: the login URL is a
+        # single unbroken token, and the plain Rich console wraps it at the
+        # terminal width, so a copied line loses the middle of the secret.
+        output.report(f"Open: {login_url}")
     app = create_app()
     uvicorn.run(app, host=host, port=port, log_level="info")
 

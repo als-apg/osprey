@@ -77,7 +77,18 @@
 {%- endfor -%}
 {% for entry in allow_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ],
-{%- set deny_defaults = ["Bash", "Edit", "WebFetch", "WebSearch", "mcp__plugin_playwright_playwright__*", "mcp__plugin_context7_context7__*"] -%}
+{#- The deny floor is DENY_DEFAULTS in osprey/cli/templates/claude_code.py,
+    handed over as `deny_defaults` by config_derived_context (which both render
+    paths call). Deliberately NOT re-declared here: the build lint and the
+    headless read-only-floor drift test read that same constant, and a second
+    copy in this file is how the two policies would silently fork.
+
+    Note the loop below is Jinja, so a context MISSING `deny_defaults` renders
+    an empty deny array instead of failing — a settings.json that looks whole
+    and denies nothing. What actually catches that is coverage of the rendered
+    artifact, not this file: test_claude_code_integration and test_claude_regen
+    assert the framework defaults are present in a built project's
+    permissions.deny, on the create_project and regenerate paths respectively. -#}
 {%- set deny_entries = [] -%}
 {%- for d in deny_defaults if d not in facility_permissions.get('remove_deny', []) -%}
 {%- set _ = deny_entries.append(d) -%}

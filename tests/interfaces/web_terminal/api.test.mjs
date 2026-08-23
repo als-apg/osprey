@@ -15,8 +15,10 @@
  *     prepend it to root-absolute paths only, are a no-op when the prefix is
  *     empty/absent, and never double-prefix or touch already-absolute URLs
  *   - reload-on-401 probe: a closed WS/SSE channel asks the app's own
- *     prefixed health route whether the session survived, and only a definite
- *     401 stops the reconnect loop and reloads
+ *     prefixed `/api/session` route whether the session survived, and only a
+ *     definite 401 stops the reconnect loop and reloads -- as a navigation,
+ *     which is the request shape both the nginx perimeter (login redirect) and
+ *     the app's own gate (an HTML "not signed in" page) answer usefully
  *
  * Module isolation: api.js keeps `wsState`/`sseState`/`stateListeners` as
  * module-private state that no init() resets. `vi.resetModules()` plus a fresh
@@ -360,7 +362,7 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     vi.useRealTimers();
   });
 
-  test('a closed WebSocket probes the app\'s own prefixed health route with a JSON Accept header', async () => {
+  test('a closed WebSocket probes the app\'s own prefixed /api/session route with a JSON Accept header', async () => {
     stubLocation();
     const sockets = stubWebSocket();
     const fetchMock = stubFetchStatus(401);
@@ -369,10 +371,10 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     sockets[0].onclose({ code: 1006 });
     await flushProbe();
 
-    // Never the sidecar's unauthenticated /health, never a root-absolute
-    // /health: only /u/<user>/health sits behind the user's auth gate.
+    // Never the exempt /health (it answers 200 uncredentialed): the probe hits
+    // /api/session, which sits behind the app's auth gate, at the per-user mount.
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/health', {
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/session', {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
@@ -482,7 +484,7 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     sources[0].onerror();
     await flushProbe();
 
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/health', {
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/session', {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
@@ -504,7 +506,46 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     source.stop();
   });
 
-  test('probes the unprefixed /health when no per-user prefix is set (single-origin/dev)', async () => {
+  test('asks for JSON, never HTML, so the probe reads a status and not a page', async () => {
+    // Both gates content-negotiate their 401 -- nginx into a login redirect,
+    // the app's own gate into the "not signed in" page the reload is meant to
+    // land on. This probe must stay on the machine-readable side of that fork
+    // or an expired session reads as an opaque 200-with-HTML and the terminal
+    // reconnects forever.
+    stubLocation();
+    const sockets = stubWebSocket();
+    const fetchMock = stubFetchStatus(401);
+
+    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
+    sockets[0].onclose({ code: 1006 });
+    await flushProbe();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ headers: { Accept: 'application/json' } })
+    );
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('text/html');
+  });
+
+  test('surfaces an expired session by navigating, not by rendering anything itself', async () => {
+    // The refusal page is the gate's to render (single-user) or the
+    // perimeter's (multi-user); this module's whole contribution is to make the
+    // browser ask for it via a top-level navigation. Nothing is written to the
+    // document here -- if that ever changes, the two shapes stop agreeing.
+    const loc = stubLocation();
+    const sockets = stubWebSocket();
+    stubFetchStatus(401);
+    const before = document.body.innerHTML;
+
+    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
+    sockets[0].onclose({ code: 1006 });
+    await flushProbe();
+
+    expect(loc.reload).toHaveBeenCalledTimes(1);
+    expect(document.body.innerHTML).toBe(before);
+  });
+
+  test('probes the unprefixed /api/session when no per-user prefix is set (single-origin/dev)', async () => {
     delete window.__OSPREY_PREFIX__;
     const loc = stubLocation();
     const sockets = stubWebSocket();
@@ -514,7 +555,7 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     sockets[0].onclose({ code: 1006 });
     await flushProbe();
 
-    expect(fetchMock).toHaveBeenCalledWith('/health', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/session', {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
