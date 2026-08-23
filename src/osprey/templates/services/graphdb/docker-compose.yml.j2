@@ -2,6 +2,7 @@
     shared macro rather than being spelled here, so every service template
     states the same topology the same way. -#}
 {%- import "services/_network_axis.j2" as net -%}
+{%- import "services/_env_axis.j2" as hostenv -%}
 {#- The `services.graphdb` block, read once. It may be absent, empty, or
     partial: a deployment that never edited it renders exactly the numbers
     `deployment/graphdb_service.py` resolves, which is what keeps the compose
@@ -152,6 +153,7 @@ services:
       NEO4J_server_http_listen__address: ":{{ http_port_host }}"
 {%- endif %}
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.graphdb) }}
     volumes:
       # The graph itself, plus the server's auth store. Named rather than a
       # bind: it is derived data the store owns end to end, and it must survive
