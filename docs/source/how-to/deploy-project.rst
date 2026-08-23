@@ -266,6 +266,43 @@ the provider it just probed will actually use, plus what to do about it. The
 reliable habit is to put the value in the env chain and leave your shell out of
 it: that is the one gesture that means the same thing on both providers.
 
+.. _podman-network-backend:
+
+Podman's network backend (required by the Bluesky stack)
+--------------------------------------------------------
+
+The ``bluesky`` service puts its bridge, RE Manager and Redis on an internal
+network and dual-homes the queueserver across two networks. Resolving one
+container by name from another is therefore load-bearing, and on Podman that
+depends on which networking backend the host runs:
+
+* **netavark** (Podman 4.0+ default) — ships aardvark-dns, which serves
+  container-name DNS on every network a container is attached to. **Required.**
+* **cni** (the legacy backend, still configured on some RHEL 8 hosts) — has no
+  aardvark-dns. A dual-homed container receives only its *first* network's
+  resolver, so ``bluesky-queueserver`` can never resolve ``bluesky-redis``.
+
+On ``cni`` the queueserver never becomes healthy and ``osprey up`` aborts before
+the web slice renders — the whole deployment is down, on a DNS fact nothing in
+the deploy output points at. So ``osprey up`` checks the backend up front and
+refuses, before touching a container, when ``bluesky`` is deployed on a ``cni``
+host. Only the Bluesky stack needs this; every other service here runs fine on
+either backend, and a Docker host is unaffected.
+
+To switch a host over, install ``aardvark-dns`` and set the backend in
+``containers.conf`` (``/etc/containers/containers.conf``, or
+``~/.config/containers/containers.conf`` for a rootless deployment):
+
+.. code-block:: ini
+
+   [network]
+   network_backend = "netavark"
+
+Existing Podman networks were created by the old backend and must be recreated
+afterwards — ``podman network rm`` for the project's own networks, or
+``podman system reset`` on a host with nothing else to lose. Check the result
+with ``podman info --format '{{.Host.NetworkBackend}}'``.
+
 Deployment Workflow
 ===================
 

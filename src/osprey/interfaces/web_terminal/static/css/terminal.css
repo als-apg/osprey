@@ -764,7 +764,7 @@ html[data-ui-mode="simple"] .session-selector {
 /* The rail's non-panel controls. `margin-top: auto` eats the column's free
    space, which pins the pair to the very bottom and leaves the entries + "+"
    as one block at the top — .panel-rail has no flex:1, so without this the
-   cluster would ride directly under the "+" and read as two more nameless
+   cluster would ride directly under the "+" and read as two more panel
    tabs. The rule above the pair is what says "different kind of thing"; it is
    inset to the 62px cell width so it lines up with the cells rather than the
    74px column. */
@@ -781,11 +781,17 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 /* Same 62x52 cell as .panel-add-btn above — the cluster is a different GROUP,
-   not a different size. `text-decoration: none` is for the anchor half. */
+   not a different size. The icon + label stack is .panel-rail-button's, for
+   the same reason: an unlabelled mark makes the operator hover to find out
+   what it opens, and the cluster's separateness is already carried by the
+   rule above it and the muted color. `text-decoration: none` is for the
+   anchor half. */
 .panel-utility-btn {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   width: 62px;
   height: 52px;
   padding: 0;
@@ -819,6 +825,22 @@ html[data-ui-mode="simple"] .session-selector {
   width: 18px;
   height: 18px;
   display: block;
+}
+
+/* Reads as .panel-rail-label so the cluster is the same kind of cell, with one
+   deliberate difference: the built-in panel labels arrive already upper-cased
+   from BUILTIN_PANEL_LABELS, while these are authored in sentence case (the
+   accessible name should read as words), so the casing happens here. */
+.panel-utility-label {
+  font-size: var(--text-xs);
+  line-height: var(--leading-none);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  box-sizing: border-box;
 }
 
 /* The popover opens to the RIGHT of the rail (the "+" sits in a narrow left
@@ -1124,11 +1146,22 @@ html[data-rail-position="top"] .panel-utility {
 }
 
 /* The strip is 40px tall and deliberately does not clip, so an un-overridden
-   52px cell would hang over the workspace below it. Mirrors .panel-add-btn. */
+   52px cell would hang over the workspace below it. The stack turns the same
+   corner the panel entries do — icon beside label in a width-auto pill, so
+   the label has somewhere to go that a fixed 40px cell would not give it. */
 html[data-rail-position="top"] .panel-utility-btn {
-  width: 40px;
+  flex-direction: row;
+  gap: 6px;
+  width: auto;
   height: 100%;
+  padding: 0 14px;
   border-radius: 0;
+}
+
+/* Old header-tab typography, matching the panel pills to its left. */
+html[data-rail-position="top"] .panel-utility-label {
+  font-size: var(--text-lg);
+  font-family: var(--font-display);
 }
 
 /* ---- One-time rail hint ---- */

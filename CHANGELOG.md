@@ -108,6 +108,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The pyat-specialist grounding e2e no longer misreads a saved metadata key
   ending in a plane letter (an `index` next to the betas) as the horizontal
   value — a numerically correct results artifact could fail the check.
+- The kill-switch e2e tests no longer fail when the agent makes a
+  preparatory read before the denied write: the hook assertion is scoped to
+  the write tool instead of requiring zero approval events overall.
+- `osprey up` now refuses a Bluesky deployment on a Podman host still using
+  the legacy `cni` network backend, naming netavark as the requirement and
+  the `containers.conf` setting to change. Without aardvark-dns the
+  dual-homed `bluesky-queueserver` receives only its first network's
+  resolver, so it can never resolve `bluesky-redis`: it goes unhealthy and
+  the deploy aborts before the web slice renders — the whole deployment down
+  on a DNS fact nothing in the output pointed at. The check runs before any
+  container is touched, is skipped unless `bluesky` is deployed, and never
+  blocks a deploy on a host it could not read.
+- The package inventory the agent sees no longer names compiled `__mypyc`
+  shims as importable packages. The filter dropped them only when the shim's
+  hash happened to start with a digit (making it a non-identifier); a
+  letter-leading hash such as `ada92cb5d92a588d1b93__mypyc` passed straight
+  through and was advertised to the agent as a top-level import.
 - The session event log — and everything built on it: the agent-activity
   view, feedback bundles, logbook context, and the agent's own `session_log`
   tool — now records tool calls from every MCP server in the session instead
@@ -137,13 +154,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   provider — the session-activity section now carries tool names and result
   snippets only, matching the feedback report's privacy policy.
 - Feedback sent by GitHub or Email no longer arrives without its session
-  context because nobody knew about the paste step. The context travels by
-  clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:
-  ticking the context box on an outbound channel shows a paste hint, and the
-  post-send confirmation tells the sender the full report is on the clipboard.
-  The session id also rides inline in the prefilled body when context is
-  attached, so a message can be matched to the deployment's own record even
-  when the paste never happened.
+  context because nobody knew about the paste step. The context cannot fit a
+  prefilled URL, so with the context box ticked the flow is now one honest
+  paste: the whole report (text, metadata, context) is copied to the
+  clipboard, the draft opens with a single paste-here line instead of a
+  partial body that a paste would duplicate, and the dialog states both steps
+  before the button is pressed. Without context the draft opens complete and
+  the clipboard is left alone. The browser and the full session id now ride
+  in the composed report itself, and "Copy session context" moved out of the
+  action row onto the checkbox's own row, enabled whenever a session exists.
 - The prefilled issue title / mail subject is no longer the first line of the
   report text. It is now a stable "OSPREY feedback" title, suffixed with a
   short session id when context is attached.
@@ -152,6 +171,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   and rendered oversized; the old `✉` rendered small, painted full-colour
   emoji on Windows/Android, and promised email for a dialog that also files
   locally or to GitHub.
+- The rail's Documentation and Feedback controls are now labelled DOCS and
+  FEEDBACK, like every other cell in the rail. The marks alone left the
+  operator hovering over them to find out what they open.
 - The web terminal now knows its own session id from the moment it opens.
   It previously waited for the session's transcript file to appear on disk,
   which only happens once the session has content — so a terminal left idle
@@ -362,6 +384,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   deployment says a variable is mandatory.
 
 ### Changed
+
+- Docs site: the root now always shows the latest release; development docs
+  moved to `/latest/` with a development banner.
 
 - The workspace tool that registers a file on disk, or literal text, as a
   gallery artifact is now `artifact_register` (was `artifact_save`), and
