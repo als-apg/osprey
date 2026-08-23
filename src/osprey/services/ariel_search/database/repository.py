@@ -14,6 +14,8 @@ from osprey.services.ariel_search.database.search_fts import keyword_search_expr
 from osprey.services.ariel_search.exceptions import (
     DatabaseQueryError,
     ModuleNotEnabledError,
+    PatternError,
+    SearchTimeoutError,
 )
 from osprey.services.ariel_search.models import (
     EmbeddingTableInfo,
@@ -30,6 +32,28 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _pattern_timeout_error(pattern_timeout_seconds: float | None) -> SearchTimeoutError:
+    """Build the error a keyword pattern search reports when it was cancelled.
+
+    PostgreSQL signals the same cancellation under two different error classes
+    depending on where the statement was when the timeout fired, so the caller
+    catches both and reports them identically -- this keeps the message and the
+    reported budget in one place.
+
+    Args:
+        pattern_timeout_seconds: The budget the statement was given.
+
+    Returns:
+        The timeout error to raise, with a zero budget standing in for a
+        statement that carried no configured timeout at all.
+    """
+    return SearchTimeoutError(
+        f"Keyword pattern search exceeded {pattern_timeout_seconds}s",
+        timeout_seconds=pattern_timeout_seconds or 0,
+        operation="keyword_search",
+    )
 
 
 def requires_module(module_type: str, module_name: str) -> Callable[[F], F]:
@@ -787,6 +811,10 @@ class ARIELRepository:
         search_text: str,
         max_results: int = 10,
         include_highlights: bool = True,
+        *,
+        tsquery_sql: str | None = None,
+        tsquery_params: list[Any] | None = None,
+        pattern_timeout_seconds: float | None = None,
     ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
         """Execute keyword search using full-text search.
 
@@ -796,48 +824,99 @@ class ARIELRepository:
             search_text: Original search text for highlighting
             max_results: Maximum results to return
             include_highlights: Include highlighted snippets
+            tsquery_sql: Pre-built tsquery expression carrying its own ``%s``
+                placeholders, used in place of ``plainto_tsquery('english', %s)``
+                for both the rank and the headline. ``None`` keeps the plain
+                single-term path.
+            tsquery_params: Parameters for ONE occurrence of `tsquery_sql`. They
+                are spliced twice when highlights are requested and once
+                otherwise, always ahead of `params`.
+            pattern_timeout_seconds: Wall-clock budget for a statement carrying
+                ``~*`` pattern predicates. When given, the statement runs inside
+                a transaction with a local ``statement_timeout``; ``None`` runs
+                it exactly as an ordinary keyword search does.
 
         Returns:
             List of (entry, score, highlights) tuples
+
+        Raises:
+            ValueError: If `pattern_timeout_seconds` rounds down to 0 ms, which
+                PostgreSQL reads as "no timeout at all".
+            SearchTimeoutError: If the statement exceeded its timeout.
+            PatternError: If PostgreSQL refused to compile a pattern.
+            DatabaseQueryError: If the query failed for any other reason.
         """
+        import contextlib
+
+        import psycopg
         from psycopg.rows import dict_row
 
+        statement_timeout: str | None = None
+        if pattern_timeout_seconds is not None:
+            timeout_ms = int(pattern_timeout_seconds * 1000)
+            if timeout_ms < 1:
+                raise ValueError(
+                    "pattern_timeout_seconds must be at least 0.001; "
+                    f"{pattern_timeout_seconds} renders as 0ms, which disables the timeout"
+                )
+            statement_timeout = f"{timeout_ms}ms"
+
         try:
-            async with self.pool.connection() as conn:
+            async with self.pool.connection() as conn, contextlib.AsyncExitStack() as stack:
+                if statement_timeout is not None:
+                    await stack.enter_async_context(conn.transaction())
+                    await conn.execute(
+                        "SELECT set_config('statement_timeout', %s, true)",
+                        (statement_timeout,),
+                    )
                 async with conn.cursor(row_factory=dict_row) as cur:
                     where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
 
                     fts_expression, headline_document = keyword_search_expressions(self.config)
+                    if tsquery_sql is None:
+                        query_expression = "plainto_tsquery('english', %s)"
+                        query_params: list[Any] = [search_text]
+                    else:
+                        query_expression = f"({tsquery_sql})"
+                        query_params = list(tsquery_params or [])
+
+                    # A pattern-only statement carries no tsquery, so every row
+                    # ranks 0 and the tie needs breaking to stay reproducible.
+                    order_by = (
+                        "rank DESC, timestamp DESC"
+                        if tsquery_sql is None and not search_text.strip()
+                        else "rank DESC"
+                    )
                     if include_highlights:
                         query = f"""
                             SELECT e.*,
                                    ts_rank(
                                        {fts_expression},
-                                       plainto_tsquery('english', %s)
+                                       {query_expression}
                                    ) AS rank,
-                                   ts_headline('english', {headline_document}, plainto_tsquery('english', %s),
+                                   ts_headline('english', {headline_document}, {query_expression},
                                        'StartSel=<b>, StopSel=</b>, MaxFragments=3'
                                    ) AS headline
                             FROM enhanced_entries e
                             WHERE {where_sql}
-                            ORDER BY rank DESC
+                            ORDER BY {order_by}
                             LIMIT %s
                         """  # noqa: S608
-                        all_params = [search_text, search_text] + params + [max_results]
+                        all_params = query_params + query_params + params + [max_results]
                     else:
                         query = f"""
                             SELECT e.*,
                                    ts_rank(
                                        {fts_expression},
-                                       plainto_tsquery('english', %s)
+                                       {query_expression}
                                    ) AS rank,
                                    NULL AS headline
                             FROM enhanced_entries e
                             WHERE {where_sql}
-                            ORDER BY rank DESC
+                            ORDER BY {order_by}
                             LIMIT %s
                         """  # noqa: S608
-                        all_params = [search_text] + params + [max_results]
+                        all_params = query_params + params + [max_results]
 
                     await cur.execute(query, all_params)
                     rows = await cur.fetchall()
@@ -854,6 +933,16 @@ class ARIELRepository:
 
                     return results
 
+        except psycopg.errors.QueryCanceled as e:
+            raise _pattern_timeout_error(pattern_timeout_seconds) from e
+        except psycopg.errors.InvalidRegularExpression as e:
+            # A statement_timeout that fires while the regex engine is running is
+            # reported by PostgreSQL as SQLSTATE 2201B ("operation cancelled"),
+            # not as QueryCanceled. It is the timeout the caller asked for, not a
+            # malformed pattern, and must be classified the same way.
+            if "cancel" in str(e).lower():
+                raise _pattern_timeout_error(pattern_timeout_seconds) from e
+            raise PatternError(str(e)) from e
         except Exception as e:
             raise DatabaseQueryError(
                 f"Keyword search failed: {e}",

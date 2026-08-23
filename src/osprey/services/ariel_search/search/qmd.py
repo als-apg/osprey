@@ -53,7 +53,12 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
-from osprey.services.ariel_search.search.base import ParameterDescriptor, SearchToolDescriptor
+from osprey.services.ariel_search.search.base import (
+    ModuleOutput,
+    ParameterDescriptor,
+    SearchToolDescriptor,
+    module_result,
+)
 from osprey.services.qmd import QMDClient, QMDUnavailableError
 from osprey.utils.logger import get_logger
 
@@ -61,6 +66,7 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search.base import QueryExpansion
     from osprey.services.qmd import QMDSearchResult
 
 logger = get_logger("ariel")
@@ -235,8 +241,9 @@ async def hybrid_search(
     rerank: bool | None = None,
     candidate_limit: int | None = None,
     client: QMDClient | None = None,
+    query_expansion: QueryExpansion | None = None,
     **kwargs: Any,
-) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
+) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Execute a hybrid keyword+semantic search against the qmd sidecar.
 
     The sidecar ranks; Postgres answers. Hits are decoded back to ``entry_id``s,
@@ -256,13 +263,27 @@ async def hybrid_search(
             ``None`` uses config.
         client: Client for the sidecar. Defaults to the process-wide client
             built from the project's ``services.qmd`` block; tests pass a stub.
+        query_expansion: Resolved vocabulary expansion for this query, passed by
+            the service only when one was actually resolved. When present, its
+            ``flattened_text`` is sent to the sidecar in place of `query` — the
+            whole query is the matching text here, and it is never truncated.
+            The expanded text is what the sidecar's reranker sees, which is why
+            a deployment whose reranked ordering degrades drops ``hybrid`` from
+            ``ariel.vocabulary.expand_modes``.
 
     Returns:
-        List of ``(entry, score, snippets)`` tuples in descending relevance
-        order. ``score`` is qmd's 0-1 relevance, which is an **ordering signal,
-        not a calibrated probability** — do not threshold it. ``snippets``
-        carries qmd's line-numbered, match-centered excerpt, or is empty when the
-        sidecar supplied none.
+        Without `query_expansion`: a list of ``(entry, score, snippets)`` tuples
+        in descending relevance order — the bare-list contract every direct
+        caller relies on today, returned unchanged. ``score`` is qmd's 0-1
+        relevance, which is an **ordering signal, not a calibrated
+        probability** — do not threshold it. ``snippets`` carries qmd's
+        line-numbered, match-centered excerpt, or is empty when the sidecar
+        supplied none.
+
+        With `query_expansion`: a `ModuleOutput` carrying those same tuples as
+        `entries` and the applied expansion groups as `expansion`. The shape is
+        conditional so that direct callers keep the return value they have
+        always received; the service unwraps either form.
 
     Raises:
         QMDUnavailableError: If no sidecar is configured, or the configured one
@@ -272,7 +293,7 @@ async def hybrid_search(
         ValueError: If the module's config block holds a malformed knob.
     """
     if not query.strip():
-        return []
+        return module_result([], query_expansion)
 
     settings = HybridSearchSettings.from_ariel_config(config)
     effective_rerank = settings.rerank if rerank is None else bool(rerank)
@@ -300,7 +321,7 @@ async def hybrid_search(
     hits = await asyncio.to_thread(
         qmd.query,
         settings.collection,
-        query,
+        query_expansion.flattened_text if query_expansion else query,
         limit=fetch_limit,
         rerank=effective_rerank,
         candidate_limit=effective_candidates,
@@ -309,7 +330,7 @@ async def hybrid_search(
     ranked = _decode_hits(hits)
     if not ranked:
         logger.info("hybrid_search: returning 0 results")
-        return []
+        return module_result([], query_expansion)
 
     entries = await repository.get_entries_by_ids([entry_id for entry_id, _ in ranked])
     by_id = {entry["entry_id"]: entry for entry in entries}
@@ -328,7 +349,7 @@ async def hybrid_search(
             break
 
     logger.info(f"hybrid_search: returning {len(results)} results")
-    return results
+    return module_result(results, query_expansion)
 
 
 def _fetch_limit(max_results: int, has_filters: bool) -> int:
@@ -543,6 +564,13 @@ class HybridSearchInput(BaseModel):
         default=None,
         description="Filter entries created before this time (inclusive)",
     )
+    expand_query: bool | None = Field(
+        default=None,
+        description=(
+            "Apply the facility vocabulary expansion (shorthand/acronyms). "
+            "None = the configured default (capabilities().vocabulary.expand_by_default)"
+        ),
+    )
 
 
 def format_qmd_result(
@@ -609,4 +637,5 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         args_schema=HybridSearchInput,
         execute=hybrid_search,
         format_result=format_qmd_result,
+        accepts_expansion=True,
     )

@@ -45,6 +45,15 @@ const DEFAULT_TITLE = 'Send feedback';
 export const NO_SESSION_HINT = 'no session yet';
 
 /**
+ * Hint shown beside the ticked session-context checkbox on the GitHub and
+ * Email channels, where the context travels by clipboard paste rather than
+ * inside the prefilled body. Shown at the moment of ticking the box — before
+ * the draft opens looking complete — so the paste step is announced twice: here
+ * and in the post-send notice.
+ */
+export const CONTEXT_PASTE_HINT = 'copied to your clipboard on send — paste it over the placeholder';
+
+/**
  * The artifact-inventory time-window sentence, pinned so the dialog and the
  * server-side composer's block header cannot drift apart. Quoted verbatim from
  * the proposal's functional requirement 6.
@@ -75,10 +84,12 @@ export const FEEDBACK_DISCLOSURE_PARAGRAPHS = Object.freeze([
     'when the deployment knows it.',
   'Deployment metadata (on by default): the OSPREY version and the ' +
     'application name.',
-  'Session context (off by default): this session’s tool-call and agent ' +
-    'event log, its chat history, and the terminal scrollback. It is triaged ' +
-    'newest-first and truncated to fit a size budget, so a long session is ' +
-    'attached in part rather than in full.',
+  'Session context (off by default): this session’s id, its tool-call and ' +
+    'agent event log, its chat history, and the terminal scrollback. It is ' +
+    'triaged newest-first and truncated to fit a size budget, so a long ' +
+    'session is attached in part rather than in full. On the GitHub and ' +
+    'Email channels it travels by paste: sending copies it to your ' +
+    'clipboard, and the prefilled body marks where to drop it.',
   'The artifact inventory lists titles and ids only — artifacts tagged to ' +
     `this session, ${ARTIFACT_WINDOW_DISCLOSURE}.`,
   'Nothing leaves this page until you click an action button.',
@@ -540,7 +551,13 @@ export class FeedbackModal {
       this._contextCheckEl.checked = this._contextOn && sessionId !== null;
     }
     if (this._contextHintEl) {
-      this._contextHintEl.textContent = sessionId === null ? NO_SESSION_HINT : '';
+      if (sessionId === null) {
+        this._contextHintEl.textContent = NO_SESSION_HINT;
+      } else if (this._contextOn && this._channel !== 'local') {
+        this._contextHintEl.textContent = CONTEXT_PASTE_HINT;
+      } else {
+        this._contextHintEl.textContent = '';
+      }
     }
 
     this._renderActions(sessionId);

@@ -18,9 +18,10 @@ let currentSessionId = null;
 // return round trip. Scoped to the terminal origin.
 const PTY_SESSION_STORAGE_KEY = 'osprey-pty-session';
 
-// A resume connection now gets a 'session_info' confirmation too —
-// routes/websocket.py runs session discovery on mode=resume as well as
-// mode=new — carrying the id ACTUALLY attached, which may differ from the
+// A resume connection gets a 'session_info' confirmation too —
+// routes/websocket.py discovers the attached id on the stale-resume path (a
+// new session needs no discovery: the server dictates its id and confirms it
+// at once) — carrying the id ACTUALLY attached, which may differ from the
 // requested --resume-id if that id was stale/dead and the server silently
 // started a fresh PTY instead of erroring. The 'session_info' branch in
 // onMessage below treats that confirmation as ground truth: a mismatch
@@ -33,15 +34,25 @@ const PTY_SESSION_STORAGE_KEY = 'osprey-pty-session';
 // place as a faster, independent failure signal.
 const RESUME_LIVENESS_TIMEOUT_MS = 2000;
 
+// How long an 'exit' still counts as "that resume failed". Wider than
+// RESUME_LIVENESS_TIMEOUT_MS on purpose: telling the panels which session
+// they are on can be answered the moment the socket looks alive, but ruling
+// out a failed resume cannot be answered until the CLI has had time to start,
+// fail to find the conversation, and exit — around two seconds unloaded, more
+// in a container. Kept under routes/websocket.py's discovery window so the
+// failover resolves before the server's fallback confirmation arrives. See
+// the two timers in startTerminal().
+const RESUME_FAILOVER_WINDOW_MS = 10000;
+
 // Session ID we auto-resumed on page load, if any. Armed by initTerminal()
 // right before the auto-resume startTerminal() call; disarmed by whichever
-// arrives first: a 'session_info' confirmation (see onMessage below), the
-// liveness timer (RESUME_LIVENESS_TIMEOUT_MS after connecting, if neither a
-// confirmation nor an 'exit' arrived — see startTerminal()), or an 'exit'
-// handled by falling back to a fresh session. One-shot:
-// only ever set for the initial page-load resume, never for other resume
-// call sites (e.g. sessions.js's resumeSession), so explicit user-driven
-// resumes are unaffected by this fallback.
+// arrives first: a 'session_info' confirmation (see onMessage below), an
+// 'exit' handled by falling back to a fresh session, or the failover window
+// closing (RESUME_FAILOVER_WINDOW_MS after connecting, if neither of those
+// happened — see startTerminal()). One-shot: only ever set for the initial
+// page-load resume, never for other resume call sites (e.g. sessions.js's
+// resumeSession), so explicit user-driven resumes are unaffected by this
+// fallback.
 /** @type {string|null} */
 let autoResumeFailoverId = null;
 
@@ -336,12 +347,16 @@ export function startTerminal(sessionId = null, mode = 'new') {
             const led = document.getElementById('session-led');
             if (led) led.classList.remove('active');
 
-            // If this was our page-load auto-resume attempt, the server
-            // has no way to report a resume failure other than letting
-            // the PTY exit (resume connections get no session_info
-            // confirmation). Treat it as a stale/expired session: drop
-            // the dead id and fall back to a fresh one so the user isn't
-            // stuck reconnecting to it forever.
+            // If this was our page-load auto-resume attempt, treat the exit
+            // as the resume having failed: drop the dead id and fall back to
+            // a fresh session so the user isn't stuck reconnecting to it
+            // forever. The server does confirm a resume, but only once it has
+            // finished discovering what the CLI actually attached to, which
+            // can take far longer than the CLI takes to fail — so the PTY
+            // exiting is the timely signal, and this is the ONLY place a dead
+            // id leaves storage. It stops counting as a resume failure after
+            // RESUME_FAILOVER_WINDOW_MS (see startTerminal()), past which an
+            // exit is the operator ending a session that did resume.
             if (autoResumeFailoverId) {
               autoResumeFailoverId = null;
               clearStoredSessionId();
@@ -402,24 +417,41 @@ export function startTerminal(sessionId = null, mode = 'new') {
   });
   wsConnection = socket;
 
-  // Disarm the auto-resume failover if this is that attempt and it
-  // survives briefly without an 'exit'. There is no positive "resume
-  // succeeded" message (see RESUME_LIVENESS_TIMEOUT_MS comment above), so
-  // absence-of-failure-within-a-window is the best available signal: a
-  // genuinely stale/expired --resume id causes claude to exit almost
-  // immediately, while a live resumed shell just keeps running. Guarded by
-  // identity (`wsConnection === socket`) so a connection torn down or
-  // replaced in the meantime can't spuriously disarm/notify.
+  // Two jobs on two clocks, deliberately separated — they answer different
+  // questions and a single timer served the shorter one at the longer one's
+  // expense. Both are guarded by identity (`wsConnection === socket`) so a
+  // connection torn down or replaced in the meantime can't spuriously fire.
   if (isAutoResumeAttempt) {
+    // "Which session are the panels looking at?" — answer as soon as the
+    // connection looks alive. Reached only when no session_info has arrived
+    // yet: for a stale id the server is still off discovering what the CLI
+    // actually started (routes/websocket.py), and that can outlast this
+    // timer, so this is the one place panel iframes learn the resumed id when
+    // the confirmation is slow. A confirmation that does arrive notifies with
+    // the id the server actually attached rather than the one we
+    // optimistically asked for.
     setTimeout(() => {
       if (autoResumeFailoverId === sessionId && wsConnection === socket) {
-        autoResumeFailoverId = null;
-        // The resume never gets a session_info message (server-side —
-        // discovery only runs for new sessions), so this is the only
-        // place panel iframes learn the resumed session id.
         notifySessionChange(/** @type {string} */ (sessionId));
       }
     }, RESUME_LIVENESS_TIMEOUT_MS);
+
+    // "Did the resume fail?" — keep listening for the 'exit' that says so
+    // until a failed resume could no longer plausibly be the cause. There is
+    // no positive "resume succeeded" message, so absence-of-failure-within-a-
+    // window is the best available signal, and the window has to be wider
+    // than the CLI takes to start up, fail to find the conversation, and
+    // exit. Measured at roughly two seconds on an idle laptop and slower in a
+    // container — so the notify timer above is far too tight to double as
+    // this one. Disarming early is not harmless: the 'exit' branch in
+    // onMessage is the only thing that drops a dead id from storage, and a
+    // tab that misses it prints "[Process exited]" and stays there, resuming
+    // the same dead id on every reload.
+    setTimeout(() => {
+      if (autoResumeFailoverId === sessionId && wsConnection === socket) {
+        autoResumeFailoverId = null;
+      }
+    }, RESUME_FAILOVER_WINDOW_MS);
   }
 }
 

@@ -11,6 +11,8 @@ import {
   renderEntryCardSimple,
   renderAnswerBox,
   renderDiagnosticsBar,
+  renderExpansionBanner,
+  renderConfigBanner,
   renderLoading,
   renderEmptyState,
   renderErrorState,
@@ -40,6 +42,7 @@ function getUiMode() {
  * @property {number} total_results
  * @property {import('./components.js').Entry[]} [entries]
  * @property {import('./components.js').Diagnostic[]} [diagnostics]
+ * @property {import('./components.js').ExpandedTerm[]} [expanded_terms]
  */
 
 // Search state
@@ -79,9 +82,47 @@ export function initSearchResultsDelegation() {
 }
 
 /**
- * Initialize search module.
+ * Render the degraded-configuration banner reported by /api/capabilities.
+ *
+ * `configuration_invalid` means search cannot run at all: the banner
+ * (`#config-invalid-banner`) is inserted as the first child of `#search-form`
+ * and the search controls are disabled, so the form is present but unusable —
+ * the button stays in the DOM rather than being wiped, because that is what
+ * the operator (and the browser tests) look at to see search is blocked.
+ * `configuration_warning` inserts the same markup as `#config-warning-banner`
+ * and leaves the form fully usable. Anything else renders nothing.
+ * @param {import('./advanced-options.js').Capabilities|null} [capabilities]
  */
-export function initSearch() {
+function renderConfigStatus(capabilities) {
+  const status = capabilities?.status;
+  if (status !== 'configuration_invalid' && status !== 'configuration_warning') return;
+
+  const form = document.getElementById('search-form');
+  if (!form) return;
+
+  const blocking = status === 'configuration_invalid';
+  form.insertAdjacentHTML(
+    'afterbegin',
+    renderConfigBanner(capabilities?.config_errors ?? [], capabilities?.remedy ?? null, blocking)
+  );
+
+  if (!blocking) return;
+
+  const searchBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('search-btn'));
+  if (searchBtn) searchBtn.disabled = true;
+  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
+  if (searchInput) searchInput.disabled = true;
+}
+
+/**
+ * Initialize search module.
+ * @param {import('./advanced-options.js').Capabilities|null} [capabilities] -
+ *   The /api/capabilities payload (null when the fetch failed), used only to
+ *   surface a degraded configuration.
+ */
+export function initSearch(capabilities = null) {
+  renderConfigStatus(capabilities);
+
   const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
   const searchBtn = document.getElementById('search-btn');
 
@@ -209,6 +250,10 @@ function renderSearchResults(results, mode = 'keyword') {
       </span>
     </div>
   `;
+
+  // What the vocabulary expanded, Expert mode only (Simple deliberately omits
+  // the search-mechanics chrome). Empty/absent expansions render nothing.
+  html += renderExpansionBanner(results.expanded_terms);
 
   // Results list
   if ((results.entries?.length ?? 0) > 0) {

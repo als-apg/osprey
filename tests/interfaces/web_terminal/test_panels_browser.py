@@ -3102,6 +3102,22 @@ def _palette_live_server(workspace):
             yield base_url, app
 
 
+def _wait_for_ariel_ready(page: Page) -> None:
+    """Block until ARIEL's standalone URL has resolved through /api/ariel-server.
+
+    The palette builds its rows once per open (palette.js re-renders per open,
+    not per keystroke), so an open that outruns ARIEL's config fetch is missing
+    the ARIEL rows for as long as it stays open — no amount of typing brings
+    them back. The rail entry sheds ``.disabled`` in the same settle that
+    publishes the URL (initPanel → assumeHealthy), so waiting on the class is
+    waiting on the rows' precondition. Every test that opens the palette and
+    expects an ARIEL row must pass through here first.
+    """
+    expect(
+        page.locator('button.panel-rail-button[data-panel-id="ariel"]:not(.disabled)')
+    ).to_be_attached(timeout=10_000)
+
+
 def _palette_input(page: Page):
     return page.locator(_PALETTE_INPUT)
 
@@ -3225,6 +3241,7 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
 
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
+        _wait_for_ariel_ready(page)
         _focus_service_panel(page, "ariel", "ARIEL")
 
         _open_palette(page)
@@ -3259,6 +3276,7 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
 
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
+        _wait_for_ariel_ready(page)
 
         _open_palette(page)
         _palette_query(page, "logbook")
@@ -3284,6 +3302,7 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
 
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
+        _wait_for_ariel_ready(page)
 
         _open_palette(page)
         _palette_query(page, "ariel window")

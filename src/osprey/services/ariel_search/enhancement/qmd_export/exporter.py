@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
 from osprey.services.ariel_search.enhancement.qmd_export.writer import write_entry
+from osprey.utils.config_paths import resolve_config_relative_path
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -46,10 +47,10 @@ TOUCH_MARKER_NAME = ".qmd-touch"
 def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path:
     """Resolve a configured ``mirror_path`` to an absolute path.
 
-    Follows the same rule as
-    :func:`osprey.services.facility_knowledge.bundle_path.resolve_bundle_path`,
-    which is what every config-relative path in a rendered project promises:
-    expand ``~``, return an absolute value unchanged, and resolve a relative one
+    Delegates to
+    :func:`osprey.utils.config_paths.resolve_config_relative_path`, which is
+    what every config-relative path in a rendered project promises: expand
+    ``~``, return an absolute value unchanged, and resolve a relative one
     against the directory holding ``config.yml``. The exporter, the resync CLI
     and the compose mount must all land on the same directory, or the sidecar
     indexes a tree nobody writes to.
@@ -65,20 +66,7 @@ def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path
     Returns:
         Absolute :class:`~pathlib.Path` to the mirror root.
     """
-    path = Path(raw).expanduser()
-    if path.is_absolute():
-        return path
-
-    if config_dir is not None:
-        return (config_dir / path).resolve()
-
-    try:
-        from osprey.utils.workspace import resolve_config_path
-
-        config_dir = Path(resolve_config_path()).parent
-        return (config_dir / path).resolve()
-    except Exception:  # noqa: BLE001 — resolution must never break ingestion.
-        return path.resolve()
+    return resolve_config_relative_path(raw, config_dir)
 
 
 class QmdExportModule(BaseEnhancementModule):

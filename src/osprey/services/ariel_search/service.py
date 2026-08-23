@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING, Any
 from osprey.services.ariel_search.exceptions import (
     ARIELException,
     ConfigurationError,
+    PatternError,
     SearchExecutionError,
     SearchTimeoutError,
+    VocabularyError,
 )
 from osprey.services.ariel_search.models import (
     ARIELSearchRequest,
@@ -40,9 +42,56 @@ if TYPE_CHECKING:
     from osprey.models.embeddings.base import BaseEmbeddingProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
-    from osprey.services.ariel_search.search.base import SearchToolDescriptor
+    from osprey.services.ariel_search.search.base import (
+        ExpansionGroup,
+        ParsedKeywordQuery,
+        QueryExpansion,
+        SearchToolDescriptor,
+    )
 
 logger = get_logger("ariel")
+
+#: Advanced parameter a caller sets to force or suppress vocabulary expansion.
+#: The service resolves it and strips it from the kwargs a module receives --
+#: modules never see it (FR4).
+EXPAND_QUERY_PARAM = "expand_query"
+
+
+def _expansion_dicts(groups: tuple[ExpansionGroup, ...]) -> tuple[dict[str, Any], ...]:
+    """Serialize expansion groups into the ``expanded_terms`` wire shape."""
+    return tuple(group.to_dict() for group in groups)
+
+
+def _merge_diagnostics(
+    *sources: tuple[SearchDiagnostic, ...],
+) -> tuple[SearchDiagnostic, ...]:
+    """Concatenate diagnostic tuples in order, dropping exact duplicates.
+
+    A module that re-emits a diagnostic the service already collected (a
+    keyword module echoing its parse-time truncation warning, say) must not
+    make the caller see it twice.
+
+    Args:
+        *sources: Diagnostic tuples, most-upstream first.
+
+    Returns:
+        The concatenation with later exact duplicates removed.
+    """
+    merged: list[SearchDiagnostic] = []
+    seen: set[tuple[Any, str, str, str | None]] = set()
+    for source in sources:
+        for diagnostic in source:
+            key = (
+                diagnostic.level,
+                diagnostic.source,
+                diagnostic.message,
+                diagnostic.category,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(diagnostic)
+    return tuple(merged)
 
 
 class ARIELSearchService:
@@ -104,6 +153,7 @@ class ARIELSearchService:
         category: str,
         message: str | None = None,
         modes: tuple[str, ...] = (),
+        expanded_terms: tuple[dict[str, Any], ...] = (),
     ) -> ARIELSearchResult:
         """Build an empty result carrying a single diagnostic.
 
@@ -111,6 +161,10 @@ class ARIELSearchService:
         graceful degradation -- which all return no entries, one diagnostic,
         and a human-readable ``reasoning``. ``message`` defaults to
         ``reasoning`` when the diagnostic text matches the caller-facing text.
+
+        ``expanded_terms`` carries the expansion the *failed* statement
+        contained, so a timeout or a pattern error still tells the caller what
+        was searched for.
         """
         return ARIELSearchResult(
             entries=(),
@@ -126,6 +180,7 @@ class ARIELSearchService:
                     category=category,
                 ),
             ),
+            expanded_terms=expanded_terms,
         )
 
     @staticmethod
@@ -133,6 +188,8 @@ class ARIELSearchService:
         mode: str,
         source: str,
         error: Exception,
+        *,
+        expanded_terms: tuple[dict[str, Any], ...] = (),
     ) -> ARIELSearchResult:
         return ARIELSearchService._diagnostic_result(
             reasoning=f"{mode.capitalize()} search failed: {error}",
@@ -140,6 +197,7 @@ class ARIELSearchService:
             source=source,
             category="search",
             modes=(mode,),
+            expanded_terms=expanded_terms,
         )
 
     async def _validate_search_model(self) -> None:
@@ -221,14 +279,41 @@ class ARIELSearchService:
         Raises:
             ConfigurationError: If the requested mode is not registered or is
                 registered but disabled.
+            VocabularyError: If the deployment configured a vocabulary that
+                failed to load. Searching without the expansion the deployment
+                asked for would silently change what a query means, so the
+                search path is dead until the vocabulary is fixed or disabled.
         """
+        expansion: QueryExpansion | None = None
         try:
+            if self.config.vocabulary.enabled and self.config.vocabulary_errors:
+                raise VocabularyError(self.config.vocabulary_errors)
+
             if self.config.is_search_module_enabled("semantic"):
                 await self._validate_search_model()
 
             mode = request.modes[0] if request.modes else self.config.resolve_default_search_mode()
 
-            return await self._run_module(mode, request)
+            # Parsing and expansion are resolved once, here, and handed down:
+            # exactly one parse per search, and the timeout handler below can
+            # still report what the failed statement contained. A request names
+            # a single mode, so no cross-mode merge of ``expanded_terms``
+            # arises; were several ever merged, the rule is concatenation in
+            # mode order deduplicated by ``original``.
+            descriptor = self._registered_descriptors().get(mode)
+            parsed: ParsedKeywordQuery | None = None
+            if descriptor is not None and descriptor.query_parser is not None:
+                parsed = descriptor.query_parser(request.query)
+
+            expansion, expansion_diagnostics = self._resolve_expansion(request, mode, parsed)
+
+            return await self._run_module(
+                mode,
+                request,
+                parsed=parsed,
+                expansion=expansion,
+                extra_diagnostics=expansion_diagnostics,
+            )
 
         except SearchTimeoutError as e:
             # Return graceful timeout result instead of propagating exception
@@ -241,6 +326,24 @@ class ARIELSearchService:
                 source="service.timeout",
                 category="timeout",
                 message=f"Search timed out: {e.operation} exceeded {e.timeout_seconds}s limit",
+                expanded_terms=_expansion_dicts(expansion.groups) if expansion else (),
+            )
+        except PatternError as e:
+            # A pattern the database refused to compile is a caller mistake in
+            # one token, not a dead search path: report it the way the timeout
+            # is reported, naming the pattern and carrying the expansion the
+            # rejected statement contained, so the caller can fix the token
+            # without losing what the rest of the query meant.
+            mode = request.modes[0] if request.modes else self.config.resolve_default_search_mode()
+            detail = f"invalid pattern {e.pattern!r}: {e}" if e.pattern else str(e)
+            return self._diagnostic_result(
+                reasoning=f"{mode.capitalize()} search failed: {detail}",
+                level=DiagnosticLevel.ERROR,
+                source=f"service.{mode}",
+                category="pattern",
+                message=detail,
+                modes=(mode,),
+                expanded_terms=_expansion_dicts(expansion.groups) if expansion else (),
             )
         except ARIELException:
             raise
@@ -281,12 +384,121 @@ class ARIELSearchService:
         enabled = [name for name in descriptors if self.config.is_search_module_enabled(name)]
         return ", ".join(enabled) if enabled else "(none enabled)"
 
-    async def _run_module(self, mode: str, request: ARIELSearchRequest) -> ARIELSearchResult:
+    def _resolve_expansion(
+        self,
+        request: ARIELSearchRequest,
+        mode: str,
+        parsed: ParsedKeywordQuery | None = None,
+    ) -> tuple[QueryExpansion | None, tuple[SearchDiagnostic, ...]]:
+        """Resolve the vocabulary expansion for one mode of one request.
+
+        The single source of truth for whether expansion applies (FR4). The
+        caller's ``advanced_params`` is read, never mutated: a retried request
+        keeps its explicit ``expand_query: false``.
+
+        Resolution order -- a vocabulary must be usable, the caller (or
+        ``expand_by_default``) must want expansion, and ``expand_modes`` must
+        name this mode. Only then does the matching text decide:
+
+        * with a parser declared, expansion matches over the parsed
+          ``search_text`` plus quoted phrases, so ``author:``/``date:`` values
+          and pattern bodies never trigger a concept;
+        * without one, the whole query is matched -- that is what a semantic
+          module embeds.
+
+        A parsed query carrying an explicit boolean operator is searched
+        unexpanded, with an INFO diagnostic the caller can see, because the
+        ``websearch_to_tsquery`` syntax that handles it cannot group
+        alternatives.
+
+        Args:
+            request: The search request. Its ``advanced_params`` is read-only.
+            mode: The search module name being dispatched.
+            parsed: The mode's parse of the query when its descriptor declared
+                a parser, else None.
+
+        Returns:
+            ``(expansion, diagnostics)``. ``expansion`` is None whenever
+            nothing was applied -- disabled, switched off, out of scope,
+            boolean-operator query, or no concept matched. ``diagnostics``
+            explains a skip the caller could not otherwise infer.
+        """
+        # Local import: the keyword module owns the boolean-operator rule, which
+        # must agree with its own ``build_tsquery``, and importing it at module
+        # scope would tie the service's import to one search module's.
+        from osprey.services.ariel_search.search.keyword import (
+            EXPANSION_SKIPPED_MESSAGE,
+            has_boolean_operators,
+        )
+        from osprey.services.ariel_search.vocabulary import expand_query
+
+        vocabulary = self.config.loaded_vocabulary
+        if not self.config.vocabulary_active or vocabulary is None:
+            return None, ()
+
+        flag = request.advanced_params.get(EXPAND_QUERY_PARAM)
+        wanted = self.config.vocabulary.expand_by_default if flag is None else bool(flag)
+        if not wanted:
+            return None, ()
+
+        if mode not in self.config.resolve_expand_modes():
+            return None, ()
+
+        if parsed is not None:
+            if has_boolean_operators(parsed.search_text):
+                return None, (
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.INFO,
+                        source=f"service.{mode}",
+                        message=EXPANSION_SKIPPED_MESSAGE,
+                        category="expansion",
+                    ),
+                )
+            text = " ".join([parsed.search_text, *parsed.phrases]).strip()
+        else:
+            text = request.query
+
+        if not text.strip():
+            return None, ()
+
+        expansion = expand_query(
+            text,
+            vocabulary,
+            canonical_to_acronym=self.config.vocabulary.canonical_to_acronym,
+            canonical_to_shorthand=self.config.vocabulary.canonical_to_shorthand,
+        )
+        if not expansion.groups:
+            return None, ()
+        return expansion, ()
+
+    async def _run_module(
+        self,
+        mode: str,
+        request: ARIELSearchRequest,
+        *,
+        parsed: ParsedKeywordQuery | None = None,
+        expansion: QueryExpansion | None = None,
+        extra_diagnostics: tuple[SearchDiagnostic, ...] = (),
+    ) -> ARIELSearchResult:
         """Run the registered search module named by ``mode``.
+
+        The module's descriptor decides its call shape: ``parsed=`` is passed
+        only when the descriptor declared a ``query_parser``, and
+        ``query_expansion=`` only when it set ``accepts_expansion`` *and* an
+        expansion was actually resolved. A module that declares neither is
+        called exactly as it is today. ``expand_query`` is stripped from the
+        advanced parameters -- it is the service's to resolve, never a
+        module's to read (FR4).
 
         Args:
             mode: Search module name, normalized to lowercase by the request.
             request: Search request
+            parsed: The descriptor's parse of the query, when it declared a
+                parser. Resolved by the caller so the query is parsed once.
+            expansion: The resolved vocabulary expansion, or None when none
+                applies.
+            extra_diagnostics: Diagnostics the caller already collected (for
+                example, why expansion was skipped), surfaced on the result.
 
         Returns:
             ARIELSearchResult with matching entries, or a diagnostic-only
@@ -295,7 +507,13 @@ class ARIELSearchService:
         Raises:
             ConfigurationError: If ``mode`` names no registered module, or
                 names one that is disabled in configuration.
+            SearchTimeoutError: Propagated from the module so the caller can
+                report the timeout with the expansion the statement carried.
+            PatternError: Propagated from the module so the caller can name the
+                pattern PostgreSQL refused, rather than report an empty search.
         """
+        from osprey.services.ariel_search.search.base import ModuleOutput
+
         descriptors = self._registered_descriptors()
         descriptor = descriptors.get(mode)
 
@@ -336,23 +554,54 @@ class ARIELSearchService:
         if descriptor.needs_embedder:
             args.append(self._get_embedder())
 
-        # Advanced params come first so the request's own fields win on collision.
+        # Advanced params come first so the request's own fields win on
+        # collision. ``expand_query`` is the service's own control and is
+        # dropped from the copy -- the caller's dict itself is untouched.
         kwargs: dict[str, Any] = {
-            **request.advanced_params,
+            **{k: v for k, v in request.advanced_params.items() if k != EXPAND_QUERY_PARAM},
             "max_results": request.max_results,
             "start_date": start_date,
             "end_date": end_date,
         }
+        if descriptor.query_parser is not None:
+            kwargs["parsed"] = parsed
+        if descriptor.accepts_expansion and expansion is not None:
+            kwargs["query_expansion"] = expansion
+
+        parse_diagnostics = parsed.diagnostics if parsed is not None else ()
 
         try:
             results = await descriptor.execute(*args, **kwargs)
+        except (SearchTimeoutError, PatternError):
+            # A cancelled or rejected statement is not "the module failed":
+            # both must reach the caller as themselves, so a timeout can be
+            # reported with the expansion it carried and a bad pattern can be
+            # named. Swallowing them into a generic error result would show the
+            # agent an empty search instead.
+            raise
         except Exception as e:
             logger.warning(f"{mode.capitalize()} search failed: {e}")
-            return self._error_result(mode, f"service.{mode}", e)
+            return self._error_result(
+                mode,
+                f"service.{mode}",
+                e,
+                expanded_terms=_expansion_dicts(expansion.groups) if expansion else (),
+            )
+
+        # A module returns either the bare list it always has, or a
+        # ModuleOutput carrying diagnostics and the expansion it actually used.
+        if isinstance(results, ModuleOutput):
+            rows: Any = results.entries
+            module_diagnostics = results.diagnostics
+            applied = results.expansion
+        else:
+            rows = results
+            module_diagnostics = ()
+            applied = ()
 
         entries: list[dict[str, Any]] = []
         sources: list[Any] = []
-        for entry, score, *extra in results:
+        for entry, score, *extra in rows:
             # Modules return (entry, score) or (entry, score, highlights).
             shaped = {**dict(entry), "_score": score}
             if extra:
@@ -366,6 +615,10 @@ class ARIELSearchService:
             sources=tuple(sources),
             search_modes_used=(mode,),
             reasoning=f"{mode.capitalize()} search: {len(entries)} results",
+            diagnostics=_merge_diagnostics(
+                parse_diagnostics, extra_diagnostics, module_diagnostics
+            ),
+            expanded_terms=_expansion_dicts(applied),
         )
 
     async def create_entry(
