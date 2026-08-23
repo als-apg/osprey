@@ -655,7 +655,7 @@ def find_html_files(root: Path) -> list[Path]:
 
 
 def read_audit_events(repo: Path) -> list[dict]:
-    """Read OSPREY tool-call events from Claude Code native transcripts.
+    """Read MCP tool-call events from Claude Code native transcripts.
 
     Takes the REPO ROOT. Claude Code keys its transcript directory on the
     session's working directory, which is the RENDER, so that is what the reader
