@@ -246,6 +246,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Docs site: the root now always shows the latest release; development docs
+  moved to `/latest/` with a development banner.
+
 - The workspace tool that registers a file on disk, or literal text, as a
   gallery artifact is now `artifact_register` (was `artifact_save`), and
   inline `content` must name its `content_type`. `save_artifact()` inside

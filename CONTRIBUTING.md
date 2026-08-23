@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to Osprey! 🎉
 
-This document provides a quick start guide. For comprehensive contribution guidelines, please visit our **[full Contributing Guide in the documentation](https://als-apg.github.io/osprey/contributing/)**.
+This document provides a quick start guide. For comprehensive contribution guidelines, please visit our **[full Contributing Guide in the documentation](https://als-apg.github.io/osprey/contributing/)**. That site documents the most recent release; if you are working against `main`, read the **[development docs for `main`](https://als-apg.github.io/osprey/latest/)** instead, which carry a development banner.
 
 ## Quick Start
 
