@@ -95,6 +95,40 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Feedback sent by GitHub or Email no longer arrives without its session
+  context because nobody knew about the paste step. The context travels by
+  clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:
+  ticking the context box on an outbound channel shows a paste hint, and the
+  post-send confirmation tells the sender the full report is on the clipboard.
+  The session id also rides inline in the prefilled body when context is
+  attached, so a message can be matched to the deployment's own record even
+  when the paste never happened.
+- The prefilled issue title / mail subject is no longer the first line of the
+  report text. It is now a stable "OSPREY feedback" title, suffixed with a
+  short session id when context is attached.
+- The rail's Documentation and Feedback controls now draw SVG marks (open
+  book, speech bubble) instead of font glyphs. The old `ⓘ` read as "About"
+  and rendered oversized; the old `✉` rendered small, painted full-colour
+  emoji on Windows/Android, and promised email for a dialog that also files
+  locally or to GitHub.
+- The web terminal now knows its own session id from the moment it opens.
+  It previously waited for the session's transcript file to appear on disk,
+  which only happens once the session has content — so a terminal left idle
+  for a few seconds never picked its id up at all, and never did later. That
+  tab then behaved as if no session existed: feedback could not attach
+  session context ("no session yet"), the session was not stored for resume,
+  and every page reload started another one instead of reconnecting.
+- Closing a web terminal no longer risks killing a session another tab is
+  using. A tab whose agent had exited could, on close, terminate whatever
+  session had since taken its place.
+- A web terminal that cannot resume its stored session now falls back to a
+  fresh one instead of stopping at "[Process exited]".
+- A subagent's written summary no longer lands in the gallery category that
+  holds its computed results. `submit_response` filed its Markdown under a
+  category derived from the agent's name — so a pyAT summary and the JSON
+  numbers it describes both appeared as "Lattice Analysis", and neither the
+  gallery nor the agent could tell them apart. The summary is now an "Agent
+  Response", and a `data_type` you pass is no longer overridden.
 - Timeseries previews in the workspace gallery render again in CDN-mode
   (non-offline) deployments: the lazy Plotly loader now uses the same
   CDN-or-vendored URL resolution as the gallery's other vendor assets
@@ -124,6 +158,22 @@ Compatibility is documented in release notes, not encoded in the version string.
   the summary reports the bin used. Reads under ~2.8 hours are unchanged.
 
 ### Added
+
+- ARIEL search now speaks your control room's shorthand. Drop a
+  `vocabulary.yml` in your project, set `ariel.vocabulary.enabled: true` and
+  point `ariel.vocabulary.path` at it, and a search for `t/s bpm` also finds
+  "troubleshoot" and "beam position monitor" —
+  in keyword, semantic and hybrid mode. Every rewrite is reported back with the
+  results, and `expand_query` turns it off for a single search. Gate the
+  directions with `ariel.vocabulary.canonical_to_acronym` and
+  `canonical_to_shorthand`, limit which modes expand with `expand_modes`, and
+  validate every edit with `osprey ariel vocab-check` (no database needed).
+  Keyword search also takes pattern tokens now — `SR01C___BPM*` globs and
+  `/SR0[1-4]C___BPM\d+/` regular expressions, with
+  `ariel.search_modules.keyword.settings.patterns_enabled` and
+  `pattern_timeout_seconds`. The `control-assistant` template ships a
+  twenty-concept example file; see the new "Vocabulary Expansion and Pattern
+  Search" section of the Search Modes how-to.
 
 - Web Terminal users can now send feedback from the terminal itself. A
   **Feedback** button in the panel rail (beside a new **Documentation** link)

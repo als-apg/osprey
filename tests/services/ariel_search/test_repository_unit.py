@@ -20,6 +20,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import psycopg
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
@@ -27,6 +28,8 @@ from osprey.services.ariel_search.database.repository import ARIELRepository
 from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
     DatabaseQueryError,
+    PatternError,
+    SearchTimeoutError,
 )
 
 # ---------------------------------------------------------------------------
@@ -1124,3 +1127,399 @@ class TestIngestionRuns:
         repo = ARIELRepository(pool, _make_config())
 
         assert await repo.get_last_successful_run("als_logbook") is None
+
+
+# ---------------------------------------------------------------------------
+# Keyword search: expanded tsquery and pattern timeout envelope
+# ---------------------------------------------------------------------------
+
+#: Transaction-boundary markers the fake below writes into its log.
+_TX_OPEN = "BEGIN"
+_TX_OK = "COMMIT"
+_TX_UNDO = "ROLLBACK"
+
+
+class _TxPool:
+    """Fake pool that also records transaction boundaries.
+
+    The shared ``_FakePool`` in ``conftest`` has no ``transaction()``, and the
+    pattern timeout envelope is exactly a transaction boundary plus a
+    ``set_config`` -- so the ordered ``log`` here interleaves the block markers
+    with the SQL text, which is the only way to pin that ``SET LOCAL`` really
+    ran *inside* the block.
+
+    Args:
+        rows: Rows every ``execute`` returns.
+        error: Raised by the ``enhanced_entries`` statement only, so the
+            bookkeeping statements around it still run.
+    """
+
+    def __init__(self, rows: list[Any] | None = None, error: Exception | None = None) -> None:
+        self.calls: list[tuple[str, Any]] = []
+        self.log: list[str] = []
+        self.rows = list(rows or [])
+        self.error = error
+        self.conn = _TxConnection(self)
+
+    def connection(self) -> _TxConnection:
+        return self.conn
+
+    def record(self, sql: str, params: Any) -> list[Any]:
+        """Log one execute and return (or raise) its scripted result."""
+        self.calls.append((sql, params))
+        self.log.append(sql)
+        if self.error is not None and "enhanced_entries" in sql:
+            raise self.error
+        return list(self.rows)
+
+
+class _TxTransaction:
+    """``conn.transaction()`` stand-in that marks its own boundaries."""
+
+    def __init__(self, pool: _TxPool) -> None:
+        self.pool = pool
+
+    async def __aenter__(self) -> _TxTransaction:
+        self.pool.log.append(_TX_OPEN)
+        return self
+
+    async def __aexit__(self, exc_type: Any, *rest: object) -> bool:
+        self.pool.log.append(_TX_OK if exc_type is None else _TX_UNDO)
+        return False
+
+
+class _TxCursor:
+    """Cursor stand-in writing through to the pool's log."""
+
+    def __init__(self, pool: _TxPool, row_factory: Any = None) -> None:
+        self.pool = pool
+        self.row_factory = row_factory
+        self.rows: list[Any] = []
+
+    async def __aenter__(self) -> _TxCursor:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
+
+    async def execute(self, sql: str, params: Any = None) -> _TxCursor:
+        self.rows = self.pool.record(sql, params)
+        return self
+
+    async def fetchall(self) -> list[Any]:
+        return list(self.rows)
+
+
+class _TxConnection:
+    """Connection stand-in supporting ``transaction()``, ``cursor()`` and ``execute()``."""
+
+    def __init__(self, pool: _TxPool) -> None:
+        self.pool = pool
+
+    async def __aenter__(self) -> _TxConnection:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
+
+    def transaction(self) -> _TxTransaction:
+        return _TxTransaction(self.pool)
+
+    def cursor(self, row_factory: Any = None) -> _TxCursor:
+        return _TxCursor(self.pool, row_factory=row_factory)
+
+    async def execute(self, sql: str, params: Any = None) -> _TxCursor:
+        cur = self.cursor()
+        await cur.execute(sql, params)
+        return cur
+
+
+#: A five-placeholder expanded tsquery, the shape ``build_expanded_tsquery`` emits.
+EXPANDED_TSQUERY = (
+    "(plainto_tsquery('english', %s) || plainto_tsquery('english', %s)) && "
+    "plainto_tsquery('english', %s) && "
+    "(phraseto_tsquery('english', %s) || plainto_tsquery('english', %s))"
+)
+EXPANDED_PARAMS = ["ts", "troubleshoot", "aborted", "beam dump", "beam abort"]
+
+SET_TIMEOUT_SQL = "SELECT set_config('statement_timeout', %s, true)"
+
+
+def _entry_statement(pool: _TxPool) -> tuple[str, Any]:
+    """The one statement that reads ``enhanced_entries``."""
+    (call,) = [call for call in pool.calls if "enhanced_entries" in call[0]]
+    return call
+
+
+class TestKeywordSearchTsquerySplice:
+    """A caller-supplied tsquery replaces the plain one in rank *and* headline."""
+
+    @pytest.mark.parametrize("include_highlights", [True, False])
+    async def test_default_call_keeps_the_plain_tsquery_path(
+        self,
+        fake_pool,
+        include_highlights: bool,
+    ) -> None:
+        """Omitting `tsquery_sql` emits today's statement, placeholders and params."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.keyword_search(
+            where_clauses=["author = %s"],
+            params=["operator"],
+            search_text="beam lost",
+            max_results=5,
+            include_highlights=include_highlights,
+        )
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        assert "plainto_tsquery('english', %s)" in body
+        expected = (
+            ["beam lost", "beam lost", "operator", 5]
+            if include_highlights
+            else ["beam lost", "operator", 5]
+        )
+        assert params == expected
+        assert sql.count("%s") == len(params)
+
+    async def test_expanded_tsquery_is_spliced_twice_with_highlights(self) -> None:
+        """Rank and headline each take the fragment, so its params bind twice, first."""
+        pool = _TxPool()
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.keyword_search(
+            where_clauses=["author = %s"],
+            params=["operator"],
+            search_text="ts aborted",
+            max_results=5,
+            tsquery_sql=EXPANDED_TSQUERY,
+            tsquery_params=EXPANDED_PARAMS,
+        )
+
+        sql, params = _entry_statement(pool)
+        body = _sql_body(sql)
+        assert body.count(_sql_body(EXPANDED_TSQUERY)) == 2
+        assert "plainto_tsquery('english', %s) ) AS rank" not in body
+        assert params == [*EXPANDED_PARAMS, *EXPANDED_PARAMS, "operator", 5]
+        assert sql.count("%s") == len(params)
+
+    async def test_expanded_tsquery_is_spliced_once_without_highlights(self) -> None:
+        """No ts_headline means one occurrence of the fragment and one copy of its params."""
+        pool = _TxPool()
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.keyword_search(
+            where_clauses=["author = %s"],
+            params=["operator"],
+            search_text="ts aborted",
+            max_results=5,
+            include_highlights=False,
+            tsquery_sql=EXPANDED_TSQUERY,
+            tsquery_params=EXPANDED_PARAMS,
+        )
+
+        sql, params = _entry_statement(pool)
+        body = _sql_body(sql)
+        assert body.count(_sql_body(EXPANDED_TSQUERY)) == 1
+        assert "ts_headline" not in body
+        assert params == [*EXPANDED_PARAMS, "operator", 5]
+        assert sql.count("%s") == len(params)
+
+    async def test_rows_are_still_decoded_through_the_expanded_path(self) -> None:
+        """Splicing changes the statement, never how rank and headline come back."""
+        pool = _TxPool(rows=[_entry_row(entry_id="e-1", rank=0.5, headline="ts <b>aborted</b>")])
+        repo = ARIELRepository(pool, _make_config())
+
+        ((entry, score, highlights),) = await repo.keyword_search(
+            where_clauses=[],
+            params=[],
+            search_text="ts aborted",
+            tsquery_sql=EXPANDED_TSQUERY,
+            tsquery_params=EXPANDED_PARAMS,
+        )
+
+        assert (entry["entry_id"], score, highlights) == ("e-1", 0.5, ["ts <b>aborted</b>"])
+
+
+class TestKeywordSearchOrdering:
+    """A pattern-only statement ranks everything 0, so the tie has to be broken."""
+
+    async def test_pattern_only_query_breaks_the_rank_tie_on_timestamp(self) -> None:
+        """No search text and no tsquery: order by rank then timestamp."""
+        pool = _TxPool()
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.keyword_search(
+            where_clauses=["raw_text ~* %s"],
+            params=["SR01C___BPM[0-9]+"],
+            search_text="",
+        )
+
+        body = _sql_body(_entry_statement(pool)[0])
+        assert "ORDER BY rank DESC, timestamp DESC" in body
+
+    @pytest.mark.parametrize(
+        ("search_text", "tsquery_sql", "tsquery_params"),
+        [
+            pytest.param("quench", None, None, id="plain-text"),
+            pytest.param("", EXPANDED_TSQUERY, EXPANDED_PARAMS, id="expanded-tsquery"),
+        ],
+    )
+    async def test_ranked_query_orders_on_rank_alone(
+        self,
+        search_text: str,
+        tsquery_sql: str | None,
+        tsquery_params: list[Any] | None,
+    ) -> None:
+        """Anything that actually ranks keeps today's single-key ordering."""
+        pool = _TxPool()
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.keyword_search(
+            where_clauses=[],
+            params=[],
+            search_text=search_text,
+            tsquery_sql=tsquery_sql,
+            tsquery_params=tsquery_params,
+        )
+
+        body = _sql_body(_entry_statement(pool)[0])
+        assert "ORDER BY rank DESC LIMIT" in body
+
+
+class TestKeywordSearchTimeoutEnvelope:
+    """`pattern_timeout_seconds` is the only thing that opens a transaction."""
+
+    async def test_no_timeout_opens_no_transaction(self) -> None:
+        """The default path issues one statement and no set_config."""
+        pool = _TxPool()
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.keyword_search(where_clauses=[], params=[], search_text="quench")
+
+        assert _TX_OPEN not in pool.log
+        assert not [sql for sql in pool.log if "set_config" in sql]
+        assert len(pool.calls) == 1
+
+    @pytest.mark.parametrize(
+        ("seconds", "rendered"),
+        [
+            pytest.param(10.0, "10000ms", id="default"),
+            pytest.param(0.001, "1ms", id="floor"),
+            pytest.param(2.5, "2500ms", id="fractional"),
+        ],
+    )
+    async def test_timeout_runs_set_config_inside_the_transaction(
+        self,
+        seconds: float,
+        rendered: str,
+    ) -> None:
+        """SET LOCAL is inert outside a block, so it must follow the block marker."""
+        pool = _TxPool()
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.keyword_search(
+            where_clauses=["raw_text ~* %s"],
+            params=["SR01C___BPM[0-9]+"],
+            search_text="",
+            pattern_timeout_seconds=seconds,
+        )
+
+        assert pool.log[0] == _TX_OPEN
+        assert pool.log[-1] == _TX_OK
+        assert pool.log[1] == SET_TIMEOUT_SQL
+        assert pool.calls[0] == (SET_TIMEOUT_SQL, (rendered,))
+        assert "enhanced_entries" in pool.log[2]
+
+    async def test_timeout_rounding_down_to_zero_is_refused(self) -> None:
+        """0ms disables the timeout in PostgreSQL, so it is never silently sent."""
+        pool = _TxPool()
+        repo = ARIELRepository(pool, _make_config())
+
+        with pytest.raises(ValueError, match="at least 0.001"):
+            await repo.keyword_search(
+                where_clauses=[],
+                params=[],
+                search_text="",
+                pattern_timeout_seconds=0.0004,
+            )
+
+        assert pool.calls == []
+
+
+class TestKeywordSearchErrorClassification:
+    """Timeouts and bad patterns are named errors, not a generic query failure."""
+
+    async def test_query_canceled_becomes_search_timeout_error(self) -> None:
+        """A cancelled statement is the timeout the caller asked for."""
+        canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        pool = _TxPool(error=canceled)
+        repo = ARIELRepository(pool, _make_config())
+
+        with pytest.raises(SearchTimeoutError) as excinfo:
+            await repo.keyword_search(
+                where_clauses=["raw_text ~* %s"],
+                params=["SR01C___BPM[0-9]+"],
+                search_text="",
+                pattern_timeout_seconds=10.0,
+            )
+
+        assert excinfo.value.timeout_seconds == 10.0
+        assert excinfo.value.operation == "keyword_search"
+        assert excinfo.value.__cause__ is canceled
+        assert pool.log[-1] == _TX_UNDO
+
+    async def test_invalid_regular_expression_becomes_pattern_error(self) -> None:
+        """PostgreSQL's own message names the expression it refused."""
+        invalid = psycopg.errors.InvalidRegularExpression(
+            "invalid regular expression: brackets [] not balanced"
+        )
+        pool = _TxPool(error=invalid)
+        repo = ARIELRepository(pool, _make_config())
+
+        with pytest.raises(PatternError) as excinfo:
+            await repo.keyword_search(
+                where_clauses=["raw_text ~* %s"],
+                params=["SR0[1-4"],
+                search_text="",
+                pattern_timeout_seconds=10.0,
+            )
+
+        assert "brackets [] not balanced" in str(excinfo.value)
+        assert excinfo.value.pattern is None
+        assert excinfo.value.__cause__ is invalid
+
+    async def test_cancel_inside_the_regex_engine_is_still_a_timeout(self) -> None:
+        """A statement_timeout that lands mid-regex surfaces as SQLSTATE 2201B, not 57014.
+
+        PostgreSQL's regex engine reports the cancellation as
+        ``invalid regular expression: operation cancelled``; the operator asked
+        for a timeout and must not be told their pattern is malformed.
+        """
+        cancelled = psycopg.errors.InvalidRegularExpression(
+            "invalid regular expression: operation cancelled"
+        )
+        pool = _TxPool(error=cancelled)
+        repo = ARIELRepository(pool, _make_config())
+
+        with pytest.raises(SearchTimeoutError) as excinfo:
+            await repo.keyword_search(
+                where_clauses=["raw_text ~* %s"],
+                params=["SR01C___BPM[0-9]+ trip [a-z]{4,}"],
+                search_text="",
+                pattern_timeout_seconds=0.001,
+            )
+
+        assert excinfo.value.timeout_seconds == 0.001
+        assert excinfo.value.operation == "keyword_search"
+        assert excinfo.value.__cause__ is cancelled
+
+    async def test_any_other_failure_still_becomes_database_query_error(self) -> None:
+        """The blanket handler and its breadcrumb are unchanged."""
+        pool = _TxPool(error=RuntimeError("connection reset"))
+        repo = ARIELRepository(pool, _make_config())
+
+        with pytest.raises(DatabaseQueryError) as excinfo:
+            await repo.keyword_search(where_clauses=[], params=[], search_text="quench")
+
+        assert excinfo.value.technical_details["query"] == "KEYWORD SEARCH: quench"

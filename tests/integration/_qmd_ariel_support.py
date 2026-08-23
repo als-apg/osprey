@@ -15,6 +15,7 @@ import logging
 import os
 import time
 from contextlib import contextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -515,3 +516,148 @@ def _tail_logs(container) -> str:
         return text[-4000:]
     except Exception as exc:  # pragma: no cover - diagnostic path only
         return f"(could not read container logs: {exc})"
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary expansion
+# ---------------------------------------------------------------------------
+
+#: The facility vocabulary the expansion cases run against. Both concepts are
+#: chosen so the shorthand an operator types shares no token with the prose the
+#: mirror holds -- ``t/s`` never appears in a logbook entry, ``troubleshoot``
+#: does -- which is what makes the expansion's effect measurable rather than
+#: incidental. ``kind`` differs between them on purpose: the two direction
+#: gates (``canonical_to_acronym`` / ``canonical_to_shorthand``) are keyed on
+#: it, and the direction this lane exercises (form to canonical) is the one
+#: neither gate can switch off.
+VOCABULARY_YML = """\
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms:
+      - ts
+      - t/s
+  - canonical: beam position monitor
+    kind: acronym
+    forms:
+      - bpm
+"""
+
+#: The query every expansion case sends: two facility shorthands and nothing
+#: else, so an unexpanded run has no lexical purchase on the seeded prose at all.
+VOCABULARY_QUERY = "t/s bpm"
+
+#: The expansions :data:`VOCABULARY_QUERY` must resolve to, as
+#: ``original -> alternatives``. Spelled here rather than inside the assertion
+#: so the vocabulary above and the expectation cannot drift apart.
+VOCABULARY_EXPECTED_PAIRS = {
+    "t/s": ("troubleshoot",),
+    "bpm": ("beam position monitor",),
+}
+
+#: The entry only an expanded query is supposed to reach, seeded as **its own
+#: group**. Deliberately not a member of the test module's ``SAFE_ROWS``: the
+#: sidecar fixture waits for ``len(hits) >= len(SAFE_ROWS)`` before it declares
+#: the corpus indexed, and three post-filter tests compare ``_safe_ids(...)``
+#: against exact subsets of that group, so an eighth member would quietly change
+#: what all of those assertions mean. It is not part of the hostile-id group
+#: either: nothing here is about encoding.
+#:
+#: The identifier itself carries **neither** shorthand nor canonical phrase, and
+#: that is load-bearing rather than tidy: the mirror writer puts the id in the
+#: document's ``# Entry <id>`` heading, so qmd indexes it as prose. An id spelling
+#: out ``troubleshoot`` or ``bpm`` hands the unexpanded query a lexical match on
+#: the title alone — measured at the time: it took the entry to rank 1 with no
+#: expansion at all, which would have made the effect test pass for the wrong
+#: reason in one direction and fail in the other.
+VOCABULARY_ENTRY_ID = "vocab-needle-0001"
+
+#: Its prose. Written the way an operator writes, and containing **only** the
+#: canonical phrases. If ``ts``, ``t/s`` or ``bpm`` ever appears in this string,
+#: the unexpanded query could match it lexically and the effect test would pass
+#: without the expansion having done anything.
+VOCABULARY_PROSE = (
+    "Had to troubleshoot the beam position monitor offset in the storage ring "
+    "this morning; recalibrated after the orbit drift."
+)
+
+#: Near misses, and the reason the effect test measures anything at all.
+#: Measured: with no other document in the corpus mentioning a beam position
+#: monitor, the sidecar's vector leg retrieves the entry above from a bare
+#: ``t/s bpm`` on its own — an embedding model already knows ``bpm``, so the
+#: unexpanded query lands on the only candidate there is and the expansion
+#: cannot be shown to have done anything. These rows each carry **one** of the
+#: two canonical concepts and neither shorthand, so an unexpanded query has real
+#: competition while the expanded query, which names both concepts, ranks the
+#: entry that has both above all of them.
+#:
+#: **How many is a measurement, not a preference.** Four such rows overshot:
+#: they pushed the *expanded* rank down to 3 as well, which is the last slot the
+#: effect test's top-3 assertion allows — no headroom at all. With the three
+#: below, measured twice on fresh containers and fresh indexes against
+#: ``als-assistant-qmd:local``, byte-identical both times: the needle ranks **2**
+#: expanded (behind ``beam_current_setpoint`` only) and **7** unexpanded. So the
+#: positive half has one spare slot and the negative half four. Adding a row here
+#: costs the positive half; removing one costs the negative half.
+VOCABULARY_DISTRACTOR_ROWS: list[tuple[str, str]] = [
+    (
+        "vocab-distractor-rack",
+        "The beam position monitor electronics rack in sector three was swapped "
+        "during the shutdown.",
+    ),
+    (
+        "vocab-distractor-orbit",
+        "Orbit drift logged by the beam position monitor system overnight.",
+    ),
+    (
+        "vocab-distractor-archive",
+        "Beam position monitor readings were archived after the injection study.",
+    ),
+]
+
+#: An author of its own, and a year no date filter in the module spans, so these
+#: rows cannot land inside a post-filter expectation.
+VOCABULARY_AUTHOR = "Vocabulary Probe"
+VOCABULARY_SOURCE_SYSTEM = "ALS OLOG"
+VOCABULARY_TIMESTAMP = datetime(2009, 5, 12, 12, 0, tzinfo=UTC)
+
+
+def write_vocabulary_file(directory: Path) -> Path:
+    """Write :data:`VOCABULARY_YML` and return its absolute path.
+
+    Args:
+        directory: Host directory to write into.
+
+    Returns:
+        Path of the written ``vocabulary.yml``, ready for
+        ``ariel.vocabulary.path``, which takes an absolute path as-is.
+    """
+    path = directory / "vocabulary.yml"
+    path.write_text(VOCABULARY_YML, encoding="utf-8")
+    return path
+
+
+def qmd_ariel_vocabulary_config(
+    base: dict[str, Any],
+    vocabulary_path: Path | str,
+    *,
+    expand_modes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Copy ``base`` with an enabled ``vocabulary`` block bolted on.
+
+    A copy rather than a mutation: the session-scoped sidecar world hands out
+    one config dict and every other test in the module reads it.
+
+    Args:
+        base: The lane's config section, from :func:`qmd_ariel_config_dict`.
+        vocabulary_path: Absolute path of the vocabulary file to load.
+        expand_modes: Value for ``ariel.vocabulary.expand_modes``. ``None``
+            leaves the key out, which means "every enabled search module".
+
+    Returns:
+        A new config dict carrying the vocabulary block.
+    """
+    vocabulary: dict[str, Any] = {"enabled": True, "path": str(vocabulary_path)}
+    if expand_modes is not None:
+        vocabulary["expand_modes"] = list(expand_modes)
+    return {**base, "vocabulary": vocabulary}

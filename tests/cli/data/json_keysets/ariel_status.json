@@ -16,5 +16,6 @@
   "search_modules.hybrid",
   "search_modules.keyword",
   "search_modules.semantic",
-  "status"
+  "status",
+  "vocabulary"
 ]

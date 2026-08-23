@@ -35,6 +35,52 @@ from osprey.services.ariel_search import cli_operations as ops
 # A minimal config dict accepted by ARIELConfig.from_dict.
 _DB = {"database": {"uri": "postgresql://localhost/test"}}
 
+# What ``get_status`` reports for a config with no ``vocabulary`` block at all.
+_DISABLED_VOCABULARY = {"status": "disabled", "concepts": 0, "errors": []}
+
+
+def _write_vocabulary(tmp_path, body: str):
+    """Write *body* as a vocabulary file and return its path."""
+    path = tmp_path / "vocabulary.yml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+# A file with exactly three errors: an empty canonical, an unknown kind, and an
+# empty forms list.
+_THREE_ERRORS = """
+concepts:
+  - canonical: ""
+    kind: acronym
+    forms: ["bpm"]
+  - canonical: beam position monitor
+    kind: sideways
+    forms: ["bpm"]
+  - canonical: radio frequency
+    kind: acronym
+    forms: []
+"""
+
+# One form bound to two concepts: legal, one warning, no errors.
+_AMBIGUOUS = """
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms: ["t/s", "ts"]
+  - canonical: timing system
+    kind: acronym
+    forms: ["ts"]
+"""
+
+# The only stopword-valued string is a *shorthand* form, so whether it warns
+# depends on canonical_to_shorthand.
+_STOPWORD_SHORTHAND = """
+concepts:
+  - canonical: orbit correction
+    kind: shorthand
+    forms: ["a"]
+"""
+
 
 class _StubService:
     """Async-context-manager stub standing in for the ARIEL service."""
@@ -131,7 +177,11 @@ class TestEntrySummary:
 class TestGetStatus:
     async def test_empty_config_reports_not_configured(self):
         out = await ops.get_status({})
-        assert out == {"status": "error", "message": "ARIEL not configured"}
+        assert out == {
+            "status": "error",
+            "message": "ARIEL not configured",
+            "vocabulary": _DISABLED_VOCABULARY,
+        }
 
     async def test_healthy_status_assembles_full_report(self, monkeypatch):
         repo = MagicMock()
@@ -194,7 +244,189 @@ class TestGetStatus:
     async def test_generic_error_returns_raw_message(self, monkeypatch):
         _patch_service_raises(monkeypatch, RuntimeError("boom-unexpected"))
         out = await ops.get_status(dict(_DB))
-        assert out == {"status": "error", "message": "boom-unexpected"}
+        assert out == {
+            "status": "error",
+            "message": "boom-unexpected",
+            "vocabulary": _DISABLED_VOCABULARY,
+        }
+
+
+class TestGetStatusVocabulary:
+    """The ``vocabulary`` block rides on every path out of ``get_status``."""
+
+    async def test_no_config_reports_disabled(self):
+        out = await ops.get_status({})
+        assert out["vocabulary"] == {"status": "disabled", "concepts": 0, "errors": []}
+
+    async def test_legacy_pipelines_section_reports_invalid_with_parse_error(self):
+        out = await ops.get_status({"pipelines": {"rag": {}}})
+
+        assert out["vocabulary"]["status"] == "invalid"
+        assert out["vocabulary"]["concepts"] == 0
+        assert len(out["vocabulary"]["errors"]) == 1
+        assert "ariel.pipelines section is no longer supported" in out["vocabulary"]["errors"][0]
+
+    async def test_missing_file_reports_invalid_naming_the_key(self, monkeypatch, tmp_path):
+        repo = MagicMock()
+        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
+        repo.get_embedding_tables = AsyncMock(return_value=[])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        config = dict(_DB)
+        config["vocabulary"] = {"enabled": True, "path": str(tmp_path / "absent.yml")}
+        out = await ops.get_status(config)
+
+        assert out["status"] == "healthy"
+        assert out["vocabulary"]["status"] == "invalid"
+        assert "ariel.vocabulary.path" in out["vocabulary"]["errors"][0]
+
+    async def test_valid_file_reports_ok_with_concept_count(self, monkeypatch, tmp_path):
+        repo = MagicMock()
+        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
+        repo.get_embedding_tables = AsyncMock(return_value=[])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        path = _write_vocabulary(tmp_path, _AMBIGUOUS)
+        config = dict(_DB)
+        config["vocabulary"] = {"enabled": True, "path": str(path)}
+        out = await ops.get_status(config)
+
+        assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
+
+    async def test_enabled_without_path_reports_invalid(self, monkeypatch):
+        repo = MagicMock()
+        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
+        repo.get_embedding_tables = AsyncMock(return_value=[])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        config = dict(_DB)
+        config["vocabulary"] = {"enabled": True}
+        out = await ops.get_status(config)
+
+        assert out["vocabulary"]["status"] == "invalid"
+        assert "ariel.vocabulary.path is required" in out["vocabulary"]["errors"][0]
+
+    async def test_connection_failure_still_carries_the_block(self, monkeypatch, tmp_path):
+        _patch_service_raises(monkeypatch, RuntimeError("could not connect to server"))
+
+        path = _write_vocabulary(tmp_path, _AMBIGUOUS)
+        config = dict(_DB)
+        config["vocabulary"] = {"enabled": True, "path": str(path)}
+        out = await ops.get_status(config)
+
+        assert out["status"] == "error"
+        assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
+
+    async def test_relative_path_resolves_against_config_dir(self, monkeypatch, tmp_path):
+        repo = MagicMock()
+        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
+        repo.get_embedding_tables = AsyncMock(return_value=[])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        _write_vocabulary(tmp_path, _AMBIGUOUS)
+        config = dict(_DB)
+        config["vocabulary"] = {"enabled": True, "path": "vocabulary.yml"}
+        out = await ops.get_status(config, config_dir=tmp_path)
+
+        assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
+
+
+# ---------------------------------------------------------------------------
+# check_vocabulary — the DB-free file check behind `osprey ariel vocab-check`
+# ---------------------------------------------------------------------------
+
+
+class TestCheckVocabulary:
+    def test_three_error_file_reports_all_three(self, tmp_path):
+        path = _write_vocabulary(tmp_path, _THREE_ERRORS)
+
+        out = ops.check_vocabulary({}, str(path))
+
+        assert out["status"] == "invalid"
+        assert out["path"] == str(path)
+        assert out["concepts"] == 0
+        assert len(out["errors"]) == 3
+
+    def test_valid_file_reports_ok_with_count(self, tmp_path):
+        path = _write_vocabulary(tmp_path, _AMBIGUOUS)
+
+        out = ops.check_vocabulary({}, str(path))
+
+        assert out["status"] == "ok"
+        assert out["concepts"] == 2
+        assert out["errors"] == []
+
+    def test_ambiguous_form_warns_naming_every_canonical(self, tmp_path):
+        path = _write_vocabulary(tmp_path, _AMBIGUOUS)
+
+        out = ops.check_vocabulary({}, str(path))
+
+        assert out["status"] == "ok"
+        assert len(out["warnings"]) == 1
+        warning = out["warnings"][0]
+        assert 'form "ts"' in warning
+        assert "troubleshoot" in warning
+        assert "timing system" in warning
+
+    def test_stopword_shorthand_warns_only_when_that_direction_is_enabled(self, tmp_path):
+        path = _write_vocabulary(tmp_path, _STOPWORD_SHORTHAND)
+
+        off = ops.check_vocabulary({"vocabulary": {"canonical_to_shorthand": False}}, str(path))
+        on = ops.check_vocabulary({"vocabulary": {"canonical_to_shorthand": True}}, str(path))
+
+        assert off["warnings"] == []
+        assert len(on["warnings"]) == 1
+        assert 'form "a"' in on["warnings"][0]
+
+    def test_explicit_path_beats_the_configured_one(self, tmp_path):
+        configured = _write_vocabulary(tmp_path, _THREE_ERRORS)
+        explicit = tmp_path / "other.yml"
+        explicit.write_text(_AMBIGUOUS, encoding="utf-8")
+
+        out = ops.check_vocabulary(
+            {"vocabulary": {"enabled": True, "path": str(configured)}}, str(explicit)
+        )
+
+        assert out["path"] == str(explicit)
+        assert out["status"] == "ok"
+
+    def test_configured_relative_path_resolves_against_config_dir(self, tmp_path):
+        _write_vocabulary(tmp_path, _AMBIGUOUS)
+
+        out = ops.check_vocabulary(
+            {"vocabulary": {"enabled": True, "path": "vocabulary.yml"}}, config_dir=tmp_path
+        )
+
+        assert out["status"] == "ok"
+        assert out["path"] == str(tmp_path / "vocabulary.yml")
+
+    def test_disabled_block_still_checks_its_configured_path(self, tmp_path):
+        path = _write_vocabulary(tmp_path, _AMBIGUOUS)
+
+        out = ops.check_vocabulary({"vocabulary": {"enabled": False, "path": str(path)}})
+
+        assert out["status"] == "ok"
+
+    def test_no_path_anywhere_is_an_error(self):
+        out = ops.check_vocabulary({})
+
+        assert out["status"] == "error"
+        assert out["message"] == "no vocabulary path: pass PATH or set ariel.vocabulary.path"
+        assert out["path"] is None
+
+    def test_missing_file_is_reported_as_an_error_not_raised(self, tmp_path):
+        out = ops.check_vocabulary({}, str(tmp_path / "absent.yml"))
+
+        assert out["status"] == "invalid"
+        assert "not found" in out["errors"][0]
+
+    def test_malformed_knob_is_refused_rather_than_defaulted(self, tmp_path):
+        path = _write_vocabulary(tmp_path, _AMBIGUOUS)
+
+        out = ops.check_vocabulary({"vocabulary": {"canonical_to_acronym": "yes"}}, str(path))
+
+        assert out["status"] == "invalid"
+        assert "ariel.vocabulary.canonical_to_acronym" in out["errors"][0]
 
 
 # ---------------------------------------------------------------------------
