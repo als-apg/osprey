@@ -374,6 +374,53 @@ async def test_calls_after_the_child_dies_raise_connection_error(teardown):
         await proxy.read_multiple_channels(["SR:A", "SR:B"])
 
 
+async def test_a_transport_that_says_why_it_stopped_is_quoted_verbatim(teardown):
+    """A supervisor that ends the stream on purpose gets to name the reason.
+
+    The target switch kills a child whose requests are still in flight, and
+    what those callers need to read is "a switch killed it", not a sentence
+    about an unreadable stream. A transport signalling ``ConnectionError``
+    therefore has its message passed through untouched.
+    """
+    reason = "the control-system target switch from 'va' to 'live' killed this child"
+
+    class _NamedStop:
+        """A reader that can be told why its stream is about to end."""
+
+        def __init__(self, reader):
+            self._reader = reader
+            self.reason = None
+
+        async def read(self, count):
+            if self.reason is not None:
+                raise ConnectionError(self.reason)
+            chunk = await self._reader.read(count)
+            if not chunk and self.reason is not None:
+                raise ConnectionError(self.reason)
+            return chunk
+
+    async def never_answers(child, frame):
+        return
+
+    parent_sock, child_sock = socket.socketpair()
+    parent_reader, parent_writer = await asyncio.open_connection(sock=parent_sock)
+    child_reader, child_writer = await asyncio.open_connection(sock=child_sock)
+    reader = _NamedStop(parent_reader)
+    child = _FakeChild(child_reader, child_writer, never_answers)
+    child.start()
+    proxy = ConnectorHostProxy(reader, parent_writer)
+    teardown.append((proxy, child))
+
+    pending = asyncio.create_task(proxy.read_channel("SR:BEND:1:CUR"))
+    await asyncio.sleep(0.05)
+    reader.reason = reason
+    await child.die()
+
+    with pytest.raises(ConnectionError) as caught:
+        await asyncio.wait_for(pending, 5)
+    assert str(caught.value) == reason
+
+
 async def test_a_garbled_stream_kills_the_proxy_rather_than_hanging(teardown):
     async def handler(child, frame):
         child._writer.write(b"this is not a frame at all")

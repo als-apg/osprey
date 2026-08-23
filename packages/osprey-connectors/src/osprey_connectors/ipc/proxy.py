@@ -346,6 +346,13 @@ class ConnectorHostProxy:
                     self._dispatch(frame)
         except asyncio.CancelledError:
             raise
+        except ConnectionError as exc:
+            # A transport that raises ConnectionError is telling this proxy why
+            # its stream ended — the supervisor's reader does exactly that when
+            # it kills a child for a target switch. That sentence is better than
+            # anything this layer could write about it, so it is passed through
+            # verbatim rather than wrapped in a description of the stream.
+            await self._fail_all(str(exc) or f"the {CHILD} closed its output stream")
         except Exception as exc:
             await self._fail_all(f"the {CHILD} sent an unreadable reply stream: {exc}")
 

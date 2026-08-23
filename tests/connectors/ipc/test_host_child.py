@@ -304,6 +304,11 @@ def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.class_tag == "TimeoutError"
     assert isinstance(frame.exception, TimeoutError)
+    # asyncio.wait_for raises a bare TimeoutError, and the switch refusal built
+    # from it is only as informative as this message: it has to name the
+    # channel that would not answer.
+    assert "SR:BEAM:CURRENT" in frame.message
+    assert "0.001" in frame.message
 
     # A failed probe means the switch does not happen; it does not mean this
     # child is finished.

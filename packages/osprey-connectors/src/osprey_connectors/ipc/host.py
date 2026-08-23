@@ -552,12 +552,23 @@ async def _spawn_probe(
 
     Raises:
         ValueError: The bound is not a positive number.
-        TimeoutError: The read did not finish inside the bound.
+        TimeoutError: The read did not finish inside the bound. The message
+            always names the channel and the bound, because the two bounds race
+            and ``asyncio.wait_for`` usually wins with a *bare*
+            :class:`TimeoutError` — one whose empty message renders, several
+            layers up, as a switch refusal ending in ": ." that names nothing
+            the operator could act on.
     """
     bound = DEFAULT_PROBE_TIMEOUT_S if timeout is None else float(timeout)
     if bound <= 0:
         raise ValueError(f"spawn_probe timeout must be positive, got {timeout!r}")
-    return await asyncio.wait_for(connector.read_channel(channel, timeout=bound), timeout=bound)
+    try:
+        return await asyncio.wait_for(connector.read_channel(channel, timeout=bound), timeout=bound)
+    except TimeoutError as exc:
+        reason = f"probe read of {channel!r} timed out after {bound}s"
+        # A connector that reported its own timeout said something more
+        # specific; it is kept, behind the subject it did not name.
+        raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc
 
 
 async def _invoke(connector: Any, method: str, kwargs: dict[str, Any]) -> Any:
