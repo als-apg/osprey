@@ -21,7 +21,8 @@ import { escapeHtml as esc } from '/design-system/js/dom.js';
 const SERVER_COLORS = {
   controls: 'srv-controls', python: 'srv-python', osprey_workspace: 'srv-workspace',
   ariel: 'srv-ariel', 'channel-finder': 'srv-channel-finder',
-  osprey_facility_knowledge: 'srv-facility-knowledge', phoebus: 'srv-phoebus',
+  osprey_facility_knowledge: 'srv-facility-knowledge', graph: 'srv-graph',
+  phoebus: 'srv-phoebus',
   bluesky: 'srv-bluesky', health: 'srv-health',
 };
 
