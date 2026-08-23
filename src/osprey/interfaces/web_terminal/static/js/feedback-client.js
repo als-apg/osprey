@@ -17,7 +17,9 @@
  *      (`new ClipboardItem({'text/plain': postPromise.then(...)})`) instead of
  *      an awaited string: the write is registered immediately and the browser
  *      resolves the content later. Everything above the marked line in
- *      `sendFeedback` runs synchronously in the caller's turn.
+ *      `sendFeedback` runs synchronously in the caller's turn — including the
+ *      pointer-vs-full decision, which depends on nothing but the form state
+ *      and the URL caps and is therefore known before any await.
  *
  *   2. NOTHING THROWS. A failed paper-trail POST must never cost the user the
  *      issue tab they asked for, and nginx answers an oversized body with an
@@ -31,6 +33,7 @@
 
 import { withPrefix } from './api.js';
 import {
+  PASTE_POINTER,
   buildGitHubIssueUrl as defaultGitHubIssueUrl,
   buildMailto as defaultMailto,
   buildPrefillBody as defaultPrefillBody,
@@ -58,9 +61,18 @@ export const TRANSCRIPT_NOT_FOUND = 'transcript_not_found';
 export const NOTICE_TOO_LARGE =
   'Submission too large — shorten your text or untick session context.';
 
-/** Shown when the paper-trail POST failed but the outbound handoff succeeded. */
+/**
+ * Shown when the paper-trail POST failed but the outbound handoff succeeded
+ * and a paste is owed. The POST is also what composes the full payload, so a
+ * failed one leaves only the typed text on the clipboard — and the pointer
+ * line in the draft promises "your full report", which this line corrects.
+ */
 export const NOTICE_NOT_RECORDED =
-  'not recorded on this deployment — your clipboard copy is intact';
+  'not recorded on this deployment — your clipboard holds your text only; paste that into the draft';
+
+/** As above, for a FULL-mode send where the draft is already complete. */
+export const NOTICE_NOT_RECORDED_FULL =
+  'not recorded on this deployment — the draft you opened is complete and unaffected';
 
 /** Shown when the server found no transcript for the submitted session. */
 export const NOTICE_NO_TRANSCRIPT =
@@ -83,18 +95,16 @@ export const NOTICE_CONTEXT_COPIED = 'Session context copied to your clipboard.'
 export const NOTICE_EMPTY_BUNDLE = 'This deployment returned no session context.';
 
 /**
- * Appended to the outbound confirmation when the clipboard carries something
- * the prefilled body could not: the session context (which never fits a
- * `mailto:` URL), or text the URL cap forced out. Without this line the sender
- * has no way to know the paste step exists — the draft looks complete and gets
- * sent with the placeholder still in it.
+ * Appended to the outbound confirmation of a POINTER-mode send: the draft
+ * opened carrying one line that points at the clipboard, and this repeats the
+ * instruction in the dialog for whoever comes back to it before pasting.
  */
 export const NOTICE_PASTE_GITHUB =
-  'the full report is on your clipboard — paste it over the placeholder in the issue';
+  'your full report is on your clipboard — paste it into the issue body';
 
 /** Email variant of {@link NOTICE_PASTE_GITHUB}. */
 export const NOTICE_PASTE_EMAIL =
-  'the full report is on your clipboard — paste it over the placeholder in the draft';
+  'your full report is on your clipboard — paste it into the draft';
 
 /**
  * Prefilled issue title / mail subject. Deliberately generic: the report text
@@ -127,8 +137,12 @@ const SESSION_TITLE_CHARS = 8;
 /** The slice of `navigator.clipboard` this module uses; both rungs optional. */
 /** @typedef {{write?: (items: any[]) => Promise<void>, writeText?: (text: string) => Promise<void>}} ClipboardLike */
 
-/** Which rung of the clipboard ladder landed the payload. */
-/** @typedef {'clipboard'|'clipboard-text'|'manual'|'none'} CopyRung */
+/**
+ * Which rung of the clipboard ladder landed the payload. `skipped` means no
+ * write was attempted at all — a FULL-mode send owes the clipboard nothing,
+ * and overwriting whatever the operator had there would be pure loss.
+ */
+/** @typedef {'clipboard'|'clipboard-text'|'manual'|'none'|'skipped'} CopyRung */
 
 /** @typedef {{kind: 'success'|'warning'|'error', message: string}} FeedbackNotice */
 
@@ -138,7 +152,8 @@ const SESSION_TITLE_CHARS = 8;
  * @property {string|null} id - record id, when one was written
  * @property {CopyRung} copied
  * @property {boolean} opened - an issue tab or mail draft was handed off
- * @property {boolean} truncated - the prefilled URL had to shorten the text
+ * @property {boolean} needsPaste - the draft opened in POINTER mode and the
+ *   full report was put on the clipboard for the operator to paste
  * @property {string|null} contextStatus - server's `context_status`, if any
  * @property {string|null} error - technical reason, for the caller's own use
  * @property {FeedbackNotice} notice - the one line to show the user
@@ -188,15 +203,20 @@ export async function sendFeedback(form, deps) {
 
   // --- synchronous section: runs inside the click turn, no `await` above it ---
   const link = buildOutboundLink(form, deps);
-  // When the POST fails there is no server payload, so the clipboard falls back
-  // to the user's own words. That keeps NOTICE_NOT_RECORDED honest: the copy is
-  // intact, it just carries no server-composed context.
-  const fallbackPayload = String(form.text ?? '');
-  const payload = request.then(
-    (data) => (typeof data.payload === 'string' && data.payload ? data.payload : fallbackPayload),
-    () => fallbackPayload
-  );
-  const copying = copyPayload(deps, payload);
+  /** @type {Promise<CopyRung>} */
+  let copying = Promise.resolve('skipped');
+  if (link.needsPaste) {
+    // When the POST fails there is no server payload, so the clipboard falls
+    // back to the user's own words — NOTICE_NOT_RECORDED tells them the copy
+    // carries the text alone. A FULL-mode send never reaches this block: its
+    // draft is complete as opened and the operator's clipboard is not touched.
+    const fallbackPayload = String(form.text ?? '');
+    const payload = request.then(
+      (data) => (typeof data.payload === 'string' && data.payload ? data.payload : fallbackPayload),
+      () => fallbackPayload
+    );
+    copying = copyPayload(deps, payload);
+  }
   let opened = false;
   if (channel === 'github') {
     if (typeof deps.windowOpen === 'function') {
@@ -212,19 +232,18 @@ export async function sendFeedback(form, deps) {
   const [copied, outcome] = await Promise.all([copying, settle(request)]);
   const id = readString(outcome.data, 'id');
   const contextStatus = readString(outcome.data, 'context_status');
-  // The paste step exists whenever the clipboard holds more than the prefilled
-  // body does: always with context attached (it travels only by paste), and
-  // whenever the URL cap forced text out of the body.
-  const needsPaste = form.contextOn === true || link.truncated;
   return {
     ok: outcome.ok,
     id,
     copied,
     opened,
-    truncated: link.truncated,
+    needsPaste: link.needsPaste,
     contextStatus,
     error: outcome.error,
-    notice: emit(deps, outboundNotice(outcome.ok, id, contextStatus, copied, channel, needsPaste)),
+    notice: emit(
+      deps,
+      outboundNotice(outcome.ok, id, contextStatus, copied, channel, link.needsPaste)
+    ),
   };
 }
 
@@ -444,34 +463,41 @@ function buildSendBody(form, deps) {
 /**
  * Build the prefilled outbound URL for the current channel.
  *
+ * With session context attached the body is {@link PASTE_POINTER} outright —
+ * context never fits a URL, so the whole report (text, metadata, context)
+ * travels on the clipboard and one paste completes the draft. Without context
+ * the full body is attempted and the builder falls back to the pointer only
+ * when the URL cap forces it to.
+ *
  * @param {FeedbackForm} form
  * @param {FeedbackDeps} deps
- * @returns {{url: string, truncated: boolean}} `truncated` means the URL could
- *   not carry the whole text, so the payload MUST reach the clipboard — the
- *   marker the builders leave behind promises exactly that.
+ * @returns {{url: string, needsPaste: boolean}} `needsPaste` means the draft
+ *   carries the pointer line, so the payload MUST reach the clipboard — the
+ *   pointer promises exactly that.
  */
 function buildOutboundLink(form, deps) {
-  const buildBody = deps.buildPrefillBody ?? defaultPrefillBody;
-  const metadata = form.metadataOn === true ? { ...(deps.metadata ?? {}) } : {};
-  // The session id is the one context fact that fits the body inline, and the
-  // one a maintainer needs to correlate the message with the deployment's own
-  // record even when the paste never happens. It travels under the context
-  // checkbox — with the box unticked no session id reaches the record either,
-  // so there would be nothing for it to correlate with.
-  if (form.contextOn === true && form.sessionId) {
-    metadata.Session = String(form.sessionId);
+  const contextOn = form.contextOn === true;
+  let body;
+  if (contextOn) {
+    // No metadata block either: the server-composed payload carries the
+    // deployment tier (version, app, browser, session id), so a prefilled
+    // block would only duplicate it under the paste.
+    body = PASTE_POINTER;
+  } else {
+    const buildBody = deps.buildPrefillBody ?? defaultPrefillBody;
+    const metadata = form.metadataOn === true ? { ...(deps.metadata ?? {}) } : {};
+    body = buildBody(String(form.text ?? ''), metadata);
   }
-  const body = buildBody(String(form.text ?? ''), metadata);
   const title = deriveTitle(form);
 
   if (normalizeChannel(form.channel) === 'github') {
     const build = deps.buildGitHubIssueUrl ?? defaultGitHubIssueUrl;
     const issue = build(String(deps.githubRepo ?? ''), title, body);
-    return { url: issue.url, truncated: issue.truncated === true };
+    return { url: issue.url, needsPaste: contextOn || issue.needsPaste === true };
   }
   const build = deps.buildMailto ?? defaultMailto;
   const draft = build(String(deps.email ?? ''), title, body);
-  return { url: draft.url, truncated: draft.needsAutoCopy === true };
+  return { url: draft.url, needsPaste: contextOn || draft.needsPaste === true };
 }
 
 /**
@@ -534,27 +560,34 @@ function localResult(deps, data) {
 }
 
 /**
- * The one line to show after an outbound (GitHub/Email) submission, in priority
- * order: a clipboard the user has to act on outranks a missing paper trail,
- * which outranks the ordinary confirmation. The confirmation itself names the
- * paste step whenever the clipboard carries more than the prefilled body did —
- * a no-transcript warning keeps its own wording, because "paste the full
+ * The one line to show after an outbound (GitHub/Email) submission.
+ *
+ * A POINTER-mode send is judged in priority order: a clipboard the user has
+ * to act on outranks a missing paper trail, which outranks the ordinary
+ * confirmation — and the confirmation names the paste step, except after a
+ * no-transcript warning, whose own wording stands because "paste the full
  * report" would promise context the server just said it could not find.
+ * A FULL-mode send involves no clipboard at all, so only the paper trail can
+ * have gone wrong.
  *
  * @param {boolean} ok
  * @param {string|null} id
  * @param {string|null} contextStatus
  * @param {CopyRung} copied
  * @param {'local'|'github'|'email'} channel
- * @param {boolean} needsPaste - the clipboard holds more than the body does
+ * @param {boolean} needsPaste - the draft opened in POINTER mode
  * @returns {FeedbackNotice}
  */
 function outboundNotice(ok, id, contextStatus, copied, channel, needsPaste) {
+  if (!needsPaste) {
+    if (!ok) return { kind: 'warning', message: NOTICE_NOT_RECORDED_FULL };
+    return recordedNotice(id, contextStatus);
+  }
   if (copied === 'none') return { kind: 'error', message: NOTICE_COPY_FAILED };
   if (copied === 'manual') return { kind: 'warning', message: NOTICE_MANUAL_COPY };
   if (!ok) return { kind: 'warning', message: NOTICE_NOT_RECORDED };
   const base = recordedNotice(id, contextStatus);
-  if (!needsPaste || base.kind !== 'success') return base;
+  if (base.kind !== 'success') return base;
   const hint = channel === 'email' ? NOTICE_PASTE_EMAIL : NOTICE_PASTE_GITHUB;
   return { kind: 'success', message: `${base.message} — ${hint}` };
 }
@@ -605,7 +638,7 @@ function emptyResult() {
     id: null,
     copied: 'none',
     opened: false,
-    truncated: false,
+    needsPaste: false,
     contextStatus: null,
     error: null,
     notice: { kind: 'error', message: REQUEST_FAILED },

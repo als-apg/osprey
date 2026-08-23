@@ -45,13 +45,20 @@ const DEFAULT_TITLE = 'Send feedback';
 export const NO_SESSION_HINT = 'no session yet';
 
 /**
- * Hint shown beside the ticked session-context checkbox on the GitHub and
- * Email channels, where the context travels by clipboard paste rather than
- * inside the prefilled body. Shown at the moment of ticking the box — before
- * the draft opens looking complete — so the paste step is announced twice: here
- * and in the post-send notice.
+ * The two-step statement shown between the checkboxes and the action button on
+ * the GitHub and Email channels while session context is ticked. It states, in
+ * order and before the click, exactly what the action button will do — the
+ * context cannot ride a prefilled URL, so the report travels by clipboard and
+ * the draft opens with a line marking where to paste it. Deliberately plain:
+ * nothing here is irreversible, so nothing here needs a warning tone.
  */
-export const CONTEXT_PASTE_HINT = 'copied to your clipboard on send — paste it over the placeholder';
+export const PASTE_STEP_COPY = 'Your full report is copied to your clipboard.';
+
+/** Step two of {@link PASTE_STEP_COPY}, per outbound channel. */
+export const PASTE_STEP_OPEN = Object.freeze({
+  github: 'A GitHub issue draft opens — paste the report into the issue body.',
+  email: 'An email draft opens — paste the report into the message body.',
+});
 
 /**
  * The artifact-inventory time-window sentence, pinned so the dialog and the
@@ -82,14 +89,15 @@ export const ARTIFACT_WINDOW_DISCLOSURE =
 export const FEEDBACK_DISCLOSURE_PARAGRAPHS = Object.freeze([
   'Always sent: the feedback text you type, a timestamp, and your username ' +
     'when the deployment knows it.',
-  'Deployment metadata (on by default): the OSPREY version and the ' +
-    'application name.',
+  'Deployment metadata (on by default): the OSPREY version, the application ' +
+    'name, and your browser.',
   'Session context (off by default): this session’s id, its tool-call and ' +
     'agent event log, its chat history, and the terminal scrollback. It is ' +
     'triaged newest-first and truncated to fit a size budget, so a long ' +
     'session is attached in part rather than in full. On the GitHub and ' +
-    'Email channels it travels by paste: sending copies it to your ' +
-    'clipboard, and the prefilled body marks where to drop it.',
+    'Email channels it travels by paste: sending copies your full report ' +
+    'to your clipboard, and the draft opens with one line saying to paste ' +
+    'it there.',
   'The artifact inventory lists titles and ids only — artifacts tagged to ' +
     `this session, ${ARTIFACT_WINDOW_DISCLOSURE}.`,
   'Nothing leaves this page until you click an action button.',
@@ -153,7 +161,7 @@ const _openModals = new Set();
  * @property {(state: FeedbackFormState) => void} [onSubmit] - the `submit`
  *   event: the Local channel's Send button.
  * @property {(state: FeedbackFormState) => void} [onCopy] - the `copy` event:
- *   the standalone "Copy session context" button.
+ *   the inline copy button on the session-context row.
  * @property {(state: FeedbackFormState) => void} [onOpenChannel] - the `open`
  *   event: "Open GitHub issue" / "Open email draft".
  * @property {() => void} [onClose] - called once per close, after teardown.
@@ -215,8 +223,12 @@ export class FeedbackModal {
     this._contextCheckEl = null;
     /** @type {HTMLElement|null} */
     this._contextHintEl = null;
+    /** @type {HTMLButtonElement|null} */
+    this._contextCopyEl = null;
     /** @type {HTMLElement|null} */
     this._channelHintEl = null;
+    /** @type {HTMLElement|null} */
+    this._stepsEl = null;
     /** @type {HTMLElement|null} */
     this._actionsEl = null;
   }
@@ -324,7 +336,9 @@ export class FeedbackModal {
     this._textEl = null;
     this._contextCheckEl = null;
     this._contextHintEl = null;
+    this._contextCopyEl = null;
     this._channelHintEl = null;
+    this._stepsEl = null;
     this._actionsEl = null;
 
     this._restoreFocus();
@@ -407,12 +421,29 @@ export class FeedbackModal {
 
     body.appendChild(this._buildChannels());
     body.appendChild(this._buildAttachments());
+    body.appendChild(this._buildSteps());
 
     const actions = el('div', 'feedback-actions');
     this._actionsEl = actions;
     body.appendChild(actions);
 
     this._syncControls();
+  }
+
+  /**
+   * The two-step statement for the outbound channels. Built once per open and
+   * kept hidden until `_syncControls` decides it applies: an outbound channel
+   * with the context box ticked, i.e. exactly the sends that end in a paste.
+   *
+   * @returns {HTMLElement}
+   */
+  _buildSteps() {
+    const panel = el('div', 'feedback-paste-steps');
+    panel.toggleAttribute('hidden', true);
+    const list = document.createElement('ol');
+    panel.appendChild(list);
+    this._stepsEl = panel;
+    return panel;
   }
 
   /**
@@ -485,14 +516,37 @@ export class FeedbackModal {
     this._contextHintEl = contextHint;
     context.row.appendChild(contextHint);
 
+    // The buttons sit BESIDE the label in a shared line, not inside it: a
+    // click on an element inside a <label> can activate the labelled checkbox,
+    // and whether "the target is interactive" exempts it is exactly the kind
+    // of behaviour that varies by engine. Structure beats spec-trivia here.
+    const line = el('div', 'feedback-check-line');
+    line.appendChild(context.row);
+
+    // The explicit copy affordance lives on the row it copies, not in the
+    // action row: it is a utility beside the checkbox, never a step of
+    // sending. It carries `feedback-action` so the in-flight lock in
+    // feedback-boot.js covers it.
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'feedback-action feedback-copy-context';
+    copy.textContent = 'Copy';
+    copy.setAttribute('aria-label', 'Copy session context to the clipboard');
+    copy.addEventListener('click', () => {
+      if (copy.disabled) return;
+      this._emit(this._options.onCopy);
+    });
+    this._contextCopyEl = copy;
+    line.appendChild(copy);
+
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'feedback-help-toggle';
     toggle.textContent = '(?)';
     toggle.setAttribute('aria-label', 'What gets sent');
     toggle.setAttribute('aria-expanded', 'false');
-    context.row.appendChild(toggle);
-    section.appendChild(context.row);
+    line.appendChild(toggle);
+    section.appendChild(line);
 
     const popover = el('div', 'feedback-help-popover');
     popover.setAttribute('role', 'note');
@@ -537,7 +591,8 @@ export class FeedbackModal {
 
   /**
    * Re-derive everything that depends on the channel or on session
-   * availability: the channel hint, the context checkbox, the action row.
+   * availability: the channel hint, the context checkbox and its copy button,
+   * the two-step statement, the action row.
    *
    * @returns {void}
    */
@@ -551,29 +606,48 @@ export class FeedbackModal {
       this._contextCheckEl.checked = this._contextOn && sessionId !== null;
     }
     if (this._contextHintEl) {
-      if (sessionId === null) {
-        this._contextHintEl.textContent = NO_SESSION_HINT;
-      } else if (this._contextOn && this._channel !== 'local') {
-        this._contextHintEl.textContent = CONTEXT_PASTE_HINT;
-      } else {
-        this._contextHintEl.textContent = '';
-      }
+      this._contextHintEl.textContent = sessionId === null ? NO_SESSION_HINT : '';
     }
+    // The copy button follows the session, not the checkbox: it is an explicit
+    // act of its own, and what it copies is the context bundle regardless of
+    // what a send would attach.
+    if (this._contextCopyEl) this._contextCopyEl.disabled = sessionId === null;
 
-    this._renderActions(sessionId);
+    this._syncSteps(sessionId);
+    this._renderActions();
   }
 
   /**
-   * Rebuild the channel-dependent action row.
-   *
-   * "Copy session context" is always rendered for the outbound channels rather
-   * than appearing and disappearing: a control that vanishes when unticked
-   * reads as a bug, while a greyed one explains itself.
+   * Show the two-step statement exactly when it is true: an outbound channel,
+   * the context box ticked, a session to read it from.
    *
    * @param {string|null} sessionId
    * @returns {void}
    */
-  _renderActions(sessionId) {
+  _syncSteps(sessionId) {
+    const panel = this._stepsEl;
+    if (!panel) return;
+    const channel = this._channel;
+    const applies = channel !== 'local' && this._contextOn && sessionId !== null;
+    panel.toggleAttribute('hidden', !applies);
+    const list = panel.querySelector('ol');
+    if (!list) return;
+    list.replaceChildren();
+    if (!applies) return;
+    for (const step of [PASTE_STEP_COPY, PASTE_STEP_OPEN[channel]]) {
+      const item = document.createElement('li');
+      item.textContent = step;
+      list.appendChild(item);
+    }
+  }
+
+  /**
+   * Rebuild the channel-dependent action row: one button per channel — Send
+   * for Local, the "open the outside thing" button for GitHub and Email.
+   *
+   * @returns {void}
+   */
+  _renderActions() {
     const row = this._actionsEl;
     if (!row) return;
     row.replaceChildren();
@@ -584,12 +658,6 @@ export class FeedbackModal {
       );
       return;
     }
-
-    const copy = this._actionButton('feedback-copy-context', 'Copy session context', () =>
-      this._emit(this._options.onCopy)
-    );
-    copy.disabled = !(this._contextOn && sessionId !== null);
-    row.appendChild(copy);
 
     row.appendChild(
       this._actionButton('feedback-open-channel primary', CHANNEL_ACTION_LABELS[this._channel], () =>

@@ -9,11 +9,13 @@
  * detect, stubbed here because happy-dom does not implement it).
  *
  * The load-bearing property under test is ORDER: for the GitHub/Email channels
- * the clipboard write and the tab/mail-draft navigation must both happen inside
- * the click turn, before the POST settles. Safari revokes the transient user
- * activation across an await, so a copy issued afterwards is silently refused
- * and a `window.open` afterwards is treated as a popup. The tests pin that with
- * a manually-resolved fetch promise and a shared call-order log.
+ * the clipboard write (POINTER-mode sends only — a FULL-mode draft is complete
+ * as opened and touches no clipboard) and the tab/mail-draft navigation must
+ * both happen inside the click turn, before the POST settles. Safari revokes
+ * the transient user activation across an await, so a copy issued afterwards is
+ * silently refused and a `window.open` afterwards is treated as a popup. The
+ * tests pin that with a manually-resolved fetch promise and a shared
+ * call-order log.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -28,12 +30,14 @@ import {
   NOTICE_EMPTY_BUNDLE,
   NOTICE_MANUAL_COPY,
   NOTICE_NOT_RECORDED,
+  NOTICE_NOT_RECORDED_FULL,
   NOTICE_NO_SESSION,
   NOTICE_NO_TRANSCRIPT,
   NOTICE_PASTE_EMAIL,
   NOTICE_PASTE_GITHUB,
   NOTICE_TOO_LARGE,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/feedback-client.js';
+import { PASTE_POINTER } from '../../../src/osprey/interfaces/web_terminal/static/js/feedback-prefill.js';
 
 /**
  * Read one query parameter back out of a built URL.
@@ -317,11 +321,11 @@ describe('sendFeedback — Local channel', () => {
 });
 
 describe('sendFeedback — GitHub channel', () => {
-  test('copies and opens the tab before the POST settles', async () => {
+  test('a pointer-mode send copies and opens the tab before the POST settles', async () => {
     const gate = deferred();
     const { deps, order, fetchSpy } = makeDeps({ fetchPromise: gate.promise });
 
-    const pending = sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const pending = sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
     // Asserted with no await at all: both side effects must have happened in
     // the caller's own turn, not merely "before the POST resolved". A single
     // deferred microtask is already too late for Safari's user activation.
@@ -336,6 +340,17 @@ describe('sendFeedback — GitHub channel', () => {
     const result = await pending;
     expect(result.ok).toBe(true);
     expect(result.opened).toBe(true);
+  });
+
+  test('a full-mode send opens the complete draft and leaves the clipboard alone', async () => {
+    const { deps, order } = makeDeps();
+
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+
+    expect(order).toEqual(['fetch', 'open']);
+    expect(deps.clipboard.write).not.toHaveBeenCalled();
+    expect(result.copied).toBe('skipped');
+    expect(result.needsPaste).toBe(false);
   });
 
   test('opens a prefilled new-issue URL with noopener', async () => {
@@ -357,7 +372,7 @@ describe('sendFeedback — GitHub channel', () => {
       response: jsonResponse({ id: 'fb-4', payload: 'TEXT\n---\nBUNDLE' }),
     });
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
 
     expect(result.copied).toBe('clipboard');
     expect(await copiedText(written[0])).toBe('TEXT\n---\nBUNDLE');
@@ -370,7 +385,7 @@ describe('sendFeedback — GitHub channel', () => {
       fetchPromise: Promise.reject(new Error('network down')),
     });
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
 
     expect(deps.windowOpen).toHaveBeenCalledTimes(1);
     expect(result.opened).toBe(true);
@@ -381,25 +396,29 @@ describe('sendFeedback — GitHub channel', () => {
     expect(await copiedText(written[0])).toBe(BASE_FORM.text);
   });
 
-  test('a non-JSON 413 is non-blocking for an outbound channel', async () => {
+  test('a failed POST on a full-mode send says the draft is unaffected', async () => {
     const { deps } = makeDeps({ response: htmlErrorResponse(413) });
 
     const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe(NOTICE_TOO_LARGE);
-    expect(result.notice.message).toBe(NOTICE_NOT_RECORDED);
+    expect(result.notice.kind).toBe('warning');
+    expect(result.notice.message).toBe(NOTICE_NOT_RECORDED_FULL);
     expect(deps.windowOpen).toHaveBeenCalledTimes(1);
+    expect(deps.clipboard.write).not.toHaveBeenCalled();
   });
 
-  test('flags a truncated issue body and still auto-copies the payload', async () => {
+  test('an oversize body flips to the pointer line and auto-copies the payload', async () => {
     const { deps, written } = makeDeps();
     const huge = 'x'.repeat(20000);
 
     const result = await sendFeedback({ ...BASE_FORM, channel: 'github', text: huge }, deps);
 
-    expect(result.truncated).toBe(true);
-    expect(deps.windowOpen.mock.calls[0][0].length).toBeLessThanOrEqual(8000);
+    expect(result.needsPaste).toBe(true);
+    const url = deps.windowOpen.mock.calls[0][0];
+    expect(url.length).toBeLessThanOrEqual(8000);
+    expect(param(url, 'body')).toBe(PASTE_POINTER);
     expect(await copiedText(written[0])).toBe('SERVER PAYLOAD');
   });
 
@@ -418,7 +437,7 @@ describe('sendFeedback — Email channel', () => {
     const gate = deferred();
     const { deps, order } = makeDeps({ fetchPromise: gate.promise });
 
-    const pending = sendFeedback({ ...BASE_FORM, channel: 'email' }, deps);
+    const pending = sendFeedback({ ...BASE_FORM, channel: 'email', contextOn: true }, deps);
 
     expect(order).toEqual(['fetch', 'write', 'navigate']);
     expect(deps.navigate.mock.calls[0][0].startsWith('mailto:maintainers@example.org?')).toBe(true);
@@ -428,23 +447,21 @@ describe('sendFeedback — Email channel', () => {
     await pending;
   });
 
-  test('needsAutoCopy from an over-long draft auto-copies the unified payload', async () => {
+  test('an over-long draft flips to the pointer line and auto-copies the payload', async () => {
     const { deps, written } = makeDeps();
     const huge = 'y'.repeat(5000);
 
     const result = await sendFeedback({ ...BASE_FORM, channel: 'email', text: huge }, deps);
 
-    expect(result.truncated).toBe(true);
-    expect(deps.navigate.mock.calls[0][0]).toContain(
-      encodeURIComponent('[truncated — full text on your clipboard]')
-    );
+    expect(result.needsPaste).toBe(true);
+    expect(param(deps.navigate.mock.calls[0][0], 'body')).toBe(PASTE_POINTER);
     expect(deps.clipboard.write).toHaveBeenCalledTimes(1);
     expect(await copiedText(written[0])).toBe('SERVER PAYLOAD');
     expect(result.copied).toBe('clipboard');
   });
 });
 
-describe('outbound prefill — title, subject and session line', () => {
+describe('outbound prefill — title, subject and body mode', () => {
   test('the issue title is generic, never the first line of the report', async () => {
     const { deps } = makeDeps();
 
@@ -493,35 +510,33 @@ describe('outbound prefill — title, subject and session line', () => {
     );
   });
 
-  test('the session id rides in the body when context is attached', async () => {
+  test('with context attached the body is the pointer line alone', async () => {
     const { deps } = makeDeps();
 
     await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
 
-    expect(param(deps.windowOpen.mock.calls[0][0], 'body')).toContain(
-      `**Session:** ${BASE_FORM.sessionId}`
-    );
+    // No text, no metadata block: the whole report travels on the clipboard,
+    // so anything prefilled here would be duplicated by the paste.
+    expect(param(deps.windowOpen.mock.calls[0][0], 'body')).toBe(PASTE_POINTER);
   });
 
-  test('the session line travels even with metadata unticked', async () => {
+  test('the email draft follows the same pointer rule', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback(
-      { ...BASE_FORM, channel: 'github', contextOn: true, metadataOn: false },
-      deps
-    );
+    await sendFeedback({ ...BASE_FORM, channel: 'email', contextOn: true }, deps);
 
-    const body = param(deps.windowOpen.mock.calls[0][0], 'body');
-    expect(body).toContain(`**Session:** ${BASE_FORM.sessionId}`);
-    expect(body).not.toContain('**version:**');
+    expect(param(deps.navigate.mock.calls[0][0], 'body')).toBe(PASTE_POINTER);
   });
 
-  test('no session line when context is unticked', async () => {
+  test('without context the body carries the text and metadata, no pointer', async () => {
     const { deps } = makeDeps();
 
     await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
 
-    expect(param(deps.windowOpen.mock.calls[0][0], 'body')).not.toContain('**Session:**');
+    const body = param(deps.windowOpen.mock.calls[0][0], 'body');
+    expect(body).toContain(BASE_FORM.text);
+    expect(body).toContain('Deployment metadata');
+    expect(body).not.toContain(PASTE_POINTER);
   });
 });
 
@@ -582,7 +597,7 @@ describe('clipboard fallback ladder', () => {
     vi.stubGlobal('ClipboardItem', undefined);
     const { deps, writtenText } = makeDeps();
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
 
     expect(deps.clipboard.write).not.toHaveBeenCalled();
     expect(writtenText).toEqual(['SERVER PAYLOAD']);
@@ -603,7 +618,7 @@ describe('clipboard fallback ladder', () => {
         }),
       },
     });
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
 
     expect(result.copied).toBe('clipboard-text');
     expect(sink).toEqual(['SERVER PAYLOAD']);
@@ -612,7 +627,7 @@ describe('clipboard fallback ladder', () => {
   test('falls back to a selectable payload when the clipboard API is absent', async () => {
     const { deps, selectable } = makeDeps({ clipboard: {} });
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
 
     expect(result.copied).toBe('manual');
     expect(selectable).toEqual(['SERVER PAYLOAD']);
@@ -625,7 +640,7 @@ describe('clipboard fallback ladder', () => {
     // @ts-expect-error - deliberately removing the last rung
     deps.showSelectableText = undefined;
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
 
     expect(result.copied).toBe('none');
     expect(result.notice.kind).toBe('error');

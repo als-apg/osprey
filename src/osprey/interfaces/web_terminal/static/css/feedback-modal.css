@@ -190,6 +190,23 @@
   cursor: not-allowed;
 }
 
+/* The session-context line: the checkbox label, then the inline copy button
+ * and the (?) toggle beside it (outside the label — see _buildAttachments). */
+.feedback-check-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The inline copy button shares .feedback-action for behaviour (hover,
+ * disabled, the in-flight lock in feedback-boot.js keys on the class) but is
+ * sized down to sit beside a checkbox row. */
+.feedback-check-line .feedback-copy-context {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
+
 .feedback-help-toggle {
   padding: 0;
   font-size: var(--text-xs);
@@ -203,6 +220,14 @@
 .feedback-help-toggle:hover,
 .feedback-help-toggle[aria-expanded="true"] {
   color: var(--color-accent-light);
+}
+
+/* The explicit [hidden] rule is load-bearing: the author `display: flex` below
+ * beats the user agent's `[hidden] { display: none }` (author styles win over
+ * UA styles regardless of specificity), so without it the popover renders open
+ * from the first frame. Same trap as `.status-item[hidden]` in files.css. */
+.feedback-help-popover[hidden] {
+  display: none;
 }
 
 .feedback-help-popover {
@@ -219,6 +244,27 @@
 
 .feedback-help-popover p {
   margin: 0;
+}
+
+/* ---- Two-step statement (outbound channels, context ticked) ---- */
+
+/* States what the action button will do — copy, open, paste. Plain informative
+ * tone: same elevated surface as the help popover, body-hint sizing. */
+.feedback-paste-steps {
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.feedback-paste-steps ol {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
 /* ---- Action row ---- */
