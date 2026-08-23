@@ -825,3 +825,50 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
         f"build should name the violation; got records:\n"
         f"{[record.getMessage()[:120] for record in caplog.records]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Hook helper libraries: selected everywhere, wired nowhere
+# ---------------------------------------------------------------------------
+
+
+def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
+    """Selection COPIES a hook file; docstring frontmatter WIRES it to an event.
+
+    ``osprey_hook_log.py`` and ``osprey_target_state.py`` are shared libraries
+    the real hooks import — a JSONL logger and the control-target state reader.
+    They ship in every deployment because the hooks that import them do, which
+    is why profiles name them in ``hooks:`` like any other artifact. But neither
+    declares an ``event`` in its docstring, so neither may appear in
+    ``settings.json``: a registration for a module with no handler is a hook
+    Claude Code would run on every matching tool call to no effect.
+
+    Pinning both halves together is the point. Either half alone passes while
+    the feature is broken — copied-but-wired fires a no-op hook, and
+    wired-but-not-copied is an ImportError inside the hooks that import it.
+    """
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="hook-helpers",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+        artifacts={
+            "hooks": ["hook-log", "target-state", "hook-config", "approval"],
+            "rules": ["safety"],
+        },
+    )
+
+    helpers = ("osprey_hook_log.py", "osprey_target_state.py")
+
+    # Half one: the files are on disk beside the hook that imports them.
+    hooks_dir = project / ".claude" / "hooks"
+    for helper in helpers:
+        assert (hooks_dir / helper).is_file(), f"{helper} was not copied into .claude/hooks/"
+    assert (hooks_dir / "osprey_approval.py").is_file(), "the importing hook must ship too"
+
+    # Half two: nothing in settings.json names them.
+    settings = (project / ".claude" / "settings.json").read_text(encoding="utf-8")
+    for helper in helpers:
+        assert helper not in settings, f"{helper} has no event handler and must not be wired"
+    assert "osprey_approval.py" in settings, "a real hook must still be wired"

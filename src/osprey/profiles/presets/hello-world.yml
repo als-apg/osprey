@@ -50,6 +50,7 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 
 hooks:
   - hook-log       # Append every tool call to a structured JSONL audit log
+  - target-state   # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config    # Inject project config.yml path into every tool call env
   - error-guidance # Post-error hook that surfaces remediation hints
   # The next three are the write-safety chain, and no write reaches the control

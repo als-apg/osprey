@@ -21,9 +21,9 @@ from osprey.cli.build_profile_merge import _hash_resolved_profile
 
 # preset name -> resolved-content hash, pre-rename.
 PINNED_PRESET_HASHES: dict[str, str] = {
-    "ariel-standalone": "sha256:a08bde688f81f7604da07822db5def68d6c0d294688f15ec8720ac5df11a8cee",
+    "ariel-standalone": "sha256:dedff2eb31349263f2741312294a18f478430e789a5973fd34f5155c7c6e4f81",
     "channel-finder-standalone": (
-        "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
+        "sha256:71c5399c9ff3f181c1998f2e35d2cdb65a29efc499dcbae73f0d4a0982544f3a"
     ),
     # A digest here is the resolved content of the preset AND of every preset
     # that extends it, so a change in a base moves all four control-assistant
@@ -52,20 +52,29 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # deploy-visible, so the staleness advisory firing on already-deployed
     # projects is correct. `control-assistant-ariel` excludes the skill by
     # name, so only the notices moved its digest.
-    "control-assistant": "sha256:5ef6bbfb2b06cdba889a5c0484eedb9d885a89c5148c00f6f89bca31034beceb",
+    # Moved again — and this time EVERY bundled preset moved, which is the
+    # signature of a change to the shared hook list rather than to one tier.
+    # `target-state` joined every preset's `hooks:`, shipping the stdlib
+    # control-target state reader into `.claude/hooks/`. It is a library the
+    # approval hook imports, not an event hook: selection is what copies a hook
+    # file and docstring frontmatter is what wires one, and this module has no
+    # frontmatter, so a rebuilt project gains the file and gains no wiring. The
+    # advisory firing on already-deployed projects is correct — the rendered
+    # `.claude/hooks/` really does grow a file.
+    "control-assistant": "sha256:25b505e1dd9a135c7ade2887dfaf8d6a78195c5fcf68ca543e57869a652e47fc",
     "control-assistant-ariel": (
-        "sha256:db36e1df06e55b0fd47d9e93ccb84101f2b9868152ba922d2827c8fa133a9db5"
+        "sha256:41266449a4ef2241a1ff0a22c74952f9134ee536b8fbe09c1e63ed4434a04122"
     ),
     "control-assistant-readonly": (
-        "sha256:23caeed80df2874008f26cbc6f06712f230fa11f9e8666e77590dac7729c2640"
+        "sha256:c5441a6d474ebcde4b598859b9bf0854c78e720f0ed9cc459281d234c7fb9c9c"
     ),
     "control-assistant-readwrite": (
-        "sha256:51b7fcc7e5889888ca2cfadbb2c3dbfc1dff625ab780f9ae9cfd3f453c766bf4"
+        "sha256:c5e9b7e0b252c4d02468b3d66619b8c48686363bfbc7b2222e2dedcfedf19bbe"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
     # the digest is comment-blind, so the rule drop is the entire delta.
-    "hello-world": "sha256:9a87fb40f03287e8b4605c63a56cb8220ae1c32cd2e8c7df9a7d01ad370f358a",
+    "hello-world": "sha256:103da13b84157f7b6db2317996f6b5182088ced4fb06df715f42485b50cfe00b",
 }
 
 
