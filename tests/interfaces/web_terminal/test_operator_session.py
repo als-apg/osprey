@@ -100,6 +100,19 @@ class TestFormatToolName:
     def test_multi_segment_mcp(self):
         assert _format_tool_name("mcp__ariel__entry_create") == "Entry Create"
 
+    def test_underscored_server_name(self):
+        """Framework servers with underscores in the name (osprey_workspace,
+        osprey_facility_knowledge) must strip cleanly too."""
+        assert _format_tool_name("mcp__osprey_workspace__submit_response") == "Submit Response"
+        assert (
+            _format_tool_name("mcp__osprey_facility_knowledge__resolve_channel")
+            == "Resolve Channel"
+        )
+
+    def test_underscored_facility_custom_server(self):
+        """A facility-declared server name OSPREY never saw at authoring time."""
+        assert _format_tool_name("mcp__als_custom_srv__do_thing") == "Do Thing"
+
 
 # ---------------------------------------------------------------------------
 # _message_to_events

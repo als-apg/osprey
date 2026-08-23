@@ -95,6 +95,34 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The session event log — and everything built on it: the agent-activity
+  view, feedback bundles, logbook context, and the agent's own `session_log`
+  tool — now records tool calls from every MCP server in the session instead
+  of a fixed five. Calls from `osprey_facility_knowledge`, `phoebus`,
+  `bluesky`, `health`, and any facility-declared custom server were silently
+  dropped, so a sub-agent's work could vanish from a feedback report while
+  the drill-down timeline still showed it.
+- Tool names from servers with underscores in their name (`osprey_workspace`,
+  `osprey_facility_knowledge`, or a facility's own) now display cleanly in
+  the web terminal. The prefix strip assumed no underscores, so the activity
+  strip showed "Mcp Osprey Workspace Submit Response" instead of
+  "Submit Response", and the facility-knowledge tools never resolved their
+  operator phrases ("browsing facility knowledge").
+- The activity view's server badges are colored again for every framework
+  server. The color map still said `workspace` after the server was renamed
+  `osprey_workspace` (so those badges rendered grey), and the facility
+  knowledge, Phoebus, Bluesky, and health servers never had a color at all.
+  A facility's own server takes the neutral badge.
+- A sub-agent that made no MCP tool calls no longer sorts to the top of the
+  event log with an empty timestamp — its start/stop now carry the dispatch
+  time of the Task that launched it.
+- A custom MCP server whose configured name contains `__` (or ends in `_`)
+  is now rejected at build time with a warning, like an `extends` clone
+  name. Tool names are `mcp__<server>__<tool>`, so such a name would make
+  the event log and the display misattribute every call the server makes.
+- Logbook composition no longer sends tool arguments to the configured LLM
+  provider — the session-activity section now carries tool names and result
+  snippets only, matching the feedback report's privacy policy.
 - Feedback sent by GitHub or Email no longer arrives without its session
   context because nobody knew about the paste step. The context travels by
   clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:
