@@ -3520,6 +3520,125 @@ def _check_shared_disk_preflight(config: dict) -> None:
         )
 
 
+#: Podman networking backend the Bluesky stack requires.  The legacy ``cni``
+#: backend ships no aardvark-dns, and without it a dual-homed container gets
+#: only its *first* network's dnsmasq in ``resolv.conf``.
+_REQUIRED_PODMAN_NETWORK_BACKEND = "netavark"
+
+#: Cap on the ``podman info`` probe below.  Short on purpose: the answer is
+#: local configuration, and a probe that hangs must not become the reason a
+#: deploy stalls -- see :func:`_podman_network_backend` on why it stays silent.
+_NETWORK_BACKEND_PROBE_TIMEOUT_SECONDS = 10.0
+
+
+def _podman_network_backend(runtime: str) -> str | None:
+    """Report the host's podman network backend, or ``None`` if it can't be read.
+
+    Deliberately total: every failure mode -- a runtime that isn't podman, a
+    podman too old to carry ``.Host.NetworkBackend``, a probe that errors or
+    times out -- collapses to ``None``, which the caller reads as "no opinion"
+    and lets the deploy through. The check below exists to explain one specific
+    broken host; a preflight that refused because it could not interrogate the
+    host would be causing the outage it exists to prevent.
+
+    :param runtime: The resolved container runtime (``docker`` or ``podman``).
+    :returns: The lowercased backend name (e.g. ``netavark``, ``cni``), or
+        ``None`` when this host has no answer to give.
+    """
+    if runtime != "podman":
+        return None
+
+    try:
+        completed = subprocess.run(
+            [runtime, "info", "--format", "{{.Host.NetworkBackend}}"],
+            capture_output=True,
+            text=True,
+            timeout=_NETWORK_BACKEND_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if completed.returncode != 0:
+        return None
+
+    backend = completed.stdout.strip().lower()
+    # An older podman renders the missing field as `<no value>` rather than
+    # failing, so an empty-or-templated answer is the same "no opinion" as a
+    # probe that never ran.
+    if not backend or backend.startswith("<"):
+        return None
+    return backend
+
+
+def _preflight_bluesky_network_backend(config: dict) -> None:
+    """Refuse a Bluesky deploy on a podman host still using the ``cni`` backend.
+
+    The bundled Bluesky template puts the bridge, the RE Manager and Redis on an
+    ``internal: true`` network and dual-homes the queueserver. On rootless
+    podman with the legacy ``cni`` backend there is no aardvark-dns, so the
+    dual-homed queueserver receives only its first network's resolver and can
+    never resolve ``bluesky-redis``. It goes unhealthy, and ``osprey up`` aborts
+    before the web slice renders -- the whole deployment is down, on a DNS fact
+    that is invisible from anything osprey prints.
+
+    Refusing here turns that into one line naming the host setting to change.
+    Nothing is started when it fires, so the host is left exactly as it was.
+
+    Skipped unless ``bluesky`` is deployed: the failure is specific to the
+    multi-network shape that service brings, and every other stack in this
+    project runs fine on ``cni``.
+
+    :param config: Raw deploy config (``deployed_services`` membership).
+    :raises RuntimeError: ``bluesky`` is deployed on a podman host whose network
+        backend is ``cni``.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "bluesky" not in services:
+        return
+
+    try:
+        runtime = get_runtime_command(config)[0]
+    except RuntimeError:
+        # No usable runtime at all. verify_runtime_is_running says that far
+        # better than a networking preflight can; don't pre-empt it.
+        return
+
+    backend = _podman_network_backend(runtime)
+    if backend is None or backend == _REQUIRED_PODMAN_NETWORK_BACKEND:
+        return
+
+    if backend != "cni":
+        # A backend nobody here has seen. Say so rather than refuse: the known
+        # break is cni's missing aardvark-dns, and guessing that some future
+        # backend shares it would block a deploy on no evidence.
+        _warn_fact(
+            f"Unrecognised podman network backend: {backend}",
+            "The bundled Bluesky stack needs container-name DNS across two networks, "
+            f"which this project has only verified on {_REQUIRED_PODMAN_NETWORK_BACKEND}. "
+            "If bluesky-queueserver comes up unhealthy, resolving bluesky-redis is the "
+            "first thing to check.",
+            None,
+        )
+        return
+
+    raise RuntimeError(
+        "The Bluesky stack requires podman's netavark network backend; this host is "
+        "using the legacy cni backend.\n"
+        "Without aardvark-dns the dual-homed bluesky-queueserver cannot resolve "
+        "bluesky-redis, so it never becomes healthy and the deploy aborts before the "
+        "web slice renders.\n"
+        "Switch the host over by setting the following in containers.conf "
+        "(/etc/containers/containers.conf, or ~/.config/containers/containers.conf for "
+        "a rootless deployment), installing aardvark-dns, then re-running osprey up:\n"
+        "\n"
+        "    [network]\n"
+        '    network_backend = "netavark"\n'
+        "\n"
+        "Existing podman networks must be recreated after the switch "
+        "(podman system reset, or podman network rm for the project's own networks)."
+    )
+
+
 def _web_terminals_enabled(config: dict) -> bool:
     """True if ``modules.web_terminals.enabled`` is set on ``config``.
 
@@ -4677,6 +4796,14 @@ def _start_stack(
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
+
+    # With the runtime confirmed up, ask it one question about itself: a podman
+    # host on the legacy cni backend cannot run the Bluesky stack's dual-homed
+    # queueserver, and the failure that produces (unhealthy container, deploy
+    # aborted before the web slice renders) names nothing an operator can act
+    # on. Ahead of every container-touching command below, so the refusal
+    # leaves the host untouched.
+    _preflight_bluesky_network_backend(config)
 
     # Fail fast on a host-port collision (a foreign stack, or a second project
     # on the same host) with an actionable diagnosis, rather than letting

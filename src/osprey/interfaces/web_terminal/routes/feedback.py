@@ -265,14 +265,23 @@ def _sources(request: Request) -> tuple[Any, Any]:
 
 
 def _metadata(
-    request: Request, identity: str, now: datetime, *, include_metadata: bool
+    request: Request,
+    identity: str,
+    now: datetime,
+    *,
+    include_metadata: bool,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """The deployment tier of the bundle, in render order.
 
     Who and when are always present — the dialog's help popover says the report
     always carries the text, the timestamp and the username when it is known.
-    The checkbox governs the rest: which OSPREY this is and what the deployment
-    calls itself.
+    The metadata checkbox governs which OSPREY this is, what the deployment
+    calls itself, and the submitting browser (from the ``User-Agent`` header —
+    the popover names it, so it must not travel unticked). The session id rides
+    with the context it belongs to: an outbound draft's body is just a pointer
+    line, so this tier is where a maintainer finds the session a pasted report
+    came from.
 
     ``now`` is passed in rather than read here so that one request stamps one
     instant: the record's ``created_at`` and the bundle's ``submitted`` line
@@ -287,6 +296,11 @@ def _metadata(
         app_name = getattr(request.app.state, "app_name", "")
         if app_name:
             metadata["app"] = str(app_name)
+        browser = request.headers.get("user-agent", "").strip()
+        if browser:
+            metadata["browser"] = browser
+    if session_id:
+        metadata["session"] = session_id
     return metadata
 
 
@@ -340,7 +354,9 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
         store,
         session_id,
         scrollback,
-        _metadata(request, identity, now, include_metadata=body.include_metadata),
+        _metadata(
+            request, identity, now, include_metadata=body.include_metadata, session_id=session_id
+        ),
     )
 
     record_context, context_truncated = render_bundle(material, RECORD_CONTEXT_BUDGET_BYTES)
@@ -416,7 +432,13 @@ def feedback_bundle(request: Request, body: BundleRequest) -> dict[str, str]:
         store,
         session_id,
         scrollback,
-        _metadata(request, identity, _utc_now(), include_metadata=body.include_metadata),
+        _metadata(
+            request,
+            identity,
+            _utc_now(),
+            include_metadata=body.include_metadata,
+            session_id=session_id,
+        ),
     )
     return {"bundle": bundle_for_copy(material, body.text_len)}
 
