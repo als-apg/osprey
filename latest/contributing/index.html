@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contributing to Osprey &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+    <title>Contributing to Osprey &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,17 +53,18 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
-            false;
+            true;
         </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/contributing/index.html" />
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="prev" title="CLI Reference" href="../cli-reference/index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="" />
+  <meta name="docsearch:version" content="dev" />
     <meta name="docbuild:last-update" content="Aug 23, 2026"/>
   </head>
   
@@ -468,6 +469,7 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 <li><p>Releases are cut by maintainers tagging a commit on <code class="docutils literal notranslate"><span class="pre">main</span></code>; the PyPI publish workflow runs on <code class="docutils literal notranslate"><span class="pre">v*.*.*</span></code> tags.</p></li>
 <li><p>The <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> workspace package releases independently via <code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> tags. Because the framework wheel depends on it from PyPI, a connectors version satisfying the framework’s requirement must be published <strong>before</strong> the framework tag that needs it.</p></li>
 <li><p>Hotfixes follow the same path: branch from the tag (or <code class="docutils literal notranslate"><span class="pre">main</span></code>), PR back, tag again as <code class="docutils literal notranslate"><span class="pre">vYYYY.M.P+1</span></code>. No special hotfix branches.</p></li>
+<li><p>Documentation publishes on the same tags: the site root is always the newest release; every push to <code class="docutils literal notranslate"><span class="pre">main</span></code> rebuilds <code class="docutils literal notranslate"><span class="pre">/latest/</span></code>, shown with a development banner.</p></li>
 </ul>
 </section>
 <section id="branch-naming">
