@@ -4,8 +4,13 @@
 Python Execution Service
 ========================
 
-The Python Execution Service runs user-provided code in an isolated
-environment with safety checks, process isolation, and timeout enforcement.
+The Python Execution Service runs user-provided code in a separate host
+subprocess with layered safety checks, a process boundary, and timeout
+enforcement. It is a process boundary on the host, not a sandbox or container:
+the code runs with the executor's own environment (from which sensitive
+credentials are stripped), not inside an isolated machine. Code it runs can
+write anywhere the executor process can --- including the project's
+``config.yml`` and its hook scripts.
 The Osprey agent uses it via the ``execute`` MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.
 

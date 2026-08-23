@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import stat
+import threading
 from pathlib import Path
 
 import pytest
@@ -15,9 +17,13 @@ from osprey.deployment.web_terminals.auth_credentials import (
     PW_PLAINTEXT_VAR_PREFIX,
     SESSION_SECRET_VAR,
     STATE_SECRET_VAR,
+    TERMINAL_SECRET_VAR_PREFIX,
     ensure_auth_credentials,
     ensure_auth_session_secrets,
+    ensure_terminal_secrets,
     purge_auth_credentials,
+    purge_orphan_terminal_secrets,
+    purge_terminal_secret,
     seeded_logins,
     set_auth_password,
 )
@@ -27,7 +33,15 @@ from osprey.services.auth_sidecar.passwords import (
     generation_tag,
     verify_password,
 )
-from osprey.utils.dotenv import ENV_AUTH_BANNER, parse_dotenv_file
+from osprey.utils.dotenv import (
+    DEPLOY_MINTED_BANNER,
+    ENV_AUTH_BANNER,
+    ENV_LOCAL_FILENAME,
+    append_profile_env,
+    dotenv_line_var,
+    env_file_lock,
+    parse_dotenv_file,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -940,3 +954,446 @@ def test_logins_come_back_in_roster_order(tmp_path: Path) -> None:
     )
 
     assert seeded_logins(tmp_path, ["bob", "alice"]) == [("bob", "bob"), ("alice", "alice")]
+
+
+# ---------------------------------------------------------------------------
+# Per-user web-terminal secrets: minted into the deploy `.env`, not `.env.auth`.
+# ---------------------------------------------------------------------------
+
+
+def read_env(project_root: Path) -> dict[str, str]:
+    return parse_dotenv_file(project_root / ENV_LOCAL_FILENAME)
+
+
+def terminal_lines(project_root: Path) -> list[str]:
+    """Every assignment line for a terminal secret, in file order."""
+    text = (project_root / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
+    return [
+        line
+        for line in text.splitlines()
+        if (dotenv_line_var(line) or "").startswith(TERMINAL_SECRET_VAR_PREFIX)
+    ]
+
+
+def test_a_secret_is_minted_for_every_roster_user(tmp_path: Path) -> None:
+    result = ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+
+    assert result.minted == (
+        f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",
+        f"{TERMINAL_SECRET_VAR_PREFIX}BOB",
+    )
+    assert result.preexisting == ()
+    assert result.missing == ()
+    assert result.changed is True
+    assert result.env_path == tmp_path / ENV_LOCAL_FILENAME
+
+    stored = read_env(tmp_path)
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"]
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]
+
+
+def test_each_user_gets_a_DIFFERENT_secret(tmp_path: Path) -> None:
+    """One secret per deployment would let a leak from one container be replayed
+    against a neighbour's terminal — the isolation this whole file exists for."""
+    ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+
+    stored = read_env(tmp_path)
+    assert (
+        stored[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"] != stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]
+    )
+
+
+def test_secrets_land_under_the_deploy_minted_banner(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice"])
+
+    text = (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
+    assert DEPLOY_MINTED_BANNER in text
+    assert text.index(DEPLOY_MINTED_BANNER) < text.index(f"{TERMINAL_SECRET_VAR_PREFIX}ALICE")
+
+
+def test_the_deploy_env_is_created_0600(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert file_mode(tmp_path / ENV_LOCAL_FILENAME) == 0o600
+
+
+def test_terminal_secrets_are_never_written_to_env_auth(tmp_path: Path) -> None:
+    """.env.auth is the file only the auth sidecar mounts; nginx and the user's
+    own terminal both need this value, so it belongs in the deploy .env."""
+    ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+
+
+def test_a_rerun_is_idempotent_and_reports_no_change(tmp_path: Path) -> None:
+    first = ensure_terminal_secrets(tmp_path, ["alice"])
+    before = read_env(tmp_path)
+
+    second = ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert first.minted == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    assert second.minted == ()
+    assert second.preexisting == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    assert second.changed is False
+    assert read_env(tmp_path) == before
+
+
+def test_an_operators_own_secret_is_never_overwritten(tmp_path: Path) -> None:
+    (tmp_path / ENV_LOCAL_FILENAME).write_text(
+        f"{TERMINAL_SECRET_VAR_PREFIX}ALICE=set-by-hand\n", encoding="utf-8"
+    )
+
+    result = ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert result.minted == ()
+    assert read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"] == "set-by-hand"
+
+
+@pytest.mark.parametrize("empty_value", ["", "   ", "\t"])
+def test_an_empty_terminal_secret_is_re_minted(tmp_path: Path, empty_value: str) -> None:
+    """A blank reads to the terminal as "no secret configured", which is the one
+    state that must not survive: it is indistinguishable from an unguarded door."""
+    (tmp_path / ENV_LOCAL_FILENAME).write_text(
+        f"{TERMINAL_SECRET_VAR_PREFIX}ALICE={empty_value}\n", encoding="utf-8"
+    )
+
+    result = ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert result.minted == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    assert read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"].strip()
+
+
+def test_re_minting_leaves_exactly_one_assignment_behind(tmp_path: Path) -> None:
+    """The blank line is removed rather than shadowed: a superseded assignment
+    left in the file would still be the value a differently-ordered reader picks."""
+    (tmp_path / ENV_LOCAL_FILENAME).write_text(
+        f"{TERMINAL_SECRET_VAR_PREFIX}ALICE=\n", encoding="utf-8"
+    )
+
+    ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert len(terminal_lines(tmp_path)) == 1
+
+
+def test_re_minting_preserves_every_other_line(tmp_path: Path) -> None:
+    (tmp_path / ENV_LOCAL_FILENAME).write_text(
+        "# operator comment\n"
+        "CBORG_API_KEY=llm-secret\n"
+        f"{TERMINAL_SECRET_VAR_PREFIX}ALICE=\n"
+        "OSPREY_AUTH_PW_BOB=hunter2\n",
+        encoding="utf-8",
+    )
+
+    ensure_terminal_secrets(tmp_path, ["alice"])
+
+    text = (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
+    assert "# operator comment" in text
+    assert "CBORG_API_KEY=llm-secret" in text
+    assert "OSPREY_AUTH_PW_BOB=hunter2" in text
+
+
+def test_only_the_user_without_a_secret_is_appended(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice"])
+    alice_before = read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"]
+
+    result = ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+
+    assert result.minted == (f"{TERMINAL_SECRET_VAR_PREFIX}BOB",)
+    assert result.preexisting == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    assert read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"] == alice_before
+
+
+def test_a_user_listed_twice_gets_one_terminal_secret(tmp_path: Path) -> None:
+    result = ensure_terminal_secrets(tmp_path, ["alice", "alice"])
+
+    assert result.minted == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    assert len(terminal_lines(tmp_path)) == 1
+
+
+def test_an_empty_roster_writes_nothing(tmp_path: Path) -> None:
+    result = ensure_terminal_secrets(tmp_path, [])
+
+    assert result == result.__class__(
+        env_path=tmp_path / ENV_LOCAL_FILENAME,
+        changed=False,
+        minted=(),
+        preexisting=(),
+        missing=(),
+    )
+    assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
+
+
+def test_a_secret_never_reaches_the_log(tmp_path: Path, caplog) -> None:
+    with caplog.at_level(logging.DEBUG):
+        ensure_terminal_secrets(tmp_path, ["alice"])
+
+    secret = read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"]
+    assert secret not in caplog.text
+    assert f"{TERMINAL_SECRET_VAR_PREFIX}ALICE" in caplog.text
+
+
+def test_a_secret_in_the_process_env_does_not_suppress_minting(tmp_path: Path, monkeypatch) -> None:
+    """Compose interpolates the compose file's ${...} from the deploy .env, so a
+    value visible only to this process is not the one that would be in force."""
+    monkeypatch.setenv(f"{TERMINAL_SECRET_VAR_PREFIX}ALICE", "from-the-shell")
+
+    result = ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert result.minted == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    assert read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"] != "from-the-shell"
+
+
+@pytest.mark.parametrize("username", ["Alice", "alice.b", "al ice", "-alice", ""])
+def test_an_invalid_username_charset_raises(tmp_path: Path, username: str) -> None:
+    with pytest.raises(RuntimeError):
+        ensure_terminal_secrets(tmp_path, [username])
+
+    assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
+
+
+def test_a_terminal_secret_refusal_does_not_talk_about_auth_credentials(
+    tmp_path: Path,
+) -> None:
+    """The mint runs in EVERY auth method, so its refusals reach operators who
+    configured no authentication at all.
+
+    This gate used to run only where credentials were being minted, and its
+    message named those credentials. It now refuses `Alice` on a deployment with
+    `auth.method: none`, where "auth credentials" describes a feature the
+    operator never turned on and cannot go and look at.
+    """
+    with pytest.raises(RuntimeError) as excinfo:
+        ensure_terminal_secrets(tmp_path, ["Alice"])
+
+    message = str(excinfo.value)
+    assert "web-terminal secrets" in message
+    assert "auth credentials" not in message
+    # It still says what is wrong and with which name.
+    assert "'Alice'" in message
+
+
+def test_an_auth_credential_refusal_still_names_the_credentials(tmp_path: Path) -> None:
+    """The default wording is unchanged: the caller that IS minting auth
+    credentials must keep saying so, or parametrizing the subject would have
+    made every refusal vaguer instead of one of them more accurate."""
+    from osprey.deployment.web_terminals.auth_credentials import ensure_auth_credentials
+
+    with pytest.raises(RuntimeError) as excinfo:
+        ensure_auth_credentials(["Alice"], tmp_path, echo=lambda _: None)
+
+    assert "web-terminal auth credentials" in str(excinfo.value)
+
+
+def test_a_suffix_collision_raises_naming_the_secret_variable(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError) as excinfo:
+        ensure_terminal_secrets(tmp_path, ["alice-b", "alice_b"])
+
+    message = str(excinfo.value)
+    assert "'alice-b'" in message
+    assert "'alice_b'" in message
+    assert f"{TERMINAL_SECRET_VAR_PREFIX}ALICE_B" in message
+    assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
+
+
+def test_a_dollar_bearing_secret_raises_without_echoing_the_value(tmp_path: Path) -> None:
+    """compose truncates a `$`-bearing value on the way into a container, so nginx
+    and the terminal would end up comparing two different strings."""
+    (tmp_path / ENV_LOCAL_FILENAME).write_text(
+        f"{TERMINAL_SECRET_VAR_PREFIX}ALICE=abc$def\n", encoding="utf-8"
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        ensure_terminal_secrets(tmp_path, ["alice"])
+
+    message = str(excinfo.value)
+    assert f"{TERMINAL_SECRET_VAR_PREFIX}ALICE" in message
+    assert "abc$def" not in message
+
+
+@pytest.mark.skipif(running_as_root, reason="root ignores the read-only mode this test relies on")
+def test_an_unwritable_root_reports_missing_without_raising(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    os.chmod(project_root, 0o500)
+    try:
+        result = ensure_terminal_secrets(project_root, ["alice"])
+    finally:
+        os.chmod(project_root, 0o700)
+
+    assert result.missing == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    assert result.minted == ()
+    assert result.changed is False
+
+
+def test_purge_removes_only_the_named_users_secret(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+    bob_before = read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]
+
+    assert purge_terminal_secret("alice", tmp_path) is True
+
+    stored = read_env(tmp_path)
+    assert f"{TERMINAL_SECRET_VAR_PREFIX}ALICE" not in stored
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"] == bob_before
+
+
+def test_purge_leaves_unrelated_variables_and_comments_alone(tmp_path: Path) -> None:
+    (tmp_path / ENV_LOCAL_FILENAME).write_text(
+        f"# operator comment\nCBORG_API_KEY=llm-secret\n{TERMINAL_SECRET_VAR_PREFIX}ALICE=gone\n",
+        encoding="utf-8",
+    )
+
+    purge_terminal_secret("alice", tmp_path)
+
+    text = (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
+    assert text == "# operator comment\nCBORG_API_KEY=llm-secret\n"
+
+
+def test_purge_uses_the_same_suffix_mapping_as_the_mint(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice-b"])
+
+    assert purge_terminal_secret("alice-b", tmp_path) is True
+    assert f"{TERMINAL_SECRET_VAR_PREFIX}ALICE_B" not in read_env(tmp_path)
+
+
+def test_terminal_purge_is_a_no_op_for_an_unknown_user(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice"])
+    before = (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
+
+    assert purge_terminal_secret("carol", tmp_path) is False
+    assert (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8") == before
+
+
+def test_purge_is_a_no_op_when_the_deploy_env_is_absent(tmp_path: Path) -> None:
+    assert purge_terminal_secret("alice", tmp_path) is False
+    assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
+
+
+def test_purge_leaves_no_temporary_file_and_keeps_the_mode(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+
+    purge_terminal_secret("alice", tmp_path)
+
+    assert file_mode(tmp_path / ENV_LOCAL_FILENAME) == 0o600
+    assert [path.name for path in tmp_path.iterdir() if path.name != ENV_LOCAL_FILENAME] == [
+        f"{ENV_LOCAL_FILENAME}.lock"
+    ]
+
+
+def test_a_re_added_user_gets_a_fresh_secret_after_a_purge(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice"])
+    original = read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"]
+    purge_terminal_secret("alice", tmp_path)
+
+    ensure_terminal_secrets(tmp_path, ["alice"])
+
+    assert read_env(tmp_path)[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"] != original
+
+
+def test_orphan_purge_removes_secrets_for_users_off_the_roster(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice", "bob", "carol"])
+
+    removed = purge_orphan_terminal_secrets(tmp_path, ["alice"])
+
+    assert removed == (
+        f"{TERMINAL_SECRET_VAR_PREFIX}BOB",
+        f"{TERMINAL_SECRET_VAR_PREFIX}CAROL",
+    )
+    assert list(read_env(tmp_path)) == [f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"]
+
+
+def test_orphan_purge_keeps_every_non_terminal_variable(tmp_path: Path) -> None:
+    (tmp_path / ENV_LOCAL_FILENAME).write_text(
+        "CBORG_API_KEY=llm-secret\n"
+        "OSPREY_AUTH_PW_BOB=hunter2\n"
+        f"{TERMINAL_SECRET_VAR_PREFIX}BOB=stale\n",
+        encoding="utf-8",
+    )
+
+    purge_orphan_terminal_secrets(tmp_path, ["alice"])
+
+    stored = read_env(tmp_path)
+    assert stored == {"CBORG_API_KEY": "llm-secret", "OSPREY_AUTH_PW_BOB": "hunter2"}
+
+
+def test_orphan_purge_of_an_empty_roster_removes_every_terminal_secret(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+
+    removed = purge_orphan_terminal_secrets(tmp_path, [])
+
+    assert len(removed) == 2
+    assert terminal_lines(tmp_path) == []
+
+
+def test_orphan_purge_is_a_no_op_when_the_roster_is_intact(tmp_path: Path) -> None:
+    ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+    before = (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
+
+    assert purge_orphan_terminal_secrets(tmp_path, ["alice", "bob"]) == ()
+    assert (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8") == before
+
+
+def test_orphan_purge_is_a_no_op_when_the_deploy_env_is_absent(tmp_path: Path) -> None:
+    assert purge_orphan_terminal_secrets(tmp_path, ["alice"]) == ()
+    assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
+
+
+def test_a_re_mint_is_one_critical_section_a_concurrent_append_waits_for(tmp_path: Path) -> None:
+    """The deploy .env is written by several unrelated writers — `osprey up`
+    persisting a service token, `osprey build` writing derived keys — all of
+    which take the sibling <name>.lock. Re-minting reads, filters and replaces
+    the whole file, so it must hold that same lock across BOTH steps: an append
+    committed between an unlocked read and its replace would be discarded.
+
+    Proven by mutual exclusion rather than by a race: while this frame holds the
+    lock, a second thread's locked append cannot complete, and both writes
+    survive once it does.
+    """
+    env_path = tmp_path / ENV_LOCAL_FILENAME
+    env_path.write_text(f"{TERMINAL_SECRET_VAR_PREFIX}ALICE=\n", encoding="utf-8")
+    finished = threading.Event()
+
+    def _concurrent_append() -> None:
+        append_profile_env(env_path, {"CONCURRENT_WRITER": "kept"})
+        finished.set()
+
+    with env_file_lock(env_path):
+        worker = threading.Thread(target=_concurrent_append, daemon=True)
+        worker.start()
+        assert not finished.wait(timeout=0.3)
+        # Nested inside the lock this frame already holds: the mint takes it
+        # again and must find it held rather than deadlocking on itself.
+        result = ensure_terminal_secrets(tmp_path, ["alice"])
+
+    worker.join(timeout=10)
+    assert finished.is_set()
+
+    assert result.minted == (f"{TERMINAL_SECRET_VAR_PREFIX}ALICE",)
+    stored = read_env(tmp_path)
+    assert stored["CONCURRENT_WRITER"] == "kept"
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"].strip()
+
+
+def test_a_purge_holds_the_lock_a_concurrent_append_must_wait_for(tmp_path: Path) -> None:
+    """Same rewrite, same hazard: a purge that filtered an unlocked read would
+    drop whatever another process appended in the meantime."""
+    ensure_terminal_secrets(tmp_path, ["alice", "bob"])
+    env_path = tmp_path / ENV_LOCAL_FILENAME
+    finished = threading.Event()
+
+    def _concurrent_append() -> None:
+        append_profile_env(env_path, {"CONCURRENT_WRITER": "kept"})
+        finished.set()
+
+    with env_file_lock(env_path):
+        worker = threading.Thread(target=_concurrent_append, daemon=True)
+        worker.start()
+        assert not finished.wait(timeout=0.3)
+        assert purge_terminal_secret("alice", tmp_path) is True
+
+    worker.join(timeout=10)
+    assert finished.is_set()
+
+    stored = read_env(tmp_path)
+    assert stored["CONCURRENT_WRITER"] == "kept"
+    assert f"{TERMINAL_SECRET_VAR_PREFIX}ALICE" not in stored
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]

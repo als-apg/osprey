@@ -259,11 +259,11 @@ with no value at all does.
 
 .. note::
 
-   The Web Terminal has **no application-level login**, and neither has the
-   feedback dialog. Anyone who can reach the terminal can send a report and have
-   it recorded. That is right for the intended single-operator, local setup; a
-   facility that exposes the terminal more widely should put its own
-   authentication in front of it, as it would for the terminal itself.
+   The feedback dialog is behind the terminal's own gate: only a browser
+   holding a session can open it, the same as for any other terminal action. It
+   draws no line *within* a session, though — anyone sitting at a signed-in
+   terminal can send a report — so read a stored report as coming from that
+   terminal, not from a named person.
 
 Named future work
 -----------------

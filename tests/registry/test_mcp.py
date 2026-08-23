@@ -1049,7 +1049,9 @@ class TestTemplateRendering:
         rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
         data = json.loads(rendered)
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
-        assert "Write" in pre_matchers  # Framework standalone hook (memory-guard)
+        # One matcher covering every write tool: the memory guard's frontmatter
+        # is copied verbatim into the rule, so this string is the guard's reach.
+        assert "Write|MultiEdit|NotebookEdit" in pre_matchers
         assert "mcp__controls__channel_write" in pre_matchers
         post_matchers = [r["matcher"] for r in data["hooks"]["PostToolUse"]]
         assert "NotebookEdit" in post_matchers  # Framework standalone hook (notebook-update)

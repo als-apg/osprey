@@ -126,7 +126,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
    :class: note
 
    - **XSS-safe highlights:** Search result highlights from PostgreSQL ``ts_headline`` are sanitized by ``sanitizeHighlight()`` in ``components.js`` --- only ``<b>`` and ``</b>`` tags are preserved; all other HTML is escaped.
-   - **CORS:** The development server uses ``allow_origins=["*"]``. Restrict this in production deployments.
+   - **No cross-origin surface:** The interface app registers no CORS middleware. The browser and the ``/api`` endpoints it calls are served from the same origin, so there is no cross-origin request path to allow or restrict.
    - **Frontend fallback:** If ``/api/capabilities`` is unavailable at startup, the frontend falls back to a default mode list so the interface remains usable.
 
 .. dropdown:: Technical Reference
@@ -284,7 +284,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
       .. tab-item:: App Internals
 
-         **App factory:** The ``create_app()`` function in :mod:`osprey.interfaces.ariel.app` is a standard FastAPI app factory. It accepts an optional ``config_path`` argument and returns a fully configured FastAPI application with CORS middleware, API routes, and static file serving.
+         **App factory:** The ``create_app()`` function in :mod:`osprey.interfaces.ariel.app` is a standard FastAPI app factory. It accepts an optional ``config_path`` argument and returns a fully configured FastAPI application with API routes and static file serving. It registers no CORS middleware --- the app and its ``/api`` endpoints share one origin, so there is no cross-origin surface.
 
          **Lifespan management:** The app uses FastAPI's ``lifespan`` context manager to initialize the ``ARIELSearchService`` on startup and clean it up on shutdown. During initialization:
 

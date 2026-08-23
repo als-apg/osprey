@@ -13,6 +13,66 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Security
 
+- Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact
+  gallery, the Theme Lab and the rest — now authenticates every HTTP and
+  WebSocket request, and every launcher that serves one prints a login URL
+  (`http://<host>:<port>/?token=…`) that trades the token for a session cookie
+  and redirects to the clean address. The URL is printed once, but its token is
+  the server's own secret and stays valid for the life of the process: treat it
+  like a password. A backgrounded (`--detach`) server keeps it only in memory,
+  so if you lose the URL, stop and restart to mint a new one.
+- Processes the agent spawns no longer carry that credential, so the agent
+  cannot call the interface APIs that change safety-relevant configuration, and
+  the checks themselves run outside its reasoning. As a consequence, the Bluesky MCP
+  server's queue-launch tool no longer works from the Web Terminal agent;
+  launching a queue from a panel is unaffected.
+- The operator secret no longer lingers in the server process's environment:
+  each interface app clears it as it is built, so an agent the server spawns
+  cannot read it back — on the ordinary foreground launch and inside a per-user
+  container alike. One residual on Linux: a process that already received the
+  secret through `exec` keeps a copy in `/proc/<pid>/environ`, readable by the
+  same user.
+- `osprey chat` starts its agent without `*_LAUNCH_TOKEN` credentials too, so the
+  Bluesky queue-launch tool is disarmed in a chat session as well; panel-click
+  launches from the Web Terminal are unaffected.
+- The terminal's agent can arrange panels again. The low-privilege panel token
+  now reaches the terminal's agent and the chat agent both, so panel tools and
+  session hooks no longer fail silently with a 401.
+- Browsing to a gated page without a session now returns a readable "not signed
+  in" page pointing back at the login link; API calls still get a JSON 401.
+- Mutating requests and WebSocket upgrades are checked against the deployment's
+  external origin on every credential path. A multi-user stack behind nginx must
+  have that origin configured — the generated compose files set it.
+- The Web Terminal's panel proxy now strips `Set-Cookie`, `Clear-Site-Data`,
+  `Refresh`, `WWW-Authenticate` and `Access-Control-*` from panel responses, and
+  relays a backend redirect instead of following it so the browser's re-request
+  is authenticated again. A panel that redirects to a third site is refused with
+  a 502 rather than forwarding the operator, so a panel URL can no longer serve
+  as an open redirect on the terminal's own address. The event-dispatch token is
+  injected only toward a loopback events panel declared in your config.
+- Multi-user: `osprey up` mints a per-user terminal secret for every roster entry
+  in every auth mode, so a deployment with authentication off — or a single
+  `login: false` entry — is gated by its own secret rather than open to anyone
+  who can reach the port. Hand each person their URL with the new `osprey users
+  login-url <user>`, and rotate one by deleting its `OSPREY_TERMINAL_SECRET_*`
+  line from `.env` and re-running `osprey up`. The verb refuses for a user
+  behind the login wall, who signs in through the login page instead.
+- New `modules.web_terminals.external_origin` key: the address browsers actually
+  reach the deployment at. Required when something else terminates TLS in front
+  of the stack's nginx — without it the terminals refuse every write from that
+  address as cross-origin. `osprey up`'s closing card now names this address,
+  not the loopback one.
+- Multi-user hardening: the nginx access log no longer records query strings or
+  `Referer`; a per-user container never receives another user's cookies and
+  `Authorization` is cleared on every proxied terminal request; roster names are
+  held to `[a-z0-9][a-z0-9_-]*` in every auth mode, not only behind a login wall.
+- `osprey build` now refuses a profile in which `Bash`, `Edit`, `Write`,
+  `MultiEdit` or `NotebookEdit` is neither in `permissions.deny` nor covered by a
+  `PreToolUse` hook matcher; a tool covered only by a matcher the profile itself
+  declares builds with a warning instead. The `memory-guard` hook's matcher
+  widened from `Write` to `Write|MultiEdit|NotebookEdit`.
+- `DISPATCH_WORKER_TOKEN` is now stripped from sandboxed executions alongside the
+  other credentials.
 - Readonly Python executions are now enforced at runtime, not just by
   pattern scanning: the sandbox refuses every direct control-system write
   entry point (however the call is spelled), the connectors refuse
@@ -305,6 +365,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   (`COVERAGE_CORE=sysmon`) rather than on the 3.11 cell, where coverage.py
   falls back to the C tracer. Same coverage numbers, roughly half the unit
   lane's runtime — it had grown to ~36 minutes against its own 40-minute cap.
+
+- `osprey web` now says when it is using an `OSPREY_TERMINAL_SECRET` that was
+  already set in its environment: it prints no login URL (the value is never
+  echoed) and points at where that secret was minted. A multi-user deployment
+  that supplied no secret now stops with a readable message naming the fix
+  instead of a traceback.
+
+- The `hello-world` preset now wires the `memory-guard` hook, eleven hooks in
+  all. Its profile hash moved with it, so an already-deployed hello-world project
+  reports the staleness advisory once; rebuild to clear it.
+
+- The interface apps no longer register CORS middleware. Nothing OSPREY serves is
+  cross-origin, so there was no request path left to allow or restrict.
 
 - The agent's telemetry no longer authenticates to the local OpenObserve store
   as root. `osprey up` starts the store, creates a dedicated ingest service

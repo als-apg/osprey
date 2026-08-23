@@ -46,9 +46,26 @@ def _isolate_bind_and_port_env(monkeypatch):
     state (present or absent) at teardown, regardless of what the app wrote
     in between.
     """
-    for _key in ("OSPREY_CONFIG", "OSPREY_WEB_PORT", DECLARED_BIND_ENV, DECLARED_WEB_PORT_ENV):
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
+
+    # ``web()`` now mints the operator secret straight into ``os.environ`` and
+    # into the process-wide web-credentials holder. Both outlive a CliRunner
+    # invocation, so isolate the env carrier the same setenv-then-delenv way as
+    # the port keys, and reset the holder around every test — otherwise the
+    # first launch would decide (and leak) the secret for every test after it,
+    # which is what masked a launch that should have refused.
+    for _key in (
+        "OSPREY_CONFIG",
+        "OSPREY_WEB_PORT",
+        DECLARED_BIND_ENV,
+        DECLARED_WEB_PORT_ENV,
+        OPERATOR_SECRET_ENV,
+    ):
         monkeypatch.setenv(_key, "__unset_by_test_fixture__")
         monkeypatch.delenv(_key)
+    reset_web_credentials()
+    yield
+    reset_web_credentials()
 
 
 @pytest.fixture(autouse=True)
@@ -129,6 +146,10 @@ class TestWebCommandHonorsDeclaredBindEnv:
         must be 127.0.0.1, NOT 0.0.0.0 — otherwise nginx is no longer the
         only off-host path."""
         monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")
+        # The multi-user shape supplies the operator secret (deploy .env); a
+        # declared bind host with no secret is a refuse-to-mint error, so this
+        # bind-resolution test must stand in the real container shape.
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "deploy-supplied-secret")
         captured = {}
 
         def _fake_run_web(**kwargs):
@@ -156,6 +177,9 @@ class TestWebCommandHonorsDeclaredBindEnv:
 
     def test_notice_printed_when_declared_env_overrides_flag(self, runner, monkeypatch):
         monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")
+        # Declared bind host => container shape => the deployment supplies the
+        # secret; without it the launch refuses to mint before reaching the bind.
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "deploy-supplied-secret")
         self._stub_launch(monkeypatch)
 
         result = runner.invoke(

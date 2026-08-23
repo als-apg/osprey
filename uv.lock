@@ -4476,6 +4476,7 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "watchdog" },
     { name = "websocket-client" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -4720,6 +4721,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
     { name = "watchdog", specifier = ">=6.0.0" },
     { name = "websocket-client", specifier = ">=1.7.0" },
+    { name = "websockets", specifier = ">=14" },
 ]
 provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "screen-capture-linux", "sheets", "virtual-accelerator"]
 

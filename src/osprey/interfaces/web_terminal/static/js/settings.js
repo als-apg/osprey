@@ -64,7 +64,6 @@ const ENUM_FIELDS = {
 const BOOLEAN_FIELDS = new Set([
   'approval.enabled',
   'control_system.writes_enabled',
-  'control_system.read_only',
   'ariel.enabled',
   'artifact_server.auto_launch',
   'screen_capture.enabled',

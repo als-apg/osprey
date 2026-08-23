@@ -90,15 +90,17 @@ from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     ensure_auth_session_secrets,
+    ensure_terminal_secrets,
     purge_auth_credentials,
     set_auth_password,
+    terminal_secret_var,
 )
 from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces._serving import free_port
 from osprey.services.auth_sidecar.passwords import generation_tag, hash_password
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_DIR = _REPO_ROOT / "src"
@@ -468,6 +470,16 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
     for user in _USERS:
         set_auth_password(user, _PASSWORDS[user], deployment_root)
 
+    # The per-user operator secret nginx stamps onto every proxied request, minted
+    # into the deploy `.env` by the same preflight function `osprey up` calls — not
+    # hand-rolled, for the same reason the auth secrets above are not. nginx.conf
+    # `include`s one envsubst'd snippet per authenticated location, and nginx
+    # treats a missing include as a hard startup failure, so the container never
+    # becomes ready until these exist and are handed to it (below).
+    ensure_terminal_secrets(deployment_root, _USERS)
+    env_local = parse_dotenv_file(deployment_root / ENV_LOCAL_FILENAME)
+    terminal_secrets = {user: env_local[terminal_secret_var(user)] for user in _USERS}
+
     env_auth = parse_dotenv_file(deployment_root / AUTH_ENV_FILENAME)
     session_secret = env_auth["OSPREY_AUTH_SESSION_SECRET"]
     stored_hashes = {
@@ -489,7 +501,7 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
         # fresh port rather than turning a lost race into a red test.
         for attempt in range(3):
             nginx_port = free_port()
-            artifacts = render_web_terminals(_config(nginx_port))
+            artifacts = render_web_terminals(_config(nginx_port), terminal_secrets=terminal_secrets)
             # Lay the rendered artifacts out the way the real writer does —
             # under the repo's build/ zone — while `project` below plays the
             # pinned compose project directory the mount sources resolve
@@ -570,10 +582,45 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
         auth_started = subprocess.run(auth_run_argv, capture_output=True, text=True, timeout=180)
         assert auth_started.returncode == 0, auth_started.stderr
 
+        # Bind mounts come off the service's `volumes:` as "src:dst[:opts]"
+        # strings; the envsubst output directory comes off its own `tmpfs:` key
+        # as a "<path>[:opts]" string. They become different docker-run flags, so
+        # they are read separately — both from the rendered service rather than
+        # hardcoded, so a stack that stopped declaring either would fail here
+        # exactly as a real `osprey up` would. The tmpfs entry's option string is
+        # replayed verbatim: `mode=0700` is what compose hands the runtime, and
+        # what the runtime hands the kernel.
         nginx_mounts: list[str] = []
         for volume in nginx_service["volumes"]:
             host_side, container_side = volume.split(":", 1)
             nginx_mounts += ["-v", f"{(project / host_side).resolve()}:{container_side}"]
+        nginx_tmpfs: list[str] = []
+        for entry in nginx_service.get("tmpfs") or []:
+            nginx_tmpfs += ["--tmpfs", entry]
+
+        # The rendered compose declares the templates mount and the envsubst
+        # environment on the nginx service, but its per-user secret values are
+        # `${OSPREY_TERMINAL_SECRET_<user>:-}` — resolved by compose from the
+        # deploy `.env`, which a bare `docker run` does not do. Resolve them the
+        # way compose would (from the minted values read above) and hand the rest
+        # of the service's environment through verbatim, so the entrypoint
+        # envsubsts each snippet with the real secret.
+        nginx_env: list[str] = []
+        for value in nginx_service["environment"]:
+            name, _, rendered = value.partition("=")
+            if rendered.startswith("${"):
+                nginx_env += ["-e", f"{name}={env_local.get(name, '')}"]
+            else:
+                nginx_env += ["-e", value]
+
+        # The envsubst output directory (NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/osprey)
+        # must exist and be writable before the base image's entrypoint runs, or
+        # its own guard silently skips the substitution and nginx then dies on the
+        # missing include. Its restrictive mode is carried through from the
+        # rendered `tmpfs:` entry: the substituted snippets hold every roster
+        # user's operator secret, and this container is the real one.
+        assert nginx_tmpfs, "the rendered nginx service declares no envsubst tmpfs"
+
         nginx_started = subprocess.run(
             [
                 "docker",
@@ -584,6 +631,8 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
                 "--network",
                 f"container:{stub_name}",
                 *nginx_mounts,
+                *nginx_tmpfs,
+                *nginx_env,
                 nginx_service["image"],
             ],
             capture_output=True,

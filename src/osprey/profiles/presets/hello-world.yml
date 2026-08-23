@@ -1,6 +1,6 @@
 # hello-world.yml
 # The onboarding preset: the smallest agent that still shows the whole
-# write-safety chain. A mock control system, ten hooks, and no containers, so
+# write-safety chain. A mock control system, eleven hooks, and no containers, so
 # `osprey init` → `osprey build` → `osprey web` is the entire first session.
 #
 # `osprey init my-agent --preset hello-world` writes this out as
@@ -57,6 +57,7 @@ hooks:
   - writes-check   # Kill switch: refuse every write while writes_enabled is false
   - approval       # Gate hardware-write tool calls on human approval prompt
   - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
+  - memory-guard   # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts
   - config-drift   # Warn at session start when the build is out of date
   - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt
   - panels-context # Tell the agent which web terminal panels exist

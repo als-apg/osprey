@@ -22,6 +22,7 @@ from jinja2 import pass_context
 
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
@@ -33,7 +34,6 @@ from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
-from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
@@ -1310,6 +1310,10 @@ def create_app(
     # Must be registered before configure_interface_app() mounts /static
     # (Starlette matches routes in registration order, so an explicit route
     # ahead of a Mount wins).
+    #
+    # A ``?token=`` arriving here is answered by WebAuthMiddleware before this
+    # route runs (it mints the session cookie and redirects to the clean URL),
+    # so the handler only ever renders the page.
     @app.get("/static/session.html")
     async def session_page(request: Request):
         return templates.TemplateResponse(request, "session.html", {"url_prefix": url_prefix})
@@ -1352,6 +1356,8 @@ def run_web(
     shell_command: list[str] | None = None,
     config_path: str | None = None,
     project_dir: str | None = None,
+    *,
+    browser_url: str | None = None,
 ) -> None:
     """Run the web terminal server.
 
@@ -1361,11 +1367,17 @@ def run_web(
         shell_command: Shell command to spawn in the PTY.
         config_path: Optional path to config file.
         project_dir: Optional OSPREY project directory.
+        browser_url: The URL to auto-open once the server answers. Defaults to
+            the bare ``http://<host>:<port>``. The single-user launcher passes
+            the operator's one-time ``?token=`` login URL here instead: the bare
+            URL sets no session cookie, so an auto-opened tab would land on the
+            login-required page, whereas the token URL exchanges for a cookie and
+            redirects to the clean URL. Keyword-only and defaulted so every other
+            caller keeps the bare-URL behavior unchanged.
     """
     import uvicorn
 
-    url = f"http://{host}:{port}"
-    _open_browser_when_ready(url)
+    _open_browser_when_ready(browser_url or f"http://{host}:{port}")
 
     app = create_app(config_path=config_path, shell_command=shell_command, project_dir=project_dir)
     uvicorn.run(app, host=host, port=port, log_level="info")
