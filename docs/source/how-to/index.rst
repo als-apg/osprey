@@ -133,6 +133,13 @@ Run & Operate the Agent
       The report envelope, the per-check row shape, the exit codes, and the
       ``jq`` patterns for consuming all of it from a CI job.
 
+   .. grid-item-card:: Switch the Control Target
+      :link: switch-control-target
+      :link-type: doc
+
+      Rehearse work on the virtual accelerator and then run it on the real
+      machine, in one session — the roster, the live gate, and what refuses.
+
 Extend & Integrate
 ------------------
 
@@ -228,6 +235,7 @@ Bundled Services & Tutorials
    monitor-agent
    configure-health-checks
    health-json-contract
+   switch-control-target
    add-connector
    add-mcp-server
    use-python-executor

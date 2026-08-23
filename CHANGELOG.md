@@ -194,6 +194,34 @@ Compatibility is documented in release notes, not encoded in the version string.
   with the variable set-and-empty. Advisory only; `env.required` is where a
   deployment says a variable is mandatory.
 
+- A session can now be pointed at a different control system while it runs.
+  `control_target_set` moves it between the real machine (`live`) and the
+  virtual accelerator (`va`), and `control_target` reports where the session is
+  and what else it could reach — so a script can be rehearsed on the simulator
+  and then run on the machine without a rebuild, a redeploy or a restart. The
+  destination is connected and proved reachable, by reading its
+  `probe_channel`, before the current one is retired, so a switch that fails
+  leaves the session where it was. Switching *to* the live machine also
+  requires strict limits checking and
+  `control_system.target_switch.live_gateway_acknowledged`, set to the live
+  gateway's hostname; returning to a deployment's own baseline requires
+  neither. No target choice outlives the session — every server start returns
+  to the deployment baseline. `osprey build` now renders both targets'
+  connector blocks, so a project from the standard template has a
+  `virtual_accelerator:` block beside its `epics:` one. See the new "Switch the
+  Control Target at Run Time" how-to.
+
+- Approval prompts now name the control target they would act on — writes, plan
+  starts, patches and executions alike — and archive reads carry the target and
+  the archiver that served them.
+
+- A deployment can render a second Bluesky plan lane, one per control target,
+  with `bluesky.second_lane: true` in the build profile. Plans are then routed
+  to the lane serving the session's target, and `queue_start` names the lane
+  `queue_add` bound the plan to. Without it a deployment keeps its single lane
+  and refuses to queue or start plans while the session is pointed at a target
+  that lane does not serve.
+
 ### Changed
 
 - The workspace tool that registers a file on disk, or literal text, as a
