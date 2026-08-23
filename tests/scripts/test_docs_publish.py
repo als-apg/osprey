@@ -21,9 +21,9 @@ _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "docs_pu
 _spec = importlib.util.spec_from_file_location("docs_publish", _MODULE_PATH)
 assert _spec and _spec.loader
 docs_publish = importlib.util.module_from_spec(_spec)
-# scripts/ is not a package, so the module is loaded by path. It must be
-# registered before exec so `@dataclass` can resolve its annotations through
-# `cls.__module__`.
+# import-time required because scripts/ is not a package: docs_publish.py is
+# loaded by path and registered in sys.modules before exec so @dataclass can
+# resolve annotations through cls.__module__.
 sys.modules[_spec.name] = docs_publish
 _spec.loader.exec_module(docs_publish)
 
