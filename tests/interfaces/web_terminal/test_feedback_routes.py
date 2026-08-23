@@ -280,6 +280,44 @@ def test_send_drops_the_metadata_tier_when_the_checkbox_is_off(env: _Env) -> Non
     assert "operator" in without
 
 
+def test_send_metadata_tier_names_the_submitting_browser(env: _Env) -> None:
+    # An outbound draft prefills no metadata block of its own any more (the
+    # body is just a pointer line), so the browser has to reach the maintainer
+    # through the composed payload — from the User-Agent header, and only under
+    # the metadata checkbox, because the popover lists it there.
+    agent = "Mozilla/5.0 (TestBrowser; feedback-suite)"
+    with_metadata = env.client.post(
+        "/api/feedback", json=_send_body(), headers={"User-Agent": agent}
+    ).json()["payload"]
+    assert agent in with_metadata
+
+    for path in env.feedback_dir.iterdir():
+        path.unlink()
+    without = env.client.post(
+        "/api/feedback",
+        json=_send_body(include_metadata=False),
+        headers={"User-Agent": agent},
+    ).json()["payload"]
+    assert agent not in without
+
+
+def test_send_carries_the_session_id_in_the_deployment_tier(env: _Env) -> None:
+    # Same reasoning: the pointer-line draft names the session only by an
+    # 8-character title prefix, so the full id must ride in the payload the
+    # operator pastes — with the context it belongs to, never without it.
+    with_context = env.client.post("/api/feedback", json=_send_body(channel="github")).json()[
+        "payload"
+    ]
+    assert SESSION_ID in with_context
+
+    for path in env.feedback_dir.iterdir():
+        path.unlink()
+    without = env.client.post("/api/feedback", json=_send_body(include_context=False)).json()[
+        "payload"
+    ]
+    assert SESSION_ID not in without
+
+
 # ---- POST /api/feedback: collection discipline ----
 
 
