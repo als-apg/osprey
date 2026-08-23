@@ -3,13 +3,16 @@ versioned-publishing wiring the workflow is now built around.
 
 The rules being enforced here, and why each one exists:
 
-1. **The helper is always the default-branch copy.** Every ``docs_publish.py``
-   invocation runs ``.docs-ci/scripts/ci/docs_publish.py``, never
-   ``scripts/ci/docs_publish.py``. A tag build — or a ``workflow_dispatch`` for
-   an older tag — checks out a tree that predates the helper, so the in-tree
-   path would simply not exist there.
+1. **No invocation hardcodes which copy of the helper it runs.** All three
+   spell the path resolved once by the ``Resolve publishing helper`` step,
+   which prefers ``.docs-ci/scripts/ci/docs_publish.py`` and falls back to the
+   in-tree ``scripts/ci/docs_publish.py`` only when that is absent. Hardcoding
+   the in-tree path would break a tag build, whose tree predates the helper;
+   hardcoding the ``.docs-ci`` path would break the one pull request that adds
+   the helper, where the default branch does not carry it yet. The preference
+   order is what keeps a fix to the helper applying to a rebuild of an old tag.
 2. **That second checkout happens before the plan step**, is sparse, and lands
-   in ``.docs-ci``: the plan step is the first thing that needs it.
+   in ``.docs-ci``: the resolve step is the first thing that needs it.
 3. **No hand-rolled copying.** The old workflow assembled the site with
    ``cp -r docs/build/html``; all of that now lives in the helper's ``stage``
    subcommand, which is unit-tested. A stray ``cp -r`` would silently bypass it.
@@ -60,8 +63,8 @@ One check leaves YAML behind entirely: the workflow reads
 ``steps.plan.outputs.*``, but the keys that actually exist are decided by the
 helper's ``plan`` subcommand in Python. That check runs the helper in a
 subprocess and cross-references the two. Note which copy of the helper it runs:
-the workflow deliberately executes the *default-branch* copy out of
-``.docs-ci``, while this check runs the in-tree ``scripts/ci/docs_publish.py``.
+the workflow prefers the *default-branch* copy out of ``.docs-ci`` wherever it
+exists, while this check runs the in-tree ``scripts/ci/docs_publish.py``.
 That is the point — it pins the copy a pull request proposes against the
 workflow that pull request also proposes, so a rename of a plan output is caught
 in review. It is not a check of what production runs today: a helper change is
@@ -83,8 +86,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_YML = REPO_ROOT / ".github" / "workflows" / "docs.yml"
-#: The in-tree helper, used only to run it directly in the output-key test. The
-#: workflow must never spell this path — see ``HELPER_PATH``.
+#: The in-tree helper, used only to run it directly in the output-key test. No
+#: *invocation* may spell this path; only the resolve step, as its fallback.
 HELPER_SOURCE = REPO_ROOT / "scripts" / "ci" / "docs_publish.py"
 
 BUILD_JOB = "build"
@@ -97,11 +100,19 @@ STAGE_STEP = "Stage deployment tree"
 VERSIONS_STEP = "Write version switcher index"
 DEPLOY_STEP = "Deploy to GitHub Pages"
 
-#: The only spelling of the helper the workflow may use.
+#: The only spelling of the helper an *invocation* may use: the path the
+#: resolve step chose. A literal in its place would pin one of the two
+#: checkouts and break the builds the other one exists to serve.
+HELPER_REF = "${{ steps.helper.outputs.path }}"
+#: The resolve step's two candidates, in the order it must try them.
 HELPER_PATH = ".docs-ci/scripts/ci/docs_publish.py"
+HELPER_IN_TREE_PATH = "scripts/ci/docs_publish.py"
+#: The step that picks between them, and the id the invocations read it from.
+HELPER_RESOLVE_STEP = "Resolve publishing helper"
+HELPER_STEP_ID = "helper"
 #: Matches any path ending in the helper's filename, so a bare or otherwise
 #: re-rooted invocation is found rather than skipped. A plain ``in`` check for
-#: HELPER_PATH cannot do this: it reports "absent", not "spelled wrong".
+#: HELPER_REF cannot do this: it reports "absent", not "spelled wrong".
 _HELPER_INVOCATION_RE = re.compile(r"[\w./-]*docs_publish\.py")
 #: Where the sparse checkout of the default branch lands, and the one directory
 #: it needs to bring with it.
@@ -212,11 +223,25 @@ def _run_texts(wf: dict[str, Any]) -> list[str]:
 
 
 def _helper_invocation_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        step
-        for step in _steps(wf)
-        if "run" in step and _HELPER_INVOCATION_RE.search(str(step["run"]))
-    ]
+    """The steps that *run* the helper — located by the resolved path they
+    spell, since after resolution no invocation names the file itself."""
+    return [step for step in _steps(wf) if HELPER_REF in str(step.get("run", ""))]
+
+
+def _resolve_step(wf: dict[str, Any]) -> dict[str, Any]:
+    """Locate the resolve step by the id the invocations read, not by name:
+    renaming it is harmless, but changing the id silently empties every
+    invocation's path into the string ``python3 ""``."""
+    for step in _steps(wf):
+        if step.get("id") == HELPER_STEP_ID:
+            return step
+    raise AssertionError(f"no step carries id '{HELPER_STEP_ID}'")
+
+
+def _helper_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every step that touches the helper: the one that resolves it plus the
+    three that run it. All of them read paths relative to the build checkout."""
+    return [_resolve_step(wf), *_helper_invocation_steps(wf)]
 
 
 def _helper_invocation_runs(wf: dict[str, Any]) -> list[str]:
@@ -230,32 +255,125 @@ def _serialized(wf: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# (1) the helper is always invoked from the default-branch sparse checkout
+# (1) no invocation hardcodes which copy of the helper it runs
 # ---------------------------------------------------------------------------
 
 
 def _assert_helper_paths(wf: dict[str, Any]) -> None:
+    """Only the resolve step may name a copy of the helper; the three
+    invocations must defer to whichever one it picked."""
     runs = _helper_invocation_runs(wf)
-    assert runs, "no step invokes docs_publish.py at all"
-    for run in runs:
-        for match in _HELPER_INVOCATION_RE.findall(run):
-            assert match == HELPER_PATH, (
-                f"helper invoked as '{match}'; only '{HELPER_PATH}' exists on a tag build"
-            )
+    assert runs, f"no step invokes the helper via '{HELPER_REF}'"
+    resolve_run = str(_resolve_step(wf).get("run", ""))
+    for step in _steps(wf):
+        run = str(step.get("run", ""))
+        if not run or run == resolve_run:
+            continue
+        hardcoded = _HELPER_INVOCATION_RE.findall(run)
+        assert not hardcoded, (
+            f"step {step.get('name')!r} hardcodes the helper as {hardcoded}; "
+            f"invocations must spell '{HELPER_REF}' so the resolve step decides"
+        )
 
 
-def test_helper_is_invoked_from_the_default_branch_checkout(workflow: dict[str, Any]) -> None:
+def test_invocations_defer_to_the_resolved_helper_path(workflow: dict[str, Any]) -> None:
     _assert_helper_paths(workflow)
 
 
-def test_helper_is_invoked_from_the_default_branch_checkout__mutation_uses_in_tree_path() -> None:
-    """Rewriting a single invocation to the in-tree path must fail — that path
-    is absent from any tag tree cut before the helper landed."""
+def test_invocations_defer_to_the_resolved_helper_path__mutation_uses_in_tree_path() -> None:
+    """Pinning an invocation to the in-tree path must fail — that path is
+    absent from any tag tree cut before the helper landed."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, STAGE_STEP)
-    step["run"] = step["run"].replace(HELPER_PATH, "scripts/ci/docs_publish.py")
+    step["run"] = step["run"].replace(HELPER_REF, HELPER_IN_TREE_PATH)
     with pytest.raises(AssertionError):
         _assert_helper_paths(mutated)
+
+
+def test_invocations_defer_to_the_resolved_helper_path__mutation_uses_docs_ci_path() -> None:
+    """Pinning it to the ``.docs-ci`` path must fail too. That copy is missing
+    on the one pull request that adds the helper, which is the entire reason
+    the resolve step exists."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, STAGE_STEP)
+    step["run"] = step["run"].replace(HELPER_REF, HELPER_PATH)
+    with pytest.raises(AssertionError):
+        _assert_helper_paths(mutated)
+
+
+def _assert_resolve_step_prefers_the_default_branch_copy(wf: dict[str, Any]) -> None:
+    """The ``.docs-ci`` copy must be tested first and used when present, so a
+    fix to the helper reaches a rebuild of an old tag rather than being
+    shadowed by that tag's own contemporaneous copy."""
+    run = str(_resolve_step(wf).get("run", ""))
+    # Matched as the assignment rather than the bare path: the in-tree path is
+    # a suffix of the .docs-ci one, so a plain `in` check for it is satisfied by
+    # a step that only ever mentions .docs-ci.
+    picks_default_branch = f"path={HELPER_PATH}"
+    picks_in_tree = f"path={HELPER_IN_TREE_PATH}"
+    assert picks_default_branch in run, f"resolve step never selects '{HELPER_PATH}'"
+    assert picks_in_tree in run, (
+        f"resolve step has no fallback to '{HELPER_IN_TREE_PATH}'; the pull "
+        "request that adds the helper could never find it"
+    )
+    assert run.index(HELPER_PATH) < run.index(picks_in_tree), (
+        "the in-tree copy is selected before the .docs-ci copy is tested; the "
+        "default-branch copy must win wherever it exists"
+    )
+
+
+def test_resolve_step_prefers_the_default_branch_copy(workflow: dict[str, Any]) -> None:
+    _assert_resolve_step_prefers_the_default_branch_copy(workflow)
+
+
+def test_resolve_step_prefers_the_default_branch_copy__mutation_drops_fallback() -> None:
+    """Without the fallback arm the helper can never bootstrap onto main."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _resolve_step(mutated)
+    step["run"] = f'echo "path={HELPER_PATH}" >> "$GITHUB_OUTPUT"'
+    with pytest.raises(AssertionError):
+        _assert_resolve_step_prefers_the_default_branch_copy(mutated)
+
+
+def test_resolve_step_prefers_the_default_branch_copy__mutation_inverts_preference() -> None:
+    """Preferring the in-tree copy would stop a helper fix from reaching a
+    rebuild of an old tag — that tag would run its own stale copy."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _resolve_step(mutated)
+    step["run"] = (
+        f"if [ -f {HELPER_IN_TREE_PATH} ]; then\n"
+        f'  echo "path={HELPER_IN_TREE_PATH}" >> "$GITHUB_OUTPUT"\n'
+        f"else\n"
+        f'  echo "path={HELPER_PATH}" >> "$GITHUB_OUTPUT"\n'
+        f"fi\n"
+    )
+    with pytest.raises(AssertionError):
+        _assert_resolve_step_prefers_the_default_branch_copy(mutated)
+
+
+def _assert_resolve_step_precedes_the_plan_step(wf: dict[str, Any]) -> None:
+    resolve_index = _steps(wf).index(_resolve_step(wf))
+    assert resolve_index > _index_of_helper_checkout(wf), (
+        "the helper path is resolved before the .docs-ci checkout that supplies it"
+    )
+    assert resolve_index < _index_of_named_step(wf, PLAN_STEP), (
+        "the plan step runs before the path it invokes has been resolved"
+    )
+
+
+def test_resolve_step_sits_between_the_helper_checkout_and_the_plan(
+    workflow: dict[str, Any],
+) -> None:
+    _assert_resolve_step_precedes_the_plan_step(workflow)
+
+
+def test_resolve_step_sits_between_the_helper_checkout_and_the_plan__mutation_reorders() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _steps(mutated)
+    resolve = steps.pop(steps.index(_resolve_step(mutated)))
+    steps.insert(_index_of_named_step(mutated, PLAN_STEP) + 1, resolve)
+    with pytest.raises(AssertionError):
+        _assert_resolve_step_precedes_the_plan_step(mutated)
 
 
 def test_helper_invocation_count_matches_the_three_subcommands(workflow: dict[str, Any]) -> None:
@@ -266,7 +384,7 @@ def test_helper_invocation_count_matches_the_three_subcommands(workflow: dict[st
 def test_helper_invocation_count_matches_the_three_subcommands__mutation_adds_call() -> None:
     mutated = copy.deepcopy(_load_workflow())
     mutated["jobs"][BUILD_JOB]["steps"].append(
-        {"name": "extra", "run": f"python3 {HELPER_PATH} plan"}
+        {"name": "extra", "run": f'python3 "{HELPER_REF}" plan'}
     )
     with pytest.raises(AssertionError):
         assert len(_helper_invocation_runs(mutated)) == 3
@@ -724,9 +842,11 @@ def _assert_helper_steps_run_in_the_build_checkout(wf: dict[str, Any]) -> None:
 
     ``.docs-ci`` is a sparse checkout of ``scripts/ci`` alone; running the
     helper from there would put `git tag` in a tree with a different tag list.
+    The resolve step is held to the same rule: it probes for the ``.docs-ci``
+    copy by a relative path, which answers differently from another cwd.
     """
-    steps = _helper_invocation_steps(wf)
-    assert steps, "no step invokes docs_publish.py at all"
+    steps = _helper_steps(wf)
+    assert steps, f"no step invokes the helper via '{HELPER_REF}'"
     for step in steps:
         assert WORKING_DIRECTORY_KEY not in step, (
             f"step {step.get('name')!r} sets {WORKING_DIRECTORY_KEY}; the helper "

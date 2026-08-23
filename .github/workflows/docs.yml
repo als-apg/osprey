@@ -22,6 +22,14 @@
 # default branch, because a tag build — or a workflow_dispatch for an older
 # tag — checks out a tree that predates the helper and would not contain it.
 #
+# That default-branch copy is preferred wherever it exists, so a fix to the
+# helper reaches even a rebuild of an old tag. It can be missing exactly once:
+# on the pull request that first adds the helper, where the default branch does
+# not carry it yet and no build could ever find it there. The resolve step below
+# falls back to the build's own tree for that case, which is what lets the
+# helper bootstrap itself onto the default branch. Once it has landed, the
+# fallback arm never fires again.
+#
 # Serialisation: every deploying run shares the concurrency group `docs-deploy`,
 # so two deploys can never interleave and race each other's gh-pages commits.
 # Pull-request builds get a group of their own per run, so they are never queued
@@ -77,7 +85,7 @@ jobs:
 
     # Second, sparse checkout of the default branch: the tree checked out above
     # may be an old tag that predates the publishing helper, so the helper is
-    # always taken from the default branch instead of from the build's own tree.
+    # taken from the default branch in preference to the build's own tree.
     - name: Checkout publishing helper
       uses: actions/checkout@v7
       with:
@@ -85,6 +93,22 @@ jobs:
         path: .docs-ci
         sparse-checkout: scripts/ci
         sparse-checkout-cone-mode: true
+
+    # Prefer the default-branch copy, so a fix to the helper applies to every
+    # build including a rebuild of an old tag. Fall back to the build's own tree
+    # only when that copy does not exist, which happens on exactly one build in
+    # the repository's history: the pull request that adds the helper, before
+    # any default branch carries it. Resolved once here rather than inline at
+    # the three call sites below, so they cannot disagree about which copy ran.
+    - name: Resolve publishing helper
+      id: helper
+      run: |
+        if [ -f .docs-ci/scripts/ci/docs_publish.py ]; then
+          echo "path=.docs-ci/scripts/ci/docs_publish.py" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::.docs-ci copy absent; using the in-tree helper (expected only on the pull request that adds it)."
+          echo "path=scripts/ci/docs_publish.py" >> "$GITHUB_OUTPUT"
+        fi
 
     # Runs before uv is installed: the helper is stdlib-only by design, so the
     # deploy decision is available even if the docs build never happens.
@@ -94,7 +118,7 @@ jobs:
     - name: Plan the deploy
       id: plan
       run: |
-        python3 .docs-ci/scripts/ci/docs_publish.py plan \
+        python3 "${{ steps.helper.outputs.path }}" plan \
           --ref "$DOCS_REF" \
           --event "$DOCS_EVENT" \
           --input-tag "$DOCS_INPUT_TAG" >> "$GITHUB_OUTPUT"
@@ -146,7 +170,7 @@ jobs:
     - name: Stage deployment tree
       if: steps.plan.outputs.deploy == 'true'
       run: |
-        python3 .docs-ci/scripts/ci/docs_publish.py stage \
+        python3 "${{ steps.helper.outputs.path }}" stage \
           --ref "$DOCS_REF" \
           --event "$DOCS_EVENT" \
           --input-tag "$DOCS_INPUT_TAG" \
@@ -161,7 +185,7 @@ jobs:
     - name: Write version switcher index
       if: steps.plan.outputs.deploy == 'true'
       run: |
-        python3 .docs-ci/scripts/ci/docs_publish.py versions \
+        python3 "${{ steps.helper.outputs.path }}" versions \
           --deployment deployment
 
     - name: Deploy to GitHub Pages
