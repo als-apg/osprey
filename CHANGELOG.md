@@ -35,6 +35,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The graph channel finder no longer mistakes its own row limit for the whole
+  answer: `read_cypher` now warns when a result exactly fills the query's own
+  `LIMIT`, the example catalogue gained a census query (count before listing
+  "all of X") and a composed hardware-plus-signal filter that keeps sibling
+  signals out of the match, and the agent's report now ends with a definitive
+  **Channels found** list separated from any related addresses mentioned in
+  prose.
+- The cross-paradigm benchmark's "third vertical corrector" query now names
+  the storage ring: the machine also has a third vertical corrector in the
+  transfer line, so the old wording was ambiguous and graded a guess.
 - The pyat-specialist grounding e2e no longer misreads a saved metadata key
   ending in a plane letter (an `index` next to the betas) as the horizontal
   value — a numerically correct results artifact could fail the check.

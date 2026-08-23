@@ -43,9 +43,11 @@ _EXAMPLE_FIELDS = {"key", "title", "description", "cypher", "parameters", "not_a
 _EXPECTED_KEYS = (
     "by_description",
     "by_field_meaning",
+    "by_class_and_signal",
     "by_family_role",
     "by_system",
     "by_synonym",
+    "census",
     "in_section",
     "device_addresses",
     "by_address",

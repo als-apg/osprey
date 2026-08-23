@@ -319,3 +319,55 @@ def test_cypher_is_row_capped(query: ChannelFinderExample) -> None:
 def test_cypher_passes_the_client_side_gate(query: ChannelFinderExample) -> None:
     """A curated example the gate would refuse is a broken example."""
     vet_query(query.cypher)
+
+
+# ---------------------------------------------------------------------------
+# (e) The two idioms the first benchmark round showed the catalogue must teach.
+# ---------------------------------------------------------------------------
+
+
+def _by_key(key: str) -> ChannelFinderExample:
+    matches = [q for q in EXAMPLE_QUERIES if q.key == key]
+    assert matches, f"the catalogue ships no {key!r} example"
+    return matches[0]
+
+
+def test_the_catalogue_teaches_a_census_before_enumeration() -> None:
+    """'All of X' is only answerable against a count.
+
+    The q0 benchmark failure: the agent enumerated golden-orbit channels under
+    its own LIMIT, got exactly LIMIT rows, and reported the clipped list as the
+    facility's BPM total. The census example is the antidote — a count to
+    verify an enumeration's row_count against — so it must run on every corpus
+    and its description must bind it to "all" questions.
+    """
+    census = _by_key("census")
+
+    assert "count(" in census.cypher.lower(), "a census must aggregate, not enumerate"
+    assert "fullPv" not in census.cypher, "a census counts; it must not return addresses"
+    assert set(census.parameters) == set(CORPORA), "the census must run on every corpus"
+    assert census.not_applicable == ()
+    lowered = census.description.lower()
+    assert "all" in lowered and "count" in lowered, (
+        "the description must tie the census to answering 'all of X' completely"
+    )
+
+
+def test_the_catalogue_composes_hardware_and_signal_filters() -> None:
+    """One filter picks the hardware, a second picks the addresses on it.
+
+    The q39/q0 benchmark failures: a description-substring search returns every
+    sibling binding of a device, because golden/offset/position prose all carry
+    the plane word. The composed example is the exact shape the prompt demands
+    and no exemplar showed: class synonym for the device, field/subfield
+    meaning for the signal kind.
+    """
+    composed = _by_key("by_class_and_signal")
+
+    assert "altLabel" in composed.cypher, "the hardware filter comes from the ontology"
+    assert "fieldDescription" in composed.cypher and "subfieldDescription" in composed.cypher, (
+        "the signal filter must hold on the field and subfield meanings, not the description"
+    )
+    assert "b.description" not in composed.cypher, (
+        "the point of this example is to NOT match the sibling-blind description prose"
+    )

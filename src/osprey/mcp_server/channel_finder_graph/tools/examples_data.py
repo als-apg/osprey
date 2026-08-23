@@ -170,6 +170,52 @@ LIMIT 200
     not_applicable=("als",),
 )
 
+_BY_CLASS_AND_SIGNAL = ChannelFinderExample(
+    key="by_class_and_signal",
+    title="One kind of signal on every device of a class",
+    description=(
+        "The shape for questions that name hardware AND a kind of signal — "
+        "'the golden orbit reference on every BPM', 'the readback of each "
+        "corrector'. One filter picks the hardware, through the ontology word; "
+        "a second picks the addresses on it, through what the field and "
+        "subfield mean. Both hold at once, so nothing else on those devices "
+        "comes back.\n"
+        "\n"
+        "This is what a plain description search cannot do: sibling signals on "
+        "one device share their prose words — a golden-orbit reference, its "
+        "offset and the live position all say 'horizontal' — so matching the "
+        "description returns the whole family. The field and subfield meanings "
+        "separate them.\n"
+        "\n"
+        "$synonym — the class word, as in by_synonym.\n"
+        "$field_meaning — a phrase from the quantity the field names.\n"
+        "$subfield_meaning — a phrase from the specific signal wanted."
+    ),
+    cypher="""
+MATCH (cls:Class)
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
+MATCH (d:Resource)-[:TYPE]->(sub)
+MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
+WHERE toLower(b.fieldDescription) CONTAINS toLower($field_meaning)
+  AND toLower(b.subfieldDescription) CONTAINS toLower($subfield_meaning)
+RETURN b.fullPv AS pv,
+       d.sourceName AS device,
+       d.sectionCode AS section,
+       b.subfieldDescription AS subfield_meaning
+ORDER BY pv
+LIMIT 200
+""".strip(),
+    parameters={
+        "demo": {
+            "synonym": "bpm",
+            "field_meaning": "Golden Orbit Reference",
+            "subfield_meaning": "horizontal",
+        }
+    },
+    not_applicable=("als",),
+)
+
 _BY_FAMILY_ROLE = ChannelFinderExample(
     key="by_family_role",
     title="Addresses of every device whose family does a described job",
@@ -271,6 +317,33 @@ LIMIT 200
     parameters={"als": {"synonym": "quad"}, "demo": {"synonym": "quad"}},
 )
 
+_CENSUS = ChannelFinderExample(
+    key="census",
+    title="How many devices a word names, before listing anything",
+    description=(
+        "Run this BEFORE answering any question about all of something. It "
+        "counts the devices a class word reaches and the addresses bound to "
+        "them, and that count is the only way to know an enumeration came back "
+        "whole: a listing query is complete when its row_count matches the "
+        "census, and clipped by its own LIMIT when it comes back smaller. A "
+        "partial list presented as a complete one is a wrong answer, and "
+        "without this census nothing else will tell you.\n"
+        "\n"
+        "$synonym — the class word, as in by_synonym."
+    ),
+    cypher="""
+MATCH (cls:Class)
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
+MATCH (d:Resource)-[:TYPE]->(sub)
+OPTIONAL MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
+RETURN count(DISTINCT d) AS device_count,
+       count(b) AS binding_count
+LIMIT 1
+""".strip(),
+    parameters={"als": {"synonym": "quad"}, "demo": {"synonym": "quad"}},
+)
+
 _IN_SECTION = ChannelFinderExample(
     key="in_section",
     title="Every address in one section of the machine",
@@ -368,9 +441,11 @@ LIMIT 5
 EXAMPLE_QUERIES: tuple[ChannelFinderExample, ...] = (
     _BY_DESCRIPTION,
     _BY_FIELD_MEANING,
+    _BY_CLASS_AND_SIGNAL,
     _BY_FAMILY_ROLE,
     _BY_SYSTEM,
     _BY_SYNONYM,
+    _CENSUS,
     _IN_SECTION,
     _DEVICE_ADDRESSES,
     _BY_ADDRESS,

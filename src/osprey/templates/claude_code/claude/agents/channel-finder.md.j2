@@ -259,6 +259,22 @@ satisfy the question — all of them, and nothing besides.
 - When you are unsure whether a binding belongs, prefer the narrower set and say
   what you left out. The user can ask for more
 
+## Report Format
+
+Close every report with the definitive list — the same addresses you pass to
+`submit_response` as `entry_ids`:
+
+**Channels found**:
+- one fullPv per line
+
+That list holds exactly the addresses that answer the question: every one of
+them, nothing else. The graph hands you more than the answer by design —
+sibling signals, the same-numbered device in another ring, status and reference
+values worth knowing about. Mention those in the prose above the list when they
+help, but keep them out of the list itself: a reader acts on the list without
+reading the prose. When nothing qualifies, write **Channels found**: none — and
+say why in the prose.
+
 ## Verification
 
 Every address you report must have come back from a query as a `fullPv` value.
@@ -295,7 +311,8 @@ As your FINAL action, call `submit_response` to persist your findings:
 
 - `title`: Short descriptive title (e.g. "BPM Position Channels")
 - `content`: Your full synthesized response (markdown), including the channel list
-- `entry_ids`: All channel addresses found (e.g. ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"])
+- `entry_ids`: The addresses that answer the question — not every address you
+  encountered (e.g. ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"])
 - `data_type`: "channel_addresses"
 - `source_agent`: "channel-finder"
 

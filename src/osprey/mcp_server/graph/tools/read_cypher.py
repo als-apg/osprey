@@ -12,6 +12,7 @@ decides which envelope a caller sees and what the successful payload looks like.
 
 import json
 import logging
+import re
 from typing import Any
 
 from fastmcp.exceptions import ToolError
@@ -42,6 +43,19 @@ _EMPTY_GRAPH_MESSAGE = (
     "The graph holds no Resource nodes, so no query can match: the store is "
     "running but its corpus was never loaded."
 )
+
+_LIMIT_LITERAL = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
+
+
+def _own_limit(query: str) -> int | None:
+    """The row bound of the query's final literal ``LIMIT``, if it has one.
+
+    Only the last occurrence matters: that is the clause bounding the result,
+    while earlier matches belong to subqueries. A parameterised ``LIMIT $n``
+    is invisible here, which errs toward silence rather than a false alarm.
+    """
+    matches = _LIMIT_LITERAL.findall(query)
+    return int(matches[-1]) if matches else None
 
 
 @mcp.tool()
@@ -75,7 +89,9 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
     back and ``truncated`` says whether more matched; the store cancels a query
     that outlives ``services.graphdb.query_timeout_s``. A truncated or timed-out
     answer means narrow the query — add a filter, bound the traversal, or
-    aggregate — rather than retry it unchanged.
+    aggregate — rather than retry it unchanged. A result that exactly fills the
+    query's own ``LIMIT`` carries ``guidance`` too: the limit, not the data, may
+    be the boundary, so verify with a count before calling such a list complete.
 
     Start from ``example_queries`` and adapt the closest one; call ``get_schema``
     when you need a label, relationship type or property the examples do not use.
@@ -137,10 +153,21 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
             "row_count": len(result.rows),
             "truncated": result.truncated,
         }
+        # The cap can only flag rows the *store* held back. A query whose own
+        # LIMIT filled up is clipped just the same, with nothing to say so —
+        # the failure mode is an agent presenting the clipped list as complete.
+        own_limit = _own_limit(query)
         if result.truncated:
             payload["guidance"] = [
                 f"Result was cut at {QUERY_MAX_ROWS_CONFIG_KEY} = {ctx.query_max_rows} rows; "
                 "add a LIMIT, aggregate, or narrow the MATCH."
+            ]
+        elif own_limit is not None and own_limit > 1 and len(result.rows) == own_limit:
+            # LIMIT 1 is exempt: aggregates and existence probes fill it by design.
+            payload["guidance"] = [
+                f"row_count equals the query's own LIMIT {own_limit} — the match may have "
+                "more rows, so do not present this as a complete list. Verify with a "
+                "count() of the same MATCH, or raise the LIMIT and re-run."
             ]
 
         return json.dumps(payload, default=str)

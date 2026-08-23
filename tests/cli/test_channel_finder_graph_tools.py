@@ -293,3 +293,20 @@ def test_channel_finder_standalone_renders_its_paradigm_and_no_graph_server(tmp_
     assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("hierarchical")
     assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
     assert validate_agent_tools_against_permissions(project_dir) == []
+
+
+def test_graph_paradigm_prompt_requires_a_definitive_channel_list(tmp_path):
+    """The graph arm ends its reports with an explicit ``Channels:`` list.
+
+    The graph paradigm retrieves supersets by design, so the narrowing happens
+    at the report boundary — and the first benchmark round showed that free
+    prose leaks "related channels" into the answer. The rendered prompt must
+    therefore carry the report contract: a final list holding exactly the
+    addresses that answer the question, with context kept in prose above it.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-report", "graph")
+
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+    assert "## Report Format" in body, "the graph arm must carry the report-format section"
+    assert "**Channels found**" in body, "the contract must reuse the existing list label"
+    assert "**Channels found**: none" in body, "the empty answer must have a spelled-out form"

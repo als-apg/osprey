@@ -348,7 +348,7 @@
     "category": "multi-target"
   },
   {
-    "user_query": "Give me the readback for the third vertical corrector and the first BPM vertical position",
+    "user_query": "In the storage ring, give me the readback for the third vertical corrector and the first BPM vertical position",
     "targeted_pv": [
       "SR:MAG:VCM:03:CURRENT:RB",
       "SR:DIAG:BPM:01:POSITION:Y"
