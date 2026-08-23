@@ -35,6 +35,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The pyat-specialist grounding e2e no longer misreads a saved metadata key
+  ending in a plane letter (an `index` next to the betas) as the horizontal
+  value — a numerically correct results artifact could fail the check.
 - The web terminal now knows its own session id from the moment it opens.
   It previously waited for the session's transcript file to appear on disk,
   which only happens once the session has content — so a terminal left idle
