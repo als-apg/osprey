@@ -183,7 +183,14 @@ keys:
       Absent from channel_finder_standalone by design — its only
       approval-governed tool (setup_patch) is covered by default_policy.
       See governed_sets.
-  approval.tools.channel_write: {evidence: 'channel_write'}
+  approval.tools.channel_write:
+    evidence: 'approval\.tools\.channel_write'
+    note: >-
+      Anchored for the same reason as channel_read below: `channel_write`
+      names the MCP tool as well as the policy key, and the literal has now
+      spread past the vacuity ceiling -- a bare match no longer proves a
+      reader exists. The anchored form cites the settings-panel schema and
+      the config-writer default that actually serve this key.
   approval.tools.channel_read:
     evidence: 'approval\.tools\.channel_read'
     note: >-
@@ -957,9 +964,9 @@ governed_sets:
       Not exhaustive claims in any shipped comment — recorded so a future
       change to the default-enabled server set is visible. Re-derived
       2026-08-02 with the method above.
-    project: [channel_write, channel_read, archiver_read, execute, setup_patch, entry_create, draft_concept]
-    control_assistant: [channel_write, channel_read, archiver_read, execute, setup_patch, entry_create, draft_concept]
-    hello_world: [channel_write, channel_read, archiver_read, execute, setup_patch, draft_concept]
+    project: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, entry_create, draft_concept]
+    control_assistant: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, entry_create, draft_concept]
+    hello_world: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, draft_concept]
   draft_concept_note: >-
     draft_concept is approval-governed in project, control_assistant and
     hello_world (osprey_facility_knowledge is enabled by default and carries the
@@ -967,6 +974,10 @@ governed_sets:
     default_policy: always. Fail-closed and correctly described by the shipped
     comment. This is the reason the governed set is 7/7/6 while the
     approval.tools LISTS are 6/6/6 — do not "fix" one to match the other.
+    control_target_set is governed the same way and for the same reason: the
+    controls server carries the approval hook on it, and it appears in no
+    approval.tools block, so it too falls to default_policy. That is what
+    makes the governed set 8/8/7 rather than 7/7/6.
 
 # ---------------------------------------------------------------------------
 # kept_readers — code that legitimately still mentions a DELETED key. These are

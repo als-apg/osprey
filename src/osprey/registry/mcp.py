@@ -131,12 +131,27 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             "EPICS_CA_ADDR_LIST": "${EPICS_CA_ADDR_LIST:-}",
         },
-        permissions_allow=["channel_limits"],
-        permissions_ask=["channel_write"],
+        # control_target only reports: it derives endpoints from config, reads
+        # the prober's cache and asks the manager what it already knows. No
+        # socket, no child, no state write — so prompting for it would train
+        # operators to click through a prompt that never precedes motion.
+        permissions_allow=["channel_limits", "control_target"],
+        # control_target_set moves the whole session to another machine, so it
+        # is approval-gated — but deliberately NOT writes-check gated. The
+        # writes kill switch renders pure-write tools into permissions.deny,
+        # and a deployment with writes off is exactly the one that most needs to
+        # be able to move a session between the simulator and the machine it
+        # only reads. Its own refusals (read-only run, execution in flight,
+        # eligibility) are the gate that matters here.
+        permissions_ask=["channel_write", "control_target_set"],
         hooks_pre=[
             HookRule(
                 matcher="mcp__controls__channel_write",
                 hooks=[_WRITES_CHECK, _LIMITS, _APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__controls__control_target_set",
+                hooks=[_APPROVAL],
             ),
             HookRule(
                 matcher="mcp__controls__channel_read",
