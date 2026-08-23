@@ -65,6 +65,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   and rendered oversized; the old `✉` rendered small, painted full-colour
   emoji on Windows/Android, and promised email for a dialog that also files
   locally or to GitHub.
+- The rail's Documentation and Feedback controls are now labelled DOCS and
+  FEEDBACK, like every other cell in the rail. The marks alone left the
+  operator hovering over them to find out what they open.
 - The web terminal now knows its own session id from the moment it opens.
   It previously waited for the session's transcript file to appear on disk,
   which only happens once the session has content — so a terminal left idle

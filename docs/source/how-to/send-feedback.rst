@@ -5,7 +5,7 @@ Anyone using the Web Terminal can report a problem, or ask for something, from
 the terminal itself — no bug tracker account, no separate form. The **Feedback**
 control sits in the utility cluster at the far end of the panel rail (bottom in
 the default left-hand rail, right-hand end when the rail runs along the top),
-next to the **Documentation** link. Clicking it opens a dialog with a text box,
+next to the **Docs** link. Clicking it opens a dialog with a text box,
 a channel picker, and two attachment checkboxes.
 
 Every submission is recorded on the deployment it was sent from, whichever
