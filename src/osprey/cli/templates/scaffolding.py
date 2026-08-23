@@ -57,6 +57,20 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
     "DISPATCH_WORKER_TOKEN": "authenticates the dispatch worker back to the dispatcher",
     "BLUESKY_LAUNCH_TOKEN": "arms the Bluesky bridge's plan-launch endpoint",
     "BLUESKY_TILED_API_KEY": "the key the bridge presents to the co-deployed Tiled catalog",
+    # The opt-in SECOND plan lane's own launch token. Only one of these two can
+    # exist in a deployment — a lane is named for the control-system target it
+    # serves, and which target the second lane serves depends on which one the
+    # deployment baseline is — and neither exists at all without
+    # `bluesky.second_lane`. Both are documented anyway, because this file lists
+    # what a repo's `.env` MAY hold rather than what this one deployment does.
+    "BLUESKY_VA_LAUNCH_TOKEN": (
+        "arms the plan-launch endpoint of the second Bluesky lane, the one serving the "
+        "virtual accelerator (only on a deployment with `bluesky.second_lane`)"
+    ),
+    "BLUESKY_LIVE_LAUNCH_TOKEN": (
+        "arms the plan-launch endpoint of the second Bluesky lane, the one serving the live "
+        "machine (only on a deployment with `bluesky.second_lane`)"
+    ),
     "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "MONGO_ROOT_PASSWORD": "archiver store root password (the seeder, recorder and agent all authenticate with it)",
