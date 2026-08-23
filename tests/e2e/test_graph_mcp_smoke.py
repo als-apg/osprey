@@ -5,7 +5,8 @@ This is the feature's acceptance test: a deployment built from the
 store seeded with the shipped demo-machine corpus, driven by a real agent
 session with an operator-style question about the machine's structure. The
 claim under test is the whole chain at once — the preset renders ``graph`` into
-``.mcp.json``, the server comes up, the agent reaches for it *on its own*, the
+``.mcp.json`` and the ``facility-knowledge-graph`` subagent beside it, the
+server comes up, the main agent delegates to the subagent *on its own*, the
 read-only Cypher path answers, and the answer is right about the corpus.
 
 What the fixture stands up, and why each piece is shaped the way it is:
@@ -34,10 +35,10 @@ What the fixture stands up, and why each piece is shaped the way it is:
 
 Grading is the two layers ``tests/e2e/README.md`` asks for:
 
-* a **deterministic floor** over the tool trace — the agent reached a
-  ``mcp__graph__*`` tool, that call succeeded, and its prose (all of it, not
-  just the closing message) invents no channel address that is not in the
-  corpus; and
+* a **deterministic floor** over the tool trace — a ``mcp__graph__*`` tool was
+  reached, through the subagent and never by the main agent directly, that
+  call succeeded, and the prose (all of it, not just the closing message)
+  invents no channel address that is not in the corpus; and
 * an **LLM judge** over the prose, against a rubric written from facts read
   back out of this very corpus (see :data:`_VERIFIED` — every number in the
   rubric was queried from the seeded store, not assumed from the generator).
@@ -316,8 +317,14 @@ def _assert_graph_is_rendered(repo: Path) -> None:
     settings = json.loads((render / ".claude" / "settings.json").read_text(encoding="utf-8"))
     granted = [tool for tool in settings["permissions"]["allow"] if tool.startswith("mcp__graph__")]
     assert granted, (
-        "the render granted the main agent no mcp__graph__* permissions; the agent "
-        "would be denied the tools this test asserts it reaches"
+        "the render granted no mcp__graph__* permissions; the facility-knowledge-graph "
+        "subagent would be denied the tools this test asserts it reaches"
+    )
+    agent_md = render / ".claude" / "agents" / "facility-knowledge-graph.md"
+    assert agent_md.is_file(), (
+        "the build rendered no facility-knowledge-graph subagent — the graph tools "
+        "belong to it, so without it the delegation floor below would grade a "
+        "project that cannot delegate"
     )
 
 
@@ -567,10 +574,12 @@ async def test_graph_answers_a_facility_structure_question(graph_project: Path) 
     """Operator asks what a PV belongs to; the agent reaches the graph and answers.
 
     The deterministic floor: the readiness barrier saw ``graph`` come up, the
-    agent called a ``mcp__graph__*`` tool unprompted, at least one such call
-    succeeded, and the agent's prose names no ``SR:MAG:DIPOLE:01:…`` address the
-    corpus does not hold. The judge then grades the substance against
-    :data:`_RUBRIC`, which is built from figures read out of this corpus.
+    question reached a ``mcp__graph__*`` tool unprompted — and through the
+    ``facility-knowledge-graph`` subagent, never the main agent directly — at
+    least one such call succeeded, and the prose names no
+    ``SR:MAG:DIPOLE:01:…`` address the corpus does not hold. The judge then
+    grades the substance against :data:`_RUBRIC`, which is built from figures
+    read out of this corpus.
     """
     render = render_dir(graph_project)
     assert "graph" in expected_mcp_servers(render), (
@@ -604,6 +613,13 @@ async def test_graph_answers_a_facility_structure_question(graph_project: Path) 
         "tool-description gap, fix it in the framework — do not steer the prompt "
         "toward the tool."
     )
+    direct = [t for t in graph_calls if t.parent_tool_use_id is None]
+    assert not direct, (
+        f"the main agent called {len(direct)} graph tool(s) itself instead of "
+        f"delegating: {[t.name for t in direct]}. Those tools belong to the "
+        "facility-knowledge-graph subagent."
+    )
+
     successful = [t for t in graph_calls if not t.is_error and t.result]
     assert successful, (
         "the graph was reached but every call errored or returned nothing: "

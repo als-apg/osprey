@@ -217,6 +217,7 @@ agents:
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis
   - facility-knowledge      # Look up facility documentation, procedures, and device specs
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
   - pyat-specialist         # Lattice/optics computation sub-agent (pyAT)
 
 output_styles:

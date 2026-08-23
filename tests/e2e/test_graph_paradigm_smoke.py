@@ -1,8 +1,9 @@
 """Agentic e2e acceptance gate for the **graph channel-finder paradigm**.
 
 Sibling to :mod:`tests.e2e.test_graph_mcp_smoke`, and deliberately the other
-half of the same story. That module proves the *main agent's* ``graph`` server
-answers a structural question about the machine. This one proves the **fourth
+half of the same story. That module proves the ``graph`` server — reached
+through the **facility-knowledge-graph subagent** — answers a structural
+question about the machine. This one proves the **fourth
 channel-finder paradigm**: a deployment built with
 ``channel_finder_mode: graph`` answers an ordinary "which channel do I write
 to?" question through the **channel-finder subagent**, whose four tools are the
@@ -38,16 +39,17 @@ along the ring" is prose that only a reader can grade; a channel-address answer
 is checkable against the corpus by string equality, and a cheaper gate that
 proves the same thing is the better gate.
 
-**Why the main-agent graph server is switched off.** ``control_assistant``
+**Why the standalone graph server is switched off.** ``control_assistant``
 declares ``services.graphdb``, so a graph-paradigm render carries *both* the
-standalone ``graph`` server (main agent) and the ``channel-finder`` one
-(subagent) — two doors onto the same store. Left open, which door the model
-picks is a coin flip, and a run that answered perfectly through
+standalone ``graph`` server (the facility-knowledge-graph subagent's) and the
+``channel-finder`` one — two doors onto the same store. Left open, which door
+the model picks is a coin flip, and a run that answered perfectly through
 ``mcp__graph__read_cypher`` would prove nothing about the paradigm. So the run
 passes ``disallowed_tools=["mcp__graph"]``, the CLI's server-level deny form:
-the main agent cannot see that server at all, and the only remaining route to
-the store is the one under test. The subagent is unaffected — the deny is
-session-scoped, but ``mcp__graph__*`` is not in its vocabulary to begin with.
+no agent in the session can see that server at all — the deny reaches the
+facility-knowledge-graph subagent too — and the only remaining route to the
+store is the one under test. The channel-finder subagent is unaffected, since
+``mcp__graph__*`` is not in its vocabulary to begin with.
 
 Budget: ``max_turns=14``, ``max_budget_usd=1.5`` — the same envelope as the
 sibling, because it is the same shape of work: the subagent will usually read
@@ -253,12 +255,12 @@ def test_render_targets_the_graph_channel_finder_server(graph_paradigm_repo: Pat
 def test_render_arms_the_subagent_with_the_paradigm_vocabulary(
     graph_paradigm_repo: Path,
 ) -> None:
-    """Exactly the four graph tools, and nothing from the main agent's server.
+    """Exactly the four paradigm tools, and nothing from the standalone server.
 
-    ``mcp__graph__*`` belongs to the main agent. Its appearance here would mean
-    the subagent had a second, unmanaged route to the store, and the delegation
-    assertion in the live test below would stop being a claim about the
-    paradigm.
+    ``mcp__graph__*`` belongs to the facility-knowledge-graph subagent. Its
+    appearance here would mean the channel-finder subagent had a second,
+    unmanaged route to the store, and the delegation assertion in the live test
+    below would stop being a claim about the paradigm.
     """
     render = render_dir(graph_paradigm_repo)
 
@@ -358,9 +360,10 @@ async def test_channel_finder_graph_paradigm_answers_an_address_question(
         OPERATOR_PROMPT,
         max_turns=14,
         max_budget_usd=1.5,
-        # The main agent's own door onto the same store, shut — see the module
-        # docstring. ``mcp__graph`` (no trailing ``__*``) is the CLI's
-        # server-level deny form.
+        # The other door onto the same store — the facility-knowledge-graph
+        # subagent's standalone server — shut for every agent in the session;
+        # see the module docstring. ``mcp__graph`` (no trailing ``__*``) is the
+        # CLI's server-level deny form.
         disallowed_tools=["mcp__graph"],
     )
     prose = _all_assistant_text(result)

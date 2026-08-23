@@ -1,15 +1,18 @@
 """The rendered agent surface of the ``graph`` MCP server, per app template.
 
-The ``graph`` server is a **main-agent** server: a declared store puts its four
-read-only tools on the orchestrator's surface, and on no subagent's. Three
-claims, each of which a settings-only check would miss:
+The ``graph`` server belongs to the **facility-knowledge-graph subagent**: a
+declared store renders the subagent, its frontmatter carries the four read-only
+tools, and the main agent's route to the graph is delegation — its CLAUDE.md
+roster, not its own tool calls. Three claims, each of which a settings-only
+check would miss:
 
-1. **The store enables it, and it stops at the main agent.**
+1. **The store enables it, and the tools land on exactly one agent.**
    ``ariel_standalone`` ships a ``services.graphdb`` block and no channel-finder
-   agent at all, so the graph tools must reach the MAIN agent there — settings,
-   ``.mcp.json`` and the hook prefixes — while no agent frontmatter mentions
-   them. A wiring that put the server on a subagent's list would render an
-   ARIEL project whose orchestrator cannot query its own store.
+   agent, so the session surface must be rendered there — settings,
+   ``.mcp.json`` and the hook prefixes — and the one frontmatter naming the
+   tools must be ``facility-knowledge-graph.md``. A wiring that dropped the
+   subagent would render an ARIEL project whose orchestrator has no route to
+   its own store.
 
 2. **A template with no store renders no trace of the server**, asserted by
    walking every file under ``.claude/`` rather than by reading one of them.
@@ -69,13 +72,14 @@ def _graph_tool_hits(root: Path) -> list[str]:
     )
 
 
-def _assert_main_agent_surface(project: Path) -> None:
-    """The three files that together make a server callable by the main agent.
+def _assert_graph_session_surface(project: Path) -> None:
+    """The three files that together make the server callable in a session.
 
-    Split across ``settings.json`` (may it call the tool), ``.mcp.json`` (can the
+    Split across ``settings.json`` (may it be called), ``.mcp.json`` (can the
     tool be launched) and ``hook_config.json`` (which hook layer sees the call).
-    Any one of them alone renders happily while the project misbehaves at
-    runtime, which is why all three are asserted together.
+    Subagents share all three with the session, so the facility-knowledge-graph
+    agent needs every one of them. Any one alone renders happily while the
+    project misbehaves at runtime, which is why they are asserted together.
     """
     permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
     allow = sorted(e for e in permissions["allow"] if str(e).startswith("mcp__graph__"))
@@ -115,25 +119,32 @@ def test_ariel_standalone_ships_the_store(built_ariel_standalone_project):
     assert isinstance((config.get("services") or {}).get("graphdb"), dict)
 
 
-def test_ariel_standalone_gives_the_main_agent_the_graph_tools(built_ariel_standalone_project):
-    """The store is configured, so the main agent can query it."""
-    _assert_main_agent_surface(built_ariel_standalone_project)
+def test_ariel_standalone_renders_the_graph_session_surface(built_ariel_standalone_project):
+    """The store is configured, so the session can launch and call the server."""
+    _assert_graph_session_surface(built_ariel_standalone_project)
 
 
-def test_ariel_standalone_puts_the_graph_tools_on_no_agent(built_ariel_standalone_project):
-    """No subagent frontmatter names a graph tool.
+def test_ariel_standalone_puts_the_graph_tools_on_the_subagent_only(built_ariel_standalone_project):
+    """Exactly one agent frontmatter names the graph tools: facility-knowledge-graph.
 
     Asserted as an exact file set rather than as a loop over ``.claude/agents/``,
-    because this template currently renders no framework agents at all — a loop
-    over an empty directory would pass forever, including on the day an agent
-    starts shipping here.
+    so the day another file starts naming a graph tool this fails instead of
+    passing by omission.
     """
     project = built_ariel_standalone_project
 
     assert _graph_tool_hits(project / ".claude") == [
+        "agents/facility-knowledge-graph.md",
         "hooks/hook_config.json",
         "settings.json",
     ]
+    frontmatter = yaml.safe_load(
+        (project / ".claude" / "agents" / "facility-knowledge-graph.md")
+        .read_text(encoding="utf-8")
+        .split("---")[1]
+    )
+    tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
+    assert sorted(t for t in tools if t.startswith("mcp__graph__")) == _graph_permission_entries()
     assert not (project / ".claude" / "agents" / "channel-finder.md").exists(), (
         "this template's whole point here is that it has no channel-finder agent"
     )
@@ -205,14 +216,14 @@ def _run_build(repo: Path):
     return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
-def test_osprey_build_ships_the_graph_tools_to_the_main_agent_only(tmp_path):
-    """The build verb completes, the main agent gets the server, and the
-    channel-finder subagent rendered beside it gets none of it — the direction
-    ``create_project`` cannot prove, since the build runs its own render and
-    then validates the result.
+def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path):
+    """The build verb completes, the facility-knowledge-graph subagent gets the
+    tools, and the channel-finder subagent rendered beside it gets none of them
+    — the direction ``create_project`` cannot prove, since the build runs its
+    own render and then validates the result.
 
-    The two halves belong in one test: a build where the tools reached neither
-    surface would satisfy the frontmatter assertion on its own.
+    The halves belong in one test: a build where the tools reached neither
+    surface would satisfy the channel-finder assertion on its own.
     """
     repo = _write_profile(tmp_path / "graph-on")
 
@@ -220,16 +231,17 @@ def test_osprey_build_ships_the_graph_tools_to_the_main_agent_only(tmp_path):
     assert result.exit_code == 0, result.output
 
     project = repo / "build"
-    _assert_main_agent_surface(project)
+    _assert_graph_session_surface(project)
 
     agent = project / ".claude" / "agents" / "channel-finder.md"
     frontmatter = yaml.safe_load(agent.read_text(encoding="utf-8").split("---")[1])
     tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
     assert [t for t in tools if t.startswith("mcp__graph__")] == []
     assert _graph_tool_hits(project / ".claude") == [
+        "agents/facility-knowledge-graph.md",
         "hooks/hook_config.json",
         "settings.json",
-    ], "the server's whole rendered trace is the main agent's three files"
+    ], "the server's whole rendered trace is the subagent frontmatter plus the session's files"
 
 
 def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):
@@ -255,3 +267,8 @@ def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):
 
     assert _graph_tool_hits(project) == []
     assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
+    assert not (project / ".claude" / "agents" / "facility-knowledge-graph.md").exists(), (
+        "the subagent rides the server (server_dependency): switching the server "
+        "off must take the agent with it, or the render ships frontmatter naming "
+        "tools no permission backs"
+    )

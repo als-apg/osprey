@@ -18,8 +18,9 @@ default first action, not an afterthought.
 {% set logbook_deep_enabled = agents | selectattr("name", "equalto", "logbook-deep-research") | selectattr("enabled") | list | length > 0 -%}
 {% set data_visualizer_enabled = agents | selectattr("name", "equalto", "data-visualizer") | selectattr("enabled") | list | length > 0 -%}
 {% set facility_knowledge_enabled = agents | selectattr("name", "equalto", "facility-knowledge") | selectattr("enabled") | list | length > 0 -%}
+{% set facility_knowledge_graph_enabled = agents | selectattr("name", "equalto", "facility-knowledge-graph") | selectattr("enabled") | list | length > 0 -%}
 {% set pyat_specialist_enabled = agents | selectattr("name", "equalto", "pyat-specialist") | selectattr("enabled") | list | length > 0 -%}
-{% set in_core_agents = ["channel-finder", "logbook-search", "logbook-deep-research", "data-visualizer", "facility-knowledge", "pyat-specialist"] -%}
+{% set in_core_agents = ["channel-finder", "logbook-search", "logbook-deep-research", "data-visualizer", "facility-knowledge", "facility-knowledge-graph", "pyat-specialist"] -%}
 ## Agents
 
 Your specialized agents handle domain-specific tasks. Delegate to them —
@@ -48,6 +49,11 @@ do not attempt their work with your own tools.
 {%- if pyat_specialist_enabled %}
   Documented vs. computed: a *documented* design fact or piece of terminology — a nominal value, a naming convention, "what does X mean" — comes from **facility-knowledge** (it wins whenever the knowledge bundle carries the value). Anything that requires *computing* on the lattice model — orbit, tunes, optics functions, response matrices — goes to **pyat-specialist**, not here.
 {%- endif %}
+{% endif -%}
+{%- if facility_knowledge_graph_enabled %}
+- **facility-knowledge-graph** — The machine's structure, from the facility knowledge graph: which devices exist, where they sit along the beam, what a device exposes, which channels read vs write, device classes and counts.
+  For ANY structural question about the machine — delegate to **facility-knowledge-graph**. Do NOT call `read_cypher`, `get_schema`, `example_queries`, or `capabilities` yourself; only the subagent has the query playbook for the graph store. It returns facts with addresses verbatim.
+  Routing: {% if channel_finder_enabled %}an address for a phrase → **channel-finder**; {% endif %}{% if facility_knowledge_enabled %}documented prose (procedures, descriptions, terminology) → **facility-knowledge**; {% endif %}the machine's structure → this agent.
 {% endif -%}
 {%- if pyat_specialist_enabled %}
 - **pyat-specialist** — Computes lattice/optics quantities on the accelerator model (pyAT): orbit, tunes, optics functions (beta/dispersion/phase), response matrices, and related lattice calculations.

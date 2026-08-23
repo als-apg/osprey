@@ -9,7 +9,8 @@ maxTurns: 30
    come from CHANNEL_FINDER_TOOLS_BY_PIPELINE and are all served under the
    `channel-finder` server name. The graph paradigm is no exception — it reaches
    the knowledge graph through `mcp__channel-finder__read_cypher` and friends,
-   not through the standalone `graph` server, which belongs to the main agent. -#}
+   not through the standalone `graph` server, which belongs to the
+   facility-knowledge-graph subagent. -#}
 tools: {% for t in channel_finder_tools | default([]) %}mcp__channel-finder__{{ t }}, {% endfor %}mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---

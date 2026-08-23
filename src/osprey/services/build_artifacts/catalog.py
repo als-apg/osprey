@@ -115,6 +115,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Facility knowledge sub-agent",
         ),
         BuildArtifact(
+            canonical_name="agents/facility-knowledge-graph",
+            template_path="claude/agents/facility-knowledge-graph.md.j2",
+            output_path=".claude/agents/facility-knowledge-graph.md",
+            description="Facility knowledge graph sub-agent (structural Cypher queries)",
+        ),
+        BuildArtifact(
             canonical_name="agents/pyat-specialist",
             template_path="claude/agents/pyat-specialist.md.j2",
             output_path=".claude/agents/pyat-specialist.md",

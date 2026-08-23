@@ -21,7 +21,13 @@ from osprey.cli.build_profile_merge import _hash_resolved_profile
 
 # preset name -> resolved-content hash, pre-rename.
 PINNED_PRESET_HASHES: dict[str, str] = {
-    "ariel-standalone": "sha256:a08bde688f81f7604da07822db5def68d6c0d294688f15ec8720ac5df11a8cee",
+    # Moved when the graph tools left the main agent for the new
+    # facility-knowledge-graph subagent: this preset's `agents:` went from the
+    # empty list to naming that one agent. NOT behavior-neutral — a rebuilt
+    # ARIEL deployment answers structural questions through delegation instead
+    # of direct mcp__graph__* calls — so the staleness advisory firing on
+    # already-deployed projects is the correct signal.
+    "ariel-standalone": "sha256:0cbb6b39294bcee682f13f7325a26aca310def5ecf8ee40f7a1bf8399fa7e234",
     "channel-finder-standalone": (
         "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
@@ -52,9 +58,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # deploy-visible, so the staleness advisory firing on already-deployed
     # projects is correct. `control-assistant-ariel` excludes the skill by
     # name, so only the notices moved its digest.
-    "control-assistant": "sha256:5ef6bbfb2b06cdba889a5c0484eedb9d885a89c5148c00f6f89bca31034beceb",
+    # Moved (with every tier extending it) when the base gained the
+    # facility-knowledge-graph agent in its `agents:` list — the subagent that
+    # now owns the graph tools. A rebuilt project grows
+    # `.claude/agents/facility-knowledge-graph.md` and its CLAUDE.md roster
+    # entry; deploy-visible, so the advisory firing is correct.
+    "control-assistant": "sha256:aac30a004471d996c38e361945b9768dd5f86f38f91d4dd3609ddd015cf7c4a4",
     "control-assistant-ariel": (
-        "sha256:db36e1df06e55b0fd47d9e93ccb84101f2b9868152ba922d2827c8fa133a9db5"
+        "sha256:9f90484d19d93ccef25e0ae8b8a22851f8299619de85c170cead92043e7a9e2b"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -74,10 +85,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the merged preset actually hashes to. Deploy-visible for both reasons at
     # once, which is what the advisory should say.
     "control-assistant-readonly": (
-        "sha256:bef792eb7f56823b2798a3a219756c8c5d7b75b1de0111bc1466f40b503d0ce5"
+        "sha256:473d78864ae444ef95c339ee1f856b654e3a96474af237fa06d2110722d4e53c"
     ),
     "control-assistant-readwrite": (
-        "sha256:73ef8f73136498e971ef2b9c65abc8ce418702431c071f80f7308d1a4fa7d172"
+        "sha256:05b92f5ae58db631731ecd4f165d7c6bc9b36ee974c5ece794edeffe5a393633"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

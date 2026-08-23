@@ -1,4 +1,12 @@
 
+{%- if graph_terminology_structural | default(false) %}
+## Knowledge Graph Terminology
+
+The facility is held as a knowledge graph and you answer by writing read-only
+Cypher. There is no level-by-level navigation and no fixed lookup call: devices,
+the classes they belong to, the sections they sit in and the PVs bound to each
+of them are nodes and relationships, and a query walks between them.
+{%- else %}
 ## Channel Database Terminology
 
 ### Database Profile
@@ -8,6 +16,7 @@ and you reach addresses by writing read-only Cypher. There is no level-by-level
 navigation and no fixed lookup call: devices, the classes they belong to, the
 sections they sit in and the PVs bound to each of them are nodes and
 relationships, and a query walks between them.
+{%- endif %}
 
 ### Node Types and Predicates
 

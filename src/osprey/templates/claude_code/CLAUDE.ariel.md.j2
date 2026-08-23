@@ -26,9 +26,17 @@ For simple lookups ("did anyone log RF cavity trips last week?") a single
 keyword or semantic search is enough; the skill is reserved for queries
 that genuinely need multi-phase iteration.
 
-{%- for a in agents if a.enabled %}
+{%- set enabled_agent_list = agents | selectattr("enabled") | list %}
+{%- if enabled_agent_list %}
+
+## Agents
+
+Delegate to these specialists rather than approximating their work with your
+own tools:
+{% for a in enabled_agent_list %}
 - **{{ a.name }}** — {{ a.description }}
 {%- endfor %}
+{%- endif %}
 
 ## ARIEL Tool Surface
 

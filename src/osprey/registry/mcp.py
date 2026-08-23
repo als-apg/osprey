@@ -563,6 +563,20 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "parameters, or any documented facility knowledge."
         ),
     ),
+    "facility-knowledge-graph": AgentDefinition(
+        name="facility-knowledge-graph",
+        # Rides the graph server, not just the store: an explicit
+        # ``claude_code.servers.graph.enabled: false`` takes the agent away
+        # together with the tools it delegates to.
+        server_dependency="graph",
+        description=(
+            "Answers structural questions about the machine from the facility "
+            "knowledge graph: which devices exist, where they sit along the beam, "
+            "what channels a device exposes, which addresses read vs write, device "
+            "classes and counts. Delegate to this agent when the user asks how the "
+            "machine fits together."
+        ),
+    ),
     "pyat-specialist": AgentDefinition(
         name="pyat-specialist",
         server_dependency="python",

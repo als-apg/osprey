@@ -375,8 +375,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   parameterized set covering device rollups, channel bindings and section
   walks. `services.graphdb.query_timeout_s` (default 15 s) and
   `services.graphdb.query_max_rows` (default 200) bound a single query. The
-  server is rendered for the main agent wherever `services.graphdb` is
-  configured.
+  server is rendered wherever `services.graphdb` is configured, and its tools
+  belong to a new `facility-knowledge-graph` subagent: the main agent answers
+  structural questions ("what sits in section 7, in beam order?") by
+  delegating to it, exactly as address lookups delegate to the channel finder.
 - `osprey knowledge build-ttl` generates a Turtle corpus from a project's
   hierarchical channel database (`--channel-db`) and the matching in-context
   database (`--descriptions`), deriving devices from the channel-name grammar,
@@ -384,9 +386,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   describing them from both. The `control-assistant` preset seeds its graph from
   that corpus, so its graph and channel finder describe the same machine.
 - The `control-assistant-readonly` and `control-assistant-readwrite` operator
-  terminals get the graph tools too, reading the hosting deployment's store
-  over `services.graphdb.port_host`. Move that port on the deployment and move
-  the same number in both preset files.
+  terminals get the facility-knowledge-graph agent too, reading the hosting
+  deployment's store over `services.graphdb.port_host`. Move that port on the
+  deployment and move the same number in both preset files.
 
 - The graph is available as a fourth channel-finder paradigm:
   `channel_finder.pipeline_mode: graph` (`osprey init --set
