@@ -2016,10 +2016,22 @@ describe('classifyQueueAddResponse', () => {
           detail: {
             code: reason,
             detail: 'refused',
-            capability: { can_execute: false, reason, detail: 'run `osprey config …`' },
+            capability: {
+              can_execute: false,
+              reason,
+              detail: 'run `osprey config …`',
+              lane: 'bluesky_live',
+              lane_target: 'live',
+            },
           },
         })
-      ).toEqual({ type: 'cannot_execute', reason, detail: 'run `osprey config …`' });
+      ).toEqual({
+        type: 'cannot_execute',
+        reason,
+        detail: 'run `osprey config …`',
+        lane: 'bluesky_live',
+        laneTarget: 'live',
+      });
     }
   });
 
@@ -2032,6 +2044,10 @@ describe('classifyQueueAddResponse', () => {
       type: 'cannot_execute',
       reason: 'browse_only_connector',
       detail: 'the mock connector cannot move hardware',
+      // No capability record rode along, so no lane did either: the outcome
+      // reports what it was told, and was told nothing about a lane.
+      lane: null,
+      laneTarget: null,
     });
   });
 
@@ -2079,7 +2095,13 @@ describe('queueOutcomeBanner', () => {
       { type: 'stale_draft_revision' },
       { type: 'draft_revision_already_launched' },
       { type: 'not_armed', detail: '', managerState: null, itemLeftBehind: false },
-      { type: 'cannot_execute', reason: 'browse_only_connector', detail: '' },
+      {
+        type: 'cannot_execute',
+        reason: 'browse_only_connector',
+        detail: '',
+        lane: 'bluesky',
+        laneTarget: 'live',
+      },
       { type: 'session_plan_not_ready', detail: '', plan: null },
       { type: 'queue_rejected', detail: '' },
       { type: 'bridge_unreachable' },
@@ -2129,7 +2151,13 @@ describe('queueOutcomeBanner', () => {
   test('the cannot-execute banner carries the capability detail verbatim (it holds the flip command)', () => {
     const detail = 'run `osprey set connector=virtual_accelerator` and redeploy.';
     expect(
-      queueOutcomeBanner({ type: 'cannot_execute', reason: 'browse_only_connector', detail }).message
+      queueOutcomeBanner({
+        type: 'cannot_execute',
+        reason: 'browse_only_connector',
+        detail,
+        lane: 'bluesky',
+        laneTarget: 'live',
+      }).message
     ).toBe(detail);
   });
 
@@ -2149,12 +2177,16 @@ describe('classifyCapability', () => {
           can_execute: true,
           reason: 'executable',
           detail: "Plans execute against the 'virtual_accelerator' connector.",
+          lane: 'bluesky_va',
+          lane_target: 'va',
         },
       })
     ).toEqual({
       canExecute: true,
       reason: 'executable',
       detail: "Plans execute against the 'virtual_accelerator' connector.",
+      lane: 'bluesky_va',
+      laneTarget: 'va',
     });
   });
 
@@ -2164,9 +2196,37 @@ describe('classifyCapability', () => {
     expect(
       classifyCapability(200, {
         status: 'ok',
-        capability: { can_execute: false, reason: 'browse_only_connector', detail },
+        capability: {
+          can_execute: false,
+          reason: 'browse_only_connector',
+          detail,
+          lane: 'bluesky',
+          lane_target: 'live',
+        },
       })
-    ).toEqual({ canExecute: false, reason: 'browse_only_connector', detail });
+    ).toEqual({
+      canExecute: false,
+      reason: 'browse_only_connector',
+      detail,
+      lane: 'bluesky',
+      laneTarget: 'live',
+    });
+  });
+
+  // A record from a bridge that publishes no lane fields — and the
+  // unreadable-health record, which no lane spoke for. Both read as UNKNOWN,
+  // never as "the single lane": labelling a two-lane deployment's record with
+  // a lane nobody reported is exactly the confusion the fields exist to end.
+  test('missing lane fields are unknown, not assumed', () => {
+    const record = classifyCapability(200, {
+      capability: { can_execute: false, reason: 'manager_unreachable', detail: 'no manager' },
+    });
+    expect(record.lane).toBe(null);
+    expect(record.laneTarget).toBe(null);
+
+    const unreachable = classifyCapability(502, null);
+    expect(unreachable.lane).toBe(null);
+    expect(unreachable.laneTarget).toBe(null);
   });
 
   // Invariant (a) of the capability wire contract: liveness and executability
@@ -2210,11 +2270,23 @@ describe('capabilityBanner', () => {
    * @param {string} [detail]
    * @returns {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/draft-client.js').CapabilityRecord}
    */
-  const cannot = (reason, detail = 'because') => ({ canExecute: false, reason, detail });
+  const cannot = (reason, detail = 'because') => ({
+    canExecute: false,
+    reason,
+    detail,
+    lane: 'bluesky',
+    laneTarget: 'live',
+  });
 
   test('an executable deployment says nothing at all', () => {
     expect(
-      capabilityBanner({ canExecute: true, reason: 'executable', detail: 'all good' })
+      capabilityBanner({
+        canExecute: true,
+        reason: 'executable',
+        detail: 'all good',
+        lane: 'bluesky',
+        laneTarget: 'live',
+      })
     ).toBeNull();
   });
 

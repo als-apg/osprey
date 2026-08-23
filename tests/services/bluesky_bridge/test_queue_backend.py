@@ -585,11 +585,19 @@ async def test_capability_fails_closed_when_the_manager_is_silent(connector) -> 
 
 
 def test_capability_serializes_to_the_wire_shape() -> None:
-    payload = Capability(can_execute=False, reason="browse_only_connector", detail="why").to_dict()
+    payload = Capability(
+        can_execute=False,
+        reason="browse_only_connector",
+        detail="why",
+        lane="bluesky",
+        lane_target="live",
+    ).to_dict()
     assert payload == {
         "can_execute": False,
         "reason": "browse_only_connector",
         "detail": "why",
+        "lane": "bluesky",
+        "lane_target": "live",
     }
 
 

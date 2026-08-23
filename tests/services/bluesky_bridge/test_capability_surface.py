@@ -138,10 +138,16 @@ def _capability(response: httpx.Response) -> dict[str, Any]:
     body = response.json()
     assert body["status"] == "ok"
     capability = body["capability"]
-    assert set(capability) == {"can_execute", "reason", "detail"}
+    assert set(capability) == {"can_execute", "reason", "detail", "lane", "lane_target"}
     assert isinstance(capability["can_execute"], bool)
     assert capability["reason"] in _ALL_REASONS
     assert isinstance(capability["detail"], str) and capability["detail"]
+    # The lane identity rides on every record, refusals included: a consumer
+    # looking at a "no" has to know which plan lane said it. Both are
+    # render-time facts, so both are always present and never empty — see
+    # `tests/services/test_lane_capability.py` for how they are derived.
+    assert isinstance(capability["lane"], str) and capability["lane"]
+    assert capability["lane_target"] in {"live", "va"}
     return capability
 
 

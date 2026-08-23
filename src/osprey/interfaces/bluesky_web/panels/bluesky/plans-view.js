@@ -235,6 +235,11 @@ export function createPlansView({
     canExecute: false,
     reason: REASON_BRIDGE_UNREACHABLE,
     detail: 'Checking whether this deployment can execute plans…',
+    // No lane has answered yet, and the boot record must not name one: which
+    // lane this panel talks to is the bridge's to report, not the panel's to
+    // assume.
+    lane: null,
+    laneTarget: null,
   };
 
   // The capability record is re-read on a slow interval, not only at boot: the
@@ -793,7 +798,13 @@ export function createPlansView({
         // The refusal carries the authoritative capability record; adopt it so
         // the banner and the disabled button agree with the bridge immediately,
         // without waiting for the refresh interval.
-        capability = { canExecute: false, reason: outcome.reason, detail: outcome.detail };
+        capability = {
+          canExecute: false,
+          reason: outcome.reason,
+          detail: outcome.detail,
+          lane: outcome.lane,
+          laneTarget: outcome.laneTarget,
+        };
         renderCapability();
       }
       const banner = queueOutcomeBanner(outcome);

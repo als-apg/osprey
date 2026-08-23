@@ -17,7 +17,16 @@ kill-switch hook must NEVER attach to it (pinned in
 **It takes no run id.** The queue server runs exactly one plan at a time, and
 this aborts that plan. There is nothing to select, and a run-id parameter would
 only add a way for a halt to be refused — the one thing this path must not
-have.
+have. That holds on a two-lane deployment too: the lane is DERIVED, by asking
+each rendered bridge which one has a plan in motion (``queue.resolve_halt_lane``),
+never demanded from the caller. An emergency stop must not require the agent to
+have kept track of which machine it started.
+
+**And it never follows the session.** Every other lane decision on this server
+asks where the session is pointed; a halt asks where the hardware is moving. If
+an operator switched targets while a plan runs, the plan is still running — so
+the abort goes to the lane running it, and a target switch can neither gate nor
+misdirect it.
 
 The bridge composes the abort (immediate pause, bounded wait for the paused
 state, then abort) and owns every refusal; see
@@ -39,8 +48,10 @@ from osprey.mcp_server.bluesky.server_context import _http_post_json
 
 # The refusal relay and its hint table live with the other queue tools: the
 # abort answers to the same bridge vocabulary, and a second copy here would be
-# a second thing to keep in step.
-from osprey.mcp_server.bluesky.tools.queue import _relay_refusal
+# a second thing to keep in step. `resolve_halt_lane` is shared with
+# `queue_stop` for the same reason — the two halting paths must not disagree
+# about which lane is the one to stop.
+from osprey.mcp_server.bluesky.tools.queue import _relay_refusal, resolve_halt_lane
 from osprey.mcp_server.http import notify_agent_activity_async
 
 # The abort is the one bridge call whose server-side work is a COMPOSITION of
@@ -85,9 +96,13 @@ async def stop_run() -> str:
     anything to a starting position. Say that when you report the abort, and
     say it when you propose one.
 
-    Nothing gates this call — no writes check, no launch token, at this tool or
-    at the bridge — because a halt that can be refused for a policy reason is a
-    halt with a failure mode. It is still approval-gated, so a human sees it.
+    Nothing gates this call — no writes check, no launch token, no session
+    target, at this tool or at the bridge — because a halt that can be refused
+    for a policy reason is a halt with a failure mode. It is still
+    approval-gated, so a human sees it. On a deployment with two plan lanes the
+    abort is sent to the lane that has a plan in motion, found by asking the
+    bridges, so a session that switched targets since the plan started can
+    still stop it and does not have to switch back first.
 
     Returns:
         JSON ``{"aborted": true, "abort_pending", "paused_first",
@@ -111,8 +126,12 @@ async def stop_run() -> str:
         - queue_request_rejected: the manager reached the paused state and then
           refused the abort itself.
     """
+    # Which lane is RUNNING something, not which lane the session is on. On a
+    # single-lane deployment this resolves nothing and probes nothing.
+    lane = await resolve_halt_lane()
+
     status, body = await anyio.to_thread.run_sync(
-        functools.partial(_http_post_json, "/queue/abort", {}, timeout=_ABORT_TIMEOUT)
+        functools.partial(_http_post_json, "/queue/abort", {}, lane=lane, timeout=_ABORT_TIMEOUT)
     )
     if status != 200:
         return _relay_refusal(

@@ -324,14 +324,17 @@ def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Pa
 
     _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/plans"), project_path)
 
-    template_text = (project_path / "services" / "bluesky" / "docker-compose.yml.j2").read_text()
-    assert (
-        "\"{{ deployment.bind_address | default('127.0.0.1') }}:"
-        "{{ services.bluesky.port | default(8090) }}:"
-        '{{ services.bluesky.port | default(8090) }}"' in template_text
-    )
-    assert "BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}" in template_text
-    assert "BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN:-" not in template_text
+    # Asserted on the RENDER, not on the copied template's source: the template
+    # renders one stack per Bluesky plan lane, so the port and the token are
+    # per-lane expressions in the source and only become these literals once a
+    # deployment's lanes are known. This is the single-lane render — every
+    # project that has not opted into a second lane.
+    rendered = _render_copied_compose(project_path, _read_config(project_path))
+    bridge = rendered["services"]["bluesky-bridge"]
+
+    assert bridge["ports"] == ["127.0.0.1:8090:8090"]
+    assert bridge["environment"]["BLUESKY_LAUNCH_TOKEN"] == "${BLUESKY_LAUNCH_TOKEN}"
+    assert ":-" not in bridge["environment"]["BLUESKY_LAUNCH_TOKEN"]
 
 
 # ---------------------------------------------------------------------------
