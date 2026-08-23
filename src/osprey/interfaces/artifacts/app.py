@@ -944,12 +944,35 @@ def run_server(
 ) -> None:
     """Run the artifact gallery server.
 
+    Direct-serve entry point: this same process builds the app and answers
+    requests. It mints this process's operator secret and prints the one-time
+    ``?token=`` login URL — the operator's only way past the auth middleware —
+    before constructing the app. The print is suppressed when the secret was
+    already supplied by an ancestor launcher or a multi-user deployment, so a
+    supplied secret is never re-echoed.
+
     Args:
         host: Host to bind to.
         port: Port to run on.
         workspace_root: Workspace root dir.
     """
+    import os
+
     import uvicorn
+
+    from osprey.interfaces.common_middleware import WEB_PORT_ENV
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
+
+    # Publish the settled port before the app is constructed: cookies ignore
+    # ports, so two OSPREY servers on this host share an origin as far as the
+    # browser is concerned, and the port is the only thing keeping their session
+    # cookies apart. ``session_cookie_name()`` reads it from here.
+    os.environ[WEB_PORT_ENV] = str(port)
+
+    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
+    login_url = mint_and_announce(host, port)
+    if announce:
+        print(f"Open: {login_url}")
 
     app = create_app(workspace_root=workspace_root)
     uvicorn.run(app, host=host, port=port, log_level="info")

@@ -163,17 +163,22 @@ class TestDenyArrayIsTheThingBeingProtected:
     """
 
     def test_settings_template_denies_bash_and_edit_by_default(self):
-        template = REPO_ROOT / "src/osprey/templates/claude_code/claude/settings.json.j2"
-        text = template.read_text(encoding="utf-8")
-        deny_defaults = [line for line in text.splitlines() if "set deny_defaults" in line]
-        assert deny_defaults, (
-            "settings.json.j2 no longer defines `deny_defaults` — the web "
-            "terminal's tool restrictions are rendered from it."
+        """Read the constant the template renders, not the template's source.
+
+        settings.json.j2 no longer declares the list inline — it takes
+        ``deny_defaults`` from the render context, sourced from DENY_DEFAULTS —
+        so scraping the Jinja file would now guard a copy nothing ships.
+        """
+        from osprey.cli.templates.claude_code import DENY_DEFAULTS
+
+        assert DENY_DEFAULTS, (
+            "DENY_DEFAULTS is empty — the web terminal's tool restrictions are "
+            "rendered from it into settings.json's permissions.deny."
         )
-        line = deny_defaults[0]
-        for tool in ('"Bash"', '"Edit"'):
-            assert tool in line, (
-                f"{tool} is no longer in the settings template's deny defaults "
-                f"({line.strip()}). The web terminal relies on it to keep the "
-                f"agent from shelling out or patching files unmediated."
+        for tool in ("Bash", "Edit"):
+            assert tool in DENY_DEFAULTS, (
+                f"{tool!r} is no longer in DENY_DEFAULTS ({list(DENY_DEFAULTS)}), "
+                f"which settings.json.j2 renders into permissions.deny. The web "
+                f"terminal relies on it to keep the agent from shelling out or "
+                f"patching files unmediated."
             )

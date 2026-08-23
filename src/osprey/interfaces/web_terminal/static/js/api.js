@@ -66,56 +66,74 @@ export function withPrefix(path) {
  */
 let sessionExpired = false;
 
-/** In-flight health probe, shared by all channels so closes don't fan out. */
+/** In-flight session probe, shared by all channels so closes don't fan out. */
 /** @type {Promise<boolean>|null} */
-let healthProbe = null;
+let sessionProbe = null;
 
 /**
- * Ask the app's own health route whether this page still has a session,
+ * Ask the app's own session route whether this page still has a session,
  * resolving true only on a definite 401.
  *
  * The browser WebSocket API hides handshake status codes from JavaScript, so
- * a connection the perimeter refused with 401 reaches `onclose` looking
- * exactly like a dropped network — without this probe an expired session
- * leaves the terminal reconnecting forever. Three details are load-bearing:
+ * a connection refused with 401 reaches `onclose` looking exactly like a
+ * dropped network — without this probe an expired session leaves the terminal
+ * reconnecting forever. Three details are load-bearing:
  *
- * - The URL goes through {@link withPrefix}, so it is the per-user app's own
- *   `/u/<user>/health`. That route sits behind its user's auth gate, which is
- *   what makes the 401 visible; the auth sidecar's `/health` is unauthenticated
- *   and would always answer 200, and a root-absolute `/health` is not proxied.
- * - `Accept: application/json`. The perimeter content-negotiates its 401: an
- *   Accept mentioning text/html gets a 302 to the login page, anything else
- *   gets a bare 401. We want the status, not the page.
- * - The app decides nothing about authorization and holds no secret. It reads
- *   one status code and reacts.
+ * - The URL is the app's own `/api/session` (via {@link withPrefix} so it lands
+ *   inside the per-user mount when one exists). Unlike `/health` — which is
+ *   exempt from the auth gate so the container healthcheck can curl it without a
+ *   credential, and therefore always answers 200 — `/api/session` sits behind
+ *   the app's auth gate. That gate is what makes the 401 visible, and it lives
+ *   in the app itself: single-user has no nginx perimeter, so a stale cookie
+ *   would otherwise loop forever; now the app reports it expired.
+ * - `Accept: application/json`. Both gates content-negotiate their 401: an
+ *   Accept mentioning text/html gets a login redirect (nginx) or the app gate's
+ *   HTML "not signed in" page, anything else gets a bare JSON 401. We want the
+ *   status, not the page — and asking for JSON is what keeps this probe's
+ *   answer a status code even after the reload it triggers gets the page.
+ * - The frontend decides nothing about authorization and holds no secret. It
+ *   reads one status code and reacts.
  *
  * Anything that is not a 401 — a network error, a 5xx, a healthy 200 — resolves
  * false and leaves the caller's reconnect/backoff behavior untouched. Where no
- * auth fronts the deployment (single-origin/dev), the probe simply always sees
- * the app's own 200.
+ * auth fronts the deployment (dev without credentials), the probe simply always
+ * sees the app's own 200.
  * @returns {Promise<boolean>}
  */
 function probeSessionExpired() {
   if (sessionExpired) return Promise.resolve(true);
-  if (!healthProbe) {
-    healthProbe = fetch(withPrefix('/health'), {
+  if (!sessionProbe) {
+    sessionProbe = fetch(withPrefix('/api/session'), {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     })
       .then((res) => res.status === 401)
       .catch(() => false)
       .finally(() => {
-        healthProbe = null;
+        sessionProbe = null;
       });
   }
-  return healthProbe;
+  return sessionProbe;
 }
 
 /**
- * Probe after a channel closed and, on an expired session, reload so the HTML
- * navigation path triggers the perimeter's login redirect. Fire-and-forget:
- * callers schedule their ordinary reconnect first, so a probe that fails for
- * any other reason costs nothing but one request.
+ * Probe after a channel closed and, on an expired session, reload the page.
+ *
+ * The reload is a *navigation*, and that is the whole point: a navigation
+ * carries `Accept: text/html`, which is what both shapes answer usefully.
+ * Multi-user reaches the nginx perimeter first and gets its login redirect;
+ * single-user has no perimeter, so it reaches the app's own auth gate, which
+ * content-negotiates its 401 into a readable "this session is not signed in"
+ * page telling the operator to re-open the login URL their server printed.
+ * Either way the operator sees an explanation instead of a terminal that
+ * reconnects forever — and neither answer is something this module has to know
+ * about or render itself.
+ *
+ * The probe above deliberately asks for `application/json` so it keeps reading
+ * a status code rather than being handed that page.
+ *
+ * Fire-and-forget: callers schedule their ordinary reconnect first, so a probe
+ * that fails for any other reason costs nothing but one request.
  * @param {() => void} [onExpired] tear down the caller's own handle first
  *   (an EventSource would otherwise keep retrying until the reload lands)
  */

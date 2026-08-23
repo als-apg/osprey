@@ -240,6 +240,22 @@ LONG_POINTS = 4000
 
 _LAUNCH_TOKEN_HEADER = "X-Launch-Token"
 
+#: The sidecar is gated by WebAuthMiddleware like every interface app, so its
+#: helper authenticates the way any non-browser operator client does: the
+#: minted operator secret in this header. The bridge keeps its own, separate
+#: launch-token gate above.
+_OPERATOR_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+
+#: Set by the ``queue_stack`` fixture from the .env ``osprey up`` wrote; module
+#: state rather than a fixture return so the plain helpers need no
+#: threading-through.
+_sidecar_secret: str | None = None
+
+
+def _auth_headers() -> dict[str, str]:
+    return {_OPERATOR_SECRET_HEADER: _sidecar_secret} if _sidecar_secret else {}
+
+
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.slow,
@@ -304,6 +320,7 @@ def _request(
     body: dict[str, Any] | None = None,
     *,
     token: str | None = None,
+    extra_headers: dict[str, str] | None = None,
     timeout: float = 20.0,
 ) -> tuple[int, Any]:
     """One HTTP call, returning ``(status, parsed_body)`` for 2xx AND 4xx/5xx.
@@ -326,6 +343,8 @@ def _request(
         data = b""
     if token:
         headers[_LAUNCH_TOKEN_HEADER] = token
+    if extra_headers:
+        headers.update(extra_headers)
     req = urllib.request.Request(  # noqa: S310 - localhost only
         f"{base}{path}", data=data, method=method, headers=headers
     )
@@ -353,7 +372,7 @@ def _post(path: str, body: dict[str, Any] | None = None, **kw: Any) -> tuple[int
 
 
 def _sidecar_get(path: str, **kw: Any) -> tuple[int, Any]:
-    return _request(PANELS_URL, path, "GET", **kw)
+    return _request(PANELS_URL, path, "GET", extra_headers=_auth_headers(), **kw)
 
 
 def _code_of(body: Any) -> Any:
@@ -828,6 +847,11 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # exactly the devices the deployed worker registered, and a change in
         # that derivation shows up here as a real failure rather than a
         # silently-diverging second copy of the same logic.
+        # `osprey up` minted the sidecar's operator secret into the repo .env;
+        # arm the sidecar helper with it before any stage talks to the gate.
+        global _sidecar_secret
+        _sidecar_secret = _env_value(repo, "OSPREY_TERMINAL_SECRET")
+
         correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
         bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
         assert correctors, "osprey up wrote no BLUESKY_EPICS_SETPOINTS -- no device to drive"

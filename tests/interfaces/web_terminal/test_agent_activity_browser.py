@@ -67,7 +67,11 @@ import pytest
 import requests
 
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.conftest import (
+    _apply_all,
+    _run_app_server,
+    use_process_web_credentials,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -500,6 +504,11 @@ def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
 
         with _run_app_server(bridge_app) as bridge_url:
             os.environ["BLUESKY_BRIDGE_URL"] = bridge_url
+            # `sidecar_app` is a module-level singleton, so its cached
+            # credential holder goes stale the moment the root conftest
+            # resets the process one; without this the browser's minted
+            # session cookie is refused and /bluesky/ never renders.
+            use_process_web_credentials(sidecar_app)
             with _run_app_server(sidecar_app) as sidecar_url:
                 yield sidecar_url
     finally:

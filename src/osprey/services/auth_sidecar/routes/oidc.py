@@ -36,9 +36,13 @@ A deployment whose IdP carries the mapped claim only at that endpoint therefore
 locks out with a log line naming the claim, rather than authorising on a second,
 weaker trust path.
 
-**Nothing about a failure reaches the browser but its category.** Tokens, claim
-values and client secrets never enter a response or a log line; refusals name
-the user and the reason class only.
+**Nothing about a failure reaches the browser but its category.** Tokens,
+client secrets, and the claim values examined while validating a login never
+enter a response or a log line; refusals name the user and the reason class
+only. The one identity value that is retained is the accepted subject: a
+successful login stores it in the (signed, not encrypted) session cookie and
+records it on the success log line, because it is an opaque account identifier
+rather than a credential and a later verify subrequest reports it back.
 """
 
 from __future__ import annotations
@@ -400,9 +404,17 @@ async def oidc_callback(request: Request) -> Response:
     now = codec.now()
     # No generation tag: that is the password mode's rotation signal, computed
     # from a stored hash which OIDC has none of. An OIDC entry is bounded by its
-    # expiry and by logout alone.
+    # expiry and by logout alone. It carries the asserted subject instead — an
+    # opaque account identifier, not a credential — so a later verify subrequest
+    # can name which provider account is behind this unlocked user without
+    # re-contacting the IdP. `expected_subject` and `asserted` are byte-equal
+    # here (the constant-time check above just proved it); the configured value
+    # is stored so the cookie carries the deployment's own canonical spelling.
     session = _current_session(request).with_user(
-        user, expires_at=now + settings.session_lifetime, generation_tag=""
+        user,
+        expires_at=now + settings.session_lifetime,
+        generation_tag="",
+        oidc_subject=expected_subject,
     )
 
     response = RedirectResponse(
@@ -418,5 +430,9 @@ async def oidc_callback(request: Request) -> Response:
         # authorises, whose verify subrequest nginx issues from "/u/<user>/".
         path="/",
     )
-    logger.info("oidc login succeeded for %r", user)
+    # The subject is a claim value, but an opaque account identifier rather than
+    # a credential (the cookie already carries it, signed not encrypted), so it
+    # is recorded on this success line. `%r` quotes it, so a value carrying a
+    # newline cannot forge a second log line.
+    logger.info("oidc login succeeded for %r (subject %r)", user, expected_subject)
     return response

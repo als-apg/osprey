@@ -28,12 +28,14 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -43,7 +45,13 @@ from typing import TYPE_CHECKING
 
 from docs.screenshots import recipes
 
-from osprey.interfaces._serving import free_port, run_app_server, wait_for_port
+from osprey.interfaces._serving import (
+    authorize_browser_context,
+    free_port,
+    run_app_server,
+    wait_for_port,
+)
+from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_secret
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -244,6 +252,11 @@ def capture_shot(browser: Browser, base_url: str, shot: DocShot) -> list[Path]:
                 device_scale_factor=device_scale,
             )
             try:
+                # The interface app is gated by WebAuthMiddleware; a bare page is
+                # refused with 401 and never renders. This runner serves the app
+                # in-process (via run_app_server), so authorize the context
+                # directly with a session cookie the in-process gate accepts.
+                authorize_browser_context(page.context)
                 url = _build_url(base_url, view.path, theme, view.hash)
                 page.goto(url, wait_until="domcontentloaded", timeout=15_000)
 
@@ -503,6 +516,15 @@ def _capture_agentic(
     web server is stopped with the repo-scoped ``osprey web stop --repo``.
     """
     web_port = free_port()
+    # Unlike the standalone runner, this launches a SEPARATE process, whose
+    # credential holder is its own — a session minted here would not be one it
+    # recognises, so authorize_browser_context (a same-process cookie) cannot
+    # reach it. Instead pin a known operator secret into the child's environment
+    # and follow the real ``?token=`` login below: the child then mints its own
+    # session and sets the cookie the browser carries for every later request
+    # (including the terminal websocket).
+    operator_secret = mint_secret()
+    child_env = {**os.environ, OPERATOR_SECRET_ENV: operator_secret}
     try:
         proc = subprocess.Popen(
             [
@@ -513,7 +535,8 @@ def _capture_agentic(
                 "--detach",
                 "--port",
                 str(web_port),
-            ]
+            ],
+            env=child_env,
         )
     except FileNotFoundError as exc:
         raise ScreenshotSkip(f"osprey CLI unavailable to launch web terminal: {exc}") from exc
@@ -535,8 +558,14 @@ def _capture_agentic(
                 viewport={"width": shot.viewport[0], "height": shot.viewport[1]}
             )
             try:
+                # First navigation carries the operator secret as ``?token=``:
+                # the gate admits this GET to ``/``, the root handler mints a
+                # session, sets the session cookie, and redirects to the
+                # token-stripped URL. Every later request (and the PTY websocket)
+                # then authenticates with the cookie the child issued.
+                token = urllib.parse.quote(operator_secret, safe="")
                 page.goto(
-                    f"{base_url}/?theme={theme}",
+                    f"{base_url}/?theme={theme}&token={token}",
                     wait_until="domcontentloaded",
                     timeout=30_000,
                 )

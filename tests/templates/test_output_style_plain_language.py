@@ -75,7 +75,7 @@ def _render_output_style(tmp_path) -> str:
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        artifacts={"output_styles": ["control-operator"]},
+        artifacts={"hooks": ["memory-guard"], "output_styles": ["control-operator"]},
     )
     return (project_dir / ".claude" / "output-styles" / "control-operator.md").read_text()
 

@@ -195,14 +195,19 @@ The panel is complete when the one-liner raises nothing.
 
 ---
 
-## Step 6 — Cross-origin re-theme reality (know this, don't fight it)
+## Step 6 — Re-theme reality (know this, don't fight it)
 
-The web terminal and its panels are served from different origins. A panel
-re-themes on **reload** when the host appends an updated `?theme=` — that path
-works. But `postMessage`-based live re-theming is **same-origin only**, so do
-**not** build a panel that expects to receive live theme broadcasts from a
-cross-origin host without a reload. Rely on the pre-paint `?theme=` boot (Step 1)
-plus reload, not on live cross-origin postMessage.
+The web terminal serves its panels through the panel proxy, so panel and host
+share one origin — there is no cross-origin surface, and the interface apps
+register no CORS middleware. The proxy is strict in both directions: it strips
+`cookie`, `authorization` and the operator-secret header from what it forwards
+to your backend, and strips `Set-Cookie` and `Access-Control-*` from what your
+backend returns, so a panel cannot set a cookie on the terminal's origin or open
+itself to another one. Re-theme by having the host append an updated `?theme=`
+and reloading — that path always works and is the one to rely on.
+`postMessage`-based live re-theming is same-origin only; since panel and host
+share an origin it is available, but the `?theme=` boot (Step 1) plus reload
+remains the robust path and is what you should build against.
 
 ---
 

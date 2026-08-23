@@ -882,6 +882,13 @@ def _capture_variant(
 
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
+        from osprey.interfaces._serving import authorize_browser_context
+
+        # Every interface app here is gated by WebAuthMiddleware, which refuses
+        # a bare page with 401 so it never renders. The apps are served
+        # in-process (run_app_server), so the context can be authorized
+        # directly with a session cookie the in-process gate accepts.
+        authorize_browser_context(page.context)
         # Pre-dismiss the one-time rail hint: it floats over the dock tab strip
         # on a fresh profile, and every capture here runs on a fresh profile —
         # the sheet documents the shells, not the onboarding callout.
@@ -1083,6 +1090,13 @@ def _capture_panel_variant(
 
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
+        from osprey.interfaces._serving import authorize_browser_context
+
+        # Every interface app here is gated by WebAuthMiddleware, which refuses
+        # a bare page with 401 so it never renders. The apps are served
+        # in-process (run_app_server), so the context can be authorized
+        # directly with a session cookie the in-process gate accepts.
+        authorize_browser_context(page.context)
         page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
         if surface.wait_selector:
             page.wait_for_selector(surface.wait_selector, state="attached", timeout=_NAV_TIMEOUT_MS)

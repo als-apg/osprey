@@ -48,8 +48,24 @@ from osprey.stores.artifact_store import ArtifactStore
 
 
 def _get(url: str) -> tuple[int, bytes]:
-    """GET *url*, returning (status, body) — loopback only, short timeout."""
-    with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310 (loopback)
+    """GET *url*, returning (status, body) — loopback only, short timeout.
+
+    Both servers :func:`hermetic_hub` boots are ordinary interface apps, so both
+    are gated by ``WebAuthMiddleware`` and refuse an uncredentialed request with
+    ``401``. The browser-facing seam (``authorize_browser_context``, which the
+    capture runner uses) does not apply here: this helper is a raw HTTP client,
+    not a browser, and holds no cookie jar. It authenticates the way every other
+    non-browser harness caller does — the operator-secret header, read from
+    *this process's* credential holder, which is the very holder the in-process
+    gate verifies against. The header path is exempt from the Origin check, so a
+    plain ``urlopen`` with no ``Origin`` passes.
+    """
+    from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
+    from osprey.interfaces.web_auth import get_web_credentials
+
+    request = urllib.request.Request(url)  # noqa: S310 (loopback)
+    request.add_header(OPERATOR_SECRET_HEADER, get_web_credentials().operator_secret)
+    with urllib.request.urlopen(request, timeout=10) as resp:  # noqa: S310 (loopback)
         return resp.status, resp.read()
 
 

@@ -65,7 +65,13 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
     # the digest is comment-blind, so the rule drop is the entire delta.
-    "hello-world": "sha256:9a87fb40f03287e8b4605c63a56cb8220ae1c32cd2e8c7df9a7d01ad370f358a",
+    # Moved again when the preset gained the `memory-guard` hook entry, so a
+    # rebuilt project's PreToolUse chain now also gates Write/MultiEdit to
+    # Claude memory files and NotebookEdit to the agent-data artifacts tree.
+    # The comment-only fixes that shipped alongside it (correcting the
+    # mislabelled memory-guard/writes-check comments in the other presets)
+    # contributed nothing to any digest, including this one.
+    "hello-world": "sha256:dc1fcdfb8efa432395bbdab7aa55da8b82fd73ad0894ba844806e815ff8c9de7",
 }
 
 

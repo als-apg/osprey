@@ -26,10 +26,12 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     PW_HASH_VAR_PREFIX,
     SESSION_SECRET_VARS,
+    TERMINAL_SECRET_VAR_PREFIX,
     AuthCredentialsResult,
     AuthSecretsResult,
+    TerminalSecretsResult,
 )
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
 # The unwritable-path cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.
@@ -418,10 +420,163 @@ def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_
     assert calls == [["alice", "bob"]]
 
 
-def test_preflight_with_auth_none_touches_no_credential_state(monkeypatch, tmp_path, caplog):
-    """`auth.method: none` (the default) must behave exactly as it did before
-    authentication existed: nothing minted, no .env.auth, no gitignore warning
-    — even from a project root whose .gitignore does not cover the file."""
+# ---------------------------------------------------------------------------
+# preflight_web_terminals -- per-user terminal secrets. Provisioned for EVERY
+# deployment, outside the `auth.method: none` early return that governs the
+# login credentials: a terminal secret is not a login, it is what lets a
+# terminal refuse everything that did not arrive through nginx.
+# ---------------------------------------------------------------------------
+
+
+def _terminal_result(path: Path, *, missing=(), minted=()) -> TerminalSecretsResult:
+    return TerminalSecretsResult(
+        env_path=path,
+        changed=bool(minted),
+        minted=tuple(minted),
+        preexisting=(),
+        missing=tuple(missing),
+    )
+
+
+def test_preflight_mints_terminal_secrets_when_auth_is_off(monkeypatch, tmp_path):
+    """The CF-4 invariant, at the seam: the mint sits OUTSIDE
+    `_provision_auth_secrets`, so `auth.method: none` — the default, and the
+    shape with nothing else between one user's browser and another user's
+    terminal — still gets a per-user secret."""
+    _run_preflight(monkeypatch, tmp_path, _auth_config("none"))
+
+    stored = parse_dotenv_file(tmp_path / ENV_LOCAL_FILENAME)
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"]
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]
+    assert (
+        stored[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"] != stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]
+    )
+
+
+def test_an_auth_off_deploy_refuses_a_bad_roster_name_without_naming_auth(monkeypatch, tmp_path):
+    """The mint's charset gate now reaches every deployment, so its refusal has
+    to make sense to an operator who configured no authentication.
+
+    Running the mint outside the `auth.method: none` early return means
+    `USERNAME_CHARSET_RE` is enforced on rosters that were previously only
+    linted — a real tightening, and one whose message used to send an auth-off
+    operator looking for auth credentials they never configured.
+    """
+    with pytest.raises(RuntimeError) as excinfo:
+        _run_preflight(monkeypatch, tmp_path, _auth_config("none", users=("Alice",)))
+
+    message = str(excinfo.value)
+    assert "web-terminal secrets" in message
+    assert "auth credentials" not in message
+    assert "'Alice'" in message
+    # Nothing was written for a deploy that is being refused.
+    assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
+
+
+def test_preflight_provisions_a_terminal_secret_for_a_login_false_entry(monkeypatch, tmp_path):
+    """The opposite of the password mint's rule, and deliberately so: opting out
+    of the login wall does not opt a terminal out of needing a front door, so
+    every roster entry is passed to the terminal mint."""
+    calls: list[list[str]] = []
+
+    def _fake_terminal(project_root, usernames):
+        calls.append(list(usernames))
+        return _terminal_result(Path(project_root) / ENV_LOCAL_FILENAME)
+
+    monkeypatch.setattr(provision, "ensure_terminal_secrets", _fake_terminal)
+    monkeypatch.setattr(
+        provision, "ensure_auth_credentials", lambda users, root, **kw: _credentials_result(root)
+    )
+    monkeypatch.setattr(
+        provision,
+        "ensure_auth_session_secrets",
+        lambda root: _secrets_result(Path(root) / AUTH_ENV_FILENAME),
+    )
+
+    config = _auth_config(
+        "password",
+        users=[
+            "alice",
+            {"name": "ariel", "index": 1, "login": False},
+            {"name": "bob", "index": 2, "login": True},
+        ],
+    )
+    _run_preflight(monkeypatch, tmp_path, config)
+
+    assert calls == [["alice", "ariel", "bob"]]
+
+
+def test_preflight_aborts_naming_the_variable_when_a_secret_cannot_be_established(
+    monkeypatch, tmp_path
+):
+    """The fail-closed gate. A roster user with no usable secret would get a
+    terminal that refuses every request — including nginx's — so the deploy must
+    stop here, and must name the variable an operator can set by hand."""
+    var = f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"
+    monkeypatch.setattr(
+        provision,
+        "ensure_terminal_secrets",
+        lambda root, users: _terminal_result(Path(root) / ENV_LOCAL_FILENAME, missing=(var,)),
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _run_preflight(monkeypatch, tmp_path, _auth_config("none"))
+
+    message = str(excinfo.value)
+    assert var in message
+    assert str(tmp_path / ENV_LOCAL_FILENAME) in message
+
+
+def test_the_terminal_mint_runs_after_the_auth_credential_mint(monkeypatch, tmp_path):
+    """Ordering, pinned: the credential mint PRINTS a password once, and a
+    refusal from the terminal gate arriving first would abort a deploy whose
+    password the operator was never shown."""
+    order: list[str] = []
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+
+    def _fake_credentials(usernames, project_root, **kwargs):
+        order.append("credentials")
+        return _credentials_result(env_auth, users=usernames)
+
+    def _fake_secrets(project_root):
+        order.append("secrets")
+        return _secrets_result(env_auth)
+
+    def _fake_terminal(project_root, usernames):
+        order.append("terminal")
+        return _terminal_result(Path(project_root) / ENV_LOCAL_FILENAME)
+
+    monkeypatch.setattr(provision, "ensure_auth_credentials", _fake_credentials)
+    monkeypatch.setattr(provision, "ensure_auth_session_secrets", _fake_secrets)
+    monkeypatch.setattr(provision, "ensure_terminal_secrets", _fake_terminal)
+
+    _run_preflight(monkeypatch, tmp_path, _auth_config("password"))
+
+    assert order == ["credentials", "secrets", "terminal"]
+
+
+def test_the_terminal_mint_is_idempotent_across_deploys(monkeypatch, tmp_path):
+    """A redeploy must not rotate a secret: nginx and the running terminal were
+    both created holding the current value, so a fresh one locks every user out
+    until the whole web stack is recreated."""
+    _run_preflight(monkeypatch, tmp_path, _auth_config("none"))
+    before = (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
+
+    _run_preflight(monkeypatch, tmp_path, _auth_config("none"))
+
+    assert (tmp_path / ENV_LOCAL_FILENAME).read_text(encoding="utf-8") == before
+
+
+def test_preflight_with_auth_none_touches_no_AUTH_credential_state(monkeypatch, tmp_path, caplog):
+    """`auth.method: none` (the default) mints no LOGIN credential: no hash, no
+    signing secret, no .env.auth, and no gitignore warning about it — even from
+    a project root whose .gitignore does not cover the file.
+
+    Terminal secrets are the deliberate exception and are asserted here rather
+    than merely tolerated: they are not a login, they are what makes nginx the
+    only route to a terminal, and an auth-off multi-user deployment is exactly
+    the one with nothing else in the way. They live in the deploy `.env`, which
+    is why `.env.auth` still must not come into being."""
 
     def _unexpected(*args, **kwargs):
         raise AssertionError("auth provisioning must not run with auth.method: none")
@@ -435,6 +590,9 @@ def test_preflight_with_auth_none_touches_no_credential_state(monkeypatch, tmp_p
 
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
     assert AUTH_ENV_FILENAME not in caplog.text
+    stored = parse_dotenv_file(tmp_path / ENV_LOCAL_FILENAME)
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"]
+    assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]
 
 
 def test_preflight_provisions_on_first_run_then_is_idempotent(monkeypatch, tmp_path):

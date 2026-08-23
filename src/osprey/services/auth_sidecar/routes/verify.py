@@ -3,8 +3,11 @@
 nginx calls this once for every request under ``/u/<user>/`` — page loads, API
 calls, websocket handshakes alike — and turns any non-2xx answer into a denial.
 It is therefore on the hot path of the whole deployment and says as little as
-possible: an empty 200 or a bare 401, with no body, no redirect and no
-``WWW-Authenticate``. Where an unauthenticated browser should be *sent* is
+possible: a bodyless 200 or a bare 401, with no redirect and no
+``WWW-Authenticate``. The only thing an authorized answer may carry is the
+``X-Osprey-Auth-Subject`` header naming the OIDC account behind the request (an
+opaque identifier, never a credential), and only when the session holds one.
+Where an unauthenticated browser should be *sent* is
 nginx's decision (``error_page 401``, content-negotiated), not this route's; a
 redirect issued here would be followed by the subrequest instead of the user.
 
@@ -37,7 +40,7 @@ from ..app import AuthSettings, get_revocation_store, get_session_codec, get_set
 from ..exceptions import InvalidSessionError
 from ..passwords import verify_generation_tag
 from ..revocation import RevocationStore
-from ..sessions import SESSION_COOKIE_NAME, SessionCodec
+from ..sessions import SESSION_COOKIE_NAME, SessionCodec, UnlockedUser
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,18 @@ VERIFY_PATH = "/verify"
 Deliberately *not* under the public ``/auth/`` prefix: everything below that
 prefix is reachable without a session (it is where sessions come from), and this
 endpoint must stay reachable only through nginx's ``internal`` auth locations.
+"""
+
+SUBJECT_HEADER = "X-Osprey-Auth-Subject"
+"""Response header carrying the OIDC subject on an authorized OIDC request.
+
+Set only when the unlocked entry holds a non-empty subject, so a password
+session (which has none) and a pre-subject OIDC session leave it absent rather
+than blank. An OIDC ``sub`` is ASCII by specification, which is what this header
+carries; a subject drawn from a non-ASCII claim spelling meets the latin-1 wire
+encoding of HTTP header values and is out of scope until nginx forwarding (a
+later phase) settles that cross-boundary encoding — nginx does not forward this
+header yet.
 """
 
 
@@ -121,7 +136,11 @@ async def verify(
         session_cookie: The signed session cookie, if the browser sent one.
 
     Returns:
-        An empty 200 when the request is authorized, a bare 401 otherwise.
+        An empty 200 when the request is authorized, a bare 401 otherwise. An
+        authorized OIDC request additionally carries ``X-Osprey-Auth-Subject``
+        naming the provider account; a password session, and an OIDC session
+        minted before the subject was carried, omit that header (see
+        :func:`_authorized`).
     """
     requested = user or []
     if len(requested) != 1:
@@ -185,4 +204,28 @@ async def verify(
             # longer matches means the password was rotated under this session.
             return _deny(username, "credential generation tag does not match")
 
+    return _authorized(state.entry(username))
+
+
+def _authorized(entry: UnlockedUser | None) -> Response:
+    """The bare 200, carrying the OIDC subject when the session holds one.
+
+    ``is_unlocked`` has already established that ``entry`` exists, so ``None`` is
+    only a defensive guard; either way the response is a 200.
+
+    An OIDC session carries the provider's ``sub`` in
+    :attr:`~osprey.services.auth_sidecar.sessions.UnlockedUser.oidc_subject`, and
+    it is returned as ``X-Osprey-Auth-Subject`` so a later layer can tell which
+    provider account is behind the request without re-reading the cookie. A
+    password session, and any OIDC session minted before the subject was carried,
+    holds an empty subject; the header is then *omitted* rather than emitted
+    empty, so its presence always means a known account and downstream code need
+    not distinguish an empty value from an absent one.
+
+    The subject is not forwarded anywhere by nginx yet — that is a later phase —
+    so this header is presently observable only on the internal auth subrequest.
+    """
+    subject = entry.oidc_subject if entry is not None else ""
+    if subject:
+        return Response(status_code=200, headers={SUBJECT_HEADER: subject})
     return Response(status_code=200)
