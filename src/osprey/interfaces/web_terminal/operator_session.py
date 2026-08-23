@@ -52,7 +52,10 @@ except ImportError:
     CLIConnectionError = Exception  # type: ignore[assignment,misc]
 
 # Pattern for MCP tool name prefixes: mcp__<server>__<tool>
-_MCP_PREFIX_RE = re.compile(r"^mcp__[^_]+__")
+# Non-greedy so the FIRST ``__`` after the server name ends the prefix — a
+# server name may itself contain single underscores (osprey_workspace,
+# osprey_facility_knowledge, or any facility-declared server named that way).
+_MCP_PREFIX_RE = re.compile(r"^mcp__.+?__")
 
 # Bound (seconds) for draining an interrupted turn toward its terminal message
 # before the reader is hard-cancelled. Enforced inside OperatorSession.cancel().
