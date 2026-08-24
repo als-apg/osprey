@@ -5559,13 +5559,6 @@ def _start_stack(
     if web_terminals_enabled:
         preflight_web_terminals(config, repo_root=Path(repo_root))
 
-    # Build the <project>:local image the dispatch worker references. The worker
-    # has no compose build block (that would race the event-dispatcher on the
-    # shared tag), so this is the only thing that produces its image. No-op
-    # unless the worker is deployed on the local project image. Run before
-    # `compose up` (which, non-detached, os.execvpe-replaces this process).
-    _build_project_image(config, dev_mode, env, build_context)
-
     # Stage the archiver store and seed its history BEFORE the branch split, so
     # both deploy paths inherit it and the recorder — started by whichever `up`
     # follows — finds a collection that already exists with the right indexes.
@@ -5594,6 +5587,16 @@ def _start_stack(
     # both deploy paths need it. No-op unless this project deploys the store
     # itself; never aborts (see _stage_graphdb_store).
     _stage_graphdb_store(config, compose_files, env, Path(repo_root), provider=provider)
+
+    # Build the <project>:local image the dispatch worker references. The worker
+    # has no compose build block (that would race the event-dispatcher on the
+    # shared tag), so this is the only thing that produces its image. No-op
+    # unless the worker is deployed on the local project image. Run before
+    # `compose up` (which, non-detached, os.execvpe-replaces this process) and
+    # AFTER the graph staging above: that step bakes the live store's schema
+    # into the agent prompts inside this image's build context, and an image
+    # built before the bake ships the placeholder prompt.
+    _build_project_image(config, dev_mode, env, build_context)
 
     # And the telemetry store, for a third reason: its ingest credential is one
     # the STORE issues, so the only moment it can be harvested is with the store
