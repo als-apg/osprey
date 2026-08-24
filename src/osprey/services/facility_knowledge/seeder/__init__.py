@@ -16,7 +16,7 @@ Example::
 
     from osprey.services.facility_knowledge.seeder import open_session, seed_from_ttl
 
-    stubs = seed_from_ttl(Path("/path/to/als_gtb.ttl"))
+    stubs = seed_from_ttl(Path("/path/to/corpus.ttl"))
 
     with open_session(conn.uri, conn.username, conn.password) as session:
         bootstrap(session)

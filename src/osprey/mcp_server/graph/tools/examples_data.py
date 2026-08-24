@@ -20,10 +20,11 @@ Those uppercase relationship names belong to the *graph projection* only. The
 Turtle corpus itself spells them ``narad_p:hasBinding`` and friends.
 
 The queries are corpus-agnostic: nothing about a particular facility is baked
-into the Cypher, only into the parameter values. Each example therefore carries
-one parameter set per shipped corpus — ``"als"`` for the ALS GTB corpus that
-ships as ``als_gtb.ttl``, ``"demo"`` for the generated demo-machine corpus — so
-an example can be run as-is against whichever one a deployment seeded.
+into the Cypher, only into the parameter values. Each example carries its
+parameter sets keyed by corpus; the one shipped corpus is ``"demo"``, the
+generated demo machine, so every example runs as-is against a deployment that
+seeded it, and on any other corpus the values are read off the rows the
+structural queries return.
 
 Every query is bounded: it ends in a ``LIMIT`` even where an aggregate already
 guarantees a handful of rows, so no example can be the reason a result comes
@@ -54,10 +55,10 @@ class ExampleQuery:
             parameter means and how to vary it.
         cypher: The query, parameterized. Safe to run as written once paired
             with one of the parameter sets below.
-        parameters: Parameter sets keyed by corpus — ``"als"`` and ``"demo"``.
-            Each maps the query's ``$name`` placeholders to a value that exists
-            in that corpus. An example that takes no parameters carries an empty
-            mapping for both.
+        parameters: Parameter sets keyed by corpus. ``"demo"`` maps the
+            query's ``$name`` placeholders to values that exist in the
+            generated demo machine. An example that takes no parameters
+            carries an empty mapping.
     """
 
     key: str
@@ -87,7 +88,7 @@ RETURN [l IN labels(d) WHERE l <> "Resource"][0] AS device_class,
 ORDER BY device_count DESC, device_class
 LIMIT 100
 """.strip(),
-    parameters={"als": {}, "demo": {}},
+    parameters={"demo": {}},
 )
 
 _Q1B = ExampleQuery(
@@ -113,10 +114,7 @@ RETURN last(split(branch_cls.uri, "/")) AS branch,
 ORDER BY device_count DESC, branch
 LIMIT 100
 """.strip(),
-    parameters={
-        "als": {"root_uri": _ACCELERATOR_DEVICE_URI},
-        "demo": {"root_uri": _ACCELERATOR_DEVICE_URI},
-    },
+    parameters={"demo": {"root_uri": _ACCELERATOR_DEVICE_URI}},
 )
 
 _Q1C = ExampleQuery(
@@ -142,10 +140,7 @@ RETURN [l IN labels(d) WHERE l <> "Resource"][0] AS device_class,
 ORDER BY device_class, section, device
 LIMIT 500
 """.strip(),
-    parameters={
-        "als": {"class_uri": _MAGNET_URI},
-        "demo": {"class_uri": _MAGNET_URI},
-    },
+    parameters={"demo": {"class_uri": _MAGNET_URI}},
 )
 
 _Q2 = ExampleQuery(
@@ -157,7 +152,7 @@ _Q2 = ExampleQuery(
         "region of the machine. Rows are ordered by longitudinal position "
         "(``sPositionM``) where the corpus records it and fall back to the "
         "device's ordinal within the section where it does not, so the ordering "
-        "is meaningful on either corpus.\n"
+        "is meaningful on a corpus that records only ordinals.\n"
         "\n"
         "$section — the section code to walk, exactly as the corpus spells it "
         "(a transfer line, a ring, a sector). Values come from the ``section`` "
@@ -173,10 +168,7 @@ RETURN d.sourceName AS device,
 ORDER BY s_m, ordinal, device
 LIMIT 200
 """.strip(),
-    parameters={
-        "als": {"section": "GTL"},
-        "demo": {"section": "SR"},
-    },
+    parameters={"demo": {"section": "SR"}},
 )
 
 _Q3 = ExampleQuery(
@@ -204,10 +196,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={
-        "als": {"name": "BC1", "section": "GTL"},
-        "demo": {"name": "DIPOLE01", "section": "SR"},
-    },
+    parameters={"demo": {"name": "DIPOLE01", "section": "SR"}},
 )
 
 _Q4B = ExampleQuery(
@@ -229,7 +218,7 @@ RETURN last(split(sub.uri, "/")) AS subclass,
 ORDER BY superclass, subclass
 LIMIT 500
 """.strip(),
-    parameters={"als": {}, "demo": {}},
+    parameters={"demo": {}},
 )
 
 _Q4C = ExampleQuery(
@@ -252,10 +241,7 @@ RETURN [n IN nodes(path) | last(split(n.uri, "/"))] AS chain,
 ORDER BY depth DESC, chain
 LIMIT 200
 """.strip(),
-    parameters={
-        "als": {"root_uri": _ACCELERATOR_DEVICE_URI},
-        "demo": {"root_uri": _ACCELERATOR_DEVICE_URI},
-    },
+    parameters={"demo": {"root_uri": _ACCELERATOR_DEVICE_URI}},
 )
 
 _Q5 = ExampleQuery(
@@ -281,7 +267,7 @@ RETURN
   count(b)                                                  AS total
 LIMIT 1
 """.strip(),
-    parameters={"als": {}, "demo": {}},
+    parameters={"demo": {}},
 )
 
 _Q6 = ExampleQuery(
@@ -309,10 +295,7 @@ RETURN b.fullPv AS pv,
        count(DISTINCT d) AS device_count
 LIMIT 5
 """.strip(),
-    parameters={
-        "als": {"pv": "GTL:BC1:Setpoint"},
-        "demo": {"pv": "SR:MAG:DIPOLE:01:CURRENT:SP"},
-    },
+    parameters={"demo": {"pv": "SR:MAG:DIPOLE:01:CURRENT:SP"}},
 )
 
 

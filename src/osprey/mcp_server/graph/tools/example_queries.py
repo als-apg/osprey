@@ -20,9 +20,10 @@ _NOTES: tuple[str, ...] = (
     "Each example carries its parameters separately from its Cypher. Pass the "
     "chosen parameter dict to read_cypher as `params` — never paste values into "
     "the query text.",
-    "Pick the parameter set matching the corpus this deployment seeded: `als` "
-    "for the shipped ALS corpus, `demo` for the generated demo machine. The "
-    "Cypher is the same either way; only the values differ.",
+    "Parameter sets are keyed by corpus. The `demo` set holds values that "
+    "exist in the generated demo machine; on a deployment that seeded a "
+    "different corpus, take values from the rows the structural examples "
+    "return. The Cypher is the same either way; only the values differ.",
     "Every example already ends in a LIMIT, so an example that comes back "
     "truncated was truncated by the server's row cap, not by the query.",
     "Results are bounded by services.graphdb.query_max_rows; a truncated "
@@ -59,9 +60,9 @@ def example_queries() -> str:
 
     Returns:
         JSON object with ``count``, ``examples`` (each ``{key, title,
-        description, cypher, parameters}``, where ``parameters`` holds one value
-        set per corpus under ``als`` and ``demo``) and ``notes`` (list of
-        strings on how to run them).
+        description, cypher, parameters}``, where ``parameters`` holds the
+        value sets keyed by corpus — ``demo`` for the shipped demo machine)
+        and ``notes`` (list of strings on how to run them).
     """
     try:
         examples = [

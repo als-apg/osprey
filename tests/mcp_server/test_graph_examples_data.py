@@ -19,7 +19,8 @@ from osprey.mcp_server.graph.tools.examples_data import EXAMPLE_QUERIES, Example
 EXPECTED_KEYS = ("q1a", "q1b", "q1c", "q2", "q3", "q4b", "q4c", "q5", "q6")
 """The published key set, in the published order. Changing this is a contract change."""
 
-CORPORA = ("als", "demo")
+CORPORA = ("demo",)
+"""Every corpus that ships; each example carries one parameter set per entry."""
 
 _PARAM_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -51,7 +52,7 @@ def test_title_description_and_cypher_are_non_empty(query: ExampleQuery) -> None
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_both_corpora_carry_a_parameter_set_matching_the_cypher(query: ExampleQuery) -> None:
+def test_every_corpus_carries_a_parameter_set_matching_the_cypher(query: ExampleQuery) -> None:
     assert set(query.parameters) == set(CORPORA), (
         f"{query.key} must carry one parameter set per shipped corpus; "
         f"it has {sorted(query.parameters)}"

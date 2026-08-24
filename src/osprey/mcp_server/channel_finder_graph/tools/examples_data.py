@@ -48,19 +48,17 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
 Corpora
 -------
 The Cypher is corpus-agnostic — nothing about a particular facility is baked
-into a query, only into its parameter values. Each example carries one parameter
-set per corpus it can run against: ``"demo"`` for the generated demo-machine
-corpus, ``"als"`` for the ALS GTB corpus that ships as ``als_gtb.ttl``.
+into a query, only into its parameter values. Each example carries its
+parameter sets keyed by corpus; the one shipped corpus is ``"demo"``, the
+generated demo machine. No parameter set is ever empty — every example takes at
+least one parameter, and the set supplies exactly the parameters its query
+references.
 
-The two corpora are not equally rich. The demo corpus is generated from a
-channel database that carries prose, so it has the description predicates and
-the ``system`` token; ``als_gtb.ttl`` is a fixed artifact with no in-repo source
-database and carries none of them. An example that needs prose is therefore
-**demo-only**: it omits the ``"als"`` key and names the exclusion in
-``not_applicable``, which ``example_queries`` renders as a stated exclusion
-rather than leaving the caller to guess. No parameter set is ever empty — every
-example takes at least one parameter, and a declared corpus always supplies
-exactly the parameters its query references.
+The first four examples search prose the generator writes onto the corpus —
+the description predicates and the ``system`` token — which the demo corpus
+carries because its source channel database does. A corpus imported straight
+from a facility export may carry none of it; on such a corpus those examples
+return no rows while the structural ones still answer.
 
 Every query is bounded: it ends in a ``LIMIT``, and that ``LIMIT`` is at most
 ``services.graphdb.query_max_rows``' default of 200. Both halves matter. Ending
@@ -74,43 +72,18 @@ query asked for.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from osprey.mcp_server.graph.tools.examples_data import ExampleQuery
 
-__all__ = ["CORPORA", "EXAMPLE_QUERIES", "ChannelFinderExample"]
-
-#: The corpora this catalogue is written against, in the order they are reported.
-CORPORA: tuple[str, ...] = ("als", "demo")
-
-
-@dataclass(frozen=True)
-class ChannelFinderExample(ExampleQuery):
-    """An :class:`ExampleQuery` that can state a corpus it does not apply to.
-
-    The main-agent catalogue carries a parameter set for every shipped corpus
-    because every one of its queries runs everywhere. Half of this catalogue
-    searches prose that only the demo corpus has, so an example needs a way to
-    say "not this one" that is louder than a missing dictionary key.
-
-    Attributes:
-        not_applicable: Corpora this example cannot run against, each with no
-            parameter set. Together with ``parameters`` this covers
-            :data:`CORPORA` exactly: a corpus is either supplied or excluded,
-            never silently absent.
-    """
-
-    not_applicable: tuple[str, ...] = ()
+__all__ = ["EXAMPLE_QUERIES"]
 
 
 # ---------------------------------------------------------------------------
 # Search by meaning — the operator's words against the corpus' prose.
-# These read the description predicates and the SYSTEM token, which only the
-# generated demo corpus carries; als_gtb.ttl has no source database to enrich
-# from, so each of them is demo-only by construction.
+# These read the description predicates and the SYSTEM token, which the
+# generator writes; a corpus with no source channel database has neither.
 # ---------------------------------------------------------------------------
 
-_BY_DESCRIPTION = ChannelFinderExample(
+_BY_DESCRIPTION = ExampleQuery(
     key="by_description",
     title="Addresses whose description mentions a phrase",
     description=(
@@ -134,10 +107,9 @@ ORDER BY pv
 LIMIT 200
 """.strip(),
     parameters={"demo": {"phrase": "vacuum gauge"}},
-    not_applicable=("als",),
 )
 
-_BY_FIELD_MEANING = ChannelFinderExample(
+_BY_FIELD_MEANING = ExampleQuery(
     key="by_field_meaning",
     title="Addresses whose field and subfield mean what was asked for",
     description=(
@@ -167,10 +139,9 @@ ORDER BY pv
 LIMIT 200
 """.strip(),
     parameters={"demo": {"field_meaning": "pressure", "subfield_meaning": "gauge"}},
-    not_applicable=("als",),
 )
 
-_BY_CLASS_AND_SIGNAL = ChannelFinderExample(
+_BY_CLASS_AND_SIGNAL = ExampleQuery(
     key="by_class_and_signal",
     title="One kind of signal on every device of a class",
     description=(
@@ -213,10 +184,9 @@ LIMIT 200
             "subfield_meaning": "horizontal",
         }
     },
-    not_applicable=("als",),
 )
 
-_BY_FAMILY_ROLE = ChannelFinderExample(
+_BY_FAMILY_ROLE = ExampleQuery(
     key="by_family_role",
     title="Addresses of every device whose family does a described job",
     description=(
@@ -244,10 +214,9 @@ ORDER BY pv
 LIMIT 200
 """.strip(),
     parameters={"demo": {"role": "bending magnet"}},
-    not_applicable=("als",),
 )
 
-_BY_SYSTEM = ChannelFinderExample(
+_BY_SYSTEM = ExampleQuery(
     key="by_system",
     title="Every address in one system of the machine",
     description=(
@@ -275,15 +244,14 @@ ORDER BY pv
 LIMIT 200
 """.strip(),
     parameters={"demo": {"system": "VAC"}},
-    not_applicable=("als",),
 )
 
 
 # ---------------------------------------------------------------------------
-# Search by structure — the machine's own shape, available on every corpus.
+# Search by structure — the machine's own shape, present in any NARAD corpus.
 # ---------------------------------------------------------------------------
 
-_BY_SYNONYM = ChannelFinderExample(
+_BY_SYNONYM = ExampleQuery(
     key="by_synonym",
     title="Addresses of every device an operator's word can mean",
     description=(
@@ -314,10 +282,10 @@ RETURN DISTINCT b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"als": {"synonym": "quad"}, "demo": {"synonym": "quad"}},
+    parameters={"demo": {"synonym": "quad"}},
 )
 
-_CENSUS = ChannelFinderExample(
+_CENSUS = ExampleQuery(
     key="census",
     title="How many devices a word names, before listing anything",
     description=(
@@ -341,10 +309,10 @@ RETURN count(DISTINCT d) AS device_count,
        count(b) AS binding_count
 LIMIT 1
 """.strip(),
-    parameters={"als": {"synonym": "quad"}, "demo": {"synonym": "quad"}},
+    parameters={"demo": {"synonym": "quad"}},
 )
 
-_IN_SECTION = ChannelFinderExample(
+_IN_SECTION = ExampleQuery(
     key="in_section",
     title="Every address in one section of the machine",
     description=(
@@ -366,10 +334,10 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"als": {"section": "GTL"}, "demo": {"section": "SR"}},
+    parameters={"demo": {"section": "SR"}},
 )
 
-_DEVICE_ADDRESSES = ChannelFinderExample(
+_DEVICE_ADDRESSES = ExampleQuery(
     key="device_addresses",
     title="One device's addresses, split into reads and writes",
     description=(
@@ -400,13 +368,10 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={
-        "als": {"name": "BC1", "section": "GTL"},
-        "demo": {"name": "DIPOLE01", "section": "SR"},
-    },
+    parameters={"demo": {"name": "DIPOLE01", "section": "SR"}},
 )
 
-_BY_ADDRESS = ChannelFinderExample(
+_BY_ADDRESS = ExampleQuery(
     key="by_address",
     title="The device behind an address",
     description=(
@@ -431,14 +396,11 @@ RETURN b.fullPv AS pv,
        count(DISTINCT d) AS device_count
 LIMIT 5
 """.strip(),
-    parameters={
-        "als": {"pv": "GTL:BC1:Setpoint"},
-        "demo": {"pv": "SR:MAG:DIPOLE:01:CURRENT:SP"},
-    },
+    parameters={"demo": {"pv": "SR:MAG:DIPOLE:01:CURRENT:SP"}},
 )
 
 
-EXAMPLE_QUERIES: tuple[ChannelFinderExample, ...] = (
+EXAMPLE_QUERIES: tuple[ExampleQuery, ...] = (
     _BY_DESCRIPTION,
     _BY_FIELD_MEANING,
     _BY_CLASS_AND_SIGNAL,

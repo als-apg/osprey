@@ -3,11 +3,10 @@
 The tool serves this paradigm's own catalogue and nothing else, so the payload is
 asserted directly through the unwrapped function. Two properties carry the weight:
 
-* **The exclusion is stated, never implied.** Half the catalogue searches prose
-  only the demo corpus carries. Those examples must arrive with the corpus they
-  cannot run against named in ``not_applicable`` and *absent* from
-  ``parameters`` — an empty parameter set would read as "runs there, takes no
-  values", which is the one reading that produces a silent zero-row answer.
+* **Every example is runnable as shipped.** Each arrives with a parameter set
+  for the shipped corpus that covers every placeholder its Cypher names, and no
+  set is ever empty — an empty set would read as "runs there, takes no values",
+  which is the one reading that produces a silent zero-row answer.
 * **The tool answers with no store in reach.** It is a prompt provider, not a
   health check: it must serve while the graph is down, and a fresh interpreter
   plus a poisoned ``server_context`` module prove it never dials.
@@ -26,16 +25,16 @@ from pathlib import Path
 
 import pytest
 
-from osprey.mcp_server.channel_finder_graph.tools.examples_data import (
-    CORPORA,
-    EXAMPLE_QUERIES,
-)
+from osprey.mcp_server.channel_finder_graph.tools.examples_data import EXAMPLE_QUERIES
 
 pytestmark = pytest.mark.unit
 
 _SERVER_CONTEXT_MODULE = "osprey.mcp_server.graph.server_context"
 
-_EXAMPLE_FIELDS = {"key", "title", "description", "cypher", "parameters", "not_applicable"}
+_EXAMPLE_FIELDS = {"key", "title", "description", "cypher", "parameters"}
+
+#: The one corpus that ships, so the one every example must carry values for.
+_CORPORA = {"demo"}
 
 #: The curated keys in the order the tool must serve them. A literal, so a
 #: reordered or dropped example fails here rather than quietly changing the
@@ -111,7 +110,7 @@ class TestPayload:
     """The catalogue the agent reads before writing Cypher."""
 
     def test_payload_has_the_documented_top_level_keys(self, payload):
-        assert set(payload) == {"count", "corpora", "examples", "notes"}
+        assert set(payload) == {"count", "examples", "notes"}
         assert payload["notes"]
 
     def test_payload_serves_the_whole_curated_set(self, payload):
@@ -121,9 +120,6 @@ class TestPayload:
         assert tuple(example["key"] for example in payload["examples"]) == _EXPECTED_KEYS
         assert tuple(example.key for example in EXAMPLE_QUERIES) == _EXPECTED_KEYS
 
-    def test_payload_reports_the_corpora_the_catalogue_is_written_against(self, payload):
-        assert payload["corpora"] == list(CORPORA)
-
     def test_entries_have_the_documented_shape(self, payload):
         for example in payload["examples"]:
             assert set(example) == _EXAMPLE_FIELDS, f"{example.get('key')} has unexpected fields"
@@ -132,7 +128,6 @@ class TestPayload:
                     f"{example['key']}.{field} is empty"
                 )
             assert isinstance(example["parameters"], dict)
-            assert isinstance(example["not_applicable"], list)
 
     def test_every_parameter_set_is_rendered_verbatim(self, payload):
         """The tool serialises the catalogue; it does not paraphrase it."""
@@ -141,42 +136,26 @@ class TestPayload:
         for rendered in payload["examples"]:
             source = by_key[rendered["key"]]
             assert rendered["parameters"] == source.parameters
-            assert rendered["not_applicable"] == list(source.not_applicable)
             assert rendered["cypher"] == source.cypher
             assert rendered["title"] == source.title
             assert rendered["description"] == source.description
 
 
-class TestStatedExclusion:
-    """A corpus is supplied or excluded — never present-but-empty, never absent."""
+class TestParameterContract:
+    """Every example carries a real parameter set for the shipped corpus."""
 
-    def test_an_excluded_corpus_has_no_parameter_set(self, payload):
+    def test_every_example_carries_the_shipped_corpus(self, payload):
         for example in payload["examples"]:
-            for corpus in example["not_applicable"]:
-                assert corpus not in example["parameters"], (
-                    f"{example['key']} excludes {corpus} yet still renders a parameter set for it"
-                )
-
-    def test_a_demo_only_example_excludes_als_and_omits_the_als_key(self, payload):
-        """The concrete case the shipped catalogue has: prose search is demo-only."""
-        by_description = next(e for e in payload["examples"] if e["key"] == "by_description")
-
-        assert by_description["not_applicable"] == ["als"]
-        assert "als" not in by_description["parameters"]
-        assert "demo" in by_description["parameters"]
+            assert set(example["parameters"]) == _CORPORA, (
+                f"{example['key']} carries {sorted(example['parameters'])}, "
+                f"not the shipped {sorted(_CORPORA)}"
+            )
 
     def test_no_rendered_parameter_set_is_empty(self, payload):
         """An empty set reads as "runs here, takes no values" — the wrong answer."""
         for example in payload["examples"]:
             for corpus, values in example["parameters"].items():
                 assert values, f"{example['key']} renders an empty parameter set for {corpus}"
-
-    def test_every_corpus_is_accounted_for(self, payload):
-        for example in payload["examples"]:
-            covered = set(example["parameters"]) | set(example["not_applicable"])
-            assert covered == set(CORPORA), (
-                f"{example['key']} accounts for {sorted(covered)}, not {sorted(CORPORA)}"
-            )
 
     def test_a_declared_corpus_supplies_every_placeholder(self, payload):
         """Rendering must not drop a value the query needs."""
@@ -200,15 +179,16 @@ class TestNotes:
         notes = " ".join(payload["notes"])
 
         assert "params" in notes
-        assert "als" in notes and "demo" in notes
+        assert "demo" in notes
         assert "LIMIT" in notes
         assert "services.graphdb.query_max_rows" in notes
 
-    def test_notes_tell_the_agent_to_skip_an_inapplicable_example(self, payload):
+    def test_notes_warn_that_a_prose_less_corpus_returns_no_rows(self, payload):
+        """Zero rows from a search-by-meaning example must not read as an empty machine."""
         notes = " ".join(payload["notes"])
 
-        assert "not_applicable" in notes
-        assert "skip" in notes.lower()
+        assert "no rows" in notes
+        assert "get_schema" in notes
 
     def test_payload_round_trips_json(self, payload):
         assert json.loads(json.dumps(payload)) == payload

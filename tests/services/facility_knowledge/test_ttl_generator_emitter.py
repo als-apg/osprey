@@ -40,7 +40,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CONTROL_ASSISTANT_DATA = _REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 _TIER3_HIERARCHICAL = _CONTROL_ASSISTANT_DATA / "channel_databases/tiers/tier3/hierarchical.json"
 _CHANNEL_LIMITS = _CONTROL_ASSISTANT_DATA / "channel_limits.json"
-_ALS_GTB_TTL = _REPO_ROOT / "src/osprey/templates/services/graphdb/als_gtb.ttl"
 
 # Facts the model task established about the shipped tier-3 database; the
 # direction task established the 396/2512 split (writable iff the address ends
@@ -145,14 +144,18 @@ def real_graph(real_model: model.GraphModel, ontology: OntologyMap) -> Graph:
 class TestVocabularySpelling:
     """The emitted text must speak Turtle NARAD, never the Cypher projection."""
 
-    def test_declares_the_same_prefixes_as_the_shipped_corpus(self, synthetic_ttl: str) -> None:
+    def test_declares_exactly_the_narad_prefixes(self, synthetic_ttl: str) -> None:
+        """The six prefixes the NARAD convention binds, spelled out rather than
+        read off another corpus, so the pin is this test's own."""
         emitted = {line for line in synthetic_ttl.splitlines() if line.startswith("@prefix")}
-        shipped = {
-            line
-            for line in _ALS_GTB_TTL.read_text(encoding="utf-8").splitlines()
-            if line.startswith("@prefix")
+        assert emitted == {
+            "@prefix narad_p: <https://narad.example.org/property/> .",
+            "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .",
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .",
+            "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
+            "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .",
+            "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
         }
-        assert emitted == shipped
 
     @pytest.mark.parametrize("name", _N10S_ONLY_NAMES)
     def test_no_n10s_uppercase_names_anywhere(self, synthetic_ttl: str, name: str) -> None:
@@ -199,13 +202,13 @@ class TestVocabularySpelling:
         assert "narad_sem:AcceleratorDevice a owl:Class ." in synthetic_ttl
         assert "narad_p:readsSignal a owl:ObjectProperty ." in synthetic_ttl
         assert "narad_p:writesSignal a owl:ObjectProperty ." in synthetic_ttl
-        # als_gtb.ttl declares hasBinding as both, so the generated corpus does too.
+        # NARAD declares hasBinding as both, so the generated corpus does too.
         assert "narad_p:hasBinding a owl:DatatypeProperty,\n        owl:ObjectProperty ." in (
             synthetic_ttl
         )
 
     def test_device_iris_are_written_in_full(self, synthetic_ttl: str) -> None:
-        # No `narad:` prefix is declared (als_gtb.ttl declares none either), so
+        # No `narad:` prefix is declared (the NARAD convention binds none), so
         # device and binding IRIs must appear as absolute IRIs.
         assert f"<{model.DEVICE_IRI_PREFIX}demo_SR_DIPOLE01>" in synthetic_ttl
         assert "narad:" not in synthetic_ttl.split("\n\n")[0].replace("narad_p:", "").replace(
@@ -219,7 +222,7 @@ class TestVocabularySpelling:
 
 
 class TestNodeShapes:
-    """Devices, bindings and signals carry exactly the properties als_gtb gives them."""
+    """Devices, bindings and signals carry exactly the properties NARAD gives them."""
 
     @pytest.fixture(scope="class")
     def graph(self, synthetic_model: model.GraphModel, ontology: OntologyMap) -> Graph:
@@ -441,7 +444,7 @@ class TestShippedDemoMachine:
         subclass_of = URIRef(emitter.RDFS_SUBCLASS_OF)
         edges = list(real_graph.subject_objects(subclass_of))
         # Every declared device class except the root has exactly one parent, and
-        # ChannelBinding hangs off owl:Thing exactly as in als_gtb.ttl.
+        # ChannelBinding hangs off owl:Thing exactly as the NARAD convention has it.
         assert (URIRef(emitter.CHANNEL_BINDING_CLASS_IRI), URIRef(emitter.OWL_THING)) in edges
         magnet = _sem("Magnet")
         assert (magnet, _sem("AcceleratorDevice")) in edges

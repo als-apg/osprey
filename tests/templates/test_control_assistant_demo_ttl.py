@@ -26,9 +26,10 @@ handling that would uppercase it to `HASBINDING`, and the example queries the
 agent is given all spell the camelCase form. A corpus carrying uppercase names
 would import into a graph where every shipped query returns nothing.
 
-Finally, ariel_standalone is asserted to still name `als_gtb.ttl`: the two
-presets deliberately seed different corpora, and the repoint of one must not
-quietly become a repoint of both.
+Finally, ariel_standalone is asserted to seed the same corpus from its own
+`data/` tree, byte for byte: the two presets ship two copies of one generated
+file, and a regeneration that reaches only one of them would leave the two
+demos describing different machines.
 """
 
 from pathlib import Path
@@ -156,9 +157,13 @@ def test_configured_corpus_is_on_disk_in_a_rendered_project(
     assert resolved.read_bytes() == TEMPLATE_TTL.read_bytes()
 
 
-def test_ariel_standalone_still_seeds_the_als_corpus(tmp_path: Path) -> None:
+def test_ariel_standalone_seeds_the_same_demo_corpus(tmp_path: Path) -> None:
     project = _render_project("demo-ttl-ariel", "ariel_standalone", tmp_path)
-    assert _graphdb_block(project)["ttl_path"].endswith("als_gtb.ttl")
+    assert _graphdb_block(project)["ttl_path"] == EXPECTED_TTL_PATH
+    assert (project / "data" / "demo_machine.ttl").read_bytes() == TEMPLATE_TTL.read_bytes(), (
+        "ariel_standalone ships its own copy of the demo corpus; it has drifted "
+        "from the control-assistant copy, so the two demos describe different machines"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -221,12 +221,15 @@ services:
                           # which is what its remedies name. Both ports publish
                           # on the project-wide `deployment.bind_address`
                           # (default 127.0.0.1); no per-service bind_address.
-    ttl_path: ./services/graphdb/als_gtb.ttl
+    ttl_path: ./data/demo_machine.ttl
                           # Corpus to seed the store from, resolved against this
                           # file's directory (the same rule as
-                          # `facility_knowledge.bundle_path`). Ships with the
-                          # example graph; point it at your own TTL. Comment it
-                          # out to bring the store up bootstrapped but empty.
+                          # `facility_knowledge.bundle_path`). This is the demo
+                          # machine — the same corpus the control-assistant
+                          # preset seeds, so every OSPREY demo describes one
+                          # facility. Point it at your own TTL to seed that
+                          # instead, or comment it out to bring the store up
+                          # bootstrapped but empty.
     # JVM memory. Neo4j sizes nothing automatically inside a container — left
     # unset it reads the HOST's memory and picks numbers the container's own
     # limit will not honour — so all three are spelled out. Budget roughly

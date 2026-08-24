@@ -101,8 +101,8 @@ _ADDRESSES: dict[str, object] = {
         "The six-token grammar is the generated demo corpus', and it is what "
         "fieldDescription and subfieldDescription explain. A corpus built from a "
         "real facility records whatever that facility calls its channels — "
-        "als_gtb.ttl addresses are three tokens, such as GTL:BC1:Setpoint — so "
-        "read the shape off the rows rather than assuming it.",
+        "often fewer tokens, in that facility's own order — so read the shape "
+        "off the rows rather than assuming it.",
         "An address is a value in the graph, not a string you can derive. Take "
         "fullPv verbatim from a row; a token pattern that looks right for one "
         "corpus is a fabricated address in another.",
@@ -115,10 +115,10 @@ _ADDRESSES: dict[str, object] = {
 #: from one imported straight from a facility export.
 _PROSE_IS_CORPUS_DEPENDENT = (
     "Present in generator-built corpora such as the demo machine, whose source "
-    "channel database carries prose. A corpus imported from a facility export "
-    "(als_gtb.ttl) carries none of them, and a phrase search against them "
-    "returns no rows there — confirm with get_schema before concluding the "
-    "phrase is wrong."
+    "channel database carries prose. A corpus imported straight from a facility "
+    "export may carry none of them, and a phrase search against them then "
+    "returns no rows — confirm with get_schema before concluding the phrase "
+    "is wrong."
 )
 
 _DESCRIPTION_PREDICATES: dict[str, dict[str, object]] = {
@@ -168,9 +168,9 @@ _CORPUS: dict[str, object] = {
     ),
     "notes": [
         "Which corpus a deployment seeded is a fact about the store, so this "
-        "manifest cannot answer it. Every device carries it in facility; match "
-        "that value case-insensitively against the corpus keys example_queries "
-        "reports, and use that parameter set.",
+        "manifest cannot answer it. Every device carries it in facility. The "
+        "example_queries parameter values belong to the demo machine; on any "
+        "other corpus, take values from the rows the structural queries return.",
         "Corpora differ in what they carry, not in the Cypher. The generated "
         "demo corpus comes from a channel database that carries prose, so it "
         "has every description predicate above; a corpus with no source "

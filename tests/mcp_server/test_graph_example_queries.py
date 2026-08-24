@@ -88,7 +88,7 @@ _EXPECTED_KEYS = ("q1a", "q1b", "q1c", "q2", "q3", "q4b", "q4c", "q5", "q6")
 
 _EXAMPLE_FIELDS = {"key", "title", "description", "cypher", "parameters"}
 
-_CORPORA = {"als", "demo"}
+_CORPORA = {"demo"}
 
 
 @pytest.fixture()
@@ -134,7 +134,7 @@ class TestExampleQueriesPayload:
                     f"{example['key']}.{field} is empty"
                 )
 
-    def test_example_queries_payload_carries_both_corpora(self, payload):
+    def test_example_queries_payload_carries_the_shipped_corpus(self, payload):
         for example in payload["examples"]:
             assert set(example["parameters"]) == _CORPORA, (
                 f"{example['key']} does not carry one parameter set per corpus"
@@ -143,7 +143,7 @@ class TestExampleQueriesPayload:
                 assert isinstance(values, dict), f"{example['key']}.{corpus} is not a mapping"
 
     def test_example_queries_payload_parameters_cover_every_placeholder(self, payload):
-        """Every ``$name`` in the Cypher must have a value in both corpora."""
+        """Every ``$name`` in the Cypher must have a value in every corpus."""
         import re
 
         for example in payload["examples"]:
@@ -162,7 +162,7 @@ class TestExampleQueriesPayload:
         notes = " ".join(payload["notes"])
 
         assert "params" in notes
-        assert "als" in notes and "demo" in notes
+        assert "demo" in notes
         assert "LIMIT" in notes
         assert "services.graphdb.query_max_rows" in notes
 

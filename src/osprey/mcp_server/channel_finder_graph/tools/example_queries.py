@@ -7,13 +7,10 @@ nothing about whether the corpus is reachable or seeded.
 
 It serves this paradigm's own catalogue — the channel-finding one, every query
 about reaching a ``fullPv`` or starting from one — not the main-agent graph
-server's survey of the store. The two differ in a way the payload has to carry:
-half of these examples search prose that only the generated demo corpus has, so
-an example states the corpora it cannot run against in ``not_applicable`` rather
-than leaving a missing key for the caller to interpret. A corpus is therefore
-either supplied with real values or named as an exclusion, never present with an
-empty parameter set — which would read as "runs here, takes no values" and
-return zero rows that look like an empty machine.
+server's survey of the store. Half of these examples search prose the generator
+writes onto a corpus, so the notes say what happens on a corpus that carries
+none: those examples return no rows, which must not be read as an empty
+machine.
 """
 
 import json
@@ -22,7 +19,7 @@ import logging
 from fastmcp.exceptions import ToolError
 
 from ..server import make_error, mcp
-from .examples_data import CORPORA, EXAMPLE_QUERIES
+from .examples_data import EXAMPLE_QUERIES
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_graph.tools.example_queries")
 
@@ -30,13 +27,14 @@ _NOTES: tuple[str, ...] = (
     "Each example carries its parameters separately from its Cypher. Pass the "
     "chosen parameter dict to read_cypher as `params` — never paste values into "
     "the query text.",
-    "Pick the parameter set matching the corpus this deployment seeded: `als` "
-    "for the shipped ALS corpus, `demo` for the generated demo machine. The "
-    "Cypher is the same either way; only the values differ.",
-    "An example that lists the seeded corpus in `not_applicable` cannot run "
-    "there — it searches prose that corpus does not carry — so skip it instead "
-    "of inventing values for it. Every corpus is either supplied with "
-    "parameters or named as an exclusion; a supplied set is never empty.",
+    "Parameter sets are keyed by corpus. The `demo` set holds values that "
+    "exist in the generated demo machine; on a deployment that seeded a "
+    "different corpus, take values from the rows the structural examples "
+    "return. The Cypher is the same either way; only the values differ.",
+    "The search-by-meaning examples read prose the generator writes — the "
+    "description predicates and the system token. A corpus imported straight "
+    "from a facility export may carry none, and those examples then return no "
+    "rows: confirm with get_schema before reading that as an empty machine.",
     "The catalogue reads from the loosest way in to the tightest: the earlier "
     "examples turn an operator's words into addresses, the later ones start "
     "from a class, a section, a device or an address that is already known.",
@@ -70,20 +68,19 @@ def example_queries() -> str:
     to vary them; ``get_schema`` lists the labels and relationship types if you
     need to go further than the examples reach.
 
-    Corpora differ in what prose they carry, so an example that cannot run
-    against a given corpus says so: use the parameter set for the corpus this
-    deployment seeded, and skip any example that names it in ``not_applicable``.
+    Corpora differ in what prose they carry: the search-by-meaning half reads
+    predicates the generator writes, so on a corpus imported from a facility
+    export it may return nothing while the structural half still answers.
 
     Does NOT require graph connectivity, so this is *not* a health check: a
     successful response says nothing about whether the store is reachable or
     seeded.
 
     Returns:
-        JSON object with ``count``, ``corpora`` (the corpora the catalogue is
-        written against), ``examples`` (each ``{key, title, description, cypher,
-        parameters, not_applicable}``, where ``parameters`` holds one value set
-        per corpus the example runs against and ``not_applicable`` lists the
-        corpora it does not) and ``notes`` (list of strings on how to run them).
+        JSON object with ``count``, ``examples`` (each ``{key, title,
+        description, cypher, parameters}``, where ``parameters`` holds the
+        value sets keyed by corpus — ``demo`` for the shipped demo machine)
+        and ``notes`` (list of strings on how to run them).
     """
     try:
         examples = [
@@ -95,7 +92,6 @@ def example_queries() -> str:
                 "parameters": {
                     corpus: dict(values) for corpus, values in example.parameters.items()
                 },
-                "not_applicable": list(example.not_applicable),
             }
             for example in EXAMPLE_QUERIES
         ]
@@ -103,7 +99,6 @@ def example_queries() -> str:
         return json.dumps(
             {
                 "count": len(examples),
-                "corpora": list(CORPORA),
                 "examples": examples,
                 "notes": list(_NOTES),
             }
