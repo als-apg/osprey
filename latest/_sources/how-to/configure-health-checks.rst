@@ -16,6 +16,12 @@ This guide covers the ``health:`` configuration surface. For the shape of the
 :doc:`health-json-contract`; for the full flag list, see
 ``osprey health --help``.
 
+Rows reach one report from six independent places, and three surfaces read the
+result at different tiers:
+
+.. raw:: html
+   :file: ../_diagrams/health-suite-composition.html
+
 Cost classes and ``--full``
 ---------------------------
 
@@ -244,7 +250,7 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   same store readings in the channel finder's own terms: whether *channel
   search* has anything to answer from.
 - ``graphdb`` — appears when a ``services.graphdb`` block is configured (see
-  :doc:`deploy-project`). Two rows: **connection**, which dials the store over
+  :doc:`deploy-project/index`). Two rows: **connection**, which dials the store over
   bolt and reports the round-trip latency, and **resources**, the number of
   ``(:Resource)`` nodes in the graph — the nodes the TTL corpus imports.
   Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a

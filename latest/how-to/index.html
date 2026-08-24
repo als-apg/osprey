@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -545,7 +543,7 @@ Deploy a Project</div>
 <p class="sd-card-text">Create, configure, and deploy an OSPREY project from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> through
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> to a running instance.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
@@ -600,21 +598,12 @@ the results back.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Use the CLI Chat Interface</div>
-<p class="sd-card-text">Run the Osprey agent in your native terminal with companion services accessible
-in a browser.</p>
+Command-Line Agent</div>
+<p class="sd-card-text">Run the Osprey agent from your terminal — interactively with <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">chat</span></code>, or headlessly with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> for CI pipelines: read-only,
+structured JSON output, and clear exit codes.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Non-Interactive Agent Queries</div>
-<p class="sd-card-text">Run the OSPREY agent headlessly from CI pipelines and automated workflows
-with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> — read-only, structured JSON output, and clear exit codes.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="non_interactive_query.html"><span class="doc">Non-Interactive Agent Queries</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">

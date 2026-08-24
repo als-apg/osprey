@@ -318,7 +318,7 @@ Working with a Bundle
       ``unmanaged-partial`` on the next one instead of passing for a good seed.
 
       The deploy already runs this for you on a first bring-up (see
-      :doc:`deploy-project`); you need the verb when that step warned, or when
+      :doc:`deploy-project/index`); you need the verb when that step warned, or when
       the corpus changed.  For the full list of outcomes and flags, see
       ``osprey knowledge seed-graph --help``.
 
@@ -355,6 +355,8 @@ tool. It has two backends and picks between them by itself:
   a document matches only if it literally contains the string.
 
 You do not choose; a deployment without the sidecar simply gets the fallback.
+:ref:`retrieval-paths` shows both branches in context, and the sidecar section
+diagrams what a ranked query does internally.
 
 Tuning ranked search
 --------------------

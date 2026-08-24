@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Use the CLI Chat Interface &#8212; Osprey Framework dev documentation</title>
+    <title>Run the Agent from the Command Line &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -49,7 +49,7 @@
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=30646c52"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/use-cli-chat';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/cli-agent';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -57,11 +57,11 @@
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
-    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/use-cli-chat.html" />
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/cli-agent.html" />
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Non-Interactive Agent Queries" href="non_interactive_query.html" />
+    <link rel="next" title="Event Dispatch" href="event-dispatch.html" />
     <link rel="prev" title="Send and Retrieve Feedback" href="send-feedback.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -472,7 +470,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Use the CLI Chat Interface</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Run the Agent from the Command Line</span></li>
   </ul>
 </nav>
 </div>
@@ -489,15 +487,34 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="use-the-cli-chat-interface">
-<h1>Use the CLI Chat Interface<a class="headerlink" href="#use-the-cli-chat-interface" title="Link to this heading">#</a></h1>
+  <section id="run-the-agent-from-the-command-line">
+<h1>Run the Agent from the Command Line<a class="headerlink" href="#run-the-agent-from-the-command-line" title="Link to this heading">#</a></h1>
+<p>Two commands run the Osprey agent without the web terminal. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>
+opens an interactive session in your native terminal; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> runs a
+single headless prompt and exits with a meaningful code, for CI pipelines and
+automated workflows.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">Launching interactive terminal sessions with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, and how they
+compare to the web terminal</p></li>
+<li><p class="sd-card-text">The companion web services both modes share</p></li>
+<li><p class="sd-card-text">Headless one-shot runs with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code>: exit codes, <code class="docutils literal notranslate"><span class="pre">--json</span></code>
+output, and the read-only guarantee</p></li>
+<li><p class="sd-card-text">CI patterns, and how <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> differs from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code></p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> A project built with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+</div>
+</details><section id="interactive-sessions-osprey-chat">
+<h2>Interactive Sessions (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>)<a class="headerlink" href="#interactive-sessions-osprey-chat" title="Link to this heading">#</a></h2>
 <p>The CLI chat interface launches the Osprey agent in your native terminal while
 running OSPREY’s companion services in the background. This runs the agent
 in the full terminal TUI — keyboard shortcuts, slash commands, native
 scrollback — with access to companion services (artifact gallery, session
 analytics, etc.) via their URLs in a browser.</p>
 <section id="launching">
-<h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">#</a></h2>
+<h3>Launching<a class="headerlink" href="#launching" title="Link to this heading">#</a></h3>
 <p>From anywhere inside a deployment repository:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat
 </pre></div>
@@ -515,7 +532,7 @@ is reported as a warning and the session starts anyway.</p></li>
 <li><p>Opens the Osprey agent TUI in your terminal.</p></li>
 </ol>
 <section id="options">
-<h3>Options<a class="headerlink" href="#options" title="Link to this heading">#</a></h3>
+<h4>Options<a class="headerlink" href="#options" title="Link to this heading">#</a></h4>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat<span class="w"> </span>--repo<span class="w"> </span>/path/to/deployment<span class="w">    </span><span class="c1"># explicit deployment repo</span>
 osprey<span class="w"> </span>chat<span class="w"> </span>--resume<span class="w"> </span>SESSION_ID<span class="w">           </span><span class="c1"># resume a previous session</span>
 osprey<span class="w"> </span>chat<span class="w"> </span>--print<span class="w">                       </span><span class="c1"># non-interactive (pipe-friendly)</span>
@@ -531,7 +548,7 @@ global installation.</p>
 </section>
 </section>
 <section id="companion-services">
-<h2>Companion Services<a class="headerlink" href="#companion-services" title="Link to this heading">#</a></h2>
+<h3>Companion Services<a class="headerlink" href="#companion-services" title="Link to this heading">#</a></h3>
 <p>On startup, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> launches the same companion servers as
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. Each server’s URL is printed before the Osprey agent starts:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Companion servers
@@ -546,7 +563,7 @@ each server respects its own <code class="docutils literal notranslate"><span cl
 the Osprey agent.</p>
 </section>
 <section id="when-to-use-cli-vs-web-terminal">
-<h2>When to Use CLI vs. Web Terminal<a class="headerlink" href="#when-to-use-cli-vs-web-terminal" title="Link to this heading">#</a></h2>
+<h3>When to Use CLI vs. Web Terminal<a class="headerlink" href="#when-to-use-cli-vs-web-terminal" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 50.0%" />
@@ -580,6 +597,210 @@ the Osprey agent.</p>
 proxy. The agent capabilities are identical.</p>
 </section>
 </section>
+<section id="headless-queries-osprey-query">
+<h2>Headless Queries (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code>)<a class="headerlink" href="#headless-queries-osprey-query" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span> <span class="pre">&quot;&lt;prompt&gt;&quot;</span></code> boots the full OSPREY agent — MCP servers,
+tools, provider authentication — passes your prompt, waits for a response,
+and exits with a code that summarises the outcome. Write, execute, and
+destructive tools are blocked at the SDK level (see <a class="reference internal" href="#read-only-guarantee">Read-Only Guarantee</a>
+below): the command will not write to hardware, run shell commands or code,
+or delete stored data, making it safe for CI pipelines and automated
+workflows. (To deliver an answer it may still create workspace artifacts such
+as plots — see the guarantee’s exact scope below.)</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> when you need to verify that the <em>entire agent stack</em>
+works end-to-end against your real control system, not just that the model
+is reachable.</p>
+<section id="deployment-resolution">
+<h3>Deployment Resolution<a class="headerlink" href="#deployment-resolution" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> asks the deployment enclosing the current directory: it walks
+up to the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and answers from that repository’s <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+as it was last rendered. <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> names another one.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The deployment you are standing in</span>
+<span class="nb">cd</span><span class="w"> </span>~/deployments/als-assistant
+osprey<span class="w"> </span>query<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
+
+<span class="c1"># A deployment somewhere else</span>
+osprey<span class="w"> </span>query<span class="w"> </span>--repo<span class="w"> </span>~/deployments/als-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
+</pre></div>
+</div>
+<p>When <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or a file it points at has changed since that build, a
+warning on stderr says so and the query runs anyway. The command exits with
+code <code class="docutils literal notranslate"><span class="pre">2</span></code> if there is no build to answer from.</p>
+</section>
+<section id="exit-codes">
+<h3>Exit Codes<a class="headerlink" href="#exit-codes" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 25.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Code</p></th>
+<th class="head"><p>Meaning</p></th>
+<th class="head"><p>When it occurs</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>Pass</p></td>
+<td><p>The agent completed without error and all expected MCP servers
+connected.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
+<td><p>Verdict fail</p></td>
+<td><p>The agent ran but the outcome was unsatisfactory: a required MCP
+server was missing from the session, the agent returned an error
+result, or the run hit its cost budget (USD) or turn limit.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
+<td><p>Infra / usage error</p></td>
+<td><p>The run never started: no project found at the resolved path, the
+agent SDK is not installed, or the provider is not configured.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="machine-readable-output-json">
+<h3>Machine-Readable Output (<code class="docutils literal notranslate"><span class="pre">--json</span></code>)<a class="headerlink" href="#machine-readable-output-json" title="Link to this heading">#</a></h3>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">--json</span></code> to receive a structured JSON object instead of plain text:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span>--json<span class="w"> </span><span class="s2">&quot;Summarise recent alarms&quot;</span>
+</pre></div>
+</div>
+<p>Output format:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;final_text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;tool_traces&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tool_name&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;input&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span><span class="w"> </span><span class="nt">&quot;result&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;is_error&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;mcp_servers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;controls&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;connected&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ariel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;connected&quot;</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;exit_code&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code> maps each expected server name to its connection-status
+string (e.g. <code class="docutils literal notranslate"><span class="pre">&quot;connected&quot;</span></code>) from the MCP readiness snapshot taken before
+the prompt is sent. <code class="docutils literal notranslate"><span class="pre">exit_code</span></code> repeats the shell exit code so the whole
+verdict is self-contained in the JSON object.</p>
+</section>
+<section id="read-only-guarantee">
+<h3>Read-Only Guarantee<a class="headerlink" href="#read-only-guarantee" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> enforces read-only execution at the SDK level by passing a
+comprehensive <code class="docutils literal notranslate"><span class="pre">disallowed_tools</span></code> list directly to the runner. The agent
+cannot call any of these tools even if it tries. The list is the union of:</p>
+<ul class="simple">
+<li><p><strong>Built-in write/exec/network tools</strong> — <code class="docutils literal notranslate"><span class="pre">Bash</span></code> (arbitrary shell, which
+could itself write hardware via <code class="docutils literal notranslate"><span class="pre">caput</span></code>), <code class="docutils literal notranslate"><span class="pre">Write</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>,
+<code class="docutils literal notranslate"><span class="pre">MultiEdit</span></code>, <code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>.</p></li>
+<li><p><strong>Control-system write tools</strong> — <code class="docutils literal notranslate"><span class="pre">mcp__controls__channel_write</span></code> and
+<code class="docutils literal notranslate"><span class="pre">mcp__python__execute</span></code> (plus any facility-specific tools in the project’s
+<code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code> <code class="docutils literal notranslate"><span class="pre">write_tools</span></code> block). These are always included even
+if a project’s <code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code> omits them.</p></li>
+<li><p><strong>Approval-required MCP actions</strong> — every tool a framework MCP server marks
+as side-effecting (e.g. <code class="docutils literal notranslate"><span class="pre">mcp__ariel__entry_create</span></code> logbook writes,
+<code class="docutils literal notranslate"><span class="pre">mcp__python__execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp__osprey_workspace__setup_patch</span></code>),
+derived from the server registry so the blocked set tracks the framework
+rather than a hand-maintained copy.</p></li>
+<li><p><strong>Destructive workspace tools</strong> — <code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> and
+<code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code>, which permanently remove stored artifacts.</p></li>
+<li><p><strong>Facility-custom write tools</strong> — any tool a custom MCP server in
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code> marks under <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code> (or a custom server
+that writes-check-gates all its tools) is blocked too. Declare custom write
+tools under <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code> so the read-only path recognises them.</p></li>
+</ul>
+<p>Audited <em>read</em> tools (e.g. <code class="docutils literal notranslate"><span class="pre">mcp__controls__channel_read</span></code>) remain available.
+The agent may still <strong>create</strong> workspace artifacts (plots, documents) and write
+session logs to deliver its answer — these are additive and regenerable. The
+guarantee is specifically that the run performs no hardware write, no code or
+shell execution, and no deletion of stored data.</p>
+<p>There is no <code class="docutils literal notranslate"><span class="pre">--allow-writes</span></code> flag. If you need an agent run that can write,
+use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or the event-dispatch pipeline instead.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This guarantee is independent of the <code class="docutils literal notranslate"><span class="pre">claude_code.permissions</span></code> settings
+in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: the headless runner uses <code class="docutils literal notranslate"><span class="pre">bypassPermissions</span></code> (under
+which the interactive allow/deny/approval guards are inert), so the
+read-only guarantee rests <em>entirely</em> on the SDK-level <code class="docutils literal notranslate"><span class="pre">disallowed_tools</span></code>
+block. That is precisely why the block must cover the built-in and
+approval-required tools above, not just the <code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code> write list.</p>
+</div>
+</section>
+<section id="ci-loop-pattern">
+<h3>CI Loop Pattern<a class="headerlink" href="#ci-loop-pattern" title="Link to this heading">#</a></h3>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>OSPREY ships no canned queries. A query that references a channel address,
+PV name, or subsystem label only makes sense for your facility. Write
+queries that reflect your real control system — a generic query cannot
+validate a facility-specific agent.</p>
+</div>
+<p>The recommended CI pattern is a direct <code class="docutils literal notranslate"><span class="pre">||</span> <span class="pre">exit</span> <span class="pre">1</span></code> guard:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span><span class="s2">&quot;What PVs are used for beam current?&quot;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
+</pre></div>
+</div>
+<p>For pipelines that parse results, use <code class="docutils literal notranslate"><span class="pre">--json</span></code> and <code class="docutils literal notranslate"><span class="pre">jq</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">result</span><span class="o">=</span><span class="k">$(</span>osprey<span class="w"> </span>query<span class="w"> </span>--json<span class="w"> </span><span class="s2">&quot;Summarise recent alarms&quot;</span><span class="k">)</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$result</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.final_text&#39;</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$result</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.exit_code&#39;</span>
+</pre></div>
+</div>
+<p>For a deployment not in the current directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--repo<span class="w"> </span>/opt/osprey/als-assistant<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;List all vacuum sections&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-query-vs-osprey-health">
+<h3><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> vs. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code><a class="headerlink" href="#osprey-query-vs-osprey-health" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 50.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Raw model ping — “can I reach the model?”</p></td>
+<td><p>Full agent run — “does the agent boot its MCP servers and answer
+against my control system?”</p></td>
+</tr>
+<tr class="row-odd"><td><p>Checks configuration, connectivity, and optionally sends a minimal
+test prompt</p></td>
+<td><p>Sends your real prompt through the full MCP + tools stack</p></td>
+</tr>
+<tr class="row-even"><td><p>Fast; optional API cost</p></td>
+<td><p>Slower; costs one normal agent run</p></td>
+</tr>
+<tr class="row-odd"><td><p>Good for diagnosing a broken install</p></td>
+<td><p>Good for verifying end-to-end agent capability in CI</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> first when something is wrong with the install.
+Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> to confirm the agent answers control-system questions
+correctly once the install is healthy.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="web-terminal/index.html"><span class="doc">Web Terminal</span></a></dt><dd><p>The browser cockpit — the interactive alternative to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>.</p>
+</dd>
+<dt><a class="reference internal" href="event-dispatch.html"><span class="doc">Event Dispatch</span></a></dt><dd><p>Turn external events into headless agent runs via webhooks and cron.</p>
+</dd>
+<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> command
+reference.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+</section>
 
 
                 </article>
@@ -601,11 +822,11 @@ proxy. The agent capabilities are identical.</p>
       </div>
     </a>
     <a class="right-next"
-       href="non_interactive_query.html"
+       href="event-dispatch.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Non-Interactive Agent Queries</p>
+        <p class="prev-next-title">Event Dispatch</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -628,12 +849,24 @@ proxy. The agent capabilities are identical.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#launching">Launching</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#options">Options</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interactive-sessions-osprey-chat">Interactive Sessions (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>)</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#launching">Launching</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#options">Options</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#companion-services">Companion Services</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-to-use-cli-vs-web-terminal">When to Use CLI vs. Web Terminal</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#companion-services">Companion Services</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#when-to-use-cli-vs-web-terminal">When to Use CLI vs. Web Terminal</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#headless-queries-osprey-query">Headless Queries (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code>)</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-resolution">Deployment Resolution</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#exit-codes">Exit Codes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#machine-readable-output-json">Machine-Readable Output (<code class="docutils literal notranslate"><span class="pre">--json</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#read-only-guarantee">Read-Only Guarantee</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#ci-loop-pattern">CI Loop Pattern</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-query-vs-osprey-health"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> vs. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code></a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
@@ -641,7 +874,7 @@ proxy. The agent capabilities are identical.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/use-cli-chat.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/cli-agent.rst">
       <i class="fa-solid fa-pencil"></i>
       
       

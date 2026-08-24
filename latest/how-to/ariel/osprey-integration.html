@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -504,16 +502,39 @@ produce a cited answer. This page documents how that integration works: the
 MCP tools, the service factory, and the search result structure.</p>
 <section id="integration-architecture">
 <h2>Integration Architecture<a class="headerlink" href="#integration-architecture" title="Link to this heading">#</a></h2>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
-    ↓
-Osprey agent (via osprey chat)
-    ↓  selects from ARIEL MCP tools
-ARIEL MCP Server → ARIELSearchService
-    ↓
-Structured search results (entries + metadata)
-    ↓
-Osprey agent → User Response
-</pre></div>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 256" role="img" aria-labelledby="ariel-integration-title ariel-integration-desc">
+  <title id="ariel-integration-title">ARIEL and agent integration</title>
+  <desc id="ariel-integration-desc">A user question goes to the Osprey agent, which calls ARIEL's MCP tools; the search service returns scored entries with metadata, and the agent answers the user with citations.</desc>
+  <defs>
+    <marker id="ariel-integration-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="224" y1="92" x2="400" y2="92" marker-end="url(#ariel-integration-arr)"/>
+  <line class="e" x1="560" y1="92" x2="736" y2="92" marker-end="url(#ariel-integration-arr)"/>
+  <path class="e e-dash" d="M816,120 V152 Q816,160 808,160 H488 Q480,160 480,152 V120" marker-end="url(#ariel-integration-arr)"/>
+  <path class="e e-dash" d="M456,120 V184 Q456,192 448,192 H152 Q144,192 144,184 V120" marker-end="url(#ariel-integration-arr)"/>
+  <rect class="mask" x="608" y="72" width="80" height="12" rx="2"/>
+  <text class="ta" x="648" y="81" text-anchor="middle">MCP TOOL CALL</text>
+  <rect class="mask" x="604" y="168" width="88" height="12" rx="2"/>
+  <text class="ta" x="648" y="177" text-anchor="middle">SCORED ENTRIES</text>
+  <rect class="mask" x="260" y="200" width="80" height="12" rx="2"/>
+  <text class="ta" x="300" y="209" text-anchor="middle">CITED ANSWER</text>
+
+  <rect class="mask" x="64" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-in" x="64" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="144" y="88" text-anchor="middle">user</text>
+  <text class="ts" x="144" y="104" text-anchor="middle">a question</text>
+  <rect class="mask" x="400" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-foc" x="400" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">osprey chat</text>
+  <rect class="mask" x="736" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb" x="736" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="816" y="88" text-anchor="middle">ARIEL MCP server</text>
+  <text class="ts" x="816" y="104" text-anchor="middle">ARIELSearchService</text>
+</svg>
 </div>
 <p>The flow begins when the Osprey agent determines that a user query involves
 historical logbook data. It selects from ARIEL’s specialized MCP tools based

@@ -29,12 +29,8 @@ and safe to delete and rebuild at any time.
 Preset → Profile → Build
 ========================
 
-.. mermaid::
-
-   flowchart LR
-      P["Preset<br/>(bundled with OSPREY)"] -- osprey init --> F["profile.yml<br/>(yours)"]
-      F -- osprey build --> J["build/<br/>(derived)"]
-      J -- osprey up --> R["Running containers"]
+.. raw:: html
+   :file: ../_diagrams/build-profiles.html
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
   (``src/osprey/profiles/presets/``). Examples: ``hello-world``,
@@ -1075,7 +1071,7 @@ that block comes in.
 
 A deployment that runs its own store already has one. The ``control_assistant``
 app template renders ``graphdb`` into ``services`` and ``deployed_services``,
-and ``osprey up`` starts, bootstraps and seeds it — see :doc:`deploy-project`:
+and ``osprey up`` starts, bootstraps and seeds it — see :doc:`deploy-project/index`:
 
 .. code-block:: yaml
 
@@ -1593,5 +1589,5 @@ relax the constraint in the profile.
    :doc:`add-mcp-server`
        How to build custom MCP servers for OSPREY
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
        Container deployment after building

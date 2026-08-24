@@ -312,7 +312,7 @@ compose template per service directory, rendered by the build.
          osprey.project.root: "{{ osprey_labels.project_root }}"
          # Content hashes of the env chain and the rendered config this service
          # reads. They are what makes an edit to either file restart this
-         # container; see the service-template section of deploy-project.
+         # container; see the deploy-project compose-templates page.
          osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
          osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
        restart: unless-stopped
@@ -345,7 +345,7 @@ sources beside the template; the deploy host selects the pipeline's pushed image
 by setting ``OSPREY_FACILITY_MCP_IMAGE``. The last layer is this template's own
 literal, so the stack-wide registry and tag axes do not reach it: to have a
 facility-owned image follow them, write the default with the same shape they
-produce. :doc:`deploy-project` covers the template variables, the image chain,
+produce. :doc:`deploy-project/index` covers the template variables, the image chain,
 and those axes in full.
 
 
@@ -502,7 +502,7 @@ Step 9 — Deploy and check
    Running OSPREY from a **source checkout** rather than a released install?
    Add ``--dev`` — ``osprey up`` otherwise refuses, because a container built
    from PyPI would run different code than your checkout, and ``--dev`` builds
-   the image from the checkout instead; see :doc:`deploy-project` for that
+   the image from the checkout instead; see :doc:`deploy-project/index` for that
    workflow.
 
 The first run is slow: the virtual accelerator and the facility's own image are
@@ -707,7 +707,7 @@ a boot does exactly what you do by hand.
        What lives in a profile, the convention directories, and taking ownership
        of a framework artifact.
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
        The container-deployment reference: service configuration, compose template
        variables, image overrides, and the ``--dev`` workflow.
 

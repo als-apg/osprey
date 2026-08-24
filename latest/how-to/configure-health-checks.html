@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -504,6 +502,87 @@ providers) and tune the suite’s timing — <code class="docutils literal notra
 <code class="docutils literal notranslate"><span class="pre">--json</span></code> report and the exit codes that go with it, see
 <a class="reference internal" href="health-json-contract.html"><span class="doc">The osprey health --json Contract</span></a>; for the full flag list, see
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--help</span></code>.</p>
+<p>Rows reach one report from six independent places, and three surfaces read the
+result at different tiers:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 440" role="img" aria-labelledby="health-suite-title health-suite-desc">
+  <title id="health-suite-title">What composes the health suite</title>
+  <desc id="health-suite-desc">Rows in one health report arrive from six independent origins: always-on built-ins, presence-gated service categories, categories you declare, MCP checks derived from claude_code.servers, an archiver freshness check derived from the build profile, and Python plugins. They compose into one categorized suite whose rows each carry a cost class, and three surfaces read that suite at different tiers.</desc>
+  <defs>
+    <marker id="health-suite-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- fan-in edges -->
+  <line class="e" x1="266" y1="82"  x2="336" y2="166" marker-end="url(#health-suite-arr)"/>
+  <line class="e" x1="266" y1="138" x2="336" y2="188" marker-end="url(#health-suite-arr)"/>
+  <line class="e" x1="266" y1="194" x2="336" y2="210" marker-end="url(#health-suite-arr)"/>
+  <line class="e" x1="266" y1="250" x2="336" y2="232" marker-end="url(#health-suite-arr)"/>
+  <line class="e" x1="266" y1="306" x2="336" y2="254" marker-end="url(#health-suite-arr)"/>
+  <line class="e" x1="266" y1="362" x2="336" y2="276" marker-end="url(#health-suite-arr)"/>
+  <!-- fan-out edges -->
+  <line class="e" x1="620" y1="190" x2="690" y2="138" marker-end="url(#health-suite-arr)"/>
+  <line class="e" x1="620" y1="222" x2="690" y2="222" marker-end="url(#health-suite-arr)"/>
+  <line class="e" x1="620" y1="254" x2="690" y2="306" marker-end="url(#health-suite-arr)"/>
+  <!-- override tap -->
+  <line class="e e-dash" x1="480" y1="344" x2="480" y2="302" marker-end="url(#health-suite-arr)"/>
+
+  <text class="te" x="16" y="44">WHERE ROWS COME FROM</text>
+  <text class="te" x="694" y="44">WHO READS THE SUITE</text>
+
+  <!-- origins -->
+  <rect class="nb" x="16" y="60" width="250" height="44" rx="6"/>
+  <text class="tn" x="141" y="80" text-anchor="middle">built-in core checks</text>
+  <text class="ts" x="141" y="95" text-anchor="middle">always on</text>
+  <rect class="nb" x="16" y="116" width="250" height="44" rx="6"/>
+  <text class="tn" x="141" y="136" text-anchor="middle">presence-gated</text>
+  <text class="ts" x="141" y="151" text-anchor="middle">ariel · channel_finder</text>
+  <rect class="nb" x="16" y="172" width="250" height="44" rx="6"/>
+  <text class="tn" x="141" y="192" text-anchor="middle">health.categories</text>
+  <text class="ts" x="141" y="207" text-anchor="middle">what you declare yourself</text>
+  <rect class="nb" x="16" y="228" width="250" height="44" rx="6"/>
+  <text class="tn" x="141" y="248" text-anchor="middle">health.auto.mcp</text>
+  <text class="ts" x="141" y="263" text-anchor="middle">read from claude_code.servers</text>
+  <rect class="nb" x="16" y="284" width="250" height="44" rx="6"/>
+  <text class="tn" x="141" y="304" text-anchor="middle">freshness_channel</text>
+  <text class="ts" x="141" y="319" text-anchor="middle">named in the build profile</text>
+  <rect class="nb" x="16" y="340" width="250" height="44" rx="6"/>
+  <text class="tn" x="141" y="360" text-anchor="middle">health.plugins</text>
+  <text class="ts" x="141" y="375" text-anchor="middle">your own Python checks</text>
+
+  <!-- the suite -->
+  <rect class="nb-foc" x="340" y="142" width="280" height="160" rx="6"/>
+  <text class="tn" x="480" y="170" text-anchor="middle">one categorized suite</text>
+  <line class="divider" x1="364" y1="184" x2="596" y2="184"/>
+  <text class="ts" x="480" y="206" text-anchor="middle">poll — cheap, side-effect-free</text>
+  <text class="ts" x="480" y="222" text-anchor="middle">on_demand — costly or externally</text>
+  <text class="ts" x="480" y="238" text-anchor="middle">visible; runs only with --full</text>
+  <line class="divider" x1="364" y1="254" x2="596" y2="254"/>
+  <text class="ta" x="480" y="274" text-anchor="middle">--category scopes which categories run,</text>
+  <text class="ta" x="480" y="290" text-anchor="middle">it never elevates a cost class</text>
+
+  <rect class="nb-st" x="340" y="344" width="280" height="44" rx="6"/>
+  <text class="ts" x="480" y="364" text-anchor="middle">metadata-only override</text>
+  <text class="ta" x="480" y="379" text-anchor="middle">tunes a built-in, never redefines it</text>
+
+  <!-- surfaces -->
+  <rect class="nb" x="694" y="106" width="250" height="64" rx="6"/>
+  <text class="tn" x="819" y="130" text-anchor="middle">osprey health</text>
+  <text class="ts" x="819" y="146" text-anchor="middle">poll by default</text>
+  <text class="ts" x="819" y="161" text-anchor="middle">--full adds on_demand</text>
+  <rect class="nb" x="694" y="190" width="250" height="64" rx="6"/>
+  <text class="tn" x="819" y="214" text-anchor="middle">SYSTEM dashboard</text>
+  <text class="ts" x="819" y="230" text-anchor="middle">poll only — a browser can</text>
+  <text class="ts" x="819" y="245" text-anchor="middle">never trigger on_demand</text>
+  <rect class="nb" x="694" y="274" width="250" height="64" rx="6"/>
+  <text class="tn" x="819" y="298" text-anchor="middle">agent tools</text>
+  <text class="ts" x="819" y="314" text-anchor="middle">health_check — auto-approved</text>
+  <text class="ts" x="819" y="329" text-anchor="middle">health_check_full — asks first</text>
+
+  <text class="ta ta-warn" x="480" y="418" text-anchor="middle">declare health.categories.archiver or name a freshness_channel — never both; a profile that does both is refused at build time</text>
+</svg>
+</div>
 <section id="cost-classes-and-full">
 <h2>Cost classes and <code class="docutils literal notranslate"><span class="pre">--full</span></code><a class="headerlink" href="#cost-classes-and-full" title="Link to this heading">#</a></h2>
 <p>Every category is either <strong>poll</strong> or <strong>on_demand</strong>:</p>
@@ -728,7 +807,7 @@ same store readings in the channel finder’s own terms: whether <em>channel
 search</em> has anything to answer from.</p>
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">graphdb</span></code> — appears when a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is configured (see
-<a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a>). Two rows: <strong>connection</strong>, which dials the store over
+<a class="reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a>). Two rows: <strong>connection</strong>, which dials the store over
 bolt and reports the round-trip latency, and <strong>resources</strong>, the number of
 <code class="docutils literal notranslate"><span class="pre">(:Resource)</span></code> nodes in the graph — the nodes the TTL corpus imports.
 Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a

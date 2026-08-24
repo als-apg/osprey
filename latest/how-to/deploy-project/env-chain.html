@@ -1,0 +1,857 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Environment Variables (the .env chain) &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/deploy-project/env-chain';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/deploy-project/env-chain.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Containerize a Project" href="../containerize-project.html" />
+    <link rel="prev" title="Network Binding and Security" href="networking.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Container Deployment</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Container Deployment</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="environment-variables-the-env-chain">
+<span id="deployment-env-chain"></span><h1>Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)<a class="headerlink" href="#environment-variables-the-env-chain" title="Link to this heading">#</a></h1>
+<p>A deployment reads its environment from two files at the repository root:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 55.0%" />
+<col style="width: 25.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>What belongs in it</p></th>
+<th class="head"><p>Tracked in git?</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.shared</span></code></p></td>
+<td><p>What the whole site shares: a proxy, a facility hostname, a port
+everyone uses. Never a secret — this file is committed.</p></td>
+<td><p>yes</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env</span></code></p></td>
+<td><p>This host’s own values, and every secret: API keys, service tokens,
+passwords.</p></td>
+<td><p>no</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>The local file wins.</strong> A variable set in both takes its value from <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
+on every path that reads them — the deploy, the CLI, the containers. That is
+the whole rule: same syntax, same variables, <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> simply sits lower.
+Setting a key in <code class="docutils literal notranslate"><span class="pre">.env</span></code> is how one host departs from a shared default, and
+there is nothing else to do about it — unless the profile has declared that
+variable the shared file’s to decide (see <a class="reference internal" href="#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>).</p>
+<p>Both files stay on the host. Neither ever enters a container image: they are
+read at run time and handed to the container runtime, which uses them to fill
+in the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files. A variable reaches
+a running container only where a template maps it in. <em>How</em> the two files are
+handed over differs by compose provider (see
+<a class="reference internal" href="index.html#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a>); what they resolve to does not.</p>
+<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> has to exist. Rather than start a stack whose every <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
+substitutes to nothing, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses when the file is missing. On an
+interactive terminal it first offers to seed one, but only when your shell has
+the key to seed it with — this deployment’s own provider auth variable,
+exported. Otherwise start from the example:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
+<span class="c1"># Edit .env with your actual values</span>
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="../build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
+<section id="the-env-family">
+<h2>The <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family<a class="headerlink" href="#the-env-family" title="Link to this heading">#</a></h2>
+<p>Two files are yours to edit and one is documentation. The rest are written for
+you — most of them derived, rewritten whenever a command needs them, and not
+worth editing because the next command overwrites them:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Role</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.shared</span></code></p></td>
+<td><p>edit — shared defaults, the same on every host</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env</span></code></p></td>
+<td><p>edit — this host’s values and every secret</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code></p></td>
+<td><p>docs — every variable this deployment reads, with no values</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env.users</span></code></p></td>
+<td><p>machine — the env file every per-user web-terminal container runs with,
+derived from the chain (multi-user deployments only)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.auth</span></code></p></td>
+<td><p>both — the web terminals’ password hashes and cookie-signing secrets,
+minted by the deploy, but also where you put an OIDC client id and
+secret by hand (multi-user deployments only; see <a class="reference internal" href="../multi-user.html"><span class="doc">Multi-User Support</span></a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code></p></td>
+<td><p>machine — the chain collapsed into one file, for compose providers that
+accept only one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">build/.env.chain-state.json</span></code></p></td>
+<td><p>machine — fingerprints of the shared values as of the last deploy, so a
+stale local value can be spotted. It stores digests, never values.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps all of them out of version control except
+<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, which carry nothing a host may not share.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Upgrading a multi-user deployment</p>
+<p>The web terminals’ env file changed name to <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+does the rename for you the next time you deploy, and if both names are
+present it keeps the new one and removes the leftover, naming both paths.
+Only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does this, so a stack you stop before you next deploy
+still carries the old name — and because the web stack’s compose file names
+<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> fails with an env-file-not-found error until
+the rename has happened. Do it yourself in that case:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mv<span class="w"> </span>.env.production<span class="w"> </span>.env.users
+</pre></div>
+</div>
+</div>
+</section>
+<section id="what-a-deploy-writes-back">
+<h2>What a deploy writes back<a class="headerlink" href="#what-a-deploy-writes-back" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also <em>writes</em> to <code class="docutils literal notranslate"><span class="pre">.env</span></code>. On first deploy it mints any missing
+service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>, or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so no service ever starts
+on a blank or publicly-known credential, appends them under a “Minted by
+deploy” heading, and restricts the file to owner-only permissions.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> appends the pointers it derives from what it just rendered,
+under a “Derived by build” heading.</p>
+<p>Both writers are append-only, and a value already on file always wins. That is
+what makes the stack reproducible: a later start comes up on the same
+credentials the running containers were initialized with, instead of minting a
+second set they do not trust. There is no second copy anywhere — the <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the deployment’s whole secret store — so back it up.</p>
+<p>Minted values only ever land in <code class="docutils literal notranslate"><span class="pre">.env</span></code>, never in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>. A minted
+credential belongs to this host, and <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> is committed.</p>
+</section>
+<section id="what-a-deploy-tells-you-about-the-chain">
+<h2>What a deploy tells you about the chain<a class="headerlink" href="#what-a-deploy-tells-you-about-the-chain" title="Link to this heading">#</a></h2>
+<p>Two layered files make one new mistake possible, so every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports
+on the chain before it starts anything. Variable names are printed; values never
+are.</p>
+<ul class="simple">
+<li><p><strong>Overrides</strong> — the keys <code class="docutils literal notranslate"><span class="pre">.env</span></code> overrides in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> are listed
+once, by name, as information. That is the chain working as intended.</p></li>
+<li><p><strong>Stale pins</strong> — a warning, and it is reserved for one exact case: <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+still holds the value <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> carried <em>before</em> the shared file
+changed. That is the signature of a value copied from the default of the day
+and then forgotten rather than one this host chose, and the stack starts on
+the superseded value looking perfectly healthy. To adopt the shared value,
+remove the key from <code class="docutils literal notranslate"><span class="pre">.env</span></code>; to keep a local value deliberately, set it to
+the value this host actually wants. The warning repeats until you do one or
+the other.</p></li>
+<li><p><strong>Pinned variables</strong> — a refusal. A profile can declare that some variables
+are the shared file’s to decide and no one else’s; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> then refuses
+to start when anything contradicts that. See <a class="reference internal" href="#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>.</p></li>
+<li><p><strong>Chain drift</strong> — a refusal. Which env files the stack reads is decided when
+the project is rendered, not when it starts: adding <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> to a
+project built without one puts none of its values into the containers, and
+removing one leaves the render pointing at a file that is gone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+refuses and names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Re-render, then start.</p></li>
+<li><p><strong>Shell exports</strong> — when a variable exported in your shell disagrees with the
+value the chain resolves to, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names it and says which of the two
+the compose provider it just probed will actually substitute (see
+<a class="reference internal" href="index.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>). A warning, so the export stays
+available as an escape hatch — except for a pinned name, where it is a
+refusal.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Postgres reads <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code> (as <code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code>) only when
+initializing a <strong>fresh</strong> data volume. A volume created before the password
+was minted keeps its original password; the <code class="docutils literal notranslate"><span class="pre">${ARIEL_DB_PASSWORD:-ariel}</span></code>
+fallback — applied by the compose template and by the DSN the agent derives
+from <code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code> — keeps such deployments working. To adopt
+the minted password, remove the <code class="docutils literal notranslate"><span class="pre">ariel_postgres_data</span></code> volume and redeploy
+(this deletes the stored logbook data — re-ingest afterwards).</p>
+</div>
+</section>
+<section id="pinning-a-variable-to-the-chain">
+<span id="deployment-pinned-env"></span><h2>Pinning a variable to the chain<a class="headerlink" href="#pinning-a-variable-to-the-chain" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> winning is the right default, and for a few variables it is the wrong
+one: a proxy every host at the site has to go through, a hostname the whole
+facility shares. A profile can say so, in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pinned</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HTTPS_PROXY</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">FACILITY_ARCHIVER_HOST</span>
+</pre></div>
+</div>
+<p>Pinning does not change how a value resolves. It changes what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+does when something contradicts the declaration: it refuses to start, rather
+than let the stack run on a value from a source the deployment said it would
+not come from. Three checks, one for each way that can happen:</p>
+<ul class="simple">
+<li><p><strong>The declaration itself.</strong> Pinning a name the deploy writes for you is
+refused — a service token or password it mints, a service default it records,
+a Bluesky substrate variable, a credential <code class="docutils literal notranslate"><span class="pre">--reuse-stores</span></code> restores from a
+surviving volume. A pin says the chain is the variable’s only source, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writing that same name into <code class="docutils literal notranslate"><span class="pre">.env</span></code> contradicts it by
+construction. The message names each offender and its remedy:
+<code class="docutils literal notranslate"><span class="pre">unpin</span> <span class="pre">&lt;NAME&gt;;</span> <span class="pre">it</span> <span class="pre">is</span> <span class="pre">machine-minted.</span></code> The check covers every name any writer
+can produce, not only the services this deployment currently enables, so
+turning a service on later cannot make a profile that was fine start
+refusing.</p></li>
+<li><p><strong>A local override.</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> setting a pinned name is refused. Without the
+pin that is just this host’s business; with it, the stack would start on a
+value contradicting what the deployment declares it runs on — and nothing
+else would notice, because the override is well-formed and the stack comes up
+healthy.</p></li>
+<li><p><strong>A shell export.</strong> An export disagreeing with the chain is a warning for any
+unpinned variable, deliberately: exporting over the store is a legitimate
+one-off. For a pinned name it is a refusal, under either compose provider.
+Docker Compose would substitute the exported value; podman-compose would
+ignore it. Neither outcome is acceptable for a name the deployment declared
+its own, and a repo must not be startable on one host and refused on another
+for the same shell state, so the answer is the same on both — only the
+explanation differs.</p></li>
+</ul>
+<p>All three run before any secret is minted and before any image is built, so a
+deploy that is going to stop here stops having provisioned nothing. All three
+print names and never values.</p>
+<p>Either remedy is one edit. To start on the declared value, remove the name from
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> or unset the export. To let this host decide it after all, drop the
+name from <code class="docutils literal notranslate"><span class="pre">env.pinned</span></code> and re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p><strong>A pin covers the chain and the shell, not the files derived from them.</strong>
+Those two are where a value can reach a container while every reading of
+<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> goes on describing something else. <code class="docutils literal notranslate"><span class="pre">.env.users</span></code> carries a
+copy of what the chain already resolved to, and <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> holds credentials
+the deploy mints; neither is a place a pinned variable’s value gets decided, so
+there is nothing there for the declaration to contradict.</p>
+<p>The declaration is read from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at the repository root, as
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> emitted it — a flat document. A hand-written profile that
+inherits its <code class="docutils literal notranslate"><span class="pre">env</span></code> block through <code class="docutils literal notranslate"><span class="pre">extends:</span></code> leaves the parent’s pins unread
+and nothing enforced; spell them out in the repository’s own profile.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The warning <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints as <strong>Stale pin</strong> is a different thing: a
+value pinned by hand in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that has fallen behind the shared default.
+It is unrelated to <code class="docutils literal notranslate"><span class="pre">env.pinned</span></code>, and it stays a warning.</p>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="networking.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Network Binding and Security</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../containerize-project.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Containerize a Project</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-env-family">The <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-deploy-writes-back">What a deploy writes back</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-deploy-tells-you-about-the-chain">What a deploy tells you about the chain</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pinning-a-variable-to-the-chain">Pinning a variable to the chain</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/deploy-project/env-chain.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

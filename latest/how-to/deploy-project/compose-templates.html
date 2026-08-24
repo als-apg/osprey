@@ -1,0 +1,1044 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Compose Templates and Images &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/deploy-project/compose-templates';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/deploy-project/compose-templates.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Network Binding and Security" href="networking.html" />
+    <link rel="prev" title="Container Deployment" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Container Deployment</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Container Deployment</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Compose Templates and Images</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="compose-templates-and-images">
+<h1>Compose Templates and Images<a class="headerlink" href="#compose-templates-and-images" title="Link to this heading">#</a></h1>
+<p>How each service container is defined and where its image comes from —
+authoring <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> templates, taking ownership of a
+framework-managed template, and pointing services at mirrored or pinned
+images. Declaring a service in the first place is covered on the parent
+page: <a class="reference internal" href="index.html"><span class="doc">Container Deployment</span></a>.</p>
+<section id="docker-compose-templates">
+<h2>Docker Compose Templates<a class="headerlink" href="#docker-compose-templates" title="Link to this heading">#</a></h2>
+<p>Each service needs a <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template in its service
+directory. In addition, a <strong>root-level</strong> <code class="docutils literal notranslate"><span class="pre">services/docker-compose.yml.j2</span></code>
+is required to define the shared network (<code class="docutils literal notranslate"><span class="pre">osprey-network</span></code>). Without it,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> will fail.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>services/
+├── docker-compose.yml.j2          # Required: shared network definition
+└── postgresql/
+    └── docker-compose.yml.j2      # Per-service template
+</pre></div>
+</div>
+<p>Per-service templates have access to the full configuration plus a few
+engine-injected values:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># services/postgresql/docker-compose.yml.j2</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">services.postgresql.container_name | default(&#39;osprey-postgres&#39;)</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">labels</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">osprey.project.name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_name}}&quot;</span>
+<span class="w">      </span><span class="nt">osprey.project.root</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_root}}&quot;</span>
+<span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432&quot;</span>
+<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">TZ</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">system.timezone</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey-network</span>
+</pre></div>
+</div>
+<p>Common access patterns: <code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>,
+<code class="docutils literal notranslate"><span class="pre">{{file_paths.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{system.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{project_root}}</span></code>,
+<code class="docutils literal notranslate"><span class="pre">{{deployment.bind_address}}</span></code>, and <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.project_name}}</span></code> /
+<code class="docutils literal notranslate"><span class="pre">project_root</span></code> (injected by the deploy engine).</p>
+<p>The engine deliberately injects no deploy timestamp. Everything a template
+renders comes from the project’s configuration, so building the same project
+twice produces the same files — which is what lets you diff a rebuilt
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> directory and see only your own changes. A timestamp would also
+make every container look changed to the container runtime on each <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">up</span></code>, restarting the whole stack for nothing. If you need to know when a
+container was started, ask the runtime: <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">inspect</span></code> reports it as
+<code class="docutils literal notranslate"><span class="pre">.Created</span></code>. Earlier versions of these templates carried an
+<code class="docutils literal notranslate"><span class="pre">osprey.deployed.at</span></code> label; a template you have customized that still sets it
+keeps building, and the label just renders empty, but you should drop the line.</p>
+<p>What that timestamp was doing by accident, two labels now do on purpose:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span><span class="o">.</span><span class="n">env</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span> <span class="s2">&quot;$</span><span class="si">{OSPREY_ENV_DIGEST:-}</span><span class="s2">&quot;</span>
+<span class="n">osprey</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span> <span class="s2">&quot;$</span><span class="si">{OSPREY_CONFIG_DIGEST:-}</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>Your service reads its settings from files — the env chain, and the
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mounted into the container — and the container runtime decides
+whether to restart a container by comparing the compose document, which names
+neither file’s <em>contents</em>. So editing <code class="docutils literal notranslate"><span class="pre">.env</span></code> or running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> would
+leave the running container on the values it started with. Each label carries a
+hash of one of those files, which turns such an edit into a document change and
+restarts exactly the containers that read it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> sets both variables
+for you; they interpolate to empty if you run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> by hand. <strong>A
+service template you wrote yourself should carry both lines</strong> — without them
+your service keeps serving its old settings after a change, with nothing to say
+so.</p>
+</section>
+<section id="service-template-ownership">
+<h2>Service Template Ownership<a class="headerlink" href="#service-template-ownership" title="Link to this heading">#</a></h2>
+<p>The service templates under <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;/services/</span></code> are framework-managed:
+every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refreshes them from the installed OSPREY version, so
+compose fixes reach your project automatically. Do not edit them in place —
+your changes would be overwritten on the next build.</p>
+<p>To customize a service template, claim it — which <strong>moves</strong> it into the build
+profile the project was built from, where edits survive:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">   </span><span class="c1"># move it into the profile</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>services/postgresql<span class="w">    </span><span class="c1"># compare yours against the framework</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>services/postgresql<span class="w"> </span><span class="c1"># restore framework management</span>
+</pre></div>
+</div>
+<p>Edit the moved copy under <code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/services/postgresql/</span></code>, then run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> again to deploy it. Every build copies it back and marks it
+yours, so later re-renders leave it alone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code> shows what is
+framework-managed and what is yours; the same mechanism covers the agent
+artifacts (rules, agents, skills, hooks). See <a class="reference internal" href="../build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a> for the full
+workflow and the artifacts a claim refuses.</p>
+<p>Before reaching for a claim, check whether a config key or environment
+variable already covers your need — most service knobs (ports, images,
+credentials, retention) are configurable without forking the template.</p>
+</section>
+<section id="overriding-service-images">
+<span id="deployment-image-overrides"></span><h2>Overriding Service Images<a class="headerlink" href="#overriding-service-images" title="Link to this heading">#</a></h2>
+<p>Every service image resolves through the same three-layer chain — an
+environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
+default. Thirteen images, one row each:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 30.0%" />
+<col style="width: 28.0%" />
+<col style="width: 22.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Service</p></th>
+<th class="head"><p>Environment variable</p></th>
+<th class="head"><p>Config key</p></th>
+<th class="head"><p>Packaged default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>postgresql</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_POSTGRES_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.postgresql.image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-odd"><td><p>openobserve</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OPENOBSERVE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.openobserve.image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-even"><td><p>mongodb</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_MONGODB_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.mongodb.image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-odd"><td><p>event_dispatcher</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DISPATCH_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-dispatch</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>dispatch_worker</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>nextcloud_bridge</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_NEXTCLOUD_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.nextcloud_bridge.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-nextcloud-bridge</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>gchat_bridge</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_GCHAT_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.gchat_bridge.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-gchat-bridge</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-bridge</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>bluesky (Tiled sidecar)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TILED_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky (Redis sidecar)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_REDIS_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.redis_image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-even"><td><p>bluesky_web</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_WEB_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-web</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>virtual_accelerator</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-va</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>qmd</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Point either of the first two layers at an internal registry mirror or a
+pinned digest when your deployment host cannot (or should not) pull public
+images.</p>
+<p>Five of the thirteen are <strong>upstream pins</strong> — images somebody else publishes,
+named exactly as they publish them. The other eight are <strong>built by OSPREY</strong>
+from your project, and their default reference is assembled rather than
+fixed: a project name, a per-service suffix, and the two axes below.</p>
+<section id="the-two-image-axes">
+<span id="deployment-image-axes"></span><h3>The two image axes<a class="headerlink" href="#the-two-image-axes" title="Link to this heading">#</a></h3>
+<p>An OSPREY-built default is always spelled the same way:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="n">registry</span><span class="o">&gt;/&lt;</span><span class="n">project</span><span class="o">&gt;&lt;</span><span class="n">service</span> <span class="n">suffix</span><span class="o">&gt;</span><span class="p">:</span><span class="o">&lt;</span><span class="n">tag</span><span class="o">&gt;</span>
+</pre></div>
+</div>
+<p>Two stack-wide settings supply the ends of that name, so an entire deployment
+can be moved to a registry — or to a different tag — without touching any of
+the thirteen rows above:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 30.0%" />
+<col style="width: 24.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Axis</p></th>
+<th class="head"><p>Environment variable</p></th>
+<th class="head"><p>Config key</p></th>
+<th class="head"><p>When neither is set</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Registry</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.registry</span></code></p></td>
+<td><p>no prefix at all</p></td>
+</tr>
+<tr class="row-odd"><td><p>Tag</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.tag</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml — every OSPREY-built image comes from the mirror,</span>
+<span class="c1"># at the tag the pipeline pushed</span>
+<span class="nt">images</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator</span>
+<span class="w">  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.08.1&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># or, for one build</span>
+<span class="nv">OSPREY_IMAGE_REGISTRY</span><span class="o">=</span>registry.example.org/accelerator<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">OSPREY_IMAGE_TAG</span><span class="o">=</span><span class="m">2026</span>.08.1<span class="w"> </span>osprey<span class="w"> </span>build
+</pre></div>
+</div>
+<p>For each axis the environment variable wins, then the config key, then the
+packaged default. A blank value counts as unset on both layers — an
+exported-but-empty variable is how a shell spells “I did not set this”, so a
+stray <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG=</span></code> cannot render an image reference with no tag. A
+trailing slash on the registry is optional: one is added if you leave it out,
+and never doubled if you put it in.</p>
+<p>Two things about <em>when</em> and <em>where</em> this applies are worth having straight:</p>
+<ul class="simple">
+<li><p><strong>The axes are the innermost layer, not an override.</strong> They decide what the
+packaged default of an OSPREY-built image is. A <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code>
+pin still beats them for that one service, and an <code class="docutils literal notranslate"><span class="pre">OSPREY_&lt;SVC&gt;_IMAGE</span></code>
+variable still beats both. Setting an axis moves everything you have not
+pinned individually.</p></li>
+<li><p><strong>The axes are read when the compose files are rendered</strong>, not when the
+containers start. Export them for the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> that produces the
+deployment; the per-image <code class="docutils literal notranslate"><span class="pre">OSPREY_&lt;SVC&gt;_IMAGE</span></code> variables, by contrast, are
+filled in by compose at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> time. With neither axis set the render
+is what it always was — <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> and its siblings — so a
+deployment that never heard of them is unaffected.</p></li>
+</ul>
+<p>The axes never touch the five upstream pins. Prefixing <code class="docutils literal notranslate"><span class="pre">mongo:7</span></code> with your
+registry would name an image that exists in no registry; mirror those through
+their own row instead.</p>
+</section>
+<section id="the-web-tier-names-its-registry-separately">
+<h3>The web tier names its registry separately<a class="headerlink" href="#the-web-tier-names-its-registry-separately" title="Link to this heading">#</a></h3>
+<p>The web tier — the landing page and the one containerized terminal per
+operator, described in <a class="reference internal" href="../multi-user.html"><span class="doc">Multi-User Support</span></a> — carries its own, older spelling of
+the same two ideas, and the two vocabularies coexist rather than merging:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 38.0%" />
+<col style="width: 38.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"></th>
+<th class="head"><p>Service images</p></th>
+<th class="head"><p>Web tier</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Registry</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.registry</span></code> / <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">registry.url</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Tag</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.tag</span></code> / <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Neither pair reaches the other’s images. <code class="docutils literal notranslate"><span class="pre">images.registry</span></code> does not move the
+web images, and <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> does not move the service images. A
+deployment that mirrors everything sets both pairs, and sets them to the same
+place — that is the one case where the divergence costs you a line of config
+rather than nothing.</p>
+<p>Whether the web tier pulls those images or builds them on the deploy host is a
+third, separate setting: <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_source</span></code>
+(<code class="docutils literal notranslate"><span class="pre">registry</span></code>, the default, or <code class="docutils literal notranslate"><span class="pre">local</span></code>). It is unrelated to the axes, and it
+is also the setting that governs the persona and auth-sidecar builds — see
+below.</p>
+</section>
+<section id="mirroring-every-image-into-one-registry">
+<span id="deployment-mirror-channel"></span><h3>Mirroring every image into one registry<a class="headerlink" href="#mirroring-every-image-into-one-registry" title="Link to this heading">#</a></h3>
+<p>A host behind a strict firewall, or with no route to the public internet at
+all, needs every image it starts to come from a registry it can reach. There
+are four channels to point at that mirror, and a deployment that misses one
+fails at <code class="docutils literal notranslate"><span class="pre">up</span></code> on the image it forgot:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 66.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Images</p></th>
+<th class="head"><p>How to point them at your mirror</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>The eight OSPREY-built images</p></td>
+<td><p>Set the registry axis once — <code class="docutils literal notranslate"><span class="pre">images.registry</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code> for a single build.</p></td>
+</tr>
+<tr class="row-odd"><td><p>The five upstream pins</p></td>
+<td><p>One row at a time: <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> (or the row’s
+<code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code> variable) naming your mirrored copy.</p></td>
+</tr>
+<tr class="row-even"><td><p>The web tier’s images</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">registry.url</span></code> plus <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>nginx and the auth sidecar</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.nginx_image</span></code> and
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code>. <strong>These two carry no environment
+variable</strong>, so a mirror reaches them through <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> only —
+there is no one-shell equivalent.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml — all four channels, one mirror</span>
+<span class="nt">images</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator</span>
+<span class="w">  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.08.1&quot;</span>
+
+<span class="nt">registry</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator</span>
+
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/pgvector/pgvector:pg16</span>
+<span class="w">  </span><span class="nt">mongodb</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/mongo:7</span>
+<span class="w">  </span><span class="nt">openobserve</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/openobserve:v0.14.4</span>
+<span class="w">  </span><span class="nt">bluesky</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tiled_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/tiled:0.2.12</span>
+<span class="w">    </span><span class="nt">redis_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/redis:7.4-alpine</span>
+
+<span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image_tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.08.1&quot;</span>
+<span class="w">    </span><span class="nt">nginx_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/nginx:1.27-alpine</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator/demo-assistant-auth:2026.08.1</span>
+</pre></div>
+</div>
+<p>Copy only the rows for services you actually deploy — the upstream pins for a
+service that is not in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> are never rendered.</p>
+<p>Naming the mirror is half the job: the host also has to stop <em>building</em>. That
+is the switch in the next section. If your route is a self-built image rather
+than a mirror, <a class="reference internal" href="../containerize-project.html"><span class="doc">Containerize a Project</span></a> covers the air-gapped build trio —
+<code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_SPEC</span></code> for an internal package mirror, <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code> to exempt
+it from the proxy, and <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE=1</span></code> to vendor the web assets into the
+image.</p>
+</section>
+</section>
+<section id="deploying-prebuilt-images">
+<span id="deployment-prebuilt-images"></span><h2>Deploying Prebuilt Images<a class="headerlink" href="#deploying-prebuilt-images" title="Link to this heading">#</a></h2>
+<p>Some hosts cannot build images at all — no build tooling, no registry in
+reach — and run instead on images pulled from a mirror or loaded from a
+tarball. There, an image build is not merely slow but impossible. The
+top-level <code class="docutils literal notranslate"><span class="pre">prebuilt_images</span></code> key turns building off, so the deploy starts the
+containers from the tags already on the host:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
+<span class="nt">prebuilt_images</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># or, for one shell</span>
+<span class="nv">OSPREY_PREBUILT_IMAGES</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>osprey<span class="w"> </span>up
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">yes</span></code> and <code class="docutils literal notranslate"><span class="pre">on</span></code> turn the switch on; <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">false</span></code>,
+<code class="docutils literal notranslate"><span class="pre">no</span></code> and <code class="docutils literal notranslate"><span class="pre">off</span></code> turn it off — case does not matter. The variable wins over
+the config key in both directions, so <code class="docutils literal notranslate"><span class="pre">OSPREY_PREBUILT_IMAGES=0</span></code> forces a
+build for one shell even on a host whose <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> pins the key. With
+neither set, deploys build as they always have.</p>
+<p>The switch covers both ways a build can start:</p>
+<ul class="simple">
+<li><p>In <a class="reference internal" href="index.html#development-mode"><span class="std std-ref">dev mode</span></a> it skips the wheel-and-image build
+step, and the deploy reports <code class="docutils literal notranslate"><span class="pre">skipped</span> <span class="pre">image</span> <span class="pre">build</span> <span class="pre">(prebuilt</span> <span class="pre">images)</span></code> where
+it would otherwise have built.</p></li>
+<li><p>In ordinary (non-dev) mode there is no build step to skip — but compose
+would still build any service whose compose document carries a <code class="docutils literal notranslate"><span class="pre">build:</span></code>
+block the first time it brings it up. The switch passes <code class="docutils literal notranslate"><span class="pre">--no-build</span></code>, so
+compose starts what is there instead. Nothing is reported as skipped,
+because nothing was scheduled.</p></li>
+</ul>
+<p><strong>What the switch does not reach.</strong> It governs compose’s implicit builds only.
+The persona images and the auth sidecar are built explicitly, by a different
+mechanism, and stay governed by <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_source</span></code>: a host
+that cannot build at all needs <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code> <em>as well as</em>
+<code class="docutils literal notranslate"><span class="pre">prebuilt_images</span></code>. Setting only one of the two is the usual way a genuinely
+build-less host still ends up trying to build something.</p>
+<p>Nothing checks up front that the tags are really present. A missing one
+surfaces as compose’s own <code class="docutils literal notranslate"><span class="pre">No</span> <span class="pre">such</span> <span class="pre">image</span></code> error, which names the image to
+load or pull.</p>
+<p>Together with the mirror settings above, the pull-only shape of a restricted
+deployment is: point all four image channels at the mirror, set
+<code class="docutils literal notranslate"><span class="pre">prebuilt_images:</span> <span class="pre">true</span></code>, and set <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_source:</span>
+<span class="pre">registry</span></code>.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Container Deployment</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="networking.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Network Binding and Security</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-two-image-axes">The two image axes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-web-tier-names-its-registry-separately">The web tier names its registry separately</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mirroring-every-image-into-one-registry">Mirroring every image into one registry</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deploying-prebuilt-images">Deploying Prebuilt Images</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/deploy-project/compose-templates.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Chat Bridges</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -511,34 +509,75 @@ control of it.</p>
 <h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">#</a></h2>
 <p>A bridge sits between a chat room and the <a class="reference internal" href="../event-dispatch.html"><span class="doc">event dispatch pipeline</span></a>. It never runs the agent itself. It hands the question to
 the dispatcher, waits, and posts back what comes out.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Nextcloud Talk room                Google Chat space
-        |                                  |
-        | the bridge asks                  | the bridge reads
-        | for new messages                 | a message queue
-        v                                  v
-+--------------------+         +--------------------+
-|    Talk adapter    |         |    Chat adapter    |
-+--------------------+         +--------------------+
-          \                                /
-           \                              /
-            v                            v
-     +--------------------------------------+
-     |         shared bridge engine         |
-     |  remembers each question, keeps the  |
-     |  conversation, retries what failed   |
-     +--------------------------------------+
-                |                       ^
-        question|                       | answer + any files
-                v                       |
-     +--------------------------------------+
-     |           Event dispatcher           |
-     +--------------------------------------+
-                       |
-                       v
-     +--------------------------------------+
-     |   Dispatch worker  -&gt;  Osprey agent  |
-     +--------------------------------------+
-</pre></div>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 548" role="img" aria-labelledby="chat-bridge-title chat-bridge-desc">
+  <title id="chat-bridge-title">How a chat bridge works</title>
+  <desc id="chat-bridge-desc">Each chat system has its own small adapter, and everything below the adapters is shared code. The bridge polls the chat system for new messages, hands the question to the event dispatcher, and posts back what the agent returns. Every connection the bridge makes points outward, so it opens no network port and nothing has to reach it.</desc>
+  <defs>
+    <marker id="chat-bridge-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- margin brackets -->
+  <line class="e-thin" x1="150" y1="116" x2="150" y2="166"/>
+  <line class="e-thin" x1="150" y1="222" x2="150" y2="486"/>
+
+  <!-- edges -->
+  <line class="e" x1="290" y1="70" x2="290" y2="116" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="670" y1="70" x2="670" y2="116" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="290" y1="166" x2="290" y2="222" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="670" y1="166" x2="670" y2="222" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="330" y1="288" x2="330" y2="340" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e e-dash" x1="430" y1="340" x2="430" y2="288" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="370" y1="390" x2="370" y2="436" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="460" y1="461" x2="520" y2="461" marker-end="url(#chat-bridge-arr)"/>
+
+  <!-- chat systems -->
+  <rect class="nb-in" x="180" y="24" width="220" height="46" rx="6"/>
+  <text class="tn" x="290" y="45" text-anchor="middle">Nextcloud Talk</text>
+  <text class="ts" x="290" y="60" text-anchor="middle">room</text>
+  <rect class="nb-in" x="560" y="24" width="220" height="46" rx="6"/>
+  <text class="tn" x="670" y="45" text-anchor="middle">Google Chat</text>
+  <text class="ts" x="670" y="60" text-anchor="middle">space</text>
+
+  <text class="ta" x="298" y="95">bridge polls for new messages</text>
+  <text class="ta" x="678" y="95">bridge reads a message queue</text>
+
+  <!-- adapters -->
+  <rect class="nb" x="180" y="116" width="220" height="50" rx="6"/>
+  <text class="tn" x="290" y="140" text-anchor="middle">Talk adapter</text>
+  <text class="ts" x="290" y="156" text-anchor="middle">how messages arrive here</text>
+  <rect class="nb" x="560" y="116" width="220" height="50" rx="6"/>
+  <text class="tn" x="670" y="140" text-anchor="middle">Chat adapter</text>
+  <text class="ts" x="670" y="156" text-anchor="middle">how messages arrive here</text>
+
+  <text class="te" x="40" y="145">PER SYSTEM</text>
+  <text class="te" x="40" y="260">SHARED</text>
+
+  <!-- shared engine -->
+  <rect class="nb-foc" x="180" y="222" width="600" height="66" rx="6"/>
+  <text class="tn" x="480" y="250" text-anchor="middle">shared bridge engine</text>
+  <text class="ts" x="480" y="268" text-anchor="middle">remembers each question · keeps the conversation · retries failures</text>
+
+  <text class="ta" x="338" y="318">question</text>
+  <text class="ta" x="438" y="318">answer + files</text>
+
+  <!-- dispatch pipeline -->
+  <rect class="nb" x="250" y="340" width="240" height="50" rx="6"/>
+  <text class="tn" x="370" y="364" text-anchor="middle">Event dispatcher</text>
+  <text class="ts" x="370" y="380" text-anchor="middle">port 8020</text>
+
+  <rect class="nb" x="280" y="436" width="180" height="50" rx="6"/>
+  <text class="tn" x="370" y="460" text-anchor="middle">Dispatch worker</text>
+  <text class="ts" x="370" y="476" text-anchor="middle">headless session</text>
+
+  <rect class="nb" x="520" y="436" width="180" height="50" rx="6"/>
+  <text class="tn" x="610" y="460" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="610" y="476" text-anchor="middle">runs the tools</text>
+
+  <text class="ta ta-warn" x="480" y="522" text-anchor="middle">every arrow leaves the bridge outward — it opens no port and nothing can call in</text>
+</svg>
 </div>
 <p>Only the top box changes between chat systems. Each system has its own small
 <strong>adapter</strong>, which knows how messages arrive there and how to post a reply

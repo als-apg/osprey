@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Search the Facility Graph" href="use-facility-graph.html" />
-    <link rel="prev" title="The OKF Bundle" href="okf-bundle.html" />
+    <link rel="prev" title="The Search Sidecar (qmd)" href="search-sidecar.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">How to Use the Channel Finder</a></li>
@@ -499,6 +497,11 @@ rather than exact channel names.</p>
 <p class="admonition-title">See also</p>
 <p>Hellert et al. (2025), <em>From Natural Language to Control Signals</em>,
 <a class="reference external" href="https://arxiv.org/abs/2512.18779">arXiv:2512.18779</a>.</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../architecture/index.html#retrieval-paths"><span class="std std-ref">Retrieval Paths</span></a></dt><dd><p>Where the Channel Finder sits among OSPREY’s retrieval stacks — it is
+the one that uses no embeddings at all.</p>
+</dd>
+</dl>
 </div>
 <section id="choosing-a-pipeline">
 <h2>Choosing a Pipeline<a class="headerlink" href="#choosing-a-pipeline" title="Link to this heading">#</a></h2>
@@ -533,6 +536,72 @@ explicitly.</p>
 </tr>
 </tbody>
 </table>
+</div>
+<p>The three are not size tiers of one design. Each takes a differently shaped
+database and resolves a query by a different mechanism:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 364" role="img" aria-labelledby="cf-pipelines-title cf-pipelines-desc">
+  <title id="cf-pipelines-title">The three channel-finder pipelines</title>
+  <desc id="cf-pipelines-desc">The three pipelines are not size tiers of one design — each takes a differently shaped channel database, resolves a query by a different mechanism, and is exposed through its own MCP server. In-context puts the whole database in one prompt; hierarchical selects recursively level by level; middle layer runs a React agent over query tools.</desc>
+
+  <!-- selection band -->
+  <text class="te" x="16" y="42">SELECTION</text>
+  <rect class="zone" x="156" y="16" width="774" height="44" rx="4"/>
+  <text class="ts" x="172" y="36">pipeline_mode set → that pipeline.</text>
+  <text class="ts" x="172" y="52">unset → the first pipeline with a database configured, preferring middle_layer › hierarchical › in_context</text>
+
+  <!-- column headers -->
+  <text class="tn" x="281" y="84" text-anchor="middle">in_context</text>
+  <text class="tn" x="543" y="84" text-anchor="middle">hierarchical</text>
+  <text class="tn" x="805" y="84" text-anchor="middle">middle_layer</text>
+  <line class="divider" x1="156" y1="94" x2="406" y2="94"/>
+  <line class="divider" x1="418" y1="94" x2="668" y2="94"/>
+  <line class="divider" x1="680" y1="94" x2="930" y2="94"/>
+
+  <!-- row 1 · database shape -->
+  <text class="te" x="16" y="152">DATABASE</text>
+  <text class="te" x="16" y="166">SHAPE</text>
+  <rect class="nb" x="156" y="112" width="250" height="72" rx="6"/>
+  <text class="tn" x="281" y="136" text-anchor="middle">flat JSON</text>
+  <text class="ts" x="281" y="153" text-anchor="middle">standalone entries plus</text>
+  <text class="ts" x="281" y="167" text-anchor="middle">template entries per family</text>
+  <rect class="nb" x="418" y="112" width="250" height="72" rx="6"/>
+  <text class="tn" x="543" y="136" text-anchor="middle">nested tree</text>
+  <text class="ts" x="543" y="153" text-anchor="middle">levels + naming_pattern</text>
+  <text class="ts" x="543" y="167" text-anchor="middle">{system}:{family}[{device}]…</text>
+  <rect class="nb" x="680" y="112" width="250" height="72" rx="6"/>
+  <text class="tn" x="805" y="136" text-anchor="middle">MML functional</text>
+  <text class="ts" x="805" y="153" text-anchor="middle">System → Family →</text>
+  <text class="ts" x="805" y="167" text-anchor="middle">Field → ChannelNames</text>
+
+  <!-- row 2 · query mechanism -->
+  <text class="te" x="16" y="243">QUERY</text>
+  <text class="te" x="16" y="257">MECHANISM</text>
+  <rect class="nb-foc" x="156" y="200" width="250" height="92" rx="6"/>
+  <text class="tn" x="281" y="224" text-anchor="middle">one LLM call</text>
+  <text class="ts" x="281" y="242" text-anchor="middle">the whole database sits</text>
+  <text class="ts" x="281" y="256" text-anchor="middle">in the system prompt</text>
+  <text class="ts" x="281" y="270" text-anchor="middle">no splitting, no retry</text>
+  <rect class="nb-foc" x="418" y="200" width="250" height="92" rx="6"/>
+  <text class="tn" x="543" y="224" text-anchor="middle">recursive selection</text>
+  <text class="ts" x="543" y="242" text-anchor="middle">the model picks once</text>
+  <text class="ts" x="543" y="256" text-anchor="middle">per level: system → family</text>
+  <text class="ts" x="543" y="270" text-anchor="middle">→ device → field → subfield</text>
+  <rect class="nb-foc" x="680" y="200" width="250" height="92" rx="6"/>
+  <text class="tn" x="805" y="224" text-anchor="middle">React agent loop</text>
+  <text class="ts" x="805" y="242" text-anchor="middle">calls query tools —</text>
+  <text class="ts" x="805" y="256" text-anchor="middle">list_systems, inspect_fields,</text>
+  <text class="ts" x="805" y="270" text-anchor="middle">list_channels, run_sql</text>
+
+  <!-- row 3 · mcp server -->
+  <text class="te" x="16" y="328">MCP SERVER</text>
+  <rect class="nb-st" x="156" y="304" width="250" height="40" rx="6"/>
+  <text class="ts" x="281" y="328" text-anchor="middle">channel_finder_in_context</text>
+  <rect class="nb-st" x="418" y="304" width="250" height="40" rx="6"/>
+  <text class="ts" x="543" y="328" text-anchor="middle">channel_finder_hierarchical</text>
+  <rect class="nb-st" x="680" y="304" width="250" height="40" rx="6"/>
+  <text class="ts" x="805" y="328" text-anchor="middle">channel_finder_middle_layer</text>
+</svg>
 </div>
 </section>
 <section id="in-context-pipeline">
@@ -649,7 +718,7 @@ entry under <code class="docutils literal notranslate"><span class="pre">pipelin
 <p>The store comes from the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, either one this deployment
 runs or one the facility already hosts (an explicit <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code>
 and <code class="docutils literal notranslate"><span class="pre">username</span></code>, with <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>). See
-<a class="reference internal" href="build-profiles.html#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a> for both shapes, and <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a> for the
+<a class="reference internal" href="build-profiles.html#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a> for both shapes, and <a class="reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a> for the
 block itself. A build that enables the channel finder but renders no
 <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is refused, naming the missing block, rather than
 shipping a pipeline with nothing to read — which is why the
@@ -748,12 +817,12 @@ service source into your project for custom modifications.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="okf-bundle.html"
+       href="search-sidecar.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">The OKF Bundle</p>
+        <p class="prev-next-title">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</p>
       </div>
     </a>
     <a class="right-next"

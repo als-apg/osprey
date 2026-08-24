@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -506,8 +504,41 @@ plotting, and control-system interactions on behalf of the operator.</p>
 runs it as a <strong>subprocess</strong> on the host (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>).
 Results—stdout, stderr, figures, and saved artifacts—are returned as
 structured JSON.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Osprey agent → execute MCP tool → safety checks → host subprocess → result JSON
-</pre></div>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 168" role="img" aria-labelledby="python-executor-title python-executor-desc">
+  <title id="python-executor-title">Python executor</title>
+  <desc id="python-executor-desc">Code from the Osprey agent enters the execute MCP tool, passes layered safety checks, runs as a subprocess on the host, and returns structured JSON with stdout, figures, and artifacts.</desc>
+  <defs>
+    <marker id="python-executor-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="180" y1="84" x2="228" y2="84" marker-end="url(#python-executor-arr)"/>
+  <line class="e" x1="364" y1="84" x2="412" y2="84" marker-end="url(#python-executor-arr)"/>
+  <line class="e" x1="548" y1="84" x2="596" y2="84" marker-end="url(#python-executor-arr)"/>
+  <line class="e" x1="732" y1="84" x2="780" y2="84" marker-end="url(#python-executor-arr)"/>
+
+  <rect class="mask" x="44" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="44" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="112" y="80" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="112" y="96" text-anchor="middle">writes code</text>
+  <rect class="mask" x="228" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb" x="228" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="296" y="80" text-anchor="middle">execute</text>
+  <text class="ts" x="296" y="96" text-anchor="middle">MCP tool</text>
+  <rect class="mask" x="412" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb-bnd" x="412" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="80" text-anchor="middle">safety checks</text>
+  <text class="ts" x="480" y="96" text-anchor="middle">layered</text>
+  <rect class="mask" x="596" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb" x="596" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="664" y="80" text-anchor="middle">host subprocess</text>
+  <text class="ts" x="664" y="96" text-anchor="middle">ExecutionWrapper</text>
+  <rect class="mask" x="780" y="56" width="136" height="56" rx="6"/>
+  <rect class="nb-st" x="780" y="56" width="136" height="56" rx="6"/>
+  <text class="tn" x="848" y="80" text-anchor="middle">result JSON</text>
+  <text class="ts" x="848" y="96" text-anchor="middle">stdout · artifacts</text>
+</svg>
 </div>
 <p>Executed code can import whatever is installed in the project’s environment;
 see <a class="reference internal" href="#executor-environment"><span class="std std-ref">The Execution Environment</span></a> for how to find out what that is.

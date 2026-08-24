@@ -13,15 +13,8 @@ ARIEL's search system is built around **search modules** --- leaf-level function
 Search Architecture
 -------------------
 
-.. code-block:: text
-
-   User Query
-       ↓
-   ARIELSearchService.search(mode="keyword" | "semantic" | "hybrid" | ...)
-       ↓
-   registry lookup  →  that module's execute()
-       ↓
-   ARIELSearchResult (entries, search_modes_used)
+.. raw:: html
+   :file: ../../_diagrams/ariel-search-modes.html
 
 The service refuses a mode that is not registered, or is registered but disabled in configuration, rather than quietly falling back to another one.
 
@@ -623,3 +616,7 @@ See Also
 
 :doc:`web-interface`
     Web interface architecture and capabilities API
+
+:ref:`retrieval-paths`
+    How these modes relate to OSPREY's other retrieval stacks, and which of them
+    need an embedding provider reachable at query time

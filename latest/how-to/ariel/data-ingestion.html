@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -497,20 +495,55 @@
 <p>ARIEL’s ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Logbook systems differ in their APIs, file formats, field names, and conventions; ARIEL’s ingestion layer abstracts over these differences through pluggable <a class="reference internal" href="#facility-adapters">facility adapters</a> that normalize entries into a common schema and store them in the <a class="reference internal" href="#database">database</a>. After ingestion, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can enrich the stored entries with additional computed fields — vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.</p>
 <section id="ingestion-architecture">
 <h2>Ingestion Architecture<a class="headerlink" href="#ingestion-architecture" title="Link to this heading">#</a></h2>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Source System (HTTP API / JSONL file)
-        ↓
-Facility Adapter (FacilityAdapter)
-        ↓
-EnhancedLogbookEntry (TypedDict)
-        ↓
-ARIELRepository.upsert_entry()
-        ↓
-PostgreSQL (enhanced_entries table)
-        ↓
-Enhancement Modules (optional)
-    ├── TextEmbeddingModule → per-model embedding tables
-    └── SemanticProcessorModule → keywords + summary fields
-</pre></div>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 448" role="img" aria-labelledby="ariel-ingestion-title ariel-ingestion-desc">
+  <title id="ariel-ingestion-title">ARIEL data ingestion</title>
+  <desc id="ariel-ingestion-desc">A facility adapter pulls entries from the source system and yields EnhancedLogbookEntry records; the repository upserts them idempotently into PostgreSQL, and optional enhancement modules run as a separate step to write embeddings, keywords, and summaries back.</desc>
+  <defs>
+    <marker id="ariel-ingestion-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- zone first -->
+  <rect class="zone" x="480" y="240" width="400" height="176" rx="8"/>
+  <rect class="mask" x="496" y="244" width="188" height="12" rx="2"/>
+  <text class="te" x="500" y="253">ENHANCEMENT · OPTIONAL STEP</text>
+  <!-- arrows -->
+  <line class="e" x1="200" y1="96" x2="200" y2="136" marker-end="url(#ariel-ingestion-arr)"/>
+  <line class="e" x1="200" y1="192" x2="200" y2="232" marker-end="url(#ariel-ingestion-arr)"/>
+  <line class="e" x1="200" y1="288" x2="200" y2="328" marker-end="url(#ariel-ingestion-arr)"/>
+  <line class="e e-dash" x1="312" y1="356" x2="480" y2="356" marker-end="url(#ariel-ingestion-arr)"/>
+  <rect class="mask" x="208" y="200" width="116" height="12" rx="2"/>
+  <text class="ta" x="212" y="209">EnhancedLogbookEntry</text>
+  <rect class="mask" x="372" y="336" width="48" height="12" rx="2"/>
+  <text class="ta" x="396" y="345" text-anchor="middle">ENRICH</text>
+  <!-- main chain -->
+  <rect class="mask" x="88" y="40" width="224" height="56" rx="6"/>
+  <rect class="nb-ext" x="88" y="40" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="64" text-anchor="middle">source system</text>
+  <text class="ts" x="200" y="80" text-anchor="middle">HTTP API · JSONL file</text>
+  <rect class="mask" x="88" y="136" width="224" height="56" rx="6"/>
+  <rect class="nb" x="88" y="136" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="160" text-anchor="middle">facility adapter</text>
+  <text class="ts" x="200" y="176" text-anchor="middle">yields entries one at a time</text>
+  <rect class="mask" x="88" y="232" width="224" height="56" rx="6"/>
+  <rect class="nb" x="88" y="232" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="256" text-anchor="middle">repository upsert</text>
+  <text class="ts" x="200" y="272" text-anchor="middle">dedup by ID · idempotent</text>
+  <rect class="mask" x="88" y="328" width="224" height="56" rx="6"/>
+  <rect class="nb-st" x="88" y="328" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="352" text-anchor="middle">PostgreSQL</text>
+  <text class="ts" x="200" y="368" text-anchor="middle">enhanced_entries</text>
+  <!-- modules -->
+  <rect class="mask" x="512" y="272" width="336" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="512" y="272" width="336" height="56" rx="6"/>
+  <text class="tn" x="680" y="296" text-anchor="middle">TextEmbeddingModule</text>
+  <text class="ts" x="680" y="312" text-anchor="middle">→ per-model embedding tables</text>
+  <rect class="mask" x="512" y="344" width="336" height="56" rx="6"/>
+  <rect class="nb" x="512" y="344" width="336" height="56" rx="6"/>
+  <text class="tn" x="680" y="368" text-anchor="middle">SemanticProcessorModule</text>
+  <text class="ts" x="680" y="384" text-anchor="middle">→ keywords + summary fields</text>
+</svg>
 </div>
 <p>The ingestion pipeline follows a linear flow. A <a class="reference internal" href="#facility-adapters">facility adapter</a> connects to the source system — whether that is a live HTTP API, a JSONL dump, or any other data source — and yields entries one at a time as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The <code class="docutils literal notranslate"><span class="pre">ARIELRepository</span></code> upserts these entries into the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can be run as a separate step to compute additional derived fields — embeddings, keywords, summaries, or any other enrichment — and write them back to the <a class="reference internal" href="#database">database</a>.</p>
 <div class="note admonition">
@@ -649,7 +682,7 @@ qmd Export</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is resolved against the directory holding <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Keep it under <code class="docutils literal notranslate"><span class="pre">var/</span></code>: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and <code class="docutils literal notranslate"><span class="pre">var/</span></code> is the directory git ignores — a path under <code class="docutils literal notranslate"><span class="pre">data/</span></code> would commit a generated corpus. An enabled export with no <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is refused at startup rather than skipped, because a mirror nobody writes looks exactly like “search returns nothing”.</p>
-<p><strong>Requirements:</strong> the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar, which bind-mounts this same directory read-only. See <a class="reference internal" href="../deploy-project.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
+<p><strong>Requirements:</strong> the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar, which bind-mounts this same directory read-only. See <a class="reference internal" href="../search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
 </div>
 </div>
 <p><strong>Registering a custom enhancement module:</strong></p>

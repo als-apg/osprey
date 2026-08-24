@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -723,6 +721,65 @@ cadence and writes what answered into that collection.</p></li>
 <p>The project’s archiver connector (<code class="docutils literal notranslate"><span class="pre">archiver.type:</span> <span class="pre">mongodb_archiver</span></code>) reads
 history back out of the same collection, so what the agent plots is what the
 deployment recorded.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 320" role="img" aria-labelledby="va-archive-title va-archive-desc">
+  <title id="va-archive-title">The virtual accelerator's archive</title>
+  <desc id="va-archive-desc">The recorder samples the running soft-IOC every ten seconds and writes what answered into a MongoDB collection; the project's archiver connector reads history back out of that same collection, so what the agent plots is what the deployment recorded. The first deploy seeds a base series thirty days back, and the seeded past joins the recorded present on the same timestamps.</desc>
+  <defs>
+    <marker id="va-archive-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges -->
+  <line class="e" x1="180" y1="138" x2="210" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="370" y1="138" x2="400" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="560" y1="138" x2="590" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="750" y1="138" x2="780" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="480" y1="82" x2="480" y2="110" marker-end="url(#va-archive-arr)"/>
+  <line class="e e-dash" x1="480" y1="166" x2="480" y2="210"/>
+
+  <!-- seed -->
+  <rect class="nb-in" x="400" y="30" width="160" height="52" rx="6"/>
+  <text class="tn" x="480" y="52" text-anchor="middle">first deploy</text>
+  <text class="ts" x="480" y="68" text-anchor="middle">seeds 30 days back</text>
+
+  <!-- the loop -->
+  <rect class="nb" x="20" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="100" y="134" text-anchor="middle">PyAT soft-IOC</text>
+  <text class="ts" x="100" y="151" text-anchor="middle">the simulated machine</text>
+
+  <rect class="nb" x="210" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="290" y="134" text-anchor="middle">recorder</text>
+  <text class="ts" x="290" y="151" text-anchor="middle">every 10 seconds</text>
+
+  <rect class="nb-st" x="400" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="480" y="134" text-anchor="middle">archiver-mongodb</text>
+  <text class="ts" x="480" y="151" text-anchor="middle">one collection</text>
+
+  <rect class="nb" x="590" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="670" y="134" text-anchor="middle">archiver connector</text>
+  <text class="ts" x="670" y="151" text-anchor="middle">mongodb_archiver</text>
+
+  <rect class="nb" x="780" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="860" y="134" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="860" y="151" text-anchor="middle">plots the history</text>
+
+  <rect class="mask" x="366" y="176" width="228" height="15"/>
+  <text class="ta" x="480" y="188" text-anchor="middle">written by the recorder, read back by the connector</text>
+
+  <!-- the timeline -->
+  <rect class="zone" x="180" y="210" width="600" height="44" rx="4"/>
+  <line class="divider e-dash" x1="560" y1="210" x2="560" y2="254"/>
+  <text class="te" x="196" y="228">SEEDED PAST</text>
+  <text class="ts" x="196" y="245">30 days — the last 48 h every 10 s, the rest every 60</text>
+  <text class="te" x="576" y="228">RECORDED PRESENT</text>
+  <text class="ts" x="576" y="245">every 10 s from deploy on</text>
+
+  <text class="ta" x="480" y="276" text-anchor="middle">the join is meant to be invisible — same timestamps, same baselines, noise rather than a step</text>
+  <text class="ta ta-warn" x="480" y="300" text-anchor="middle">on control_system: mock the recorder idles by design — history stays readable and the archive reports stale, which is a warning, not an error</text>
+</svg>
+</div>
 <section id="what-history-is-there">
 <h3>What history is there<a class="headerlink" href="#what-history-is-there" title="Link to this heading">#</a></h3>
 <p>Two halves of one timeline, and the deploy makes both true before you ask

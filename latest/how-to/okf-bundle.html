@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -61,7 +61,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="How to Use the Channel Finder" href="use-channel-finder.html" />
+    <link rel="next" title="The Search Sidecar (qmd)" href="search-sidecar.html" />
     <link rel="prev" title="Facility Rules" href="facility-rules.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -769,7 +767,7 @@ data OSPREY did not seed, is refused rather than overwritten, and
 only after the import succeeds, so a run that dies partway is caught as
 <code class="docutils literal notranslate"><span class="pre">unmanaged-partial</span></code> on the next one instead of passing for a good seed.</p>
 <p>The deploy already runs this for you on a first bring-up (see
-<a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a>); you need the verb when that step warned, or when
+<a class="reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a>); you need the verb when that step warned, or when
 the corpus changed.  For the full list of outcomes and flags, see
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span> <span class="pre">--help</span></code>.</p>
 <p><strong>build-ttl</strong> — generates the corpus <code class="docutils literal notranslate"><span class="pre">seed-graph</span></code> loads, deriving it
@@ -796,13 +794,15 @@ the agent then does with the graph.</p>
 <p><code class="docutils literal notranslate"><span class="pre">OKFBundle.search</span></code> backs both the KNOWLEDGE panel and the MCP <code class="docutils literal notranslate"><span class="pre">search</span></code>
 tool. It has two backends and picks between them by itself:</p>
 <ul class="simple">
-<li><p><strong>Ranked search</strong>, when the <a class="reference internal" href="deploy-project.html#qmd-search-sidecar"><span class="std std-ref">qmd search sidecar</span></a> is
+<li><p><strong>Ranked search</strong>, when the <a class="reference internal" href="search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">qmd search sidecar</span></a> is
 deployed. Hybrid keyword-plus-semantic, so a question phrased in the
 operator’s own words can find a document that never uses those words.</p></li>
 <li><p><strong>Substring search</strong>, when it is not. No ranking, no scores, no excerpts —
 a document matches only if it literally contains the string.</p></li>
 </ul>
-<p>You do not choose; a deployment without the sidecar simply gets the fallback.</p>
+<p>You do not choose; a deployment without the sidecar simply gets the fallback.
+<a class="reference internal" href="../architecture/index.html#retrieval-paths"><span class="std std-ref">Retrieval Paths</span></a> shows both branches in context, and the sidecar section
+diagrams what a ranked query does internally.</p>
 <section id="tuning-ranked-search">
 <h3>Tuning ranked search<a class="headerlink" href="#tuning-ranked-search" title="Link to this heading">#</a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">facility_knowledge</span><span class="p">:</span>
@@ -894,11 +894,11 @@ warning, and prefer hyphens over underscores in file names.</p>
       </div>
     </a>
     <a class="right-next"
-       href="use-channel-finder.html"
+       href="search-sidecar.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">How to Use the Channel Finder</p>
+        <p class="prev-next-title">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

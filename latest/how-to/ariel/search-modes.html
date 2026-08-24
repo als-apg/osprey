@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -502,14 +500,43 @@
 </div>
 <section id="search-architecture">
 <h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
-    ↓
-ARIELSearchService.search(mode=&quot;keyword&quot; | &quot;semantic&quot; | &quot;hybrid&quot; | ...)
-    ↓
-registry lookup  →  that module&#39;s execute()
-    ↓
-ARIELSearchResult (entries, search_modes_used)
-</pre></div>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 208" role="img" aria-labelledby="ariel-search-modes-title ariel-search-modes-desc">
+  <title id="ariel-search-modes-title">Search-mode dispatch</title>
+  <desc id="ariel-search-modes-desc">A query enters the ARIEL search service with a mode name; the registry resolves the mode to its module — refusing unknown or disabled modes rather than falling back — and that module's execute produces the search result.</desc>
+  <defs>
+    <marker id="ariel-search-modes-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="180" y1="92" x2="228" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="364" y1="92" x2="412" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="548" y1="92" x2="596" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="732" y1="92" x2="780" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <rect class="mask" x="372" y="72" width="32" height="12" rx="2"/>
+  <text class="ta" x="388" y="81" text-anchor="middle">MODE</text>
+
+  <rect class="mask" x="44" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="44" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="112" y="88" text-anchor="middle">user query</text>
+  <text class="ts" x="112" y="104" text-anchor="middle">cli · mcp · web</text>
+  <rect class="mask" x="228" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb" x="228" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="296" y="88" text-anchor="middle">search service</text>
+  <text class="ts" x="296" y="104" text-anchor="middle">search(mode=…)</text>
+  <rect class="mask" x="412" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-foc" x="412" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">registry</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">no silent fallback</text>
+  <rect class="mask" x="596" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb" x="596" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="664" y="88" text-anchor="middle">module</text>
+  <text class="ts" x="664" y="104" text-anchor="middle">execute()</text>
+  <rect class="mask" x="780" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-st" x="780" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="848" y="88" text-anchor="middle">result</text>
+  <text class="ts" x="848" y="104" text-anchor="middle">entries · modes used</text>
+</svg>
 </div>
 <p>The service refuses a mode that is not registered, or is registered but disabled in configuration, rather than quietly falling back to another one.</p>
 <p><strong>CLI usage:</strong></p>
@@ -622,7 +649,7 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <p>Hybrid keyword-plus-semantic search, answered by the <strong>qmd search sidecar</strong> — a separate container that indexes a markdown mirror of the logbook and returns one merged ranking. Best when a question mixes specific terms with a described situation, or when keyword search returned too little.</p>
 <p>Unlike the other two modes, <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> does not search PostgreSQL. It needs two things running together:</p>
 <ol class="arabic simple">
-<li><p>the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar (see <a class="reference internal" href="../deploy-project.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>), and</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar (see <a class="reference internal" href="../search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>), and</p></li>
 <li><p>the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, which writes the markdown mirror the sidecar indexes.</p></li>
 </ol>
 <p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates enable both, together with the sidecar itself.</p>
@@ -1049,6 +1076,9 @@ synthesis, custom prompting? That lives in the Osprey agent layer; see
 <dt><a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a></dt><dd><p>MCP tools, service factory, and search result structure</p>
 </dd>
 <dt><a class="reference internal" href="web-interface.html"><span class="doc">Web Interface</span></a></dt><dd><p>Web interface architecture and capabilities API</p>
+</dd>
+<dt><a class="reference internal" href="../../architecture/index.html#retrieval-paths"><span class="std std-ref">Retrieval Paths</span></a></dt><dd><p>How these modes relate to OSPREY’s other retrieval stacks, and which of them
+need an embedding provider reachable at query time</p>
 </dd>
 </dl>
 </section>

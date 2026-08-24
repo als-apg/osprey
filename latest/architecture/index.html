@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -49,441 +49,6 @@
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=30646c52"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
-    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
-
-
-
-
-
-const initStyles = () => {
-    const defaultStyle = document.createElement('style');
-    defaultStyle.textContent = `pre.mermaid {
-    /* Same as .mermaid-container > pre */
-    display: block;
-    width: 100%;
-}
-
-pre.mermaid > svg {
-    /* Same as .mermaid-container > pre > svg */
-    height: auto;
-    width: 100%;
-    max-width: 100% !important;
-}`;
-    document.head.appendChild(defaultStyle);
-
-    const fullscreenStyle = document.createElement('style');
-    fullscreenStyle.textContent = `.mermaid-container {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-}
-
-.mermaid-container > pre {
-    display: block;
-    width: 100%;
-}
-
-.mermaid-container > pre > svg {
-    height: auto;
-    width: 100%;
-    max-width: 100% !important;
-}
-
-.mermaid-fullscreen-btn {
-    width: 28px;
-    height: 28px;
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(0, 0, 0, 0.3);
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-    font-size: 14px;
-    line-height: 1;
-    padding: 0;
-    color: #333;
-}
-
-.mermaid-fullscreen-btn:hover {
-    opacity: 100% !important;
-    background: rgba(255, 255, 255, 1);
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
-    transform: scale(1.1);
-}
-
-.mermaid-fullscreen-btn.dark-theme {
-    background: rgba(50, 50, 50, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    color: #e0e0e0;
-}
-
-.mermaid-fullscreen-btn.dark-theme:hover {
-    background: rgba(60, 60, 60, 1);
-    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
-}
-
-.mermaid-fullscreen-modal {
-    display: none;
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 95vw;
-    height: 100vh;
-    background: rgba(255, 255, 255, 0.98);
-    z-index: 9999;
-    padding: 20px;
-    overflow: auto;
-}
-
-.mermaid-fullscreen-modal.dark-theme {
-    background: rgba(0, 0, 0, 0.98);
-}
-
-.mermaid-fullscreen-modal.active {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.mermaid-container-fullscreen {
-    position: relative;
-    width: 95vw;
-    height: 90vh;
-    max-width: 95vw;
-    max-height: 90vh;
-    background: white;
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-    overflow: auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.mermaid-container-fullscreen.dark-theme {
-    background: #1a1a1a;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-}
-
-.mermaid-container-fullscreen pre.mermaid {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.mermaid-container-fullscreen .mermaid svg {
-    height: 100% !important;
-    width: 100% !important;
-    cursor: grab;
-}
-
-.mermaid-fullscreen-close {
-    position: fixed !important;
-    top: 20px !important;
-    right: 20px !important;
-    width: 40px;
-    height: 40px;
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(0, 0, 0, 0.2);
-    border-radius: 50%;
-    cursor: pointer;
-    z-index: 10000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    transition: all 0.2s;
-    font-size: 24px;
-    line-height: 1;
-    color: #333;
-}
-
-.mermaid-fullscreen-close:hover {
-    background: white;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-    transform: scale(1.1);
-}
-
-.mermaid-fullscreen-close.dark-theme {
-    background: rgba(50, 50, 50, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: #e0e0e0;
-}
-
-.mermaid-fullscreen-close.dark-theme:hover {
-    background: rgba(60, 60, 60, 1);
-    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
-}
-
-.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
-    display: none !important;
-}`;
-    document.head.appendChild(fullscreenStyle);
-}
-
-// Detect if page has dark background
-const isDarkTheme = () => {
-    // We use a set of heuristics:
-    // 1. Check for common dark mode classes or attributes
-    // 2. Check computed background color brightness
-    if (document.documentElement.classList.contains('dark') ||
-        document.documentElement.getAttribute('data-theme') === 'dark' ||
-        document.body.classList.contains('dark') ||
-        document.body.getAttribute('data-theme') === 'dark') {
-        // console.log("Dark theme detected via class/attribute");
-        return true;
-    }
-    if (document.documentElement.classList.contains('light') ||
-        document.documentElement.getAttribute('data-theme') === 'light' ||
-        document.body.classList.contains('light') ||
-        document.body.getAttribute('data-theme') === 'light') {
-        // console.log("Light theme detected via class/attribute");
-        return false;
-    }
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        // console.log("Dark theme detected via prefers-color-scheme");
-        return true;
-    }
-    const bgColor = window.getComputedStyle(document.body).backgroundColor;
-    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
-    if (match) {
-        const r = parseInt(match[1]);
-        const g = parseInt(match[2]);
-        const b = parseInt(match[3]);
-        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-        // console.log("Background color brightness:", brightness);
-        return brightness < 128;
-    }
-    // console.log("No dark or light theme detected, defaulting to light theme");
-    return false;
-};
-
-let darkTheme = isDarkTheme();
-let modal = null;
-let modalContent = null;
-let previousScrollOffset = [window.scrollX, window.scrollY];
-
-const runMermaid = async (rerun) => {
-    console.log("Running mermaid diagrams, rerun =", rerun);
-    // clear all existing mermaid charts
-    let all_mermaids = document.querySelectorAll(".mermaid");
-
-    if (rerun) {
-        all_mermaids.forEach((el) => {
-            if(!el.hasAttribute("data-original-code")) {
-                // store original code
-                // console.log(`Storing original code for first run: `, el.innerHTML);
-                el.setAttribute('data-original-code', el.innerHTML);
-            }
-            if(el.getAttribute("data-processed") === "true") {
-                // remove and restore original
-                el.removeAttribute("data-processed");
-                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
-                el.innerHTML = el.getAttribute('data-original-code');
-            } else {
-                // store original code
-                // console.log(`Storing original code for re-run: `, el.innerHTML);
-                el.setAttribute('data-original-code', el.innerHTML);
-            }
-        });
-        await mermaid.run();
-    }
-
-    all_mermaids = document.querySelectorAll(".mermaid");
-    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
-
-    if ("False" === "True") {
-        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
-        if(mermaids_to_add_zoom > 0) {
-            var svgs = d3.selectAll("");
-            if(all_mermaids.length !== mermaids_processed.length) {
-                setTimeout(() => runMermaid(false), 200);
-                return;
-            } else if(svgs.size() !== mermaids_to_add_zoom) {
-                setTimeout(() => runMermaid(false), 200);
-                return;
-            } else {
-                svgs.each(function() {
-                    var svg = d3.select(this);
-                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
-                    var inner = svg.select("g");
-                    var zoom = d3.zoom().on("zoom", function(event) {
-                        inner.attr("transform", event.transform);
-                    });
-                    svg.call(zoom);
-                });
-            }
-        }
-    } else if(all_mermaids.length !== mermaids_processed.length) {
-        // Wait for mermaid to process all diagrams
-        setTimeout(() => runMermaid(false), 200);
-        return;
-    }
-
-    // Stop here if not adding fullscreen capability
-    if ("True" !== "True") return;
-
-    if (modal !== null ) {
-        // Destroy existing modal
-        modal.remove();
-        modal = null;
-        modalContent = null;
-    }
-
-    modal = document.createElement('div');
-    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
-    modal.setAttribute('role', 'dialog');
-    modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
-    modal.innerHTML = `
-        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
-        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
-    `;
-    document.body.appendChild(modal);
-
-    modalContent = modal.querySelector('.mermaid-container-fullscreen');
-    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
-
-    const closeModal = () => {
-        modal.classList.remove('active');
-        modalContent.innerHTML = '';
-        document.body.style.overflow = ''
-        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
-    };
-
-    closeBtn.addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) closeModal();
-    });
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal.classList.contains('active')) {
-            closeModal();
-        }
-    });
-
-    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
-        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
-            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
-            // Already processed, adjust button class if needed
-            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
-            if (existingBtn) {
-                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
-            }
-            return;
-        }
-
-        const container = document.createElement('div');
-        container.className = 'mermaid-container';
-        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
-        container.appendChild(mermaidDiv);
-
-        const fullscreenBtn = document.createElement('button');
-        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
-        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
-        fullscreenBtn.textContent = '⛶';
-        fullscreenBtn.style.opacity = '50%';
-
-        // Calculate dynamic position based on diagram's margin and padding
-        const diagramStyle = window.getComputedStyle(mermaidDiv);
-        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
-        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
-        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
-        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
-        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
-        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
-
-        fullscreenBtn.addEventListener('click', () => {
-            previousScrollOffset = [window.scroll, window.scrollY];
-            const clone = mermaidDiv.cloneNode(true);
-            modalContent.innerHTML = '';
-            modalContent.appendChild(clone);
-
-            const svg = clone.querySelector('svg');
-            if (svg) {
-                svg.removeAttribute('width');
-                svg.removeAttribute('height');
-                svg.style.width = '100%';
-                svg.style.height = 'auto';
-                svg.style.maxWidth = '100%';
-                svg.style.sdisplay = 'block';
-
-                if ("False" === "True") {
-                    setTimeout(() => {
-                        const g = svg.querySelector('g');
-                        if (g) {
-                            var svgD3 = d3.select(svg);
-                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
-                            var inner = svgD3.select("g");
-                            var zoom = d3.zoom().on("zoom", function(event) {
-                                inner.attr("transform", event.transform);
-                            });
-                            svgD3.call(zoom);
-                        }
-                    }, 100);
-                }
-            }
-
-            modal.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        });
-        container.appendChild(fullscreenBtn);
-    });
-};
-
-const load = async () => {
-    initStyles();
-
-    await runMermaid(true);
-
-    const reRunIfThemeChanges = async () => {
-        const newDarkTheme = isDarkTheme();
-        if (newDarkTheme !== darkTheme) {
-            darkTheme = newDarkTheme;
-            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
-            await mermaid.initialize(
-                {...JSON.parse(
-                    `{"startOnLoad": false}`
-                ),
-                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
-                }
-            );
-            await runMermaid(true);
-        }
-    };
-
-    // Update theme classes when theme changes
-    const themeObserver = new MutationObserver(reRunIfThemeChanges);
-    themeObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class', 'style', 'data-theme']
-    });
-    themeObserver.observe(document.body, {
-        attributes: true,
-        attributeFilter: ['class', 'style', 'data-theme']
-    });
-};
-
-
-
-
-
-console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
-mermaid.initialize(
-    {...JSON.parse(
-        `{"startOnLoad": false}`
-    ),
-    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
-    }
-);
-
-window.addEventListener("load", load);</script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'architecture/index';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
@@ -867,11 +432,11 @@ window.addEventListener("load", load);</script>
 <p>OSPREY deploys agentic AI in safety-critical control system environments — particle accelerators,
 fusion experiments, and beamlines. It uses <strong>the Osprey agent</strong> as the orchestrator, <strong>MCP servers</strong> as
 the tool interface, and <strong>pluggable connectors</strong> for protocol-agnostic hardware access.</p>
-<figure class="align-center" id="id1">
+<figure class="align-center" id="id2">
 <a class="reference internal image-reference" href="../_images/architecture.png"><img alt="Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line." src="../_images/architecture.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+<p><span class="caption-text">Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
 <section id="safety-chain">
@@ -882,21 +447,65 @@ processes the harness starts — they expose no network port of their own — so
 that reaches one has already passed the hook chain. That guarantee belongs to the harness: a
 process on the host that runs the server command itself is outside it, which is why host access
 is part of the trust boundary. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
-<pre  class="mermaid">
-        flowchart LR
-    CC[&quot;Osprey agent&lt;br/&gt;calls channel_write&quot;] --&gt; WC[&quot;writes_check&lt;br/&gt;&lt;i&gt;kill switch&lt;/i&gt;&quot;]
-    WC --&gt;|enabled| LIM[&quot;limits&lt;br/&gt;&lt;i&gt;min / max / step&lt;/i&gt;&quot;]
-    LIM --&gt;|valid| APR[&quot;approval&lt;br/&gt;&lt;i&gt;human gate&lt;/i&gt;&quot;]
-    APR --&gt;|approved| MCP[&quot;MCP Server&lt;br/&gt;executes write&quot;]
-    WC --&gt;|disabled| BLOCK[&quot;❌ Blocked&quot;]
-    LIM --&gt;|invalid| BLOCK
-    APR --&gt;|rejected| BLOCK
-
-    style WC fill:#e74c3c,stroke:#333,color:#fff
-    style LIM fill:#e67e22,stroke:#333,color:#fff
-    style APR fill:#f39c12,stroke:#333,color:#fff
-    style BLOCK fill:#95a5a6,stroke:#333,color:#fff
-    </pre><ol class="arabic simple">
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 328" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
+  <title id="safety-chain-title">Write-path safety chain</title>
+  <desc id="safety-chain-desc">Every channel_write passes three gates in order — the writes_check kill switch, the limits database, and the human approval gate — before the MCP server executes it; failing any gate blocks the write.</desc>
+  <defs>
+    <marker id="safety-chain-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="164" y1="108" x2="232" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="352" y1="108" x2="420" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="540" y1="108" x2="608" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="728" y1="108" x2="796" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <path class="e" d="M292,136 V216 Q292,224 300,224 H442 Q450,224 450,232 V240" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="480" y1="136" x2="480" y2="240" marker-end="url(#safety-chain-arr)"/>
+  <path class="e" d="M668,136 V216 Q668,224 660,224 H518 Q510,224 510,232 V240" marker-end="url(#safety-chain-arr)"/>
+  <!-- pass labels -->
+  <rect class="mask" x="364" y="88" width="44" height="12" rx="2"/>
+  <text class="ta" x="386" y="97" text-anchor="middle">ENABLED</text>
+  <rect class="mask" x="556" y="88" width="36" height="12" rx="2"/>
+  <text class="ta" x="574" y="97" text-anchor="middle">VALID</text>
+  <rect class="mask" x="738" y="88" width="48" height="12" rx="2"/>
+  <text class="ta" x="762" y="97" text-anchor="middle">APPROVED</text>
+  <!-- fail labels -->
+  <rect class="mask" x="232" y="164" width="52" height="12" rx="2"/>
+  <text class="ta ta-warn" x="258" y="173" text-anchor="middle">DISABLED</text>
+  <rect class="mask" x="488" y="164" width="44" height="12" rx="2"/>
+  <text class="ta ta-warn" x="510" y="173" text-anchor="middle">INVALID</text>
+  <rect class="mask" x="676" y="164" width="52" height="12" rx="2"/>
+  <text class="ta ta-warn" x="702" y="173" text-anchor="middle">REJECTED</text>
+  <!-- nodes -->
+  <rect class="mask" x="44" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb-in" x="44" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="104" y="104" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="104" y="120" text-anchor="middle">channel_write</text>
+  <rect class="mask" x="232" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb" x="232" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="292" y="104" text-anchor="middle">writes_check</text>
+  <text class="ts" x="292" y="120" text-anchor="middle">kill switch</text>
+  <rect class="mask" x="420" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb" x="420" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="480" y="104" text-anchor="middle">limits</text>
+  <text class="ts" x="480" y="120" text-anchor="middle">min · max · step</text>
+  <rect class="mask" x="608" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb-foc" x="608" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="668" y="104" text-anchor="middle">approval</text>
+  <text class="ts" x="668" y="120" text-anchor="middle">human gate</text>
+  <rect class="mask" x="796" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb" x="796" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="856" y="104" text-anchor="middle">MCP server</text>
+  <text class="ts" x="856" y="120" text-anchor="middle">executes write</text>
+  <rect class="mask" x="420" y="240" width="120" height="48" rx="6"/>
+  <rect class="nb-warn" x="420" y="240" width="120" height="48" rx="6"/>
+  <text class="tn" x="480" y="260" text-anchor="middle">blocked</text>
+  <text class="ts" x="480" y="276" text-anchor="middle">write refused</text>
+</svg>
+</div>
+<ol class="arabic simple">
 <li><p><strong>osprey_writes_check</strong> — Kill switch. Blocks all writes when <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>
 is <code class="docutils literal notranslate"><span class="pre">false</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Applies to both <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> and <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
 <li><p><strong>osprey_limits</strong> — Validates the setpoint against the channel limits database
@@ -909,51 +518,175 @@ approval every time), <code class="docutils literal notranslate"><span class="pr
 <h2>Data Flow<a class="headerlink" href="#data-flow" title="Link to this heading">#</a></h2>
 <p>A typical control system write follows this path. The three safety hooks fire between the Osprey agent
 and the MCP server:</p>
-<pre  class="mermaid">
-        sequenceDiagram
-    participant Op as Operator
-    participant WT as Web Terminal
-    participant CC as Osprey agent
-    participant CF as Channel Finder Sub-Agent
-    participant H as Safety Hooks
-    participant CS as Control System MCP
-    participant Conn as EPICS/Mock Connector
+<div class="osprey-diagram">
+<svg viewBox="0 0 1280 728" role="img" aria-labelledby="write-sequence-title write-sequence-desc">
+  <title id="write-sequence-title">Control-system write, end to end</title>
+  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the Osprey agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the kill switch and limits and ask the operator for approval before the control-system MCP writes through the connector and verifies the new setpoint.</desc>
+  <defs>
+    <marker id="write-sequence-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- lifelines -->
+  <line class="ll" x1="120" y1="72" x2="120" y2="688"/>
+  <line class="ll" x1="328" y1="72" x2="328" y2="688"/>
+  <line class="ll" x1="536" y1="72" x2="536" y2="688"/>
+  <line class="ll" x1="744" y1="72" x2="744" y2="688"/>
+  <line class="ll" x1="952" y1="72" x2="952" y2="688"/>
+  <line class="ll" x1="1160" y1="72" x2="1160" y2="688"/>
+  <!-- activation bars -->
+  <rect class="act" x="324" y="112" width="8" height="544"/>
+  <rect class="act" x="532" y="144" width="8" height="64"/>
+  <rect class="act" x="740" y="368" width="8" height="160"/>
+  <rect class="act" x="948" y="240" width="8" height="96"/>
+  <rect class="act" x="948" y="528" width="8" height="96"/>
+  <rect class="act" x="1156" y="272" width="8" height="32"/>
+  <rect class="act" x="1156" y="560" width="8" height="32"/>
+  <!-- phase labels -->
+  <text class="te" x="40" y="148">LOOKUP</text>
+  <text class="te" x="40" y="244">READ</text>
+  <text class="te" x="40" y="372">GATED WRITE</text>
+  <!-- messages -->
+  <line class="e" x1="120" y1="112" x2="324" y2="112" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="156" y="92" width="136" height="12" rx="2"/>
+  <text class="ta" x="224" y="101" text-anchor="middle">bump corrector +0.5 A</text>
 
-    Op-&gt;&gt;WT: &quot;Bump the horizontal corrector at sector 3 by 0.5 A&quot;
-    WT-&gt;&gt;CC: Forward message
+  <line class="e" x1="332" y1="144" x2="532" y2="144" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="355" y="124" width="154" height="12" rx="2"/>
+  <text class="ta" x="432" y="133" text-anchor="middle">corrector setpoint, sector 3</text>
 
-    Note over CC,CF: Channel address lookup via sub-agent
-    activate CF
-    CC-&gt;&gt;CF: &quot;horizontal corrector setpoint, sector 3&quot;
-    CF-&gt;&gt;CF: Query Channel Finder DB
-    CF--&gt;&gt;CC: SR03C:COR:H1:CURRENT
-    deactivate CF
+  <path class="e" d="M540,176 H572 Q580,176 580,184 V192 Q580,200 572,200 H544" marker-end="url(#write-sequence-arr)"/>
+  <text class="ta" x="588" y="188">query channel-finder DB</text>
 
-    Note over CC,CS: Read current value to compute target
-    CC-&gt;&gt;CS: channel_read(&quot;SR03C:COR:H1:CURRENT&quot;)
-    CS-&gt;&gt;Conn: read_channel()
-    Conn--&gt;&gt;CS: ChannelValue(1.2)
-    CS--&gt;&gt;CC: &quot;Current value: 1.2 A&quot;
+  <line class="e e-dash" x1="532" y1="208" x2="332" y2="208" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="372" y="188" width="120" height="12" rx="2"/>
+  <text class="ta" x="432" y="197" text-anchor="middle">SR03C:COR:H1:CURRENT</text>
 
-    Note over CC,H: channel_write triggers hook chain
-    CC-&gt;&gt;H: PreToolUse: channel_write(&quot;SR03C:COR:H1:CURRENT&quot;, 1.7)
-    H-&gt;&gt;H: 1. writes_check → enabled
-    H-&gt;&gt;H: 2. limits → 1.7 within range
-    H-&gt;&gt;Op: 3. approval → &quot;Write 1.7 A to SR03C:COR:H1:CURRENT?&quot;
-    Op-&gt;&gt;H: Approve
-    H-&gt;&gt;CS: Proceed
-    CS-&gt;&gt;Conn: write_channel() [limits validated]
-    Conn--&gt;&gt;CS: ChannelWriteResult(success=True)
-    CS--&gt;&gt;CC: &quot;Write confirmed, verified at 1.7 A&quot;
-    CC-&gt;&gt;Op: &quot;Done. Corrector SR03C:COR:H1 set to 1.7 A (+0.5 A).&quot;
-    </pre><div class="admonition seealso">
+  <line class="e" x1="332" y1="240" x2="948" y2="240" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="542" y="220" width="196" height="12" rx="2"/>
+  <text class="ta" x="640" y="229" text-anchor="middle">channel_read(SR03C:COR:H1:CURRENT)</text>
+
+  <line class="e" x1="956" y1="272" x2="1156" y2="272" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1014" y="252" width="84" height="12" rx="2"/>
+  <text class="ta" x="1056" y="261" text-anchor="middle">read_channel()</text>
+
+  <line class="e e-dash" x1="1156" y1="304" x2="956" y2="304" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1036" y="284" width="40" height="12" rx="2"/>
+  <text class="ta" x="1056" y="293" text-anchor="middle">1.2 A</text>
+
+  <line class="e e-dash" x1="948" y1="336" x2="332" y2="336" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="596" y="316" width="88" height="12" rx="2"/>
+  <text class="ta" x="640" y="325" text-anchor="middle">current = 1.2 A</text>
+
+  <line class="e" x1="332" y1="368" x2="740" y2="368" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="576" y="348" width="128" height="12" rx="2"/>
+  <text class="ta" x="640" y="357" text-anchor="middle">channel_write(…, 1.7 A)</text>
+
+  <path class="e" d="M748,400 H780 Q788,400 788,408 V416 Q788,424 780,424 H752" marker-end="url(#write-sequence-arr)"/>
+  <text class="ta" x="796" y="412">writes_check → enabled</text>
+
+  <path class="e" d="M748,432 H780 Q788,432 788,440 V448 Q788,456 780,456 H752" marker-end="url(#write-sequence-arr)"/>
+  <text class="ta" x="796" y="444">limits → within range</text>
+
+  <line class="e" x1="740" y1="464" x2="124" y2="464" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="168" y="444" width="112" height="12" rx="2"/>
+  <text class="ta" x="224" y="453" text-anchor="middle">approve? write 1.7 A</text>
+
+  <line class="e e-dash" x1="120" y1="496" x2="740" y2="496" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="196" y="476" width="56" height="12" rx="2"/>
+  <text class="ta" x="224" y="485" text-anchor="middle">approved</text>
+
+  <line class="e" x1="748" y1="528" x2="948" y2="528" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="820" y="508" width="56" height="12" rx="2"/>
+  <text class="ta" x="848" y="517" text-anchor="middle">proceed</text>
+
+  <line class="e" x1="956" y1="560" x2="1156" y2="560" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1012" y="540" width="88" height="12" rx="2"/>
+  <text class="ta" x="1056" y="549" text-anchor="middle">write_channel()</text>
+
+  <line class="e e-dash" x1="1156" y1="592" x2="956" y2="592" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1016" y="572" width="80" height="12" rx="2"/>
+  <text class="ta" x="1056" y="581" text-anchor="middle">success=True</text>
+
+  <line class="e e-dash" x1="948" y1="624" x2="332" y2="624" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="556" y="604" width="168" height="12" rx="2"/>
+  <text class="ta" x="640" y="613" text-anchor="middle">write confirmed · verified 1.7 A</text>
+
+  <line class="e-acc" x1="324" y1="656" x2="124" y2="656" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="160" y="636" width="128" height="12" rx="2"/>
+  <text class="ta ta-acc" x="224" y="645" text-anchor="middle">done — 1.7 A (+0.5 A)</text>
+
+  <!-- actors -->
+  <rect class="mask" x="40" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb-in" x="40" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="120" y="44" text-anchor="middle">operator</text>
+  <text class="ts" x="120" y="60" text-anchor="middle">via web terminal</text>
+  <rect class="mask" x="248" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb-foc" x="248" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="328" y="44" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="328" y="60" text-anchor="middle">orchestrator</text>
+  <rect class="mask" x="456" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="456" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="536" y="44" text-anchor="middle">channel finder</text>
+  <text class="ts" x="536" y="60" text-anchor="middle">sub-agent</text>
+  <rect class="mask" x="664" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="664" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="744" y="44" text-anchor="middle">safety hooks</text>
+  <text class="ts" x="744" y="60" text-anchor="middle">PreToolUse chain</text>
+  <rect class="mask" x="872" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="872" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="952" y="44" text-anchor="middle">control system MCP</text>
+  <text class="ts" x="952" y="60" text-anchor="middle">tool server</text>
+  <rect class="mask" x="1080" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="1080" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="1160" y="44" text-anchor="middle">connector</text>
+  <text class="ts" x="1160" y="60" text-anchor="middle">EPICS / mock</text>
+</svg>
+</div>
+</section>
+<section id="retrieval-paths">
+<span id="id1"></span><h2>Retrieval Paths<a class="headerlink" href="#retrieval-paths" title="Link to this heading">#</a></h2>
+<p>The path above is how OSPREY <em>writes</em>. Reading is a different shape: the agent
+answers questions from three independent retrieval stacks, each with its own
+index and its own answer to whether embeddings are involved at all.</p>
+<figure class="only-light align-default" id="id3">
+<a class="only-light reference internal image-reference" href="../_images/retrieval_map_light.png"><img alt="The three retrieval stacks — the ARIEL Postgres stack, the qmd sidecar, and the embedding-free channel finder — each feeding MCP tools the Osprey agent calls." class="only-light" src="../_images/retrieval_map_light.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Every retrieval path, left to right: sources, ingest-time processing,
+indexes, query paths, and the agent.</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<figure class="only-dark align-default" id="id4">
+<a class="only-dark reference internal image-reference" href="../_images/retrieval_map_dark.png"><img alt="The three retrieval stacks — the ARIEL Postgres stack, the qmd sidecar, and the embedding-free channel finder — each feeding MCP tools the Osprey agent calls." class="only-dark" src="../_images/retrieval_map_dark.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Every retrieval path, left to right: sources, ingest-time processing,
+indexes, query paths, and the agent.</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Three things are worth reading off the map:</p>
+<p><strong>Only one stack needs an embedding provider on the host.</strong> <a class="reference internal" href="../how-to/ariel/search-modes.html"><span class="doc">ARIEL’s</span></a> <code class="docutils literal notranslate"><span class="pre">semantic</span></code> mode embeds both the corpus at ingest
+and the <em>query</em> at query time, so Ollama (or OpenAI) has to be reachable when an
+operator searches, not just when entries are ingested. The qmd sidecar carries
+its own embedder inside the image, and the channel finder uses no embeddings
+anywhere — it ranks with BM25 and lets the agent walk a hierarchy.</p>
+<p><strong>The qmd sidecar is the one cross-stack component.</strong> It answers ARIEL’s
+<code class="docutils literal notranslate"><span class="pre">hybrid</span></code> mode and backs <a class="reference internal" href="../how-to/use-facility-knowledge.html"><span class="doc">facility-knowledge</span></a>
+search, indexing both corpora — the markdown mirror ARIEL exports and the OKF
+bundle — in one process. Its internals, and the <code class="docutils literal notranslate"><span class="pre">rerank</span></code> tradeoff, are covered
+under <a class="reference internal" href="../how-to/search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
+<p><strong>Every stack degrades rather than fails.</strong> The dashed edges are fallbacks: OKF
+search drops to a substring scan when the sidecar is absent, and ARIEL’s
+<code class="docutils literal notranslate"><span class="pre">semantic</span></code> mode is the one path that hard-depends on a reachable provider.</p>
+<div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
 <dt><a class="reference internal" href="mcp-servers.html"><span class="doc">MCP Servers</span></a></dt><dd><p>Complete list of MCP servers and their tools.</p>
 </dd>
 <dt><a class="reference internal" href="../how-to/add-connector.html"><span class="doc">Add a Connector</span></a></dt><dd><p>How to add a custom control system connector.</p>
 </dd>
-<dt><a class="reference internal" href="../how-to/deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>How to create and deploy an OSPREY project.</p>
+<dt><a class="reference internal" href="../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a></dt><dd><p>How to create and deploy an OSPREY project.</p>
 </dd>
 </dl>
 </div>
@@ -1011,6 +744,7 @@ and the MCP server:</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#safety-chain">Safety Chain</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#data-flow">Data Flow</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#retrieval-paths">Retrieval Paths</a></li>
 </ul>
   </nav></div>
 

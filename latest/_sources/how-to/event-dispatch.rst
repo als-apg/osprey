@@ -30,13 +30,8 @@ keyboard. It is built from two services:
 - **Dispatch worker** (``python -m osprey.mcp_server.dispatch_worker``, port
   ``9190``) — runs the headless agent session and streams progress back.
 
-.. mermaid::
-
-   flowchart LR
-       E[External event] -->|POST /webhook/name| D[Event dispatcher :8020]
-       D -->|allowlist + policy| W[Dispatch worker :9190]
-       W -->|headless agent run| R[Result + SSE stream]
-       D --- Dash[Dashboard /dashboard]
+.. raw:: html
+   :file: ../_diagrams/event-dispatch.html
 
 The ``control-assistant`` preset ships this enabled, wired to four
 control-system-free **tutorial triggers** so you can exercise the full pipeline
@@ -88,7 +83,7 @@ worker runs on.
 
    Inside the compose network the worker is reachable as
    ``dispatch-worker-1:9190`` — the default ``dispatch_target`` in
-   ``triggers.yml``. See :doc:`deploy-project` for the deploy mechanics.
+   ``triggers.yml``. See :doc:`deploy-project/index` for the deploy mechanics.
 
 .. dropdown:: Run without containers (dev)
    :icon: terminal
@@ -289,7 +284,7 @@ profile's ``.env`` and rebuild:
 
 .. seealso::
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
        Container deployment mechanics for all Osprey services.
 
    :doc:`../cli-reference/index`

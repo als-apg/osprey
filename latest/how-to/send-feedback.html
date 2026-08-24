@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -61,7 +61,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Use the CLI Chat Interface" href="use-cli-chat.html" />
+    <link rel="next" title="Run the Agent from the Command Line" href="cli-agent.html" />
     <link rel="prev" title="Multi-User Support" href="multi-user.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -493,18 +491,17 @@
 <h1>Send and Retrieve Feedback<a class="headerlink" href="#send-and-retrieve-feedback" title="Link to this heading">#</a></h1>
 <p>Anyone using the Web Terminal can report a problem, or ask for something, from
 the terminal itself — no bug tracker account, no separate form. The <strong>Feedback</strong>
-control sits in the utility cluster at the far end of the panel rail (bottom in
-the default left-hand rail, right-hand end when the rail runs along the top),
-next to the <strong>Docs</strong> link. Clicking it opens a dialog with a text box,
-a channel picker, and two attachment checkboxes.</p>
+control sits at the far end of the panel rail, next to the <strong>Docs</strong> link, and
+opens a dialog with a text box, a channel picker, and two attachment
+checkboxes.</p>
 <p>Every submission is recorded on the deployment it was sent from, whichever
 channel the sender picks. Facility staff read those records back with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">export</span></code> — see
 <a class="reference internal" href="#feedback-retrieval"><span class="std std-ref">Read the feedback a deployment collected</span></a> below.</p>
 <section id="choose-a-channel">
 <h2>Choose a channel<a class="headerlink" href="#choose-a-channel" title="Link to this heading">#</a></h2>
-<p>The dialog offers three ways out. The choice is the sender’s, and switching
-between them keeps the typed text and both checkboxes as they were.</p>
+<p>Switching between the three channels keeps the typed text and both checkboxes
+as they were.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 14.0%" />
@@ -530,8 +527,7 @@ blocked.</p></td>
 context the issue body arrives complete; with it, the whole report —
 text, metadata, session context — is copied to the clipboard and the
 issue body is a single line saying to paste it there, because the
-context is far too large to prefill. The dialog states both steps
-before the button is pressed.</p></td>
+context is far too large to prefill.</p></td>
 <td><p>The report belongs upstream, and the sender has a GitHub account.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Email</strong></p></td>
@@ -557,8 +553,7 @@ the report somewhere nobody reads. See <a class="reference internal" href="#feed
 <section id="what-gets-attached">
 <h2>What gets attached<a class="headerlink" href="#what-gets-attached" title="Link to this heading">#</a></h2>
 <p>The dialog’s <code class="docutils literal notranslate"><span class="pre">(?)</span></code> control opens a plain-language disclosure of exactly what
-leaves the page. It says the same thing this section does, and it is the
-authority the sender sees at the moment of deciding.</p>
+leaves the page — the same list as this section.</p>
 <p><strong>Always sent</strong>, with no checkbox to turn it off:</p>
 <ul class="simple">
 <li><p>the feedback text that was typed,</p></li>
@@ -575,7 +570,7 @@ username, which travel either way.</p>
 <ul class="simple">
 <li><p>the session’s id — on the GitHub and Email channels the issue title or mail
 subject also carries a short prefix of it, so the message can be matched to
-the deployment’s own record even if the paste step below is missed,</p></li>
+the deployment’s own record even if the paste step is missed,</p></li>
 <li><p>the session’s tool-call and agent event log,</p></li>
 <li><p>its chat history,</p></li>
 <li><p>the terminal scrollback,</p></li>
@@ -583,41 +578,27 @@ the deployment’s own record even if the paste step below is missed,</p></li>
 this session, plus artifacts created on this deployment during the same time
 window, which may include work from other terminal tabs or the chat panel.</p></li>
 </ul>
-<p>That last clause is worth reading twice, and the dialog states it in those
-words. OSPREY does not tag every artifact with the session that produced it, so
-the inventory falls back to a time window: an artifact somebody else made in a
+<p>OSPREY does not tag every artifact with the session that produced it, so the
+inventory falls back to a time window: an artifact somebody else made in a
 different tab during the same minutes can be listed. Only its title and id
 appear — never its contents — but a sender attaching context to a <strong>public</strong>
 GitHub issue should know that the list is not strictly their own work.</p>
 <p>Session context is triaged newest-first and truncated to fit a size budget, so a
-long session is attached in part rather than in full. The copy destined for a
-GitHub issue or a mail draft is trimmed harder than the copy kept on the
-deployment: the clipboard payload has to stay pasteable, while the local record
-holds a much larger version.</p>
-<p>Where the session had no readable transcript, the dialog says so and the
-<strong>outbound</strong> copy — the clipboard payload behind a GitHub issue or a mail draft
-— carries the text, the metadata and a one-line note in place of the four
-context tiers, never a silently empty context. The deployment’s own record is
-not so trimmed: the terminal scrollback the browser uploaded is stored with it
-either way. On-disk and outbound are two different things, and a sender deciding
-what to attach should read the checkbox as governing both.</p>
+long session is attached in part rather than in full. The outbound copy — the
+clipboard payload behind a GitHub issue or a mail draft — is trimmed harder
+than the record kept on the deployment, which holds a much larger version.
+Where the session had no readable transcript, the dialog says so and the
+outbound copy carries the text, the metadata and a one-line note instead of a
+silently empty context.</p>
 </section>
 <section id="copy-session-context">
 <h2>Copy session context<a class="headerlink" href="#copy-session-context" title="Link to this heading">#</a></h2>
-<p>A small <strong>Copy</strong> button sits on the session-context row itself. It puts the
-same trimmed context on the clipboard without sending anything and without
-writing a record, on any channel. It is enabled whenever a session exists —
-ticking the checkbox is not required, because copying is an explicit act of
-its own; without a session it stays visible but greyed, so it never looks
-like a control that disappeared.</p>
-<p>The context never travels inside the prefilled issue or draft itself — a
-<code class="docutils literal notranslate"><span class="pre">mailto:</span></code> URL in particular is far too small to carry it. With the checkbox
-ticked, sending on an outbound channel copies the whole report to the
-clipboard and opens the draft with one line saying to paste it; the dialog
-states those two steps before the button is pressed and repeats the paste
-instruction in the confirmation afterwards. Reach for the Copy button when the
-clipboard has since been overwritten, or when only the context itself is
-wanted — for a chat message, say, rather than a report.</p>
+<p>A small <strong>Copy</strong> button on the session-context row puts the same trimmed
+context on the clipboard without sending anything and without writing a
+record. It is enabled whenever a session exists — the checkbox does not need
+to be ticked. Reach for it when the clipboard has been overwritten after a
+send, or when only the context itself is wanted — for a chat message, say,
+rather than a report.</p>
 </section>
 <section id="read-the-feedback-a-deployment-collected">
 <span id="feedback-retrieval"></span><h2>Read the feedback a deployment collected<a class="headerlink" href="#read-the-feedback-a-deployment-collected" title="Link to this heading">#</a></h2>
@@ -686,9 +667,7 @@ as proof that nobody has written in.</p>
 collected no feedback — and non-zero when the repository has no build, when
 every workspace failed to read, and when an export stopped part-way. A part-way
 export still parses: it holds what was read, and the summary says how much that
-was. On a single-user deployment a <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> is
-also non-zero; on a multi-user one it is not detected at all, per the warning
-above.</p>
+was.</p>
 </section>
 <section id="keeping-the-store-bounded">
 <h3>Keeping the store bounded<a class="headerlink" href="#keeping-the-store-bounded" title="Link to this heading">#</a></h3>
@@ -715,13 +694,12 @@ the store they fill:</p>
 </div>
 <p>Leaving a key out gives you the shipped default above. Setting one of the three
 <strong>string</strong> keys to an <strong>explicitly blank</strong> value (<code class="docutils literal notranslate"><span class="pre">docs_url:</span> <span class="pre">&quot;&quot;</span></code>) means “this
-deployment has no such target” and removes the affordance: an air-gapped control
-room blanks <code class="docutils literal notranslate"><span class="pre">web.docs_url</span></code> and gets no documentation link rather than one that
-opens a dead tab, and blanking <code class="docutils literal notranslate"><span class="pre">web.feedback.github_repo</span></code> retires the GitHub
-channel instead of aiming reports at the upstream maintainers’ tracker.
-<code class="docutils literal notranslate"><span class="pre">max_store_bytes</span></code> has no such posture — it wants a positive byte count, and
-anything else (blank included) is logged and replaced by the default. The Local
-channel is always available and needs no configuration.</p>
+deployment has no such target” and removes the control. An air-gapped control
+room blanks <code class="docutils literal notranslate"><span class="pre">web.docs_url</span></code> rather than shipping a link that opens a dead tab;
+blanking <code class="docutils literal notranslate"><span class="pre">web.feedback.github_repo</span></code> retires the GitHub channel instead of
+aiming reports at the upstream maintainers’ tracker. <code class="docutils literal notranslate"><span class="pre">max_store_bytes</span></code> wants
+a positive byte count; anything else (blank included) is logged and replaced by
+the default. The Local channel is always available and needs no configuration.</p>
 <p><a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> carries the full table, including what a key written
 with no value at all does.</p>
 <div class="admonition note">
@@ -732,20 +710,6 @@ draws no line <em>within</em> a session, though — anyone sitting at a signed-i
 terminal can send a report — so read a stored report as coming from that
 terminal, not from a named person.</p>
 </div>
-</section>
-<section id="named-future-work">
-<h2>Named future work<a class="headerlink" href="#named-future-work" title="Link to this heading">#</a></h2>
-<p>Two deliberate gaps, both recorded so nobody has to rediscover them:</p>
-<ul class="simple">
-<li><p><strong>Downloadable ``.txt`` context attachments.</strong> The session context travels as
-a trimmed clipboard payload today. If teams report that the trimmed bundle is
-not enough for a maintainer to act on, a downloadable full attachment is the
-planned next step.</p></li>
-<li><p><strong>Locally hosted documentation.</strong> <code class="docutils literal notranslate"><span class="pre">web.docs_url</span></code> points at whatever site you
-give it, so a facility can already host its own copy — but OSPREY does not yet
-<em>build and serve</em> a local documentation bundle for you. That key is the
-plug-in point when it does.</p></li>
-</ul>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -782,11 +746,11 @@ and read.</p>
       </div>
     </a>
     <a class="right-next"
-       href="use-cli-chat.html"
+       href="cli-agent.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Use the CLI Chat Interface</p>
+        <p class="prev-next-title">Run the Agent from the Command Line</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -818,7 +782,6 @@ and read.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-channels-at-your-facility">Point the channels at your facility</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#named-future-work">Named future work</a></li>
 </ul>
   </nav></div>
 

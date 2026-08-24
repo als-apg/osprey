@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -373,7 +373,12 @@
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
@@ -383,15 +388,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
-<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
-
-
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
@@ -409,6 +406,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -759,6 +757,54 @@ fallback: a default value would be a credential the store never issued, and
 telemetry would fail with a plausible-looking secret on file instead of an
 obviously missing one. The account name does carry a fallback, because it is a
 name rather than a secret.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 336" role="img" aria-labelledby="otel-endpoint-title otel-endpoint-desc">
+  <title id="otel-endpoint-title">Where the OTLP endpoint points, by running context</title>
+  <desc id="otel-endpoint-desc">One OpenObserve store is reached under a different host name depending on where the emitter runs: localhost from a plain host run, the compose service name openobserve from a bridge-networked container, and localhost again from a host-networked container where the compose DNS name would not resolve. The port 5080 is fixed and does not follow a changed published port.</desc>
+  <defs>
+    <marker id="otel-endpoint-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <line class="e" x1="316" y1="72"  x2="612" y2="140" marker-end="url(#otel-endpoint-arr)"/>
+  <line class="e" x1="316" y1="162" x2="612" y2="162" marker-end="url(#otel-endpoint-arr)"/>
+  <line class="e" x1="316" y1="252" x2="612" y2="184" marker-end="url(#otel-endpoint-arr)"/>
+
+  <text class="te" x="16" y="26">WHERE THE EMITTER RUNS</text>
+  <text class="te" x="620" y="26">ONE STORE</text>
+
+  <rect class="nb" x="16" y="40" width="300" height="64" rx="6"/>
+  <text class="tn" x="166" y="64" text-anchor="middle">the agent on your host</text>
+  <text class="ts" x="166" y="81" text-anchor="middle">osprey web / osprey query</text>
+  <text class="ts" x="166" y="96" text-anchor="middle">host resolves to localhost</text>
+
+  <rect class="nb" x="16" y="130" width="300" height="64" rx="6"/>
+  <text class="tn" x="166" y="154" text-anchor="middle">bridge-networked container</text>
+  <text class="ts" x="166" y="171" text-anchor="middle">the containerized dispatch worker</text>
+  <text class="ts" x="166" y="186" text-anchor="middle">host must be openobserve</text>
+
+  <rect class="nb" x="16" y="220" width="300" height="64" rx="6"/>
+  <text class="tn" x="166" y="244" text-anchor="middle">host-networked container</text>
+  <text class="ts" x="166" y="261" text-anchor="middle">network_mode: host</text>
+  <text class="ts" x="166" y="276" text-anchor="middle">host must be localhost</text>
+
+  <rect class="mask" x="346" y="88" width="184" height="15"/>
+  <text class="ta" x="352" y="100">leave OSPREY_OTEL_OPENOBSERVE_HOST unset</text>
+  <rect class="mask" x="346" y="143" width="184" height="15"/>
+  <text class="ta" x="352" y="155">OSPREY_OTEL_OPENOBSERVE_HOST=openobserve</text>
+  <rect class="mask" x="346" y="220" width="180" height="15"/>
+  <text class="ta" x="352" y="232">OSPREY_OTEL_OPENOBSERVE_HOST=localhost</text>
+
+  <rect class="nb-st" x="620" y="120" width="300" height="84" rx="6"/>
+  <text class="tn" x="770" y="148" text-anchor="middle">OpenObserve</text>
+  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:5080/api/&lt;org&gt;</text>
+  <text class="ts" x="770" y="185" text-anchor="middle">one store, reached by three names</text>
+
+  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">5080 is fixed — the derivation does not follow a changed services.openobserve.port; publish elsewhere and set endpoint: explicitly</text>
+  <text class="ta ta-warn" x="480" y="324" text-anchor="middle">hardcoding endpoint: points every context at one host and silently drops the records from the others</text>
+</svg>
+</div>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>For <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> the OTLP endpoint is <strong>auto-derived</strong> and you

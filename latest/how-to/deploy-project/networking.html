@@ -1,0 +1,749 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Network Binding and Security &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/deploy-project/networking';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/deploy-project/networking.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Environment Variables (the .env chain)" href="env-chain.html" />
+    <link rel="prev" title="Compose Templates and Images" href="compose-templates.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Container Deployment</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Container Deployment</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Network Binding and Security</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="network-binding-and-security">
+<h1>Network Binding and Security<a class="headerlink" href="#network-binding-and-security" title="Link to this heading">#</a></h1>
+<p>Services bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default. Reaching them from off-host is a
+property of the build, not of a start-time flag: the bind address is rendered
+into every published port. Change it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span>
+<span class="pre">deployment.bind_address=0.0.0.0</span></code> and rebuild, and only when you have
+authentication and firewalling in place.</p>
+<p>Container networking uses service names as hostnames (e.g.,
+<code class="docutils literal notranslate"><span class="pre">postgresql:5432</span></code>). For host access from inside containers, use
+<code class="docutils literal notranslate"><span class="pre">host.docker.internal</span></code> (Docker) or <code class="docutils literal notranslate"><span class="pre">host.containers.internal</span></code> (Podman).</p>
+<section id="network-attachment-bridge-or-host">
+<span id="deployment-network-attachment"></span><h2>Network attachment: <code class="docutils literal notranslate"><span class="pre">bridge</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code><a class="headerlink" href="#network-attachment-bridge-or-host" title="Link to this heading">#</a></h2>
+<p>By default every service joins the compose-managed project network
+(<code class="docutils literal notranslate"><span class="pre">osprey-network</span></code>) and publishes the ports it wants reachable. That is
+<code class="docutils literal notranslate"><span class="pre">bridge</span></code>, and it is what a deployment gets when it says nothing.</p>
+<p>Some services cannot work that way. A service that has to see broadcast traffic
+— control-system protocols, device discovery — or that has to reach ports other
+software already publishes on the machine needs the host’s own network
+namespace instead. That is <code class="docutils literal notranslate"><span class="pre">host</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># in profile.yml — the event dispatcher and its workers</span>
+<span class="nt">dispatch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+
+<span class="c1"># a facility-owned service</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/my-service</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code> is deliberately <strong>one knob for two services</strong>. The event
+dispatcher and its workers talk to each other over addresses the build writes,
+so a dispatcher on the compose network and workers on the host’s could not
+reach each other at all. Writing <code class="docutils literal notranslate"><span class="pre">network:</span></code> on <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher</span></code>
+or <code class="docutils literal notranslate"><span class="pre">services.dispatch_worker</span></code> individually is rejected by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>,
+which tells you to set <code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code> instead.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 400" role="img" aria-labelledby="network-attachment-title network-attachment-desc">
+  <title id="network-attachment-title">Bridge and host network attachment compared</title>
+  <desc id="network-attachment-desc">Under bridge, services join the compose project network, publish ports, bind every interface, and address each other by compose service name. Under host they share the host's network namespace, publish nothing, bind loopback only, and address each other as localhost. Services that talk to each other must sit on the same side; osprey build refuses a deployment that crosses the boundary.</desc>
+
+  <text class="te" x="16" y="30">BRIDGE · THE DEFAULT</text>
+  <text class="te" x="500" y="30">NETWORK: HOST</text>
+
+  <line class="divider e-dash" x1="482" y1="40" x2="482" y2="350"/>
+
+  <!-- bridge panel -->
+  <rect class="zone" x="16" y="48" width="444" height="232" rx="6"/>
+  <text class="ts" x="32" y="70">osprey-network — the compose project network</text>
+  <rect class="nb" x="48" y="84" width="380" height="48" rx="6"/>
+  <text class="tn" x="238" y="106" text-anchor="middle">event_dispatcher</text>
+  <text class="ts" x="238" y="122" text-anchor="middle">publishes 8020</text>
+  <rect class="nb" x="48" y="148" width="380" height="48" rx="6"/>
+  <text class="tn" x="238" y="170" text-anchor="middle">dispatch_worker</text>
+  <text class="ts" x="238" y="186" text-anchor="middle">publishes 9190</text>
+  <rect class="nb" x="48" y="212" width="380" height="48" rx="6"/>
+  <text class="tn" x="238" y="234" text-anchor="middle">chat bridge</text>
+  <text class="ts" x="238" y="250" text-anchor="middle">no published port</text>
+
+  <text class="ts" x="16" y="302">ports: published — reachable at deployment.bind_address</text>
+  <text class="ta ta-warn" x="16" y="318">binds every interface — the network itself is the boundary</text>
+  <text class="ts" x="16" y="334">services address each other by compose service name</text>
+
+  <!-- host panel -->
+  <rect class="zone" x="500" y="48" width="444" height="232" rx="6"/>
+  <text class="ts" x="516" y="70">the host's own network namespace — network_mode: host</text>
+  <rect class="nb" x="532" y="84" width="380" height="48" rx="6"/>
+  <text class="tn" x="722" y="106" text-anchor="middle">event_dispatcher</text>
+  <text class="ts" x="722" y="122" text-anchor="middle">listens on 127.0.0.1:8020</text>
+  <rect class="nb" x="532" y="148" width="380" height="48" rx="6"/>
+  <text class="tn" x="722" y="170" text-anchor="middle">dispatch_worker</text>
+  <text class="ts" x="722" y="186" text-anchor="middle">listens on 127.0.0.1:9190</text>
+  <rect class="nb" x="532" y="212" width="380" height="48" rx="6"/>
+  <text class="tn" x="722" y="234" text-anchor="middle">chat bridge</text>
+  <text class="ts" x="722" y="250" text-anchor="middle">reaches localhost:8020</text>
+
+  <text class="ts" x="500" y="302">no ports: block — the listening socket is already a host socket</text>
+  <text class="ta ta-warn" x="500" y="318">binds 127.0.0.1 only — off-host access is a deliberate act</text>
+  <text class="ts" x="500" y="334">services address each other as localhost:&lt;port&gt;</text>
+
+  <text class="ta ta-warn" x="480" y="374" text-anchor="middle">osprey build refuses a deployment whose services talk across this boundary — those addresses are written at build time</text>
+</svg>
+</div>
+<p>Under <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> the render changes in four ways:</p>
+<ul class="simple">
+<li><p>No <code class="docutils literal notranslate"><span class="pre">ports:</span></code> block. There is nothing to publish — the container’s listening
+socket <em>is</em> a host socket, on the port the service was configured with.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code> replaces the service’s <code class="docutils literal notranslate"><span class="pre">osprey-network</span></code> membership.</p></li>
+<li><p>Services bind <strong>loopback</strong>, <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>, rather than every interface. On
+the compose network, binding every interface is what makes a service
+reachable by name and the network itself is the boundary; on the host network
+there is no such boundary, so the default is the private one. Reaching the
+event dispatcher from off-host is then a deliberate act:
+<code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.bind</span></code>.</p></li>
+<li><p>Addresses OSPREY writes between services become <code class="docutils literal notranslate"><span class="pre">localhost:&lt;port&gt;</span></code> instead
+of compose service names — the dispatcher’s target for its workers, and the
+Google Chat and Nextcloud bridges’ URLs for the dispatch pair.</p></li>
+</ul>
+<p>Services that talk to each other have to be on the same side of that boundary,
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses to render a deployment where they are not: a
+co-deployed bridge on the compose network with a host-mode dispatch pair, the
+reverse of that, or any address naming a service across the boundary. The build
+also refuses a service that declares <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> whose rendered compose
+file does not carry it, since the setting would otherwise be quietly inert.
+Every one of those failures names the service and the key to change.</p>
+</section>
+<section id="running-more-than-one-project-on-one-host">
+<h2>Running more than one project on one host<a class="headerlink" href="#running-more-than-one-project-on-one-host" title="Link to this heading">#</a></h2>
+<p>Two OSPREY projects on the same machine compete for the same host ports, and
+compose’s own report of that is a bare “address already in use” partway through
+starting. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> therefore checks every host port this deployment needs
+before it touches a container — ports two of its own services would both
+publish, and ports something else is already listening on — and stops if any is
+taken. Every conflict is listed with the config key that moves it
+(<code class="docutils literal notranslate"><span class="pre">services.postgresql.port_host</span></code>, <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>, and so on).
+A listener that belongs to this project’s own containers is not a conflict, so
+restarting a running stack stays quiet.</p>
+<p>Host-mode services are part of that check even though they publish no ports:
+their host bindings are worked out from the rendered configuration instead of
+read out of a <code class="docutils literal notranslate"><span class="pre">ports:</span></code> block. That covers the case most likely to catch you
+out — two projects whose dispatch pairs are both on the host network take the
+same default ports (<code class="docutils literal notranslate"><span class="pre">8020</span></code> for the dispatcher, <code class="docutils literal notranslate"><span class="pre">9190</span></code> upward for the
+workers), and no <code class="docutils literal notranslate"><span class="pre">ports:</span></code> line anywhere would have shown it. Give the second
+project its own <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>.
+A facility service you place on the host network is covered the same way,
+read from its <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.port</span></code> key; one without that key cannot be
+checked, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> says so rather than skipping it silently.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="compose-templates.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Compose Templates and Images</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="env-chain.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-attachment-bridge-or-host">Network attachment: <code class="docutils literal notranslate"><span class="pre">bridge</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-more-than-one-project-on-one-host">Running more than one project on one host</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/deploy-project/networking.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
