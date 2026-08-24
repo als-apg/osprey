@@ -8,6 +8,13 @@ import socket
 import pytest
 
 from osprey.deployment import host_ports
+from osprey.deployment.graphdb_service import DEFAULT_HTTP_PORT as GRAPHDB_DEFAULT_HTTP_PORT
+from osprey.deployment.graphdb_service import DEFAULT_PORT as GRAPHDB_DEFAULT_PORT
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_HTTP_PORT_CONFIG_KEY,
+    GRAPHDB_PORT_CONFIG_KEY,
+    GRAPHDB_SERVICE_NAME,
+)
 from osprey.deployment.host_ports import (
     HostPortBinding,
     PortConflict,
@@ -436,6 +443,161 @@ class TestHostNetworkDerivation:
             ("dispatch-worker-1", 9190),
             ("dispatch-worker-2", 9191),
         ]
+
+    def test_graphdb_on_host_derives_both_of_its_ports(self):
+        bolt, http = derive_host_network_bindings(_host_config(graphdb={"network": "host"}))
+
+        assert (bolt.service, bolt.host_port) == (GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_PORT)
+        assert (http.service, http.host_port) == (
+            GRAPHDB_SERVICE_NAME,
+            GRAPHDB_DEFAULT_HTTP_PORT,
+        )
+        # Both bind loopback, both are host-network, and neither came from a
+        # compose file — the generic `.port` branch would have found neither.
+        assert {b.host_ip for b in (bolt, http)} == {"127.0.0.1"}
+        assert all(b.host_network for b in (bolt, http))
+        assert all("compose" not in b.compose_file for b in (bolt, http))
+
+    def test_graphdb_host_ports_move_but_container_ports_do_not(self):
+        """The label a derived binding carries is the port INSIDE the container,
+        which the image fixes, not the host port the project moved it to. A
+        host-port label would resolve the wrong remedy key and the wrong URL
+        scheme the moment either port was overridden."""
+        bolt, http = derive_host_network_bindings(
+            _host_config(graphdb={"network": "host", "port_host": 17687, "http_port_host": 17474})
+        )
+        assert (bolt.host_port, bolt.container_port) == (17687, GRAPHDB_DEFAULT_PORT)
+        assert (http.host_port, http.container_port) == (17474, GRAPHDB_DEFAULT_HTTP_PORT)
+
+        # Defaults are per-key, so moving one port leaves the other alone.
+        (only_http_moved,) = [
+            b
+            for b in derive_host_network_bindings(
+                _host_config(graphdb={"network": "host", "http_port_host": 17474})
+            )
+            if b.container_port == GRAPHDB_DEFAULT_HTTP_PORT
+        ]
+        assert only_http_moved.host_port == 17474
+
+    def test_graphdb_default_bindings_carry_canonical_container_ports(self):
+        bindings = derive_host_network_bindings(_host_config(graphdb={"network": "host"}))
+        assert [(b.host_port, b.container_port) for b in bindings] == [
+            (GRAPHDB_DEFAULT_PORT, GRAPHDB_DEFAULT_PORT),
+            (GRAPHDB_DEFAULT_HTTP_PORT, GRAPHDB_DEFAULT_HTTP_PORT),
+        ]
+
+    def test_graphdb_is_excluded_from_the_generic_port_key_loop(self, caplog):
+        """graphdb is derived by its own branch, so the generic loop must not
+        also visit it — it reads `services.graphdb.port`, a key that does not
+        exist, and would warn that a fully covered service escapes the
+        preflight on every host-mode render."""
+        with caplog.at_level("WARNING"):
+            bindings = derive_host_network_bindings(_host_config(graphdb={"network": "host"}))
+        assert len(bindings) == 2
+        assert "graphdb" not in caplog.text
+        assert "services.graphdb.port" not in caplog.text
+
+    def test_graphdb_off_the_host_network_derives_nothing(self):
+        assert derive_host_network_bindings(_host_config(graphdb={"port_host": 7687})) == []
+        assert derive_host_network_bindings(_host_config(graphdb={"network": "bridge"})) == []
+
+
+class TestTwoPortRemedyResolution:
+    """A service publishing two host ports needs two remedy keys, chosen by the
+    container port rather than by the service name alone."""
+
+    def test_each_graphdb_container_port_resolves_its_own_key(self):
+        assert (
+            host_ports._remedy_for_service(GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_PORT)
+            == GRAPHDB_PORT_CONFIG_KEY
+        )
+        assert (
+            host_ports._remedy_for_service(GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_HTTP_PORT)
+            == GRAPHDB_HTTP_PORT_CONFIG_KEY
+        )
+        # The two keys are genuinely different; a same-key result would make the
+        # per-port table pointless without failing any other assertion here.
+        assert GRAPHDB_PORT_CONFIG_KEY != GRAPHDB_HTTP_PORT_CONFIG_KEY
+
+    def test_the_override_beats_the_host_port_the_project_published_on(self):
+        """Resolution keys on the container port, so a project that moved both
+        published ports still gets the key that moves the contested one."""
+        assert (
+            host_ports._remedy_for_service(GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_HTTP_PORT)
+            == GRAPHDB_HTTP_PORT_CONFIG_KEY
+        )
+        # 17474 is a HOST port, not a container port: it must not match.
+        assert host_ports._remedy_for_service(GRAPHDB_SERVICE_NAME, 17474) == (
+            GRAPHDB_PORT_CONFIG_KEY
+        )
+
+    def test_an_unmatched_graphdb_binding_falls_back_to_a_key_that_exists(self):
+        """Whatever fails to match the per-port table — an unparseable container
+        port, or a port the table does not know — must still name a real config
+        key. The generic `services.<name>.port` fallback does not exist for this
+        service, so it would send an operator to edit nothing."""
+        for container_port in (None, 7473, 0):
+            remedy = host_ports._remedy_for_service(GRAPHDB_SERVICE_NAME, container_port)
+            assert remedy == GRAPHDB_PORT_CONFIG_KEY
+            assert remedy != f"services.{GRAPHDB_SERVICE_NAME}.port"
+
+    def test_conflicts_on_the_two_ports_print_the_two_keys(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+        bindings = [
+            # A prior claim on each address, then graphdb losing both.
+            HostPortBinding("other", "127.0.0.1", 17687, 17687, "a.yml"),
+            HostPortBinding("other", "127.0.0.1", 17474, 17474, "a.yml"),
+            HostPortBinding("graphdb", "127.0.0.1", 17687, 7687, "b.yml"),
+            HostPortBinding("graphdb", "127.0.0.1", 17474, 7474, "b.yml"),
+        ]
+        conflicts = find_port_conflicts(bindings, project_name="proj")
+        assert [(c.host_port, c.remedy) for c in conflicts] == [
+            (17687, GRAPHDB_PORT_CONFIG_KEY),
+            (17474, GRAPHDB_HTTP_PORT_CONFIG_KEY),
+        ]
+        report = format_conflict_report(conflicts)
+        assert GRAPHDB_PORT_CONFIG_KEY in report
+        assert GRAPHDB_HTTP_PORT_CONFIG_KEY in report
+
+    def test_derived_and_parsed_graphdb_bindings_resolve_identically(self):
+        """Task 3.3's HTTP predicate reads the same label, so a derived binding
+        that disagreed with the parsed one would render bolt as a browser URL."""
+        derived = derive_host_network_bindings(
+            _host_config(graphdb={"network": "host", "port_host": 17687, "http_port_host": 17474})
+        )
+        parsed = [
+            HostPortBinding("graphdb", "127.0.0.1", 17687, 7687, "a.yml"),
+            HostPortBinding("graphdb", "127.0.0.1", 17474, 7474, "a.yml"),
+        ]
+        assert [(b.service, b.host_port, b.container_port) for b in derived] == [
+            (b.service, b.host_port, b.container_port) for b in parsed
+        ]
+        assert [host_ports._remedy_for_service(b.service, b.container_port) for b in derived] == [
+            host_ports._remedy_for_service(b.service, b.container_port) for b in parsed
+        ]
+
+    def test_existing_services_resolve_exactly_as_before(self):
+        """Zero behaviour change outside graphdb: every other service resolves
+        by name, and passing a container port changes nothing."""
+        cases = [
+            ("postgresql", 5432, "services.postgresql.port_host"),
+            ("mongodb", 27017, "services.mongodb.port_host"),
+            ("openobserve", 5080, "services.openobserve.port"),
+            ("event-dispatcher", 8020, "services.event_dispatcher.port"),
+            ("dispatch-worker-1", 9190, "dispatch.worker_port_base"),
+            ("dispatch-worker-7", 9196, "dispatch.worker_port_base"),
+            ("bluesky-bridge", 8000, "services.bluesky.port"),
+            ("tiled", 8000, "services.bluesky.tiled_port"),
+            ("bluesky-web", 3000, "services.bluesky_web.port"),
+            ("virtual-accelerator", 5064, "services.virtual_accelerator.port"),
+            ("my_ioc_gw", 5075, "services.my_ioc_gw.port"),
+        ]
+        for service, container_port, expected in cases:
+            assert host_ports._remedy_for_service(service) == expected
+            assert host_ports._remedy_for_service(service, container_port) == expected
+            # Even a container port that collides with graphdb's belongs to the
+            # other service: the table is keyed on the pair, not on the port.
+            assert host_ports._remedy_for_service(service, GRAPHDB_DEFAULT_PORT) == expected
 
 
 class TestHostNetworkConflicts:

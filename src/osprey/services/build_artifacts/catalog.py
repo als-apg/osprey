@@ -115,6 +115,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Facility knowledge sub-agent",
         ),
         BuildArtifact(
+            canonical_name="agents/facility-knowledge-graph",
+            template_path="claude/agents/facility-knowledge-graph.md.j2",
+            output_path=".claude/agents/facility-knowledge-graph.md",
+            description="Facility knowledge graph sub-agent (structural Cypher queries)",
+        ),
+        BuildArtifact(
             canonical_name="agents/pyat-specialist",
             template_path="claude/agents/pyat-specialist.md.j2",
             output_path=".claude/agents/pyat-specialist.md",
@@ -123,7 +129,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
         # ── Rules ────────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="rules/safety",
-            template_path="claude/rules/safety.md",
+            template_path="claude/rules/safety.md.j2",
             output_path=".claude/rules/safety.md",
             description="Safety & tool confinement rules",
         ),
@@ -427,6 +433,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="bluesky_web",
             output_path="services/bluesky_web",
             description="Bluesky operator-facing web sidecar compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/graphdb",
+            template_path="graphdb",
+            output_path="services/graphdb",
+            description="Graph store compose template + seed corpus (Neo4j)",
             template_root="services",
             is_directory=True,
         ),

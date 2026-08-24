@@ -20,7 +20,7 @@ from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,49 @@ STATIC_DIR = Path(__file__).parent / "static"
 FEEDBACK_DIR = f"{DEFAULT_AGENT_DATA_BASE_DIR}/feedback"
 
 
+def _init_hierarchical_registry():
+    """Build the hierarchical channel-finder registry."""
+    from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+        initialize_cf_hier_context,
+    )
+
+    return initialize_cf_hier_context()
+
+
+def _init_middle_layer_registry():
+    """Build the middle-layer channel-finder registry."""
+    from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+        initialize_cf_ml_context,
+    )
+
+    return initialize_cf_ml_context()
+
+
+def _init_in_context_registry():
+    """Build the in-context channel-finder registry."""
+    from osprey.mcp_server.channel_finder_in_context.server_context import (
+        initialize_cf_ic_context,
+    )
+
+    return initialize_cf_ic_context()
+
+
+#: How the web app brings up each channel-finder paradigm it can serve, in the
+#: order the UI offers them. A paradigm is attempted only when the config has a
+#: ``channel_finder.pipelines.<paradigm>`` block for it, so the absence of a
+#: block is a quiet skip while a block that fails to come up is a loud warning.
+#: Serving a new file-backed paradigm is one entry here plus its config block.
+#:
+#: The graph paradigm is deliberately absent: it opens no database file, so
+#: there is no registry to build and nothing here to name. The lifespan serves
+#: it from the resolved mode instead.
+_PIPELINE_REGISTRY_INITIALIZERS: tuple[tuple[str, Callable[[], object]], ...] = (
+    ("hierarchical", _init_hierarchical_registry),
+    ("middle_layer", _init_middle_layer_registry),
+    ("in_context", _init_in_context_registry),
+)
+
+
 def _create_lifespan(project_cwd: str | None = None):
     """Create a lifespan context manager that initializes the pipeline registry.
 
@@ -49,11 +92,22 @@ def _create_lifespan(project_cwd: str | None = None):
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         import httpx
 
+        from osprey.services.channel_finder.utils.detection import detect_pipeline_config
         from osprey.utils.workspace import load_osprey_config
 
-        # Load config and determine pipeline type
         config = load_osprey_config()
-        pipeline_type = config.get("channel_finder", {}).get("pipeline_mode", "in_context")
+        cf_config = config.get("channel_finder", {})
+
+        # One resolver for the active paradigm, shared with the rest of the
+        # framework: no local default that could disagree with it. Naming no
+        # paradigm is legal but worth saying out loud, because what gets served
+        # then depends on which pipeline happens to have a database configured.
+        if "pipeline_mode" not in cf_config:
+            logger.warning(
+                "No 'channel_finder.pipeline_mode' configured; the active pipeline will be "
+                "detected from the configured pipeline databases",
+            )
+        pipeline_type, _db_config = detect_pipeline_config(config)
         app.state.pipeline_type = pipeline_type
         app.state.project_cwd = project_cwd or str(Path.cwd())
         app.state.facility_name = resolve_facility_name(config, "")
@@ -63,44 +117,48 @@ def _create_lifespan(project_cwd: str | None = None):
         databases: dict[str, object] = {}
         facility_names: dict[str, str] = {}
 
-        try:
-            from osprey.mcp_server.channel_finder_hierarchical.server_context import (
-                initialize_cf_hier_context,
+        # The graph paradigm is store-backed rather than file-backed: its
+        # channels live in a graph database reached over the network, so there
+        # is no database file to open and no ``channel_finder.pipelines.graph``
+        # block to read. It is served from the resolved mode alone, and the
+        # empty ``databases`` map is the honest answer the routes report back —
+        # the store is queried with the graph tools, not from this process.
+        graph_backed = pipeline_type == "graph"
+        app.state.graph_backed = graph_backed
+
+        if graph_backed:
+            available = ["graph"]
+            logger.info(
+                "Serving the graph paradigm: channels come from the graph store, which is "
+                "queried with the read_cypher and get_schema tools, so no channel database "
+                "is opened here",
             )
-
-            registry = initialize_cf_hier_context()
-            databases["hierarchical"] = registry.database
-            facility_names["hierarchical"] = registry.facility_name
-            available.append("hierarchical")
-            logger.info("Initialized hierarchical pipeline registry")
-        except Exception:
-            logger.debug("Hierarchical pipeline not available", exc_info=True)
-
-        try:
-            from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-                initialize_cf_ml_context,
-            )
-
-            registry = initialize_cf_ml_context()
-            databases["middle_layer"] = registry.database
-            facility_names["middle_layer"] = registry.facility_name
-            available.append("middle_layer")
-            logger.info("Initialized middle_layer pipeline registry")
-        except Exception:
-            logger.debug("Middle layer pipeline not available", exc_info=True)
-
-        try:
-            from osprey.mcp_server.channel_finder_in_context.server_context import (
-                initialize_cf_ic_context,
-            )
-
-            registry = initialize_cf_ic_context()
-            databases["in_context"] = registry.database
-            facility_names["in_context"] = registry.facility_name
-            available.append("in_context")
-            logger.info("Initialized in_context pipeline registry")
-        except Exception:
-            logger.debug("In-context pipeline not available", exc_info=True)
+        else:
+            # ``pipelines`` is a key every rendered config carries, and a graph
+            # render leaves it empty — so read it as "whichever blocks are
+            # there", never as "a mapping is guaranteed".
+            pipelines_config = cf_config.get("pipelines") or {}
+            for mode, initialize_registry in _PIPELINE_REGISTRY_INITIALIZERS:
+                if mode not in pipelines_config:
+                    logger.debug(
+                        "No 'channel_finder.pipelines.%s' block configured; not serving %s",
+                        mode,
+                        mode,
+                    )
+                    continue
+                try:
+                    registry = initialize_registry()
+                except Exception:
+                    logger.warning(
+                        "Configured '%s' pipeline failed to initialize; it will not be offered",
+                        mode,
+                        exc_info=True,
+                    )
+                    continue
+                databases[mode] = registry.database
+                facility_names[mode] = registry.facility_name
+                available.append(mode)
+                logger.info("Initialized %s pipeline registry", mode)
 
         app.state.available_pipelines = available
         app.state.databases = databases
@@ -110,8 +168,7 @@ def _create_lifespan(project_cwd: str | None = None):
         app.state.feedback_store = None
         if "hierarchical" in available:
             feedback_config = (
-                config.get("channel_finder", {})
-                .get("pipelines", {})
+                (config.get("channel_finder", {}).get("pipelines") or {})
                 .get("hierarchical", {})
                 .get("feedback", {})
             )
@@ -147,11 +204,18 @@ def _create_lifespan(project_cwd: str | None = None):
         except Exception:
             logger.debug("Could not initialize pending review store", exc_info=True)
 
-        # Fall back if the configured pipeline didn't initialize
-        if pipeline_type not in available and available:
+        # Fall back if the resolved pipeline didn't initialize. Graph is
+        # outside this rule in both directions: it brings up no registry that
+        # could fail, and it is never the substitute for a paradigm that did.
+        if not graph_backed and pipeline_type not in available and available:
+            logger.warning(
+                "Pipeline %r is not among the pipelines that came up (%s); serving %s instead",
+                pipeline_type,
+                available,
+                available[0],
+            )
             pipeline_type = available[0]
             app.state.pipeline_type = pipeline_type
-            logger.warning("Configured pipeline unavailable, falling back to %s", pipeline_type)
 
         app.state.http_client = httpx.AsyncClient(timeout=30.0)
         logger.info(

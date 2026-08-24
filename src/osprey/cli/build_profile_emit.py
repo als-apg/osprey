@@ -280,8 +280,10 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     "channel_finder_mode": """
 # --- Channel-finder paradigm -------------------------------------------------
 # How the agent looks up channels: in_context (whole DB in the prompt),
-# hierarchical (system/device drill-down), or middle_layer. Drives which
-# channel database the build materializes.
+# hierarchical (system/device drill-down), middle_layer, or graph (read-only
+# Cypher over the facility knowledge graph). The first three pick which channel
+# database the build writes; graph reads the store named by services.graphdb
+# and writes no database.
 #
 # channel_finder_mode: hierarchical
 """,

@@ -1,8 +1,10 @@
 """Channel Finder Database REST API.
 
 Exposes database operations via REST endpoints, adapting for each pipeline
-type (hierarchical, middle_layer, in_context). Calls database instances
-directly via app.state, avoiding MCP server dependencies.
+type. The three file-backed paradigms (hierarchical, middle_layer, in_context)
+are served by calling their database instances directly via app.state, avoiding
+MCP server dependencies. The graph paradigm has no database file behind it: its
+routes report the paradigm and point at the tools that read the store.
 """
 
 from __future__ import annotations
@@ -13,9 +15,38 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+#: The tools the graph paradigm serves, read from the registry that renders
+#: them into the agent rather than spelled out again here, so the web UI can
+#: only ever name the vocabulary the agent actually has.
+GRAPH_PARADIGM_TOOLS: tuple[str, ...] = tuple(CHANNEL_FINDER_TOOLS_BY_PIPELINE["graph"])
+
+#: Where a graph-mode reader is sent for the answers the file-backed paradigms
+#: compute from a database. Reused verbatim by every route that has no
+#: store-backed implementation, so the redirection reads the same everywhere.
+_GRAPH_TOOL_HINT = (
+    "Query the graph store with the read_cypher tool; get_schema describes what is in it."
+)
+
+
+def _graph_not_implemented(subject: str) -> HTTPException:
+    """Return the 501 a route raises when graph mode has no store-backed answer.
+
+    Not a 404: the route exists and the paradigm is served, there is simply no
+    implementation of this particular question against a graph store yet. The
+    detail names the tools that do answer it so the reply is a redirection
+    rather than a dead end.
+    """
+    return HTTPException(
+        status_code=501,
+        detail=f"{subject} is not implemented for the graph paradigm. {_GRAPH_TOOL_HINT}",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -24,8 +55,24 @@ router = APIRouter()
 
 
 def _pipeline_type(request: Request) -> str:
-    """Get the active pipeline type from app state."""
-    return getattr(request.app.state, "pipeline_type", "in_context")
+    """Return the active pipeline type, or reject the request if it is not a paradigm.
+
+    There is no default here: the paradigm the app resolved at startup is the
+    only answer. Anything else — a paradigm name this build does not know, or
+    no paradigm at all — is a configuration defect, and the route says so
+    instead of quietly serving some other paradigm's data.
+    """
+    pipeline_type = getattr(request.app.state, "pipeline_type", None)
+    if pipeline_type not in VALID_CHANNEL_FINDER_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Active channel finder pipeline {pipeline_type!r} is not a known paradigm. "
+                f"Set 'channel_finder.pipeline_mode' to one of: "
+                f"{', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            ),
+        )
+    return pipeline_type
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +181,47 @@ class UpdateICChannelRequest(BaseModel):
 @router.get("/info")
 async def get_info(request: Request):
     """Return pipeline type and pipeline-specific metadata."""
+    # An unconfigured project has no paradigm at all — that is a reportable
+    # state, not a request defect. The data routes still refuse through
+    # ``_pipeline_type``; this route is how the UI learns what it is talking
+    # to, so it must answer even when the answer is "nothing is configured".
+    if getattr(request.app.state, "pipeline_type", None) is None:
+        return {
+            "pipeline_type": None,
+            "available_pipelines": [],
+            "graph_backed": False,
+            "db_path": None,
+            "metadata": {
+                "error": (
+                    "No channel-finder pipeline is configured. Set "
+                    "'channel_finder.pipeline_mode' or configure a pipeline database."
+                )
+            },
+        }
     pt = _pipeline_type(request)
     available = getattr(request.app.state, "available_pipelines", [pt])
-    info: dict = {"pipeline_type": pt, "available_pipelines": available}
+
+    if pt == "graph":
+        # Store-backed, so there is no database file to name and nothing local
+        # to introspect. What the payload carries instead is the paradigm
+        # itself: enough for the UI to draw the graph pane, and the tool names
+        # that answer the questions a database file answers elsewhere.
+        return {
+            "pipeline_type": pt,
+            "available_pipelines": available,
+            "graph_backed": True,
+            "db_path": None,
+            "tools": list(GRAPH_PARADIGM_TOOLS),
+            # The per-registry facility names are empty in graph mode; the one
+            # the app resolved from config at startup is the right answer.
+            "metadata": {"facility_name": getattr(request.app.state, "facility_name", "")},
+        }
+
+    info: dict = {
+        "pipeline_type": pt,
+        "available_pipelines": available,
+        "graph_backed": False,
+    }
 
     try:
         info["db_path"] = _get_db_path(request)
@@ -180,7 +265,19 @@ async def switch_pipeline(request: Request, body: SwitchPipelineRequest):
     """Switch the active pipeline type at runtime (dev mode).
 
     Only allows switching to pipelines that were successfully initialized.
+    A graph-mode app is answered before that check, so the reply names the
+    paradigm and where its data lives instead of reporting an empty roster of
+    alternatives — which is true but says nothing about why.
     """
+    if _pipeline_type(request) == "graph":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Pipeline switching is not available for the graph paradigm; "
+                "query the store with read_cypher."
+            ),
+        )
+
     available = getattr(request.app.state, "available_pipelines", [])
     if body.pipeline_type not in available:
         raise HTTPException(
@@ -196,6 +293,8 @@ async def switch_pipeline(request: Request, body: SwitchPipelineRequest):
 async def get_statistics(request: Request):
     """Return database statistics for the active pipeline."""
     pt = _pipeline_type(request)
+    if pt == "graph":
+        raise _graph_not_implemented("Database statistics")
 
     try:
         db = _get_database(request)
@@ -219,6 +318,8 @@ async def get_statistics(request: Request):
 async def validate_channels(request: Request, body: ValidateRequest):
     """Validate channel names against the database."""
     pt = _pipeline_type(request)
+    if pt == "graph":
+        raise _graph_not_implemented("Channel validation")
 
     try:
         db = _get_database(request)

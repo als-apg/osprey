@@ -66,9 +66,11 @@ skills:
   - session-report          # Summarise session actions and outcomes to the logbook
   - logbook-deep-research   # Multi-phase logbook investigation (invoked by skill)
 
-# No subagents: the deep-research workflow is invoked as a skill from the
-# main agent, not as a separate subagent.
-agents: []
+# The deep-research workflow is invoked as a skill from the main agent, not as
+# a separate subagent. The one subagent here is the graph specialist: structural
+# machine questions delegate to it, mirroring the control-system presets.
+agents:
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
 
 output_styles:
   - control-operator  # Terse, actionable output style

@@ -65,6 +65,9 @@ CATEGORIES: dict[str, TypeDef] = {
     "user_artifact": TypeDef("user_artifact", "User Artifact", "#94a3b8"),
     "diagnostic_report": TypeDef("diagnostic_report", "Diagnostic Report", "#ef4444"),
     "lattice_analysis": TypeDef("lattice_analysis", "Lattice Analysis", "#0ea5e9"),
+    # The facility-knowledge agent has always been instructed to submit with
+    # this type; register it so submit_response accepts the instruction.
+    "facility_knowledge": TypeDef("facility_knowledge", "Facility Knowledge", "#84cc16"),
 }
 
 # Tool types

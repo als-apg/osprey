@@ -19,6 +19,8 @@ from pathlib import Path
 
 from osprey.cli import output
 from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.graphdb_service import DEFAULT_HTTP_PORT as GRAPHDB_DEFAULT_HTTP_PORT
+from osprey.deployment.graphdb_service import GRAPHDB_SERVICE_NAME
 from osprey.deployment.host_ports import (
     _WILDCARD_HOSTS,
     _WORKER_SERVICE_PREFIX,
@@ -29,9 +31,10 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.summary")
 
-# Framework services fronted by HTTP, shown as clickable URLs. Everything else
-# (databases, channel-access gateways, ...) is shown as a bare address. Keyed
-# on compose service names, mirroring host_ports._SERVICE_REMEDY_KEYS.
+# Framework services fronted by HTTP on every port they bind, shown as
+# clickable URLs. Everything else (databases, channel-access gateways, ...) is
+# shown as a bare address. Keyed on compose service names, mirroring
+# host_ports._SERVICE_REMEDY_KEYS.
 _HTTP_SERVICES = {
     "openobserve",
     "event-dispatcher",
@@ -40,15 +43,42 @@ _HTTP_SERVICES = {
     "bluesky-web",
 }
 
+# Services fronted by HTTP on only SOME of their ports, listing the CONTAINER
+# ports that speak it. Consulted BEFORE the name-keyed set above, and the same
+# split host_ports._SERVICE_PORT_REMEDY_KEYS makes: the graph store is the first
+# single service to bind two host ports, and its name alone cannot say which one
+# opens in a browser. Prefixing bolt with ``http://`` would hand the operator a
+# link that cannot open — a binary protocol behind a URL is worse than no link.
+# Keyed on the container port, which the image fixes, so a project that moved
+# either published port still resolves the right vocabulary for each.
+_HTTP_SERVICE_PORTS = {
+    GRAPHDB_SERVICE_NAME: frozenset({GRAPHDB_DEFAULT_HTTP_PORT}),
+}
 
-def _http_service(service: str) -> bool:
-    """Whether a service is fronted by HTTP, so its address is shown as a URL.
+
+def _http_service(service: str, container_port: int | None = None) -> bool:
+    """Whether a binding is fronted by HTTP, so its address is shown as a URL.
+
+    Multi-port services resolve per binding, on the port inside the container:
+    that is the number the image fixes, so a published binding and a
+    host-network derived one — which :mod:`osprey.deployment.host_ports` labels
+    with the same canonical port — cannot describe the same endpoint two ways.
+    An unrecognised port of such a service stays a bare address, since nothing
+    here knows it answers HTTP.
 
     Workers are indexed (``dispatch-worker-1``, ``-2``, …) off one shared name,
     so the index is dropped before the lookup — the same reduction
     :mod:`osprey.deployment.host_ports` makes to find their remedy key. They
     reach the summary only on the host network, where they bind directly.
+
+    :param service: Compose service name
+    :param container_port: Port inside the container this binding maps to, when
+        known; ``None`` reads as "not one of the HTTP ports" for a multi-port
+        service, and is ignored for every single-port one
     """
+    http_ports = _HTTP_SERVICE_PORTS.get(service)
+    if http_ports is not None:
+        return container_port in http_ports
     return service in _HTTP_SERVICES or service.startswith(f"{_WORKER_SERVICE_PREFIX}-")
 
 
@@ -84,7 +114,7 @@ def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, 
     for binding in sorted(bindings, key=lambda b: (b.service, b.host_port)):
         host = "127.0.0.1" if binding.host_ip in _WILDCARD_HOSTS else binding.host_ip
         address = f"{host}:{binding.host_port}"
-        if _http_service(binding.service):
+        if _http_service(binding.service, binding.container_port):
             address = f"http://{address}"
         if binding.host_network:
             address = f"{address}  (host network)"

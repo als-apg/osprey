@@ -13,6 +13,7 @@ from osprey.deployment.web_terminals.personas import (
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
+    config_needs_graphdb_password,
     config_needs_launch_token,
     entry_requires_login,
     env_var_suffix,
@@ -22,6 +23,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_archiver_password,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
+    personas_needing_graphdb_password,
     personas_needing_launch_token,
     personas_not_denying_bash,
     resolve_personas,
@@ -1604,6 +1606,152 @@ def test_personas_needing_launch_token_skips_unrendered_persona_projects(tmp_pat
 
     # Act / Assert
     assert personas_needing_launch_token(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# services.graphdb + the graph server -> per-user Neo4j password
+#
+# `GRAPHDB_PASSWORD` is the graph store's ONLY credential, and Neo4j's one
+# account is write-capable, so the read-only tier gets it too: read-only-ness
+# lives in the `graph` MCP server's read transactions, not in the password. That
+# is why this predicate never reads `writes_enabled` -- the read-only operator
+# terminal is precisely the tier graph search is meant to serve. What it does
+# read is the two keys that decide whether there is a store to dial and a server
+# to dial it: the `services.graphdb` block (present-and-resolvable), and the
+# graph server's `enabled` override (an override, so absence means enabled).
+# ---------------------------------------------------------------------------
+
+
+def test_config_needs_graphdb_password_reads_the_services_block() -> None:
+    """The `services.graphdb` block IS the entitlement, exactly as the `ariel:`
+    section is for the Postgres password. A fully-defaulted empty block still
+    configures a store, so it entitles."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": {}}}) is True
+    assert config_needs_graphdb_password({"services": {"graphdb": {"port_host": 7688}}}) is True
+    assert config_needs_graphdb_password({}) is False
+
+
+def test_config_needs_graphdb_password_denies_a_block_less_config() -> None:
+    """A bare `graphdb:` key parses as None and configures no store, and non-dict
+    sections are read defensively rather than raising."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": None}}) is False
+    assert config_needs_graphdb_password({"services": {}}) is False
+    assert config_needs_graphdb_password({"services": "graphdb"}) is False
+    assert config_needs_graphdb_password(None) is False
+
+
+def test_config_needs_graphdb_password_denies_a_malformed_block() -> None:
+    """A block this deployment could never reach entitles nothing. Refusing instead
+    would turn a typo in one persona's config.yml into a failed render of the whole
+    roster."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": {"port_host": "abc"}}}) is False
+
+
+def test_config_needs_graphdb_password_denies_when_the_graph_server_is_off() -> None:
+    """A configured store with no server to query it has no consumer."""
+    # Arrange
+    config = {
+        "services": {"graphdb": {}},
+        "claude_code": {"servers": {"graph": {"enabled": False}}},
+    }
+
+    # Assert
+    assert config_needs_graphdb_password(config) is False
+
+
+def test_config_needs_graphdb_password_defaults_the_graph_server_to_enabled() -> None:
+    """`claude_code.servers.graph.enabled` is an override over an already-enabled
+    default, so its absence must not deny the password."""
+    # Assert
+    assert (
+        config_needs_graphdb_password(
+            {"services": {"graphdb": {}}, "claude_code": {"servers": {"graph": {"enabled": True}}}}
+        )
+        is True
+    )
+    assert (
+        config_needs_graphdb_password(
+            {"services": {"graphdb": {}}, "claude_code": {"servers": {"controls": {}}}}
+        )
+        is True
+    )
+
+
+def test_config_needs_graphdb_password_ignores_the_write_switch() -> None:
+    """The read-only tier searches the graph too. Gating this on `writes_enabled`
+    -- as the launch token is gated -- would leave the read-only operator terminal
+    unable to reach the store at all."""
+    # Arrange
+    config = {"services": {"graphdb": {}}, "control_system": {"writes_enabled": False}}
+
+    # Assert
+    assert config_needs_graphdb_password(config) is True
+
+
+def test_personas_needing_graphdb_password_spans_both_tiers(tmp_path) -> None:
+    """Unlike the launch token, this entitlement set deliberately includes the
+    read-only persona: the store has one account, and the read guarantee is the
+    graph server's, not the credential's. A persona configuring no store is still
+    excluded."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "rw",
+                {
+                    "control_system": {"writes_enabled": True},
+                    "services": {"graphdb": {"port_host": 7687}},
+                },
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "ro",
+                {
+                    "control_system": {"writes_enabled": False},
+                    "services": {"graphdb": {"port_host": 7687}},
+                },
+            ),
+        },
+        "logbook": {
+            "project": "lb",
+            "project_path": _write_persona_project_config(tmp_path, "lb", {"services": {}}),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+            {"name": "carol", "index": 2, "persona": "logbook"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_graphdb_password(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite", "readonly"}
+
+
+def test_personas_needing_graphdb_password_skips_unrendered_persona_projects(tmp_path) -> None:
+    """A persona whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    # Act / Assert
+    assert personas_needing_graphdb_password(config, tmp_path) == set()
 
 
 # ---------------------------------------------------------------------------

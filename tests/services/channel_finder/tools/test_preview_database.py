@@ -467,3 +467,54 @@ class TestPreviewDatabaseDispatch:
         console = _capture_console()
         preview_database(console=console)
         assert "In-Context Database Preview" in _text(console)
+
+
+# ---------------------------------------------------------------------------
+# Graph paradigm: no file to preview
+# ---------------------------------------------------------------------------
+
+
+GRAPH_CONFIG = {"channel_finder": {"pipeline_mode": "graph"}}
+
+
+class TestPreviewGraphParadigm:
+    """A graph project is answered with guidance, not a tree."""
+
+    def test_graph_config_prints_the_guidance_panel(self, monkeypatch):
+        """Detection resolves ``graph`` from the mode alone; preview says so."""
+        import osprey.utils.config as config_mod
+
+        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        console = _capture_console()
+        preview_database(console=console)
+        out = " ".join(_text(console).split())
+        assert "Graph Paradigm" in out
+        assert "The graph store is the database" in out
+        assert "osprey knowledge seed-graph" in out
+        assert "osprey health --category graphdb" in out
+        assert "get_schema and read_cypher" in out
+
+    def test_graph_config_reads_no_file(self, monkeypatch):
+        """Nothing on disk is opened --- there is no path to open."""
+        import osprey.utils.config as config_mod
+
+        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+
+        def _no_files(*args, **kwargs):
+            raise AssertionError("the graph paradigm must not resolve a database path")
+
+        monkeypatch.setattr(mod, "_resolve_path", _no_files)
+        console = _capture_console()
+        preview_database(console=console)
+        assert "Graph Paradigm" in _text(console)
+
+    def test_graph_guidance_does_not_offer_the_file_remedy(self, monkeypatch):
+        """The 'configure a database path' panel is the wrong advice here."""
+        import osprey.utils.config as config_mod
+
+        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        console = _capture_console()
+        preview_database(console=console)
+        out = _text(console)
+        assert "No database configured" not in out
+        assert "database.path" not in out

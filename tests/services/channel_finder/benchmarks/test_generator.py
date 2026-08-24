@@ -19,6 +19,7 @@ from osprey.services.channel_finder.benchmarks.generator import (
     TEMPLATE_DB_PATH,
     TIER_1,
     TIER_3,
+    TIER_PARADIGMS,
     expand_hierarchy,
     filter_channels,
     format_hierarchical,
@@ -993,9 +994,12 @@ class TestMaterializedTierDatabases:
     @pytest.mark.parametrize(
         ("tier_spec", "paradigm"),
         [
-            # Tier 1 ships only the in_context paradigm; tier 3 ships all three.
+            # Tier 1 ships only the in_context paradigm; tier 3 ships every
+            # tier view. Driven off TIER_PARADIGMS so the ``graph`` exemption
+            # (no tier database — the store is seeded from the corpus TTL)
+            # stays a subtraction from the registry rather than a list here.
             (TIER_1, "in_context"),
-            *((TIER_3, paradigm) for paradigm in ("hierarchical", "in_context", "middle_layer")),
+            *((TIER_3, paradigm) for paradigm in TIER_PARADIGMS[3]),
         ],
         ids=lambda v: v.name if hasattr(v, "name") else v,
     )

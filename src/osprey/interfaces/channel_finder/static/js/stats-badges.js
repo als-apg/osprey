@@ -7,6 +7,7 @@
  */
 
 import { fetchJSON } from './api.js';
+import { state } from './state.js';
 import { esc } from './utils.js';
 
 /**
@@ -16,6 +17,15 @@ import { esc } from './utils.js';
 export async function refreshStatsBadges() {
   const container = document.getElementById('stats-badges');
   if (!container) return;
+
+  // The graph paradigm has no statistics endpoint — /api/statistics answers
+  // 501 there by design — so show no badges instead of firing a request the
+  // server documents it will refuse. The catch below still covers a 501 that
+  // arrives from anywhere else: badges clear, nothing throws.
+  if (state.pipelineType === 'graph') {
+    container.innerHTML = '';
+    return;
+  }
 
   try {
     const stats = await fetchJSON('/api/statistics');

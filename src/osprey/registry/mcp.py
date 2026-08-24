@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from osprey import bluesky_tool_names as bsky
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
@@ -440,6 +441,31 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
     ),
+    "graph": ServerDefinition(
+        name="graph",
+        module="osprey.mcp_server.graph",
+        env={
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
+        # Conditional on a declared graph store: ``graphdb_configured`` is a
+        # config-derived context key that is truthy only when the project
+        # configures ``services.graphdb``. Without the store there is nothing to
+        # query, so the server is left out of the render entirely rather than
+        # shipped as a tool that can only fail.
+        condition="graphdb_configured",
+        # Read-only knowledge-graph search — every tool reads and nothing the
+        # agent passes at call time can mutate the store, so there is no
+        # approval / writes-check hook here and permissions_ask stays empty:
+        # read_cypher runs inside a read-mode transaction that the store itself
+        # rejects writes in, and its Cypher gate refuses extension procedures /
+        # functions and LOAD CSV before dialing; get_schema and example_queries
+        # serve metadata, and capabilities is a static manifest.
+        permissions_allow=["capabilities", "example_queries", "get_schema", "read_cypher"],
+        permissions_ask=[],
+        hooks_post=[_post_error("mcp__graph__.*")],
+    ),
 }
 
 
@@ -459,7 +485,27 @@ CHANNEL_FINDER_TOOLS_BY_PIPELINE: dict[str, list[str]] = {
         "validate",
     ],
     "in_context": ["ask_channels"],
+    # Same four tools as the standalone ``graph`` server above, and for the same
+    # reason: both front the one read-only knowledge-graph vocabulary. They differ
+    # in who calls them — the standalone server answers the main agent's facility
+    # questions, this pipeline puts the same tools behind the channel-finder
+    # subagent so a graph store can serve address lookups the way a channel
+    # database does for the file-backed paradigms.
+    "graph": ["capabilities", "example_queries", "get_schema", "read_cypher"],
 }
+
+# Every keyed pipeline must be a paradigm the registry knows about, or the
+# rendered agent would advertise tools for a mode nothing else in the build
+# accepts. Checked at import so a typo fails loudly instead of resolving to an
+# empty tool list. The reverse is not required: a registered paradigm may be
+# served by a pipeline that exposes no MCP tools of its own.
+_unregistered_pipelines = set(CHANNEL_FINDER_TOOLS_BY_PIPELINE) - set(VALID_CHANNEL_FINDER_MODES)
+if _unregistered_pipelines:
+    raise RuntimeError(
+        "CHANNEL_FINDER_TOOLS_BY_PIPELINE names channel-finder paradigms that are "
+        f"not registered in VALID_CHANNEL_FINDER_MODES: {sorted(_unregistered_pipelines)!r}"
+    )
+del _unregistered_pipelines
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +563,20 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "parameters, or any documented facility knowledge."
         ),
     ),
+    "facility-knowledge-graph": AgentDefinition(
+        name="facility-knowledge-graph",
+        # Rides the graph server, not just the store: an explicit
+        # ``claude_code.servers.graph.enabled: false`` takes the agent away
+        # together with the tools it delegates to.
+        server_dependency="graph",
+        description=(
+            "Answers structural questions about the machine from the facility "
+            "knowledge graph: which devices exist, where they sit along the beam, "
+            "what channels a device exposes, which addresses read vs write, device "
+            "classes and counts. Delegate to this agent when the user asks how the "
+            "machine fits together."
+        ),
+    ),
     "pyat-specialist": AgentDefinition(
         name="pyat-specialist",
         server_dependency="python",
@@ -561,6 +621,16 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     # agent frontmatter share one source of truth (no wildcard).
     cf_pipeline = ctx.get("channel_finder_pipeline")
     if cf_pipeline and "channel-finder" in servers:
+        # A paradigm the registry does not know is a build error, not an empty
+        # allow-list: silently allowing nothing would ship a channel-finder
+        # server whose every tool is denied at run time.
+        if cf_pipeline not in VALID_CHANNEL_FINDER_MODES:
+            from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+            raise PipelineModeError(
+                f"Unknown channel_finder pipeline: {cf_pipeline!r}. "
+                f"Valid modes are: {', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            )
         servers["channel-finder"].permissions_allow = list(
             CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(cf_pipeline, [])
         )

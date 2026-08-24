@@ -267,12 +267,24 @@ def _coerce_float(value, label: str) -> float:
         ) from exc
 
 
+# Quantity stems that legitimately fuse with a bare plane letter (``betax``,
+# ``nux``, ``tuney``, ``qx``). The bare-suffix clause in ``_has_token`` fires
+# only after one of these — never on an ordinary word that happens to end in a
+# plane letter (``index`` ends with ``x``, ``energy`` ends with ``y``).
+_PLANE_STEMS = ("beta", "tune", "nu", "q", "b")
+
+
 def _has_token(path: str, tokens) -> bool:
     """True if *path* carries a plane token as a delimited segment (avoids
     matching an incidental character inside a longer word)."""
-    return any(
-        f".{t}" in path or f"_{t}" in path or path.endswith(t) or f"[{t}]" in path for t in tokens
-    )
+    for t in tokens:
+        if f".{t}" in path or f"_{t}" in path or f"[{t}]" in path:
+            return True
+        if path.endswith(t):
+            head = path[: -len(t)].split(".")[-1].split("_")[-1].rstrip("]").split("[")[-1]
+            if head in _PLANE_STEMS:
+                return True
+    return False
 
 
 def _resolve_two_plane(cands: list, label: str) -> tuple[float, float]:
@@ -293,6 +305,25 @@ def _resolve_two_plane(cands: list, label: str) -> tuple[float, float]:
             _coerce_float(ordered[1][1], f"{label} (y)"),
         )
     raise AssertionError(f"could not resolve horizontal/vertical {label} from saved keys: {cands}")
+
+
+def test_resolve_two_plane_ignores_metadata_keys() -> None:
+    """Regression: a sibling metadata key ending in a plane letter must not win.
+
+    In CI the subagent saved BPM01's lattice element index (7) alongside the
+    correct betas; ``.beta.bpm01.index`` ends with ``x``, so the resolver read
+    the index as the horizontal beta and failed a numerically correct artifact
+    (``got 7.0, truth 14.93``). Suffix matching must stay limited to compact
+    plane spellings (``betax``, ``nux``) and never fire on ordinary words.
+    """
+    data = {"beta": {"bpm01": {"index": 7, "s_m": 4.8, "beta_x": 14.93, "beta_y": 6.05}}}
+    cands = [(p, v) for p, v in _leaves(data) if "beta" in p and "bpm01" in p]
+    assert _resolve_two_plane(cands, "beta at BPM01") == (14.93, 6.05)
+
+    # Compact spellings without a delimiter keep resolving via the suffix path.
+    compact = {"bpm01": {"betax": 14.93, "betay": 6.05}}
+    cands = [(p, v) for p, v in _leaves(compact) if "bpm01" in p]
+    assert _resolve_two_plane(cands, "beta at BPM01") == (14.93, 6.05)
 
 
 def _load_results_artifacts(repo: Path) -> list[tuple[dict, dict]]:

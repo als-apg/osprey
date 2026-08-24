@@ -2,16 +2,18 @@
 
 The Control Assistant Tutorial's channel-finder databases already define the
 channel namespace the virtual accelerator must serve: the tutorial ships
-three interchangeable "paradigm" formats (in_context, hierarchical,
+three interchangeable file "paradigm" formats (in_context, hierarchical,
 middle_layer) that describe the same set of PV addresses under the grammar
-``{ring}:{system}:{family}:{device}:{field}:{subfield}``.
+``{ring}:{system}:{family}:{device}:{field}:{subfield}``. The ``graph``
+paradigm is deliberately not among them -- it answers from a seeded store
+rather than a tier file, so it contributes no manifest source.
 
-This package expands all three at their build-resolved tier, verifies they
-agree, unions in the scenario-seed ``machine.json`` channels, reconciles the
-machine-state template against the result, and classifies every address into
-a physics-fidelity partition (pyat-coupled / sp-echo / static-noisy) plus an
-EPICS record type. The served channel set is derived from these sources --
-never hand-listed.
+This package expands all three file formats at their build-resolved tier,
+verifies they agree, unions in the scenario-seed ``machine.json`` channels,
+reconciles the machine-state template against the result, and classifies
+every address into a physics-fidelity partition (pyat-coupled / sp-echo /
+static-noisy) plus an EPICS record type. The served channel set is derived
+from these sources -- never hand-listed.
 
 See :func:`build.build_manifest` for the entry point.
 """

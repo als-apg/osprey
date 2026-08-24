@@ -1325,6 +1325,27 @@ jobs:
         "$bundled/claude" --version
         echo "$bundled" >> "$GITHUB_PATH"
 
+    - name: Fetch the pinned neosemantics (n10s) jar for the graph benchmark lane
+      # The fourth paradigm, `graph`, is scored against a real Neo4j +
+      # neosemantics store that testcontainers starts here (ubuntu-latest
+      # ships a running Docker daemon, so nothing else is needed for it).
+      # The fixture can download this jar itself, but a download failure
+      # there *skips* the lane rather than failing it -- a paradigm that
+      # quietly stops being benchmarked. Fetching it in a step of its own
+      # turns the network into something that fails loudly, and
+      # OSPREY_TEST_N10S_JAR then points the fixture at the local copy.
+      # The URL is read from the pin the fixture itself uses
+      # (tests._graphdb_container.N10S_JAR_URL) instead of being
+      # re-typed here: the n10s build must match the Neo4j image line, and
+      # two spellings of that pin is one drift waiting to happen.
+      run: |
+        set -euo pipefail
+        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
+        jar="${{ runner.temp }}/$(basename "$url")"
+        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
+        ls -l "$jar"
+        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
+
     - name: Run channel-finder MCP benchmarks
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}

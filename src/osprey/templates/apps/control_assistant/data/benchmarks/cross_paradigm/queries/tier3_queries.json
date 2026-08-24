@@ -348,7 +348,7 @@
     "category": "multi-target"
   },
   {
-    "user_query": "Give me the readback for the third vertical corrector and the first BPM vertical position",
+    "user_query": "In the storage ring, give me the readback for the third vertical corrector and the first BPM vertical position",
     "targeted_pv": [
       "SR:MAG:VCM:03:CURRENT:RB",
       "SR:DIAG:BPM:01:POSITION:Y"
@@ -432,7 +432,7 @@
     "category": "range"
   },
   {
-    "user_query": "Show all ion pump signals for the sector 4 pump",
+    "user_query": "Show the current, pressure, and voltage signals for the sector 4 ion pump",
     "targeted_pv": [
       "SR:VAC:ION-PUMP:04:CURRENT:RB",
       "SR:VAC:ION-PUMP:04:PRESSURE:RB",
@@ -493,7 +493,7 @@
     "category": "semantic"
   },
   {
-    "user_query": "Show me the horizontal beam position at the fifth BPM",
+    "user_query": "Show me the horizontal beam position at the fifth storage ring BPM",
     "targeted_pv": [
       "SR:DIAG:BPM:05:POSITION:X"
     ],

@@ -36,6 +36,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_facility_bundle,
+    personas_needing_graphdb_password,
     personas_needing_launch_token,
     personas_not_denying_bash,
 )
@@ -393,8 +394,9 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
     # the .env.auth digest, which personas declare the EVENTS panel and so need
     # the dispatcher's bearer, which configure ARIEL and so need its Postgres
     # password, which both allow writes and run the bluesky server and so may
-    # arm a queue start — each in their own per-user environment block — and
-    # which name a facility-knowledge bundle and so get it bind-mounted.
+    # arm a queue start, which configure a graph store and so need its Neo4j
+    # password — each in their own per-user environment block — and which name a
+    # facility-knowledge bundle and so get it bind-mounted.
     # Fail closed BEFORE the render, so a refused deploy leaves no half-written
     # artifacts behind: a persona holding BLUESKY_LAUNCH_TOKEN whose shipped
     # settings still permit `Bash` can arm a queue start from a shell, with none
@@ -412,6 +414,7 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
         dispatcher_personas=personas_needing_dispatcher_token(config, root),
         ariel_personas=personas_needing_ariel_password(config, root),
         launch_token_personas=launch_token_personas,
+        graphdb_personas=personas_needing_graphdb_password(config, root),
         archiver_password_personas=personas_needing_archiver_password(config, root),
         facility_bundle_personas=personas_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path

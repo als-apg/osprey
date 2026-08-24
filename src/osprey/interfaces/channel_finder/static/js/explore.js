@@ -26,12 +26,64 @@ function _dbSourceBadge() {
 }
 
 /**
+ * Show a pipeline type this view has no renderer for. Loud on purpose: a
+ * pipeline the server never accepted must not look like a working view.
+ * @param {HTMLElement} content
+ * @param {string|null} pipelineType
+ */
+function mountUnknown(content, pipelineType) {
+  content.innerHTML = `
+    <div class="explore-unknown" role="alert">
+      <div class="explore-unknown-title">
+        Unknown pipeline '${esc(String(pipelineType))}' &mdash; the server rejected this configuration
+      </div>
+      <div class="explore-unknown-body">
+        Explore has no view for this pipeline type. Check the channel finder
+        pipeline setting in your configuration, then reload this panel.
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Show the graph paradigm's static pane. Not a failure: the graph paradigm
+ * ships no browser at all, so there is nothing to render and nothing to fix.
+ * Shares the pane box with the unknown-pipeline notice above, but wears the
+ * informational modifier: a correctly configured deployment must not be
+ * tinted like the pane that reports a rejected configuration.
+ * @param {HTMLElement} content
+ */
+function mountGraph(content) {
+  content.innerHTML = `
+    <div class="explore-unknown explore-unknown--info" data-pipeline="graph">
+      <div class="explore-unknown-title">
+        This paradigm has no browser &mdash; channels are resolved by querying the facility graph
+      </div>
+      <div class="explore-unknown-body">
+        Ask the assistant for the channels you need: it answers from the graph
+        store with <code>read_cypher</code> instead of a channel database.
+      </div>
+    </div>
+  `;
+}
+
+/** Clear whichever static pane is mounted (unknown pipeline or graph). */
+function clearStaticPane() {
+  const content = document.getElementById('explore-content');
+  if (content) content.innerHTML = '';
+}
+
+/**
  * @param {HTMLElement} container
  */
 export function mountExplore(container) {
   const pt = state.pipelineType;
 
   const hasSchema = (pt === 'hierarchical' || pt === 'middle_layer');
+
+  const subtitle = pt === 'graph'
+    ? 'Channels are resolved from the facility graph'
+    : 'Browse the channel database structure';
 
   const descToggle = hasSchema
     ? `<label class="miller-toggle" style="margin-top: var(--cf-space-1)">
@@ -43,7 +95,7 @@ export function mountExplore(container) {
     <div class="section-header">
       <div>
         <div class="section-title">Explore Channels</div>
-        <div class="section-subtitle">Browse the channel database structure</div>
+        <div class="section-subtitle">${subtitle}</div>
         ${_dbSourceBadge()}
         ${descToggle}
       </div>
@@ -76,9 +128,15 @@ export function mountExplore(container) {
   } else if (pt === 'middle_layer') {
     currentRenderer = 'middle_layer';
     mountMiddleLayer(content);
-  } else {
+  } else if (pt === 'in_context') {
     currentRenderer = 'in_context';
     mountInContext(content);
+  } else if (pt === 'graph') {
+    currentRenderer = 'graph';
+    mountGraph(content);
+  } else {
+    currentRenderer = 'unknown';
+    mountUnknown(content, pt);
   }
 }
 
@@ -86,5 +144,6 @@ export function unmountExplore() {
   if (currentRenderer === 'hierarchical') unmountHierarchical();
   else if (currentRenderer === 'middle_layer') unmountMiddleLayer();
   else if (currentRenderer === 'in_context') unmountInContext();
+  else if (currentRenderer === 'graph' || currentRenderer === 'unknown') clearStaticPane();
   currentRenderer = null;
 }

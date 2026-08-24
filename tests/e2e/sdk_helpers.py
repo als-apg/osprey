@@ -276,14 +276,19 @@ def init_project(
     nothing lies. Tests that want recorded history deploy a store of their own.
 
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
-    ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
-    ``None`` and a ``channel_finder_mode`` is given, the tier is derived from it
-    (in_context → 1, else → 3); when neither is given, ``tier`` is left out of
-    the profile and the build derives it from the preset's own paradigm. An
-    explicit ``tier`` kwarg is always honored. Consequence:
-    hierarchical/middle_layer callers score the full tier-3 (2908-channel)
-    surface, not a tier-1 subset. The tier is a profile field, so it is set the
-    same way as every other one: ``--set tier=N`` on ``init``.
+    every other paradigm requires tier 3. When ``tier`` is left ``None`` and a
+    ``channel_finder_mode`` is given, the tier is derived from it (in_context
+    → 1, else → 3); when neither is given, ``tier`` is left out of the profile
+    and the build derives it from the preset's own paradigm. An explicit
+    ``tier`` kwarg is always honored. Consequence: hierarchical/middle_layer
+    callers score the full tier-3 (2908-channel) surface, not a tier-1 subset.
+    The tier is a profile field, so it is set the same way as every other one:
+    ``--set tier=N`` on ``init``.
+
+    A paradigm whose store is a service rather than tiered database files
+    (``graph``) has no tier to select, so the derived tier is dropped for it
+    and the profile is written without a ``tier`` field. The rule is read from
+    ``tier_mode_conflict`` rather than restated here.
 
     ``provider`` is required (keyword-only) — every test callsite must name
     it explicitly. Each provider gates on different credentials (CBORG needs
@@ -309,12 +314,19 @@ def init_project(
     ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
     collapses all tiers onto a single model id.
     """
-    from osprey.build.build_tiers import default_tier_for_mode
+    from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
 
     provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
     effective_tier = tier
     if effective_tier is None and channel_finder_mode is not None:
-        effective_tier = default_tier_for_mode(channel_finder_mode)
+        derived = default_tier_for_mode(channel_finder_mode)
+        # Pin the derived tier only where the paradigm accepts one. A paradigm
+        # backed by a service rather than tiered database files has no tier to
+        # select, and ``tier_mode_conflict`` is the registry's own statement of
+        # which pairings hold — asking it keeps the rule in one place instead of
+        # re-listing paradigms here.
+        if tier_mode_conflict(derived, channel_finder_mode) is None:
+            effective_tier = derived
     repo = tmp_path / name
     init_args = [
         str(repo),

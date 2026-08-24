@@ -95,6 +95,19 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The graph channel finder no longer mistakes its own row limit for the whole
+  answer: `read_cypher` now warns when a result exactly fills the query's own
+  `LIMIT`, the example catalogue gained a census query (count before listing
+  "all of X") and a composed hardware-plus-signal filter that keeps sibling
+  signals out of the match, and the agent's report now ends with a definitive
+  **Channels found** list separated from any related addresses mentioned in
+  prose.
+- The cross-paradigm benchmark's "third vertical corrector" query now names
+  the storage ring: the machine also has a third vertical corrector in the
+  transfer line, so the old wording was ambiguous and graded a guess.
+- The pyat-specialist grounding e2e no longer misreads a saved metadata key
+  ending in a plane letter (an `index` next to the betas) as the horizontal
+  value — a numerically correct results artifact could fail the check.
 - The kill-switch e2e tests no longer fail when the agent makes a
   preparatory read before the denied write: the hook assertion is scoped to
   the write tool instead of requiring zero approval events overall.
@@ -517,6 +530,77 @@ Compatibility is documented in release notes, not encoded in the version string.
   value at every verification level, flipping `success` when the readback read
   fails, and labeling an infrastructure failure differently from a
   control-system failure.
+
+- A deployment can now run a facility knowledge graph as a service. Add
+  `graphdb` to `deployed_services` alongside a `services.graphdb` block naming
+  the image, host ports and a Turtle corpus (`ttl_path`), and `osprey up`
+  starts the store, mints its `GRAPHDB_PASSWORD` into the project `.env`, and
+  loads the corpus. `osprey knowledge seed-graph` re-seeds or re-checks it
+  later, and `osprey health` reports bolt connectivity and how many resources
+  the graph holds, under a new `graphdb` category. The `control-assistant` and
+  `ariel-standalone` presets ship the block already filled in.
+- Agents can query that graph through a new `graph` MCP server. `read_cypher`
+  runs Cypher in a read-only transaction — writes, extension procedures and
+  `LOAD CSV` are refused — `get_schema` reports the labels, relationship types
+  and properties actually present, and `example_queries` serves a curated,
+  parameterized set covering device rollups, channel bindings and section
+  walks. `services.graphdb.query_timeout_s` (default 15 s) and
+  `services.graphdb.query_max_rows` (default 200) bound a single query. The
+  server is rendered wherever `services.graphdb` is configured, and its tools
+  belong to a new `facility-knowledge-graph` subagent: the main agent answers
+  structural questions ("what sits in section 7, in beam order?") by
+  delegating to it, exactly as address lookups delegate to the channel finder.
+  Safety, output-style, setup-mode and diagnose prompts name the agent where
+  they enumerate its siblings.
+- The store's schema and the curated examples are baked into that agent's
+  rendered prompt at seed time: whichever verb seeds or re-verifies the store
+  (`osprey up`'s staging step, `osprey knowledge seed-graph`) captures them
+  from the live store — property lists complete, example parameters narrowed
+  to the seeded corpus — and rewrites the prompt's snapshot section, stamped
+  with the seed marker's checksum. The agent starts oriented instead of
+  spending its first turn on `example_queries`/`get_schema`; both tools stay
+  registered as the recovery path for a store re-seeded out of band.
+- `osprey knowledge build-ttl` generates a Turtle corpus from a project's
+  hierarchical channel database (`--channel-db`) and the matching in-context
+  database (`--descriptions`), deriving devices from the channel-name grammar,
+  each binding's read/write direction from the limits database, and the prose
+  describing them from both. The `control-assistant` preset seeds its graph from
+  that corpus, so its graph and channel finder describe the same machine.
+- The `control-assistant-readonly` and `control-assistant-readwrite` operator
+  terminals get the facility-knowledge-graph agent too, reading the hosting
+  deployment's store over `services.graphdb.port_host`. Move that port on the
+  deployment and move the same number in both preset files.
+
+- The graph is available as a fourth channel-finder paradigm:
+  `channel_finder.pipeline_mode: graph` (`osprey init --set
+  channel_finder_mode=graph`) answers channel questions from the deployment's
+  graph store instead of a database file. The channel-finder subagent gets four
+  tools under the usual `channel-finder` server name — `read_cypher` for
+  read-only Cypher, `get_schema`, `capabilities` for the corpus conventions a
+  query has to follow, and `example_queries` for a catalogue of worked lookups.
+  A `services.graphdb` block is the whole configuration, whether it deploys the
+  store with the project or names an external one (`uri`, `username` and
+  `GRAPHDB_PASSWORD`); there is no `pipelines.graph` block to fill in.
+- The corpus the `control-assistant` preset ships describes its machine in
+  words, so a graph-mode search can match an operator's phrasing: every channel
+  binding carries a description plus its field and subfield text, every device
+  carries family, system and ring descriptions and a `system` token, and
+  synonyms are stored as lists.
+- `osprey health` reports a graph-mode channel finder as store-backed — bolt
+  reachability and the store's resource count, with no database file to look
+  for — and the channel-finder web app serves a pane naming the graph tools,
+  answering the file-backed routes (statistics, validation, pipeline switching)
+  by pointing at `read_cypher`.
+- The channel-finder benchmark runs a fourth lane, scoring the graph paradigm
+  against the same tier-3 query set as the other three.
+
+### Changed
+
+- A missing or unknown `channel_finder.pipeline_mode` now fails with an error
+  naming the modes that exist, everywhere the mode is read: build, agent
+  render, `osprey health`, the channel-finder web app and the benchmark runner.
+- A benchmark lane fails outright when any of its queries fails to run, so a
+  score is only ever reported over the whole query set.
 
 ### Fixed
 

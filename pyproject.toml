@@ -143,6 +143,10 @@ dependencies = [
     # (simulation.apply, deployment.container_lifecycle, services.archiver_recorder)
     # import pymongo directly rather than through a connector.
     "pymongo>=4.17.0",
+    # Neo4j driver for the graph store (osprey.services.graphdb). Pure Python,
+    # no build step, so it carries none of the platform-wheel concerns that
+    # justify keeping other clients optional. Core rather than an extra.
+    "neo4j>=5.20",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -233,6 +237,7 @@ dev = [
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
+    "rdflib>=7.0",  # TTL generator tests (semantic round-trip); runtime use stays in the knowledge extra
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)

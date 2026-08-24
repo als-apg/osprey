@@ -21,7 +21,13 @@ from osprey.cli.build_profile_merge import _hash_resolved_profile
 
 # preset name -> resolved-content hash, pre-rename.
 PINNED_PRESET_HASHES: dict[str, str] = {
-    "ariel-standalone": "sha256:a08bde688f81f7604da07822db5def68d6c0d294688f15ec8720ac5df11a8cee",
+    # Moved when the graph tools left the main agent for the new
+    # facility-knowledge-graph subagent: this preset's `agents:` went from the
+    # empty list to naming that one agent. NOT behavior-neutral — a rebuilt
+    # ARIEL deployment answers structural questions through delegation instead
+    # of direct mcp__graph__* calls — so the staleness advisory firing on
+    # already-deployed projects is the correct signal.
+    "ariel-standalone": "sha256:0cbb6b39294bcee682f13f7325a26aca310def5ecf8ee40f7a1bf8399fa7e234",
     "channel-finder-standalone": (
         "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
@@ -52,15 +58,37 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # deploy-visible, so the staleness advisory firing on already-deployed
     # projects is correct. `control-assistant-ariel` excludes the skill by
     # name, so only the notices moved its digest.
-    "control-assistant": "sha256:5ef6bbfb2b06cdba889a5c0484eedb9d885a89c5148c00f6f89bca31034beceb",
+    # Moved (with every tier extending it) when the base gained the
+    # facility-knowledge-graph agent in its `agents:` list — the subagent that
+    # now owns the graph tools. A rebuilt project grows
+    # `.claude/agents/facility-knowledge-graph.md` and its CLAUDE.md roster
+    # entry; deploy-visible, so the advisory firing is correct.
+    "control-assistant": "sha256:aac30a004471d996c38e361945b9768dd5f86f38f91d4dd3609ddd015cf7c4a4",
     "control-assistant-ariel": (
-        "sha256:db36e1df06e55b0fd47d9e93ccb84101f2b9868152ba922d2827c8fa133a9db5"
+        "sha256:9f90484d19d93ccef25e0ae8b8a22851f8299619de85c170cead92043e7a9e2b"
     ),
+    # The two operator tiers below moved together, and alone, when each gained
+    # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
+    # block — the attached-render personas scaffold no services of their own, so
+    # without it their terminals would dial the shipped default port rather than
+    # the port the hosting deployment publishes its graph store on. The base
+    # `control-assistant` and the `control-assistant-ariel` tier are untouched
+    # (the change is in these two leaves, not in the base they extend), which is
+    # why only two of the four digests above move here. NOT behavior-neutral: a
+    # rebuilt operator terminal gains the `graph` MCP server and its tools, so
+    # the deploy-side staleness advisory firing on already-deployed
+    # operator-tier projects is the correct signal.
+    # Moved once more where the graph work met main: these two leaves already
+    # carried the `services.graphdb.port_host` key above, and main independently
+    # re-recorded them for the landing notices. Both edits are in the resolved
+    # content, so the digest here is neither branch's recorded value but the one
+    # the merged preset actually hashes to. Deploy-visible for both reasons at
+    # once, which is what the advisory should say.
     "control-assistant-readonly": (
-        "sha256:23caeed80df2874008f26cbc6f06712f230fa11f9e8666e77590dac7729c2640"
+        "sha256:473d78864ae444ef95c339ee1f856b654e3a96474af237fa06d2110722d4e53c"
     ),
     "control-assistant-readwrite": (
-        "sha256:51b7fcc7e5889888ca2cfadbb2c3dbfc1dff625ab780f9ae9cfd3f453c766bf4"
+        "sha256:05b92f5ae58db631731ecd4f165d7c6bc9b36ee974c5ece794edeffe5a393633"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

@@ -49,7 +49,7 @@ class TestResolveServers:
         # Core servers always on
         assert {"controls", "osprey_workspace", "ariel"} <= enabled
         # Conditional servers off (conditions not in ctx); opt-in servers off by default
-        assert {"channel-finder", "health"} <= disabled
+        assert {"channel-finder", "health", "graph"} <= disabled
 
     def test_resolve_disable_framework_server(self):
         """New format: servers: {ariel: {enabled: false}}."""
@@ -221,10 +221,18 @@ class TestResolveServers:
         makes config resolution fall back to CWD/config.yml and fail. Regression
         guard: osprey_workspace / ariel / channel-finder used to omit it.
         """
-        ctx = _base_ctx(channel_finder_pipeline="hierarchical")
+        ctx = _base_ctx(channel_finder_pipeline="hierarchical", graphdb_configured=True)
         servers = resolve_servers({}, ctx)
         expected = "/tmp/test-project/build/config.yml"
-        for name in ("controls", "python", "osprey_workspace", "ariel", "health", "channel-finder"):
+        for name in (
+            "controls",
+            "python",
+            "osprey_workspace",
+            "ariel",
+            "health",
+            "channel-finder",
+            "graph",
+        ):
             srv = [s for s in servers if s["name"] == name][0]
             assert srv["env"].get("CONFIG_FILE") == expected, (
                 f"{name} must set CONFIG_FILE={expected!r}, got {srv['env'].get('CONFIG_FILE')!r}"
