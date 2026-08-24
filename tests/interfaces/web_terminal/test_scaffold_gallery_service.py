@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.interfaces.web_terminal.ownership import (
     OwnershipMode,
     OwnershipStore,
@@ -278,6 +279,22 @@ def _add_user_owned(project_dir: Path, name: str) -> None:
         owned.append(name)
     with open(project_dir / "config.yml", "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
+
+
+def _raising_resolve(real_resolve, filename: str):
+    """A ``Path.resolve`` that fails for one file and behaves for every other.
+
+    Scoped to a single name rather than patched wholesale, so the test drives
+    the guard's own ``resolve`` call and nothing else: a blanket failure would
+    break the fixture machinery around it and prove nothing about the branch.
+    """
+
+    def resolve(self, *args, **kwargs):
+        if self.name == filename:
+            raise OSError(62, "Too many levels of symbolic links")
+        return real_resolve(self, *args, **kwargs)
+
+    return resolve
 
 
 # ===========================================================================
@@ -2910,6 +2927,158 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
 
         assert listed["agents/planted-link"]["read_only"] is True
         assert listed["agents/linked-ok"]["read_only"] is False
+
+
+class TestWritesThatLeaveTheProjectAreRefused:
+    """Following the link is only half the answer — it can land nowhere judgeable.
+
+    :func:`~...ownership.reserved_write_channel` resolves the path before it
+    answers, and the resolved path has two ways of being unusable. It can land
+    OUTSIDE the project, where no protected pattern applies because the pattern
+    table is written in project-relative terms and there is nothing left to be
+    relative to: the operator's ``~/.ssh/authorized_keys`` is not
+    ``.claude/rules/**`` by any reading, and a guard that only asked "is the
+    resolved path protected?" would wave it through. Or it can fail to resolve
+    at all — a link cycle, a path segment the process cannot traverse — and a
+    path this function cannot judge must not read as writable.
+
+    Both answer with :data:`NOT_PROJECT_RELATIVE_CHANNEL`, and both are the
+    LAST gate: ``_write_body`` opens ``project_dir / output_path`` and
+    ``delete_untracked`` unlinks it, each with no resolve check of its own. The
+    filesystem follows the link on the way in, so whatever this function
+    declines is exactly what those two would otherwise have written or removed.
+
+    The restore path has its own escape tests, but they never reach this
+    branch: ``_safe_relative`` rejects a store record before the resolve
+    happens. The gallery has no such pre-filter — the link is planted at an
+    ordinary, ownable, unreserved name — so these are the tests that execute
+    the guard.
+    """
+
+    def _outside(self, tmp_path: Path) -> Path:
+        """A file that is emphatically not in the project."""
+        outside = tmp_path / "outside-the-project" / "authorized_keys"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_text("ssh-ed25519 AAAA-the-operators-own-key\n", encoding="utf-8")
+        return outside
+
+    def _escaping_link(self, project_dir: Path, name: str, target: Path) -> Path:
+        """Plant ``.claude/agents/<name>.md`` as a link out of the project, and own it."""
+        link = project_dir / ".claude" / "agents" / f"{name}.md"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(target)
+        _add_user_owned(project_dir, f"agents/{name}")
+        return link
+
+    def test_save_override_refuses_a_link_that_lands_outside_the_project(
+        self, detached_project_dir, tmp_path, audit_zone
+    ):
+        """The save opens the target, and the target is not ours to open."""
+        outside = self._outside(tmp_path)
+        before = outside.read_bytes()
+        self._escaping_link(detached_project_dir, "escaping-save", outside)
+
+        svc = ScaffoldGalleryService(detached_project_dir)
+        with pytest.raises(ProtectedArtifactError) as exc:
+            svc.save_override("agents/escaping-save", "# Written by the agent\n")
+
+        assert exc.value.channel == NOT_PROJECT_RELATIVE_CHANNEL
+        assert "NOTHING WAS WRITTEN" in str(exc.value)
+        assert outside.read_bytes() == before, "the write would have gone through the link"
+
+        records = _protected_records(audit_zone)
+        assert len(records) == 1
+        assert records[0]["key_or_path"] == ".claude/agents/escaping-save.md"
+        assert records[0]["channel"] == NOT_PROJECT_RELATIVE_CHANNEL
+
+    def test_unoverride_with_delete_refuses_a_link_that_lands_outside_the_project(
+        self, detached_project_dir, tmp_path, audit_zone
+    ):
+        """``unlink`` through a link removes the file at the far end of it."""
+        outside = self._outside(tmp_path)
+        link = self._escaping_link(detached_project_dir, "escaping-del", outside)
+
+        svc = ScaffoldGalleryService(detached_project_dir)
+        with pytest.raises(ProtectedArtifactError) as exc:
+            svc.unoverride("agents/escaping-del", delete_file=True)
+
+        assert exc.value.channel == NOT_PROJECT_RELATIVE_CHANNEL
+        assert "NOTHING WAS DELETED" in str(exc.value)
+        assert outside.exists(), "the delete would have removed a file outside the project"
+        assert link.is_symlink()
+        assert "agents/escaping-del" in _get_user_owned(detached_project_dir), (
+            "the refusal is raised before the release, so ownership is untouched"
+        )
+
+        records = _protected_records(audit_zone)
+        assert len(records) == 1
+        assert records[0]["channel"] == NOT_PROJECT_RELATIVE_CHANNEL
+
+    def test_delete_untracked_refuses_a_link_that_lands_outside_the_project(
+        self, detached_project_dir, tmp_path, audit_zone
+    ):
+        """The orphan sweep's delete reaches disk through the same one question."""
+        outside = self._outside(tmp_path)
+        link = detached_project_dir / ".claude" / "agents" / "escaping-orphan.md"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(outside)
+
+        svc = ScaffoldGalleryService(detached_project_dir)
+        with pytest.raises(ProtectedArtifactError) as exc:
+            svc.delete_untracked("agents/escaping-orphan")
+
+        assert exc.value.channel == NOT_PROJECT_RELATIVE_CHANNEL
+        assert outside.exists()
+        assert link.is_symlink()
+        assert len(_protected_records(audit_zone)) == 1
+
+    def test_a_link_out_of_the_project_is_shown_read_only(self, detached_project_dir, tmp_path):
+        """The badge inherits the refusal, so the card cannot offer a dead edit."""
+        self._escaping_link(detached_project_dir, "escaping-badge", self._outside(tmp_path))
+
+        listed = {
+            a["name"]: a for a in ScaffoldGalleryService(detached_project_dir).list_artifacts()
+        }
+
+        assert listed["agents/escaping-badge"]["read_only"] is True
+
+    def test_an_unresolvable_path_answers_with_a_refusal_not_none(self, project_dir, monkeypatch):
+        """ "Cannot judge" is not "writable" — the fail-closed branch, on its own.
+
+        Driven by making ``resolve`` raise, because the real ways to provoke it
+        (a link cycle, an untraversable segment) are host- and
+        filesystem-dependent and one of them is not even an error on every
+        platform. What is under test is the branch, and the branch is reached
+        by exactly one thing: ``resolve`` raising ``OSError``.
+        """
+        monkeypatch.setattr(Path, "resolve", _raising_resolve(Path.resolve, "unresolvable.md"))
+
+        channel = reserved_write_channel(project_dir, ".claude/agents/unresolvable.md")
+
+        assert channel == NOT_PROJECT_RELATIVE_CHANNEL
+
+    def test_save_override_refuses_a_path_it_cannot_resolve(
+        self, detached_project_dir, monkeypatch, audit_zone
+    ):
+        """And the caller that would have written the bytes gets that refusal."""
+        target = detached_project_dir / ".claude" / "agents" / "unresolvable.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Framework's own\n", encoding="utf-8")
+        _add_user_owned(detached_project_dir, "agents/unresolvable")
+
+        svc = ScaffoldGalleryService(detached_project_dir)
+        monkeypatch.setattr(Path, "resolve", _raising_resolve(Path.resolve, "unresolvable.md"))
+
+        with pytest.raises(ProtectedArtifactError) as exc:
+            svc.save_override("agents/unresolvable", "# Written by the agent\n")
+
+        assert exc.value.channel == NOT_PROJECT_RELATIVE_CHANNEL
+        assert "NOTHING WAS WRITTEN" in str(exc.value)
+        assert target.read_text(encoding="utf-8") == "# Framework's own\n"
+
+        records = _protected_records(audit_zone)
+        assert len(records) == 1
+        assert records[0]["channel"] == NOT_PROJECT_RELATIVE_CHANNEL
 
 
 class TestRestoreRefusesReservedRecords:
