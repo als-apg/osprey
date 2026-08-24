@@ -101,7 +101,7 @@ dependencies = [
     "playwright>=1.61.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
     # Natural language processing
-    "nltk>=3.10.0",
+    "nltk>=3.10.3",
     # ARIEL Web Interface (FastAPI server)
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.1",
