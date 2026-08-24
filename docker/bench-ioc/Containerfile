@@ -1,0 +1,149 @@
+# check=skip=FromPlatformFlagConstDisallowed
+# (The constant --platform below is deliberate, not an oversight -- see the
+# architecture paragraph in the header. Parser directives must lead the file,
+# so this one sits above the header rather than next to what it excuses.)
+
+# Bench IOC: a stock EPICS softIoc serving a small, hand-written record set that
+# deliberately overlaps the virtual accelerator's channel namespace. It plays
+# the "real machine" opposite the virtual accelerator in target-switch tests --
+# two Channel Access servers, two ports, one namespace, different values -- so
+# that a switch between control targets is observable from the values a client
+# reads back rather than merely from configuration state. Nothing here is a
+# simulation: the records hold seeded constants and the access-security file
+# refuses one write. That is the whole point. A test that cannot tell the two
+# targets apart proves nothing about switching between them.
+#
+# The state is deliberately ephemeral: there is no autosave and no persistence
+# of any kind, so a caput lives only until the container exits and every run
+# starts again from the seeded constants below. That is a feature for a test
+# fixture -- no run can inherit a value some earlier run wrote -- and it means a
+# wedged record set is fixed by restarting the container, never by repairing a
+# file.
+#
+# The record names are a deliberate, documented departure from the shipped
+# test-IOC safety rule (src/osprey/templates/claude_code/claude/rules/
+# test-ioc-safety.md.j2), which requires every test PV to carry an
+# `OSPREY:TEST:` prefix so that a test channel can never be mistaken by name for
+# a production one. This IOC serves `SR:*` names instead, because a prefixed
+# namespace would defeat the only thing it is for: the two targets must answer
+# for the SAME channel names with DIFFERENT values, or a client cannot tell that
+# a switch happened. What replaces the prefix as the isolation mechanism is
+# stronger than the prefix ever was -- the server lives in a container network
+# namespace, publishes a single TCP port bound to 127.0.0.1 on the host, and
+# broadcasts nothing. The names themselves are the virtual accelerator's own
+# manifest names, which are facility-neutral by construction.
+#
+# Rule 1 -- never bind a port in 5064-5076 -- is displaced by that same
+# container-isolation argument rather than honoured. This image defaults to, and
+# EXPOSEs, 5064; but 5064 is only the default INSIDE the network namespace, and
+# callers are expected to pass -e EPICS_CA_SERVER_PORT=<ephemeral> with a
+# matching 127.0.0.1-bound publish, so nothing of this IOC ever appears on a
+# facility network at any port. docker/virtual-accelerator takes exactly the
+# same position for exactly the same reason. Rules 2, 5 and 6 ARE honoured as
+# written: both the server and the beacon port are named explicitly (discussed
+# further down), softIoc is never invoked without them, and every database
+# authoring constraint holds (DESC under 40 ASCII characters, no multibyte
+# characters, no dollar-parenthesis substitutions inside comments).
+#
+# Build context is this directory itself:
+#   docker build -f docker/bench-ioc/Containerfile -t bench-ioc:latest docker/bench-ioc
+# The -f is required under docker and is not a stylistic choice: BuildKit only
+# auto-detects a file named `Dockerfile`, so dropping the flag fails with
+# "open Dockerfile: no such file or directory". Auto-detecting `Containerfile`
+# is a podman/buildah convention, and podman does find this file unaided.
+# No staging step is needed, unlike docker/virtual-accelerator/Containerfile
+# (which must be handed a staged tree because it installs the osprey source and
+# would otherwise tar the whole repository, .venv and .git included). This image
+# copies three small text files and nothing else, so the directory holding them
+# is already the smallest possible context.
+#
+# linux/amd64, pinned. That is not a preference, it is what upstream publishes:
+# `docker manifest inspect ghcr.io/epics-containers/epics-base-runtime:7.0.8ec2`
+# lists exactly one real platform, linux/amd64 (plus the attestation manifest
+# that carries no runnable architecture). Without the explicit pin, a build on
+# an arm64 host fails at the pull with "no matching manifest", so the flag is
+# load-bearing rather than decorative. It also matches the posture of every
+# other EPICS image in this repository -- docker/virtual-accelerator and
+# scripts/va/probe_pcaspy are both amd64-only, the former because no pcaspy
+# wheel exists for linux/aarch64 at any interpreter. The accepted cost is the
+# same one those images already pay: on an Apple Silicon host this container
+# runs under emulation. For a softIoc holding thirteen constant records that
+# cost is invisible; boot is still under a second.
+#
+# 7.0.8ec2 is the epics-containers rebuild of EPICS base 7.0.8. It is pinned to
+# a full patch tag rather than a floating one because the record semantics this
+# image depends on -- Soft Channel device support taking VAL from the database,
+# mbbi returning its index unconverted, unconditional access-security rules --
+# are base behaviour, and a base that moved under the tests would move what they
+# assert without touching a line of this repository. There is no prior pin of
+# this base anywhere in the tree; this file establishes it.
+#
+# The two-stage build exists for one file. The runtime image ships
+# /epics/epics-base/bin and /epics/epics-base/lib and nothing else: there is no
+# dbd directory in it at all, so a bare `softIoc` there dies at startup with
+# "Failed to load DBD file: .../dbd/softIoc.dbd" before it ever reads a
+# database. The developer image, same upstream tag, carries the fully expanded
+# softIoc.dbd (one self-contained 450 KB file, no includes to chase), so the
+# first stage exists solely to donate it. Copying one text file is cheaper and
+# far easier to explain than shipping the developer image as the runtime, which
+# would drag a compiler toolchain into a container that never compiles anything.
+FROM --platform=linux/amd64 ghcr.io/epics-containers/epics-base-developer:7.0.8ec2 AS dbd
+
+FROM --platform=linux/amd64 ghcr.io/epics-containers/epics-base-runtime:7.0.8ec2
+
+COPY --from=dbd /epics/epics-base/dbd/softIoc.dbd /epics/epics-base/dbd/softIoc.dbd
+
+# The three files that define what this IOC is. They are read at startup, not
+# baked into a binary, so `docker run -v` can point a one-off experiment at a
+# different record set without a rebuild.
+COPY st.cmd bench.db bench.acf /bench/
+
+# Channel Access server port. TCP only is required, and for the same reason the
+# virtual accelerator image gives: CA name-server mode
+# (EPICS_CA_NAME_SERVERS=<host>:<port>, EPICS_CA_AUTO_ADDR_LIST=NO on the client
+# side) is the one host-to-container configuration proven to work across
+# container runtimes. UDP broadcast discovery is deliberately not published
+# because nothing relies on it.
+#
+# The published port and the port the server binds must be the SAME number. A CA
+# search reply carries the server's own port, so a remap like -p 5164:5064 hands
+# every client a port it cannot reach, with no useful error. This image is meant
+# to be run on an ephemeral port alongside a virtual accelerator, so callers
+# pass -e EPICS_CA_SERVER_PORT=<p> -p 127.0.0.1:<p>:<p>/tcp; 5064 is only the
+# default for a solo run.
+EXPOSE 5064/tcp
+ENV EPICS_CA_SERVER_PORT=5064
+
+# EPICS_CAS_SERVER_PORT is derived at start rather than baked as an ENV, because
+# it has to track EPICS_CA_SERVER_PORT: the CA *server* library reads the CAS
+# variable and does not fall back to the client-side one, so an image whose CAS
+# port were frozen at build time would keep binding 5064 while a
+# `-e EPICS_CA_SERVER_PORT=...` run told its clients some other port. The
+# resulting symptom is an unexplained boot timeout, which is why two harnesses
+# (tests/va/e2e/test_target_switch.py and scripts/demo_target_switch.py) inspect
+# this Cmd for the literal string EPICS_CAS_SERVER_PORT and refuse to start
+# without it. Keep the name spelled out here.
+#
+# EPICS_CAS_BEACON_PORT is derived alongside it. In a container network
+# namespace with only a TCP port published, beacons reach nobody and the
+# variable changes no observable behaviour -- it is set because the shipped
+# test-IOC safety rule requires both the server and the beacon port to be named
+# explicitly, on the grounds that setting only one lets the other silently fall
+# back to a default that may collide with a real facility's CA traffic. The rule
+# holds even where this particular container makes it moot; an IOC that is
+# correct only because of its sandbox is one `--network host` away from being
+# incorrect.
+#
+# `exec` is load-bearing: it replaces the shell so SIGTERM from `docker stop`
+# reaches softIoc directly instead of being absorbed by a shell that will never
+# forward it, which is the difference between a one-second stop and a ten-second
+# kill. `-S` suppresses the interactive iocsh; without it softIoc reads the
+# closed stdin of a detached container, sees EOF, and exits within a second of a
+# seemingly successful boot.
+#
+# Readiness marker: iocInit prints `iocRun: All initialization complete` through
+# the errlog thread once every record is loaded and the CA server is listening.
+# It goes to stderr, which is unbuffered, so it appears in `docker logs`
+# immediately rather than sitting in a 4 KB stdout buffer. Poll for that literal
+# string; a port check alone can succeed before the database is live.
+CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; export EPICS_CAS_BEACON_PORT=\"${EPICS_CAS_BEACON_PORT:-$((EPICS_CAS_SERVER_PORT + 1))}\"; exec softIoc -S /bench/st.cmd"]
