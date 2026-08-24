@@ -868,6 +868,22 @@ class EPICSConnector(ControlSystemConnector):
         # Step 3: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
         # offload, so a caller on the event loop is never stalled by the blocking
         # caget that max_step validation performs.
+
+        # A control-system denial (IOC access security answering the put with
+        # "Write access denied") is not a client bug and must not be reported as
+        # one. It is caught by class, resolved off the module this connector
+        # actually connected with — this module must never import pyepics
+        # (tests/connectors/test_import_isolation.py, and the readonly runtime
+        # forbids it outright). An empty tuple catches nothing, so a connector
+        # whose client library does not expose the class behaves exactly as
+        # before.
+        _refusal_class = getattr(getattr(self._epics, "ca", None), "CASeverityException", None)
+        control_system_refusals: tuple[type[BaseException], ...] = (
+            (_refusal_class,)
+            if isinstance(_refusal_class, type) and issubclass(_refusal_class, BaseException)
+            else ()
+        )
+
         def _validate_and_put():
             if self._limits_validator:
                 try:
@@ -881,10 +897,30 @@ class EPICSConnector(ControlSystemConnector):
                         f"Validation error — refusing write (fail-closed): {channel_address}: {e}"
                     )
                     return ("refused", e)  # sentinel: no caput issued
-            success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+            try:
+                success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+            except control_system_refusals as e:
+                # The control system was asked and said no. Every other caput
+                # error stays a raised failure: it leaves the outcome genuinely
+                # unknown, and a refusal claims the opposite.
+                return ("cs_refused", e)
             return ("ok", success)
 
         outcome, payload = await asyncio.to_thread(_validate_and_put)
+
+        if outcome == "cs_refused":
+            logger.warning(f"Control system refused write to {channel_address}: {payload}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=False,
+                error_message=(
+                    f"Write to '{channel_address}' refused by the control system "
+                    f"(access security); no value was written: {payload}"
+                ),
+                blocked=True,
+                refusal_reason="CONTROL_SYSTEM_REFUSED",
+            )
 
         if outcome == "refused":
             return ChannelWriteResult(

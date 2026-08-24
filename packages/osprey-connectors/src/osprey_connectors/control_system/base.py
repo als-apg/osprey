@@ -105,11 +105,12 @@ class ChannelWriteResult:
     This is the control-system-agnostic result type returned by all connectors.
     Provides detailed information about write success and verification status.
 
-    The ``blocked`` / ``refusal_reason`` fields mark a *refusal*: the monitor
-    declined this write on policy grounds (writes disabled, limits, or
-    validation) and the control system was never asked to write. This is
-    distinct from an I/O failure — where the write was attempted but failed —
-    which leaves ``blocked=False``.
+    The ``blocked`` / ``refusal_reason`` fields mark a *refusal*: no value was
+    written. Usually the monitor declined on policy grounds (writes disabled,
+    limits, or validation) and the control system was never asked. Under
+    ``CONTROL_SYSTEM_REFUSED`` it was asked and denied the write itself. Either
+    way this is distinct from an I/O failure — where the write was attempted and
+    its outcome is unknown or bad — which leaves ``blocked=False``.
     """
 
     channel_address: str  # Channel that was written
@@ -117,8 +118,9 @@ class ChannelWriteResult:
     success: bool  # Whether the write command succeeded
     verification: WriteVerification | None = None  # Verification details (if performed)
     error_message: str | None = None  # Error message if write failed
-    blocked: bool = False  # True iff the monitor refused this write (policy/limits/validation)
-    # "WRITES_DISABLED" | "LIMITS" | "VALIDATION_ERROR" when blocked, else None
+    blocked: bool = False  # True iff this write was refused and no value was written
+    # "WRITES_DISABLED" | "LIMITS" | "VALIDATION_ERROR" | "CONTROL_SYSTEM_REFUSED"
+    # when blocked, else None
     refusal_reason: str | None = None
 
 
@@ -180,8 +182,10 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
         for).
 
     Raises:
-        ChannelWriteBlockedError: The monitor refused the write on policy,
-            limits, or validation grounds — it was never attempted.
+        ChannelWriteBlockedError: The write was refused and no value was
+            written — either by the monitor on policy, limits, or validation
+            grounds (never attempted), or by the control system itself
+            (``CONTROL_SYSTEM_REFUSED``).
         ChannelWriteFailedError: The write was attempted but failed
             (``WRITE_FAILED``), or came back unverified (``READBACK_UNVERIFIED``)
             because the readback disagreed with the setpoint or could not be read.

@@ -35,6 +35,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A write the control system itself denies — EPICS access security answering
+  a put with "Write access denied" — is now reported as a refusal naming the
+  control system, instead of an `internal_error` that named nothing. The new
+  `CONTROL_SYSTEM_REFUSED` reason states that the write was sent, that the
+  control system turned it down, and that no value was written, so the
+  operator is not sent to check OSPREY's own write settings for access the
+  control system grants.
 - Feedback sent by GitHub or Email no longer arrives without its session
   context because nobody knew about the paste step. The context travels by
   clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:

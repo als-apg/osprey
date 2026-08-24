@@ -405,8 +405,9 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
 
     Raises:
         ChannelLimitsViolationError: If value violates channel safety limits
-        ChannelWriteBlockedError: If the write was refused (writes disabled,
-            limits, or validation) and never attempted
+        ChannelWriteBlockedError: If the write was refused and no value was
+            written — by policy, limits, or validation (never attempted), or by
+            the control system itself (CONTROL_SYSTEM_REFUSED)
         ChannelWriteFailedError: If the write was attempted but failed, or came
             back unverified because the readback did not match the setpoint
         ControlTargetChangedError: If the session switched control target after
@@ -465,7 +466,9 @@ def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
 
     Raises:
         ChannelLimitsViolationError: If a value violates channel safety limits
-        ChannelWriteBlockedError: If any write was refused and never attempted
+        ChannelWriteBlockedError: If any write was refused and no value was
+            written — by policy, limits, or validation (never attempted), or by
+            the control system itself (CONTROL_SYSTEM_REFUSED)
         ChannelWriteFailedError: If any write failed or came back unverified.
             Writes before the failing one have already been applied.
         ControlTargetChangedError: If the session switched control target after

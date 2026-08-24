@@ -115,13 +115,30 @@ async def connector_error_handler(
             details=violation,
         )
     except ChannelWriteBlockedError as exc:
-        make_error(
-            "write_refused",
-            f"Write refused by the reference monitor during {tool_name}: {exc}",
-            [
+        # Both branches describe a write that put no value on the channel, but
+        # they must not name the same refuser. A control-system denial reaches
+        # here only after OSPREY sent the write and the control system said no;
+        # telling the operator it "was never sent" would point them at OSPREY's
+        # own policy settings for something only the control system can grant.
+        if exc.reason == "CONTROL_SYSTEM_REFUSED":
+            message = f"Write refused by the control system during {tool_name}: {exc}"
+            suggestions = [
+                "The control system itself denied this write (access security); "
+                "no value was written.",
+                "Do NOT attempt to work around the refusal.",
+                "Report it to the operator: write access for this channel is granted "
+                "by the control system, not by OSPREY.",
+            ]
+        else:
+            message = f"Write refused by the reference monitor during {tool_name}: {exc}"
+            suggestions = [
                 "This write was refused on policy grounds; it was never sent to the control system.",
                 "Do NOT attempt to work around the refusal.",
-            ],
+            ]
+        make_error(
+            "write_refused",
+            message,
+            suggestions,
             details={"channel": exc.channel_address, "reason": exc.reason},
         )
     except Exception as exc:

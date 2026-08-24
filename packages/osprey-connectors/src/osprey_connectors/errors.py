@@ -72,22 +72,37 @@ class ChannelLimitsViolationError(Exception):
 
 
 class ChannelWriteBlockedError(Exception):
-    """Raised when the reference monitor refused a channel write.
+    """Raised when a channel write was refused and no value was written.
 
-    A refusal means the write was NEVER attempted — the control system was never
-    asked: writes are disabled, a limits check failed, or validation raised.
-    Distinct from ChannelWriteFailedError, which means the write was attempted
-    and failed.
+    A refusal always means the channel was left alone, but not always that the
+    control system went unasked. Most refusals come from the reference monitor
+    before anything is sent — writes are disabled, a limits check failed, or
+    validation raised. "CONTROL_SYSTEM_REFUSED" is the exception: the control
+    system itself was asked and denied the write (EPICS access security, for
+    instance). Distinct from ChannelWriteFailedError, which means the write was
+    attempted and its outcome is a failure rather than a denial.
 
-    reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR".
+    reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR",
+    "CONTROL_SYSTEM_REFUSED".
     """
 
-    _VALID_REASONS = ("WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR")
+    _VALID_REASONS = (
+        "WRITES_DISABLED",
+        "LIMITS",
+        "VALIDATION_ERROR",
+        "CONTROL_SYSTEM_REFUSED",
+    )
 
     def __init__(self, channel_address: str, reason: str, message: str | None = None):
         self.channel_address = channel_address
         self.reason = reason
-        text = message or f"Write to '{channel_address}' refused by reference monitor ({reason})"
+        # The fallback names the refuser the reason implies. Every production
+        # path passes an explicit message, but a bare construction must not be
+        # able to reintroduce the misattribution this class exists to avoid.
+        refuser = (
+            "the control system" if reason == "CONTROL_SYSTEM_REFUSED" else "reference monitor"
+        )
+        text = message or f"Write to '{channel_address}' refused by {refuser} ({reason})"
         super().__init__(text)
 
 
@@ -95,9 +110,8 @@ class ChannelWriteFailedError(Exception):
     """Raised when a channel write was attempted but did not verifiably succeed.
 
     The control system was asked to write but the write failed or its readback
-    did not verify. Distinct from ChannelWriteBlockedError (a
-    policy/limits/validation refusal, never attempted). A scan consumer must
-    abort on this.
+    did not verify. Distinct from ChannelWriteBlockedError (a refusal — no value
+    was written). A scan consumer must abort on this.
 
     reason is one of: "WRITE_FAILED", "READBACK_UNVERIFIED". Both are
     protocol-neutral on purpose — the same codes describe an EPICS, DOOCS, or

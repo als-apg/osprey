@@ -383,7 +383,9 @@ async def channel_write(
     successful write, and you must not describe it as one. The states, in the
     order they are decided:
 
-    - `blocked` — refused on policy or limits grounds; never sent to the machine.
+    - `blocked` — refused; no value was written. Either OSPREY refused it on
+      policy or limits grounds and never sent it to the machine, or the control
+      system itself denied the write (`refusal_reason` `CONTROL_SYSTEM_REFUSED`).
     - `write_failed` — sent to the machine and failed.
     - `verification_not_reported` — the connector reported no verification at all.
     - `verification_not_requested` — level `none`: the write was sent, nothing
@@ -622,15 +624,24 @@ async def channel_write(
         if results_serialised and successful == 0:
             failures = [wr for wr in connector_results if not wr.success]
             if failures and all(wr.blocked for wr in failures):
-                # Every failed op was a policy refusal (never sent to the control
-                # system): surface a typed write-refusal envelope, not internal_error.
+                # Every failed op was a refusal that put no value on a channel:
+                # surface a typed write-refusal envelope, not internal_error.
+                # Who refused decides the wording — a control-system denial was
+                # sent and turned down, so calling it a reference-monitor policy
+                # refusal would send the operator to the wrong place.
                 refused_channels = [wr.channel_address for wr in failures]
                 first = failures[0]
+                reason = first.refusal_reason or "WRITES_DISABLED"
+                refuser = (
+                    "the control system"
+                    if reason == "CONTROL_SYSTEM_REFUSED"
+                    else "the reference monitor"
+                )
                 raise ChannelWriteBlockedError(
                     first.channel_address,
-                    first.refusal_reason or "WRITES_DISABLED",
+                    reason,
                     message=(
-                        f"All {len(failures)} write(s) refused by the reference monitor: "
+                        f"All {len(failures)} write(s) refused by {refuser}: "
                         f"{', '.join(refused_channels)}"
                     ),
                 )
