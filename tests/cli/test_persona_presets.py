@@ -692,7 +692,7 @@ class TestControlAssistantPersonas:
             assert profile.config.get("modules.web_terminals.enabled") is False
 
     def test_personas_pin_the_graph_store_port(self) -> None:
-        """Both operator tiers carry ``services.graphdb.port_host``, identically.
+        """All three tiers carry ``services.graphdb.port_host``, identically.
 
         The personas render attached (``deploy_services: false``), so the app
         template gives them ``services: {}`` and nothing says where the graph
@@ -705,18 +705,22 @@ class TestControlAssistantPersonas:
         comparison, so the tier contract stays three axes wide. It is NOT a
         write boundary — reading the graph is a read on either tier.
         """
-        for name in ("control-assistant-readonly", "control-assistant-readwrite"):
+        for name in (
+            "control-assistant-readonly",
+            "control-assistant-readwrite",
+            "control-assistant-admin",
+        ):
             profile = resolve_preset(name)
             assert profile.config.get("services.graphdb.port_host") == 7687
             # Flat dotted key: a nested ``services:`` mapping here is silently
             # dropped by the deep merge, so the block would never arrive.
             assert "services" not in profile.config
 
-    @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "admin"))
     def test_operator_personas_render_the_graph_server(
         self, built_persona_stack: Path, persona: str
     ) -> None:
-        """Both operator terminals can query the hosting deployment's graph.
+        """Every tier's terminal can query the hosting deployment's graph.
 
         Asserted on a real build rather than on the resolved profile, because the
         claim spans the whole pipeline: the preset's dotted key has to survive

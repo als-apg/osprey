@@ -104,10 +104,13 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Re-recorded again where the render-zone/posture branch met main: the
     # tier floor, the admin tier, the `target-state` hook and the
     # facility-knowledge-graph agent all sit in the resolved content now, so
-    # the five control-assistant digests below are the merged value.
+    # the five control-assistant digests below are the merged value. The admin
+    # digest moved once more when the persona gained the `services.graphdb.port_host`
+    # pin its two siblings already carried — the graph paradigm's build rule
+    # requires it on every attached render.
     "control-assistant": "sha256:cb3ea6aecf66e90326c0be0dcead918c98a30fb3fe606ada26e07187ac2f2f64",
     "control-assistant-admin": (
-        "sha256:ff2492ee9f5001ed3b385f987b6cff882834dd8fcd4d53130c8cdc7e6186c24b"
+        "sha256:ec9c084fec32f0eb749b167d070a847c7510956a421b0b3ea28d3fabd49b3bac"
     ),
     "control-assistant-ariel": (
         "sha256:1543570519193a43675a6caf97fcae47dd02d8db51d2c1b08db7f58e13332479"

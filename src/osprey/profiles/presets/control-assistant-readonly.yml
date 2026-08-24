@@ -46,5 +46,6 @@ config:
   # web-terminal containers run `network_mode: host`, so container
   # `localhost` IS the deployment host. If an operator moves
   # `services.graphdb.port_host` on the hosting deployment, this number must
-  # move with it here AND in control-assistant-readwrite.
+  # move with it here AND in control-assistant-readwrite and
+  # control-assistant-admin.
   services.graphdb.port_host: 7687
