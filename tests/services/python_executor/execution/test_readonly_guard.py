@@ -14,6 +14,7 @@ against fake ``epics``/``p4p`` modules injected into ``sys.modules``.
 
 import asyncio
 import importlib
+import platform
 import re
 import sys
 from types import ModuleType
@@ -465,6 +466,21 @@ def test_readonly_refuses_routes_out_of_python(call):
     _run_guard("readonly")
     with pytest.raises(RuntimeError, match=_REFUSAL):
         call()
+
+
+def test_readonly_prewarms_platform_processor(monkeypatch):
+    """An innocent stdlib metadata lookup must survive the subprocess refusal.
+
+    CPython resolves ``platform.uname().processor`` lazily by shelling out to
+    ``uname -p`` on first read, and h5py reads it while ``import at``
+    initialises its type layer — so a cold cache under the guard killed the
+    import of a pure-simulation library. The guard resolves it before patching
+    subprocess; with the cache forced cold here, a guard without the pre-warm
+    raises the refusal out of this lookup.
+    """
+    monkeypatch.setattr(platform, "_uname_cache", None)
+    _run_guard("readonly")
+    assert isinstance(platform.processor(), str)
 
 
 def test_readonly_leaves_fork_alone():

@@ -113,6 +113,22 @@ Compatibility is documented in release notes, not encoded in the version string.
   control system turned it down, and that no value was written, so the
   operator is not sent to check OSPREY's own write settings for access the
   control system grants.
+- Sub-agents that file their answer as an artifact (channel finder, knowledge
+  graph, logbook search, facility knowledge, pyAT) now hand the orchestrator a
+  pointer — the artifact id, a short headline and the identifiers asked for —
+  instead of repeating the artifact, and the orchestrator focuses that artifact
+  in the gallery rather than re-typing its tables into the chat.
+- Readonly Python runs can import `at` (accelerator-toolbox) again: h5py's
+  import reads the processor name, which CPython resolves by running `uname -p`,
+  and the readonly guard refused that as a subprocess call — so the pyAT
+  specialist could not load its own simulation library. The guard now resolves
+  the value before it locks subprocess down; nothing user code can call was
+  loosened.
+- Container deployments now get the graph schema snapshot baked into the agent
+  prompts. `osprey up` patched only the host renders, so every container shipped
+  the "no snapshot yet" placeholder and each delegation paid a schema prelude.
+  The channel finder's graph paradigm carries the same snapshot now, with its
+  own example catalogue.
 - Interactive plot artifacts now follow the active theme everywhere: opened in
   their own tab ("Open in new tab"), on first visit with a deployment-pinned
   `web.theme`, and under every theme family — not just light/dark inside the

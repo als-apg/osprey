@@ -132,8 +132,10 @@ class TestRegistryMatchesTemplateDirectory:
     def test_no_unregistered_templates(self):
         """All files in the template directory should be registered.
 
-        Exemptions: __pycache__, .pyc, directories-only, __init__.py,
-        ``_terminology`` partials, and ``web-terminal-context/`` — the
+        Exemptions: __pycache__, .pyc, directories-only, __init__.py, partials
+        under an underscore-prefixed directory (``_terminology``, ``_shared`` —
+        included by the agent templates, never rendered on their own; the same
+        rule the renderer applies), and ``web-terminal-context/`` — the
         web-terminal persona baseline. The catalog governs artifacts rendered
         into ``.claude/`` and claimable via ``osprey scaffold claim``; base.md
         is copied verbatim to ``docker/web-terminal-context/`` for deploy-time
@@ -154,12 +156,13 @@ class TestRegistryMatchesTemplateDirectory:
                 continue
             if template_file.name == "__init__.py":
                 continue
-            if "_terminology" in template_file.parts:
+            rel_path = template_file.relative_to(template_root)
+            if any(part.startswith("_") for part in rel_path.parts[:-1]):
                 continue
-            if "web-terminal-context" in template_file.parts:
+            if "web-terminal-context" in rel_path.parts:
                 continue
 
-            rel = str(template_file.relative_to(template_root))
+            rel = str(rel_path)
             assert rel in registered_templates, (
                 f"Template file {rel} is not registered in the BuildArtifactCatalog"
             )
