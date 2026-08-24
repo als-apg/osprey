@@ -3830,7 +3830,7 @@ jobs:
       uses: actions/cache@v6
       with:
         path: /tmp/va-buildx-cache
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml') }}
+        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
         # Honest about what this buys, because the Containerfile's layer order
         # decides it: the one expensive RUN (pip install of the
         # `virtual-accelerator` extra plus a pinned PyAT) sits AFTER `COPY
@@ -3881,6 +3881,7 @@ jobs:
         mkdir -p "$staging/src" "$staging/docker/virtual-accelerator"
         cp pyproject.toml README.md "$staging/"
         cp -R src/. "$staging/src/"
+        cp -R packages "$staging/packages"
         cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"
         find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
         version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
@@ -4141,7 +4142,7 @@ jobs:
         # The caveat from that lane applies here too: the one expensive RUN
         # sits after `COPY src/`, so any source change invalidates it and only
         # the base and architecture-guard layers restore.
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml') }}
+        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
         restore-keys: |
           va-full-buildx-${{ runner.os }}-
 
@@ -4182,6 +4183,7 @@ jobs:
         mkdir -p "$staging/src" "$staging/docker/virtual-accelerator"
         cp pyproject.toml README.md "$staging/"
         cp -R src/. "$staging/src/"
+        cp -R packages "$staging/packages"
         cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"
         find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
         version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
