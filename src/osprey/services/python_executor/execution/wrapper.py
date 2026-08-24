@@ -5,8 +5,14 @@ Wraps agent-generated Python code for execution in a host subprocess.
 """
 
 import textwrap
+from collections.abc import Iterable
 from pathlib import Path
 
+from osprey.services.python_executor.execution.fs_guard import (
+    DEFAULT_DENYLIST_PREFIX,
+    EXECUTOR_PATCH_TARGETS,
+    render_fs_guard,
+)
 from osprey.utils.logger import get_logger
 
 logger = get_logger("execution_wrapper")
@@ -35,6 +41,21 @@ READONLY_REFUSAL = (
 #: A test pins the connector's message against this constant, so rewording
 #: either side without the other fails rather than silently stopping the alert.
 READONLY_REFUSAL_MARKER = "readonly execution mode"
+
+#: Refusal prefix the filesystem guard carries in a readonly run. It embeds
+#: :data:`READONLY_REFUSAL_MARKER` so that a write refused into the render zone
+#: or the profile sources reaches the operator alert and the audit ledger by the
+#: same path a refused control-system write does — ``report_runtime_refusal``
+#: scans the subprocess's stderr for that marker and nothing else.
+READONLY_FS_REFUSAL_PREFIX = f"Refused ({READONLY_REFUSAL_MARKER}):"
+
+#: The same refusal in a readwrite run. It names the protected path and says
+#: nothing about the mode: the run *is* readwrite, and telling the agent to
+#: "resubmit with execution_mode='readwrite'" would be advice it has already
+#: taken. Deliberately NOT carrying the readonly marker — see
+#: :meth:`ExecutionWrapper._get_filesystem_guard` for what that costs and why it
+#: is still the right trade.
+READWRITE_FS_REFUSAL_PREFIX = DEFAULT_DENYLIST_PREFIX
 
 
 #: Every entry point a readonly run refuses, as ``(dotted target, attributes)``.
@@ -186,7 +207,13 @@ class ExecutionWrapper:
     - Error handling
     """
 
-    def __init__(self, limits_validator=None, execution_mode: str = "readonly"):
+    def __init__(
+        self,
+        limits_validator=None,
+        execution_mode: str = "readonly",
+        protected_roots: Iterable[str | Path] = (),
+        permitted_roots: Iterable[str | Path] = (),
+    ):
         """
         Initialize the wrapper.
 
@@ -196,10 +223,31 @@ class ExecutionWrapper:
                 ``"readonly"`` run gets the readonly guard (every direct
                 control-system write entry point refuses at runtime); the
                 default is readonly so a wrapper built without a mode fails
-                closed.
+                closed. It does **not** decide whether the filesystem guard is
+                installed — that one is unconditional — only how its refusals
+                are worded.
+            protected_roots: Absolute, already-resolved paths executed code may
+                not write into, in either mode: the render zone and the profile
+                source set. This is the self-change boundary, not a
+                control-system write gate, which is why the mode does not enter
+                into it. Resolved by the parent
+                (:func:`osprey.mcp_server.python_executor.executor.resolve_protected_roots`)
+                and baked into the emitted guard as literals — a child that
+                re-derived them could be pointed at different ones by the very
+                code the guard exists to contain. Empty leaves the guard
+                installed and refusing nothing, which is what a caller that
+                knows no project layout (a unit test, a bare ``ExecutionWrapper()``)
+                should get.
+            permitted_roots: Absolute, already-resolved paths carved back out of
+                the protected set — the agent's own data zone. The execution
+                folder is added to this in :meth:`_get_filesystem_guard`, since
+                that is the one root the wrapper knows and the parent does not
+                until the folder exists.
         """
         self.limits_validator = limits_validator
         self.execution_mode = execution_mode
+        self.protected_roots = tuple(str(root) for root in protected_roots)
+        self.permitted_roots = tuple(str(root) for root in permitted_roots)
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -218,6 +266,7 @@ class ExecutionWrapper:
         environment_setup = self._get_environment_setup(execution_folder)
         limits_checking = self._get_limits_checking_monkeypatch()
         readonly_guard = self._get_readonly_guard()
+        filesystem_guard = self._get_filesystem_guard(execution_folder)
         metadata_init = self._get_metadata_init()
         save_artifact_injection = self._get_save_artifact_injection()
         output_capture_start = self._get_output_capture_start()
@@ -231,6 +280,7 @@ class ExecutionWrapper:
                 environment_setup,
                 limits_checking,
                 readonly_guard,
+                filesystem_guard,
                 metadata_init,
                 save_artifact_injection,
                 output_capture_start,
@@ -644,6 +694,92 @@ if not _execution_dir.exists():
         """
         return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
 
+    def _get_filesystem_guard(self, execution_folder: Path | None) -> str:
+        """Generate the runtime filesystem guard. Emitted in EVERY mode.
+
+        This is a different boundary from the readonly guard above, and the two
+        are deliberately not folded together. The readonly guard answers "may
+        this run touch the control system"; this one answers "may this run
+        rewrite the thing that builds it". A readwrite run has human approval to
+        move a magnet — it has no approval to overwrite ``profile.yml`` or the
+        render zone, and there is no mode in which it does. So the guard is
+        installed unconditionally and the mode selects only the wording:
+
+        * readonly → :data:`READONLY_FS_REFUSAL_PREFIX`, which carries
+          :data:`READONLY_REFUSAL_MARKER`. That marker is what
+          ``report_runtime_refusal`` scans the subprocess's stderr for, so a
+          refused write into the render zone is alerted and written to the
+          audit ledger exactly like a refused control-system write.
+        * readwrite → :data:`READWRITE_FS_REFUSAL_PREFIX`, which names the
+          protected path and makes no claim about the mode.
+
+        **Readwrite refusals are not audited**, and that is a decision rather
+        than an oversight. The audit path is reached only by the readonly
+        marker, and the marker is a factual claim about the run: carrying it in
+        a readwrite run would put "readonly execution mode" in front of an
+        operator whose run was approved for writes, and would record the
+        refusal under a layer that names the wrong gate ("BLOCKED a
+        control-system write in readwrite mode"). The refusal itself still
+        holds and still reaches the agent and the operator as the traceback in
+        the run's stderr. Auditing a protected-path refusal in its own right
+        wants its own layer and its own marker on both ends — the ledger's
+        writer and the tool that matches it — which is a change to files this
+        does not own.
+
+        The roots are resolved in the parent and interpolated as literals; the
+        child never re-derives them. ``permitted_roots`` is checked before
+        ``protected_roots`` by the renderer, which is what lets the execution
+        folder and the agent-data zone keep taking writes while sitting under a
+        project root whose render zone is refused.
+
+        **This is defense in depth, not a security boundary.** The guard is
+        emitted *into* the child and installs itself in the same module
+        namespace as the user code, restore handle and all, so code that knows
+        it is there disarms it in two lines::
+
+            _restore_patched_targets()
+            open('bui' + 'ld/x', 'w')     # unguarded
+
+        Nothing rendered into the child can be hidden from the child, so that
+        is a property of the approach rather than a bug in it, and a
+        characterization test pins it
+        (``tests/services/python_executor/test_fs_guard.py::TestTamperLimit``)
+        so the limit stays stated rather than assumed. What this guard closes
+        is the gap the static pre-execution walker cannot see — the
+        concatenated or computed path, and the ordinary accident of writing one
+        directory too high. What contains code that is deliberately attacking
+        the boundary is the OS: the container's privilege split, where the
+        render zone and the profile sources belong to a different user than the
+        one executing agent code.
+
+        Args:
+            execution_folder: The run's own output directory, permitted so the
+                wrapper's ``save_artifact`` and figure writes keep working. It
+                is resolved here — it is the one root this method derives
+                rather than receives.
+
+        Returns:
+            The guard source, ready to splice in ahead of the user code.
+        """
+        permitted = list(self.permitted_roots)
+        if execution_folder is not None:
+            permitted.append(str(Path(execution_folder).resolve()))
+
+        prefix = (
+            READONLY_FS_REFUSAL_PREFIX
+            if self.execution_mode == "readonly"
+            else READWRITE_FS_REFUSAL_PREFIX
+        )
+
+        return render_fs_guard(
+            default_deny=False,
+            permitted_roots=permitted,
+            protected_roots=self.protected_roots,
+            read_roots=(),
+            patch_targets=EXECUTOR_PATCH_TARGETS,
+            refusal_prefix=prefix,
+        ).strip()
+
     def _get_metadata_init(self) -> str:
         """Initialize execution metadata tracking."""
         return textwrap.dedent(
@@ -851,14 +987,36 @@ if not _execution_dir.exists():
         """
         ).strip()
 
+        # The filesystem guard comes off at the END of the finally block, so it
+        # covers the user code and the output-capture teardown and nothing
+        # after: the persistence section below runs at module level on unpatched
+        # entry points, which is what keeps a misjudged protected root from
+        # costing the operator the execution record. Everything the guard *does*
+        # cover writes into the execution folder, which is permitted anyway.
+        guard_restore_section = textwrap.dedent(
+            """
+            # Filesystem guard: put every patched entry point back.
+            _restore_patched_targets()
+        """
+        ).strip()
+
         # Combine all parts properly (4-space indent to sit inside the finally block)
         indented_host_section = "\n".join(
             "    " + line if line.strip() else line for line in host_output_section.split("\n")
+        )
+        indented_guard_restore = "\n".join(
+            "    " + line if line.strip() else line for line in guard_restore_section.split("\n")
         )
         indented_error_handling = "\n".join(
             "    " + line if line.strip() else line for line in metadata_error_handling.split("\n")
         )
 
         return "\n".join(
-            [base_cleanup, indented_host_section, file_persistence_section, indented_error_handling]
+            [
+                base_cleanup,
+                indented_host_section,
+                indented_guard_restore,
+                file_persistence_section,
+                indented_error_handling,
+            ]
         )
