@@ -721,13 +721,15 @@ keys:
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)'}
   web.theme:
-    evidence: 'get_config_value\("web\.theme", "main"\)'
+    evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
     note: >-
       Live in project only; commented in control_assistant; absent from the
       three others. The default is "main" whether the key is live or absent,
       so no behaviour depends on the form. Deliberately per-template.
-      The shipped default family was renamed from "osprey" to "main"; the
-      evidence tracks the default in app.py, so it moves with that rename.
+      Read in one place — theme_config.configured_web_theme(), the shared
+      resolver the web terminal and the artifact gallery both call — where
+      the shipped default family lives as the DEFAULT_WEB_THEME constant
+      the evidence cites, so it survives a future rename of the family.
   web.panels: {evidence: 'web\.panels'}
   web.panels.ariel: {covered-by: web.panels}
   web.panels.ariel.enabled: {covered-by: web.panels.ariel}

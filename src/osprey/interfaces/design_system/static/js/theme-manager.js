@@ -579,8 +579,8 @@ export function initTheme({ role = 'follower' } = {}) {
     // The mode comes from the server too, when the server stated one.
     // `data-theme-mode` is set only when the deployment configured a concrete
     // theme id (`web.theme: desy-light`) rather than a bare family
-    // (`web.theme: desy`) -- see resolve_web_theme_pinned_mode() in the web
-    // terminal's app.py. Without reading it, a configured light default would
+    // (`web.theme: desy`) -- see resolve_pinned_mode() in the design system's
+    // theme_config.py. Without reading it, a configured light default would
     // paint correctly and then be discarded one frame later by 'auto'
     // re-resolving the mode from the OS. A stored preference still outranks
     // it: config sets the DEFAULT, not a lock.
@@ -775,6 +775,93 @@ export function chartTheme() {
     xaxis: { gridcolor },
     yaxis: { gridcolor },
   };
+}
+
+/**
+ * A flat `Plotly.relayout()` update that re-themes an ALREADY-PLOTTED figure
+ * in place from the --chart-* tokens, whatever palette its author baked into
+ * the layout. The one owner of the token -> Plotly layout-key mapping for
+ * live re-theming: the artifact gallery's served plot pages and its own
+ * timeseries charts both apply exactly this.
+ *
+ * Always: paper/plot backgrounds, font color, legend background/border.
+ * Per subplot actually present on the figure (read from Plotly's own
+ * `_fullLayout._subplots`, falling back to the `layout` keys before the
+ * first plot): cartesian axes get grid/line/zeroline colors; every 3D scene
+ * gets its box, axis panes, grids, tick text and spike lines. Keys are only
+ * emitted for subplots the figure has -- relayouting `xaxis.*` onto a
+ * scene-only figure would make Plotly conjure an empty cartesian axis
+ * underneath it. Trace colors are never touched.
+ *
+ * @param {any} gd - the plotted Plotly graph div
+ * @returns {Record<string, string>}
+ */
+export function chartRelayout(gd) {
+  const styles = _computedStyles();
+  _checkSentinel(styles);
+  const paper = _readVar(styles, '--chart-paper-bg');
+  const plot = _readVar(styles, '--chart-plot-bg');
+  const text = _readVar(styles, '--chart-axis-text');
+  const grid = _readVar(styles, '--chart-grid');
+  const line = _readVar(styles, '--chart-axis-line');
+  const pane = _readVar(styles, '--chart-pane-bg');
+
+  /** @type {Record<string, string>} */
+  const update = {
+    paper_bgcolor: paper,
+    plot_bgcolor: plot,
+    'font.color': text,
+    'legend.bgcolor': paper,
+    'legend.bordercolor': line,
+  };
+  for (const axis of _cartesianAxes(gd)) {
+    update[`${axis}.gridcolor`] = grid;
+    update[`${axis}.linecolor`] = line;
+    update[`${axis}.zerolinecolor`] = line;
+  }
+  for (const scene of _scenes(gd)) {
+    update[`${scene}.bgcolor`] = plot;
+    for (const axis of ['xaxis', 'yaxis', 'zaxis']) {
+      update[`${scene}.${axis}.backgroundcolor`] = pane;
+      update[`${scene}.${axis}.gridcolor`] = grid;
+      // plotly.py's default template bakes an explicit white linecolor
+      // into every scene axis, and an explicit linecolor beats the
+      // `.color` cascade below -- so it has to be set by name.
+      update[`${scene}.${axis}.linecolor`] = line;
+      update[`${scene}.${axis}.zerolinecolor`] = line;
+      update[`${scene}.${axis}.color`] = text;
+      update[`${scene}.${axis}.spikecolor`] = text;
+    }
+  }
+  return update;
+}
+
+/**
+ * Layout keys of the cartesian axes a figure has (`xaxis`, `yaxis2`, ...).
+ * Plotly's `_fullLayout._subplots.xaxis`/`.yaxis` list axis ids (`x`,
+ * `y2`); before the first plot only the author's own `layout` keys exist.
+ * @param {any} gd
+ * @returns {string[]}
+ */
+function _cartesianAxes(gd) {
+  const subplots = gd?._fullLayout?._subplots;
+  if (subplots) {
+    return [...(subplots.xaxis || []), ...(subplots.yaxis || [])].map((id) =>
+      id.replace(/^([xy])(\d*)$/, '$1axis$2')
+    );
+  }
+  return Object.keys(gd?.layout || {}).filter((key) => /^[xy]axis\d*$/.test(key));
+}
+
+/**
+ * Layout keys of the 3D scenes a figure has (`scene`, `scene2`, ...).
+ * @param {any} gd
+ * @returns {string[]}
+ */
+function _scenes(gd) {
+  const subplots = gd?._fullLayout?._subplots;
+  if (subplots) return [...(subplots.gl3d || [])];
+  return Object.keys(gd?.layout || {}).filter((key) => /^scene\d*$/.test(key));
 }
 
 /** The categorical chart color palette, built from --chart-series-N. */

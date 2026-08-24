@@ -799,6 +799,8 @@ jobs:
           theming:
             - 'src/osprey/interfaces/**'
             - 'src/osprey/dispatch/**'
+            - 'tests/interfaces/artifacts/test_gallery_interactions.py'
+            - 'tests/interfaces/artifacts/test_plot_theme_browser.py'
             - 'tests/interfaces/design_system/**'
             - 'tests/interfaces/web_terminal/**'
             - 'tests/interfaces/bluesky_web/**'
@@ -840,6 +842,8 @@ jobs:
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
+          tests/interfaces/artifacts/test_gallery_interactions.py \
+          tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
           tests/interfaces/web_terminal/test_panels_collab_browser.py \
           tests/interfaces/web_terminal/test_agent_activity_browser.py \

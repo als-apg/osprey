@@ -2,7 +2,7 @@
 <!-- data-browse-orient: axis of the browse split (row = browser left /
      artifact right, column = stacked band). "row" is the shipped default;
      browse-layout.js re-applies a persisted "column" choice at module load. -->
-<html lang="en" data-browse-orient="row">
+<html lang="en" data-browse-orient="row"{% if web_theme_pin %} data-theme="{{ web_theme_pin }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

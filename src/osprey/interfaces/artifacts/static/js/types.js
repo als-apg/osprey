@@ -268,15 +268,38 @@ export function hasTimeseriesData(a) {
 /**
  * URL for "Open in new tab" — uses rendered endpoints for types that
  * browsers can't display natively (markdown, notebook).
+ *
+ * A page opened in its own tab has no hub parent to follow, so a theme id
+ * passed here rides along as `?theme=` (see {@link withTheme}) and the new tab
+ * opens in exactly the theme the operator is looking at.
  * @param {any} a
+ * @param {string|null} [theme] - concrete theme id to carry, if any
  * @returns {string}
  */
-export function openUrl(a) {
+export function openUrl(a, theme) {
   switch (a.artifact_type) {
-    case "markdown": return `/api/markdown/${encodeURIComponent(a.id)}/rendered`;
-    case "notebook": return `/api/notebooks/${encodeURIComponent(a.id)}/rendered`;
-    default:         return fileUrl(a);
+    case "markdown": return withTheme(`/api/markdown/${encodeURIComponent(a.id)}/rendered`, theme);
+    case "notebook": return withTheme(`/api/notebooks/${encodeURIComponent(a.id)}/rendered`, theme);
+    default:         return withTheme(fileUrl(a), theme);
   }
+}
+
+/**
+ * Stamp a concrete theme id onto an artifact-page URL as `?theme=` — the
+ * load-time half of the gallery's theme contract with the pages it embeds or
+ * opens (the same shape the web terminal's `buildEmbedSrc()` uses for its
+ * panels): theme-boot.js honors `?theme=` ahead of storage and the OS, so the
+ * page first-paints in the theme the gallery is showing instead of resolving
+ * one of its own. An empty/`null` theme (theme-manager not initialised yet)
+ * leaves the URL bare.
+ * @param {string} url - a root-relative artifact-page URL
+ * @param {string|null} [theme] - concrete theme id to carry, if any
+ * @returns {string}
+ */
+export function withTheme(url, theme) {
+  if (!theme) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}theme=${encodeURIComponent(theme)}`;
 }
 
 /**
