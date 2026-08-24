@@ -2217,7 +2217,7 @@ def _build_repo(
     from osprey.deployment.errors import CapturedProcessError
 
     from .build_profile import resolve_build_document
-    from .build_profile_deploy import deploy_aware_config_errors
+    from .build_profile_deploy import deploy_aware_config_errors, deploy_aware_config_warnings
     from .phase_reporter import current_reporter
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
@@ -2265,9 +2265,19 @@ def _build_repo(
         # The profile's own checks first, then the ones that need the config
         # this build is about to render (the `config:` block plus what the
         # `deploy:` block contributes to it).
-        web_errors = deploy_aware_config_errors(build_profile.deploy, build_profile.config)
+        # `repo_root`, not the working directory: a catalog entry's
+        # `build_profile: personas/<name>.yml` is named relative to the profile.
+        # Without it, `osprey build` from a subdirectory or through `--repo`
+        # read no persona delta at all and passed a roster the gate exists to
+        # refuse.
+        web_errors = deploy_aware_config_errors(
+            build_profile.deploy, build_profile.config, profile_root=repo_root
+        )
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
+        web_warnings = deploy_aware_config_warnings(
+            build_profile.deploy, build_profile.config, profile_root=repo_root
+        )
         if not build_profile.provider:
             raise click.UsageError(
                 f"{PROFILE_FILENAME} names no provider. Add `provider: "
@@ -2297,6 +2307,14 @@ def _build_repo(
                 f"host variant {variant.name} "
                 f"({VARIANT_DIRNAME}/{variant.name}.yml over {PROFILE_FILENAME})"
             )
+
+        # Advisory lint findings — real exposures that are deliberately not
+        # build-failing (a privileged terminal in front of `auth.method: none`
+        # is the shipped loopback posture, not a mistake). Printed here, beside
+        # the profile identity, because a finding nobody prints is a finding
+        # nobody has: every surface that gates on the errors discards these.
+        for web_warning in web_warnings:
+            output.note(f"⚠ {web_warning}")
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the
@@ -2531,6 +2549,58 @@ def _collect_profile_artifacts(
     return artifacts
 
 
+def _profile_setup_patch_capable(build_profile: Any) -> bool:
+    """Whether *build_profile*'s render leaves the setup capability in place.
+
+    :func:`~osprey.cli.profile_conventions.is_setup_patch_capable` answers this
+    for a rendered persona config; this reaches the same answer one step
+    earlier, from the ``config:`` overrides that config is about to be written
+    from. The composition — deny minus ``remove_deny``, because a persona tier
+    that lifts an inherited deny is capable — is NOT repeated here: the
+    overrides are assembled into the ``config.yml``-shaped document the
+    predicate reads and it does the subtraction, so there is one composition
+    for both callers to be wrong or right together.
+
+    The SPELLING is not owned here either, and deliberately no longer is.
+    ``claude_code.permissions.deny`` can be written as one dotted key, as a
+    ``claude_code.permissions:`` mapping holding ``deny``, or as a fully nested
+    ``claude_code:`` block, and all three reach the same leaf in the rendered
+    ``config.yml`` — ``config_update_fields`` takes any of them. This function
+    used to read the first and the third; the middle one renders and was read as
+    nothing, so a profile that denied the setup tool through
+    ``claude_code.permissions: {deny: [...]}`` was reported capable and the
+    Dockerfile chowned ``build/config.yml`` to a persona whose ``settings.json``
+    denies the tool. Rather than adding the third reader,
+    :func:`~osprey.deployment.web_terminals.personas.persona_capability_document`
+    — the guard belt's reader, which already tries every split point — assembles
+    the document, so exactly one spelling reader exists in the codebase and the
+    container's verdict cannot disagree with the guard's about what a profile
+    says.
+
+    Reading every spelling and unioning them is exact rather than merely broad
+    because a profile cannot carry two of them at once:
+    :func:`~osprey.cli.build_profile_load._reject_mixed_claude_code_spellings`
+    refuses a ``config:`` block that spells any ``claude_code`` path two ways,
+    since ``config_update_fields`` would silently apply one and discard the
+    other. Absent that refusal the union would be wrong in the direction that
+    matters: ``remove_deny`` GRANTS the capability, so unioning a dotted lift
+    with a nested deny would report ``True`` for a render whose
+    ``settings.json`` denies the tool.
+
+    Args:
+        build_profile: The resolved profile for the render being built.
+
+    Returns:
+        ``True`` when nothing the profile denies takes the setup tool away.
+    """
+    from osprey.deployment.web_terminals.personas import persona_capability_document
+
+    from .profile_conventions import is_setup_patch_capable
+
+    overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
+    return is_setup_patch_capable(persona_capability_document(overrides))
+
+
 def _repo_render_context(
     build_profile: Any,
     *,
@@ -2569,6 +2639,14 @@ def _repo_render_context(
         "project_root": str(runtime_root or repo_root),
         "dependencies": project_deps,
         "pip_dependency_args": " ".join(shlex.quote(d) for d in project_deps),
+        # Gates the ONE line of Dockerfile.j2 that hands `build/config.yml` to
+        # the agent's user: a persona that can still reach the setup tool needs
+        # the file that tool edits to be writable, and every other tier must
+        # leave it root-owned. Composed here the way settings.json renders it —
+        # the profile's own deny minus its `remove_deny`, which is how a tier
+        # lifts the base floor — because the rendered config those keys land in
+        # does not exist yet when this context is built.
+        "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
     }
     if build_profile.provider:
         context["default_provider"] = build_profile.provider

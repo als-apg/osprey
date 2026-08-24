@@ -64,6 +64,7 @@ from osprey.deployment.web_terminals.env_production import (
     ensure_env_production,
     users_env_generation_problem,
 )
+from osprey.deployment.web_terminals.lint import lint_web_terminals
 from osprey.deployment.web_terminals.persona_images import (
     build_persona_images,
     verify_persona_renders,
@@ -208,6 +209,78 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
     return None
 
 
+#: The lint codes an `osprey up` is REFUSED over — the open-door pair, read off
+#: the rendered project the start is about to run.
+#:
+#: Deliberately not "every lint error". The other lint errors already gate the
+#: authoring verbs (`osprey profile validate`, `osprey build`, `osprey scaffold
+#: web-terminals lint|render`), and a start refused over, say, a duplicate host
+#: port would refuse a stack whose ports the operator has since resolved by
+#: hand in the rendered file — the authoring verbs own the config's shape.
+#: `up` owns one question the authoring verbs cannot answer for it: is a door
+#: about to be opened. These two codes are that question.
+#:
+#: * ``unauthenticated_privileged_terminal`` — a terminal served with no login
+#:   whose persona can edit this deployment. The exposure itself.
+#: * ``persona_privileges_unknown`` — the same terminal, with the persona's
+#:   document unreadable. "Cannot tell" is not "harmless" on the one path where
+#:   the answer is about to become a running container.
+_UP_BLOCKING_LINT_CODES = frozenset(
+    {
+        "web_terminals.unauthenticated_privileged_terminal",
+        "web_terminals.persona_privileges_unknown",
+    }
+)
+
+#: The privilege findings an `osprey up` SAYS but does not refuse over.
+#:
+#: * ``privileged_default_persona`` — an authoring mistake, not an open door:
+#:   the entries that inherit it are still behind whatever wall the deployment
+#:   has, and any that are not are named by the blocking rule above. Refusing
+#:   the start of a running stack over roster shape would stop a shift to fix a
+#:   profile.
+#: * ``unauthenticated_privileged_deployment`` — the ``auth.method: none``
+#:   version of the exposure, which is the shipped default and a legitimate
+#:   loopback posture; see
+#:   :func:`~osprey.deployment.web_terminals.personas.deployment_wide_privileged_exposure_problems`.
+#: * ``persona_privileges_unknown`` — the same ``auth.method: none`` posture with
+#:   the persona's document unreadable, which the belt reports at WARN there
+#:   rather than dropping. This code appears in BOTH sets, and the two filters
+#:   are what tell them apart: each selects on severity AND code, never on code
+#:   alone, so the advisory form of this finding can never refuse a start and
+#:   the blocking form can never be printed and walked past.
+_UP_ADVISORY_LINT_CODES = frozenset(
+    {
+        "web_terminals.privileged_default_persona",
+        "web_terminals.unauthenticated_privileged_deployment",
+        "web_terminals.persona_privileges_unknown",
+    }
+)
+
+
+def web_terminal_preflight_advisories(
+    config: dict, *, repo_root: Path | str | None = None
+) -> list[str]:
+    """The privilege exposures an ``osprey up`` names without refusing.
+
+    The other half of :func:`web_terminal_preflight_problems`, and it exists for
+    the same reason the profile-altitude warning printers do: a finding nobody
+    prints is a finding nobody has. Both of these are real exposures that are
+    deliberately not build-failing (see :data:`_UP_ADVISORY_LINT_CODES`), so the
+    start says them out loud and proceeds.
+
+    Pure — it reads the rendered persona configs and returns strings. The
+    printing belongs to the caller, which is the pass that already owns this
+    deploy's output column.
+
+    :param config: Raw deploy config.
+    :param repo_root: The deployment repo the renders are read from.
+    :return: One message per advisory finding, in lint order.
+    """
+    root = _resolved_repo_root(config, repo_root)
+    return _privilege_lint_halves(config, root)[1]
+
+
 def web_terminal_preflight_problems(
     config: dict, *, repo_root: Path | str | None = None
 ) -> list[tuple[str, str]]:
@@ -215,9 +288,18 @@ def web_terminal_preflight_problems(
 
     The collectable subset of the fail-fast gate, in the gate's own order, so an
     operator reading the collected report meets the findings where the deploy
-    would have hit them. Each entry is a ``(problem, remedy)`` pair; these three
+    would have hit them. Each entry is a ``(problem, remedy)`` pair; these
     refusals all carry their fix inside their own prose, so the remedy half is
     empty and the enumeration prints one block per finding.
+
+    **Also the deploy path's lint gate**, which nothing else on it was. ``osprey
+    scaffold web-terminals lint`` and the ``render`` pre-render gate read the
+    rendered altitude; ``osprey up`` read none of it, so a hand-edited
+    ``build/config.yml`` — a file no build fingerprint covers, since
+    ``profile.yml`` is untouched — could set ``login: false`` on a privileged
+    persona and start containers with the lint screaming into a terminal nobody
+    ran. Only the open-door codes block here; see
+    :data:`_UP_BLOCKING_LINT_CODES`.
 
     Deliberately NOT the whole of :func:`preflight_web_terminals`:
 
@@ -237,6 +319,52 @@ def web_terminal_preflight_problems(
         from. Defaults to the one resolved from ``config``, as the gate does.
     :return: The findings, empty when nothing is wrong.
     """
+    return web_terminal_preflight_report(config, repo_root=repo_root)[0]
+
+
+def _privilege_lint_halves(config: dict, root: Path) -> tuple[list[str], list[str]]:
+    """The blocking and advisory privilege findings, off ONE lint pass.
+
+    The two public probes above are two readings of the same
+    :func:`~osprey.deployment.web_terminals.lint.lint_web_terminals` run, and the
+    deploy path wants both. Running the lint once per reading walked every
+    referenced persona's rendered ``config.yml`` off disk twice, plus notice-doc
+    resolution, for an answer that is identical between the two — on a pass whose
+    whole promise is to report in seconds.
+
+    :return: ``(blocking messages, advisory messages)``, each in lint order.
+    """
+    lint_findings = lint_web_terminals(config, project_root=root)
+    blocking = [
+        finding.message
+        for finding in lint_findings
+        if finding.severity == "error" and finding.code in _UP_BLOCKING_LINT_CODES
+    ]
+    advisories = [
+        finding.message
+        for finding in lint_findings
+        if finding.severity == "warn" and finding.code in _UP_ADVISORY_LINT_CODES
+    ]
+    return blocking, advisories
+
+
+def web_terminal_preflight_report(
+    config: dict, *, repo_root: Path | str | None = None
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Both halves of the web-terminal preflight, off one lint pass.
+
+    What the deploy path takes, because it wants both and paid for two identical
+    lint runs to get them (see :func:`_privilege_lint_halves`). The two wrappers
+    stay for callers that want one half and for the purity each is pinned on;
+    this is the same work, ordered the same way, said once.
+
+    Writes nothing, like the wrappers.
+
+    :param config: Raw deploy config.
+    :param repo_root: See :func:`web_terminal_preflight_problems`.
+    :return: ``(blocking, advisory)`` — the ``(problem, remedy)`` pairs that
+        refuse the start, and the messages it says and proceeds past.
+    """
     root = _resolved_repo_root(config, repo_root)
     findings: list[tuple[str, str]] = []
 
@@ -250,7 +378,14 @@ def web_terminal_preflight_problems(
     if (problem := users_env_generation_problem(config, root)) is not None:
         findings.append((problem, ""))
 
-    return findings
+    blocking, advisories = _privilege_lint_halves(config, root)
+    # Last, because the three above are about artifacts this deploy needs and
+    # this one is about who the deploy would serve them to — and because an
+    # operator whose renders are missing should fix that before being told what
+    # the missing renders would have exposed.
+    findings.extend((message, "") for message in blocking)
+
+    return findings, advisories
 
 
 def _provision_terminal_secrets(web_terminals: dict, repo_root: str) -> None:
@@ -330,9 +465,11 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
     Nothing wraps the mint in ``try``/``except``: ``ensure_auth_credentials``
     raises (writing nothing) on a roster it cannot key — a charset violation,
     or two usernames colliding onto one credential variable — and that raise IS
-    the deploy abort. ``osprey up`` never runs lint, so swallowing it would
-    silently deploy a stack where one operator's password opens another's
-    terminal.
+    the deploy abort. ``osprey up``'s own lint gate
+    (:func:`web_terminal_preflight_problems`) is scoped to the two open-door
+    privilege codes and says nothing about credential collisions, so swallowing
+    this would silently deploy a stack where one operator's password opens
+    another's terminal.
 
     The method is read through
     :func:`~osprey.deployment.web_terminals.render._auth_tls_context` rather
@@ -1210,9 +1347,10 @@ def deploy_up_web_terminals(
         # strict=True: an unresolvable persona reference is a misconfiguration
         # that must surface HERE -- before compose ever runs -- not as an
         # opaque unbuilt-tag failure at `compose up` (see docstring's MODE
-        # BRANCH section). `osprey up` never runs lint, so this strict
-        # resolve is the only preflight standing between a broken persona
-        # catalog and that opaque failure.
+        # BRANCH section). `osprey up`'s lint gate
+        # (`web_terminal_preflight_problems`) blocks only on the two open-door
+        # privilege codes, so this strict resolve is still the only preflight
+        # standing between a broken persona catalog and that opaque failure.
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
