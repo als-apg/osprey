@@ -261,7 +261,7 @@ sheets = [
 # Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
 # Chat/Drive API access, and GCS artifact storage.
 gchat = [
-    "google-cloud-pubsub>=2.18",
+    "google-cloud-pubsub>=2.39.1",
     "google-api-python-client>=2.100",
     "google-auth>=2.56.3",
     # Held below 3.13: google-cloud-storage 3.13+ requires google-api-core
