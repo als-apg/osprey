@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "osprey-connectors"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Control-system and archiver connectors for OSPREY"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,6 +33,21 @@ dependencies = [
     # registration stays cheap, not to make the dependency optional.
     "pymongo>=4.17.0",
 ]
+
+[tool.hatch.version]
+source = "vcs"
+# The package versions with the framework's calendar stream, from the same
+# v-tags: both wheels are always built from one checkout and always carry the
+# same number, so "which connectors goes with which framework" is never a
+# question and a semantic version never has to decide what counts as minor.
+# `root` climbs to the repository the tags live in; the describe command is the
+# framework's own (see the root pyproject.toml for why the match glob exists —
+# in short, the default glob would read the retired osprey-connectors-v0.1.0
+# tag and the checkpoint-* tags).
+raw-options = { root = "../..", version_scheme = "post-release", git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*" }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/osprey_connectors/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey_connectors"]

@@ -49,6 +49,7 @@ channel_finder_mode: hierarchical
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
   - writes-check      # Kill switch: refuse every write while writes_enabled is false

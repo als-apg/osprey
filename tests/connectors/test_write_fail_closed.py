@@ -4,7 +4,8 @@ Task 1.3: a validation error other than a limits violation must REFUSE the
 write (blocked=True, refusal_reason="VALIDATION_ERROR") and never issue a
 caput. A ChannelLimitsViolationError still propagates unchanged, and an error
 raised by the caput itself (e.g. ConnectionError) propagates untouched — it is
-never reclassified as a refusal.
+a genuine failure, not a refusal. The one caput error that IS a refusal is the
+control system's own denial; see test_control_system_refused.py.
 """
 
 import asyncio

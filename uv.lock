@@ -4391,7 +4391,6 @@ wheels = [
 
 [[package]]
 name = "osprey-connectors"
-version = "0.1.0"
 source = { editable = "packages/osprey-connectors" }
 dependencies = [
     { name = "numpy" },

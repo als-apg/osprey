@@ -222,14 +222,25 @@ class TestNtScalarMapping:
 
 
 class TestNtEnumMapping:
-    def test_enum_reads_as_the_choice_string(self):
-        """An operator reading a state channel wants 'On', not '2'."""
+    """An enum reading carries both halves: the index as the value, the label beside it.
+
+    The index is what ``value`` holds, so a state channel has the same
+    machine-readable type whether it was routed over PVAccess or Channel
+    Access. What the operator reads -- "On" rather than "2" -- is the label,
+    first-class metadata rather than something to be reconstructed from a
+    choices list a later read may not repeat.
+    """
+
+    def test_enum_reads_as_the_index_with_its_label_alongside(self):
         nt = _nt()
         value = nt.NTEnum().wrap({"index": 2, "choices": ["Off", "Standby", "On"]})
 
         result = _pva_connector()._pva_channel_value("SR:RF:STATE", value)
 
-        assert result.value == "On"
+        assert result.value == 2
+        assert not isinstance(result.value, str)
+        assert result.metadata.enum_label == "On"
+        assert result.metadata.enum_labels == ["Off", "Standby", "On"]
         assert result.metadata.raw_metadata["enum_index"] == 2
         assert result.metadata.raw_metadata["enum_choices"] == ["Off", "Standby", "On"]
         assert result.metadata.raw_metadata["nt_id"] == "epics:nt/NTEnum:1.0"
@@ -240,10 +251,11 @@ class TestNtEnumMapping:
 
         result = _pva_connector()._pva_channel_value("SR:RF:STATE", value)
 
-        assert result.value == "Off"
+        assert result.value == 0
+        assert result.metadata.enum_label == "Off"
         assert result.metadata.raw_metadata["enum_index"] == 0
 
-    def test_enum_without_choices_falls_back_to_the_index(self):
+    def test_enum_without_choices_still_reports_the_index(self):
         """Servers send the choices list only on change; a later read may omit it."""
         nt = _nt()
         value = nt.NTEnum().wrap({"index": 1, "choices": []})
@@ -251,7 +263,18 @@ class TestNtEnumMapping:
         result = _pva_connector()._pva_channel_value("SR:RF:STATE", value)
 
         assert result.value == 1
+        assert result.metadata.enum_label is None
+        assert result.metadata.enum_labels is None
         assert result.metadata.raw_metadata["enum_choices"] == []
+
+    def test_a_scalar_channel_reports_no_enum_fields_at_all(self):
+        """The two fields are how a consumer tells an enum from anything else."""
+        value = FakeValue("epics:nt/NTScalar:1.0", {"value": 7.0})
+
+        result = _pva_connector()._pva_channel_value(CA_ADDRESS, value)
+
+        assert result.metadata.enum_label is None
+        assert result.metadata.enum_labels is None
 
 
 # ---------------------------------------------------------------------------

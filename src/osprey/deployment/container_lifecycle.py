@@ -177,6 +177,13 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "bluesky": ("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY"),
+    # The SECOND plan lane (opt-in ``bluesky.second_lane``), which is a whole
+    # stack of its own and therefore gets its own launch token. A shared token
+    # would let a launch armed for one machine be replayed against the other,
+    # which is exactly the confusion the lane axis exists to remove. No Tiled
+    # key: Tiled is the one shared component and lives on lane 1.
+    "bluesky_va": ("BLUESKY_VA_LAUNCH_TOKEN",),
+    "bluesky_live": ("BLUESKY_LIVE_LAUNCH_TOKEN",),
     # The operator credential for the sidecar's WebAuthMiddleware gate. The
     # sidecar container declares OSPREY_TERMINAL_BIND_HOST, so an empty secret
     # refuses startup instead of minting a value nothing outside the container
@@ -423,28 +430,113 @@ _STORE_ISSUED_VARS: dict[str, StoreIssuedCredential] = {
     ),
 }
 
-# Document-plane CURVE certificate layout, relative to the project directory.
-# Fixed by the read-only mounts the bluesky compose template declares
-# (``../../data/bluesky_curve/<side>`` -> ``/app/curve``) together with the
-# certificate paths it hardcodes into each container's environment, so this
-# constant and that template are one contract: change either and the bridge
-# refuses to bind its proxy.
-#
-# Split per side rather than per file so neither container can read the
-# secret it is not supposed to hold. The bridge (which binds the proxy, and
-# so holds the SERVER half) gets the proxy's secret certificate plus a
-# ``clients/`` directory of the publisher public keys it will accept; the
-# queueserver (the publishing CLIENT) gets the publisher's secret certificate
-# plus the proxy's public one.
-_BLUESKY_CURVE_DIR = Path("data") / "bluesky_curve"
+# Service key of the Bluesky plan lane every project has had since the bridge
+# shipped, and the two keys the OPT-IN second lane can take. A lane is named
+# for the control-system target it serves, never for its index, so which of the
+# two exists depends on which target the deployment baseline is (see
+# ``_inject_bluesky``). Lane 1 keeps the historical key, which is what lets
+# every per-lane name below collapse to its pre-lane spelling on the
+# single-lane deployment every existing project is.
+_BLUESKY_LANE_ONE = "bluesky"
+_BLUESKY_SECOND_LANE_KEYS = ("bluesky_va", "bluesky_live")
+
+
+def _bluesky_lane_keys(config: dict) -> list[str]:
+    """The Bluesky plan lanes this deployment renders, in render order.
+
+    Read off ``deployed_services`` — the same membership rule every other
+    provisioning step here is gated on — rather than off ``services``, so a
+    block left in config.yml but not deployed provisions nothing.
+
+    Args:
+        config: Raw deploy config.
+
+    Returns:
+        ``[]`` for a deploy with no bluesky bridge, ``["bluesky"]`` for the
+        single-lane case, and lane 1 followed by the second lane's key for a
+        two-lane deploy.
+    """
+    services = {str(service) for service in (config.get("deployed_services") or [])}
+    if _BLUESKY_LANE_ONE not in services:
+        return []
+    return [_BLUESKY_LANE_ONE] + [key for key in _BLUESKY_SECOND_LANE_KEYS if key in services]
+
+
+def _bluesky_lane_env_prefix(lane_key: str) -> str:
+    """The ``.env`` variable prefix a lane's own secrets are minted under.
+
+    ``bluesky`` -> ``BLUESKY``, which is every pre-lane variable name spelled
+    exactly as it always was; ``bluesky_va`` -> ``BLUESKY_VA``. The name INSIDE
+    each container never changes — the image is lane-agnostic — so this prefix
+    only ever names the host-side variable the compose template interpolates.
+
+    Args:
+        lane_key: A lane's ``services.<lane>`` key.
+
+    Returns:
+        The upper-cased prefix.
+    """
+    return lane_key.upper()
+
+
+def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
+    """Document-plane CURVE certificate directory for one lane.
+
+    Relative to the project directory, and fixed by the read-only mounts the
+    bluesky compose template declares (``./data/<lane>_curve/<side>`` ->
+    ``/app/curve``) together with the certificate paths it hardcodes into each
+    container's environment, so this function and that template are one
+    contract: change either and the bridge refuses to bind its proxy.
+
+    Per lane rather than shared, and that is the point: a single keypair would
+    authenticate either lane's publisher to either lane's proxy, so a plan
+    running on one machine could inject documents into the other's run
+    history. Lane 1's directory keeps its historical name.
+
+    Args:
+        lane_key: A lane's ``services.<lane>`` key.
+
+    Returns:
+        The lane's certificate directory, relative to the project directory.
+    """
+    return Path("data") / f"{lane_key}_curve"
+
 
 # Control-plane (RE Manager 0MQ control socket) CURVE keypair. Unlike the
 # document plane's certificates these are z85 key *strings*, not files:
 # ``start-re-manager`` and ``bluesky-queueserver-api`` both read them straight
 # out of the environment, so the compose template passes them through from the
 # project ``.env`` under these OSPREY-namespaced names.
+#
+# Spelled here as lane 1's names and derived per lane by
+# ``_qserver_zmq_key_vars``: a second lane runs a second manager on a second
+# control socket, and one keypair across both would let either lane's bridge
+# drive the other lane's queue.
 _QSERVER_ZMQ_PRIVATE_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY"
 _QSERVER_ZMQ_PUBLIC_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"
+
+#: Suffixes the per-lane control-plane variable names are built from — the
+#: halves of lane 1's names after its ``BLUESKY`` prefix, so the two spellings
+#: cannot drift apart.
+_QSERVER_ZMQ_PRIVATE_KEY_SUFFIX = _QSERVER_ZMQ_PRIVATE_KEY_VAR.removeprefix("BLUESKY")
+_QSERVER_ZMQ_PUBLIC_KEY_SUFFIX = _QSERVER_ZMQ_PUBLIC_KEY_VAR.removeprefix("BLUESKY")
+
+
+def _qserver_zmq_key_vars(lane_key: str = _BLUESKY_LANE_ONE) -> tuple[str, str]:
+    """The ``(private, public)`` control-plane variable names for one lane.
+
+    Args:
+        lane_key: A lane's ``services.<lane>`` key.
+
+    Returns:
+        The two ``.env`` variable names, which for lane 1 are exactly
+        :data:`_QSERVER_ZMQ_PRIVATE_KEY_VAR` / :data:`_QSERVER_ZMQ_PUBLIC_KEY_VAR`.
+    """
+    prefix = _bluesky_lane_env_prefix(lane_key)
+    return (
+        f"{prefix}{_QSERVER_ZMQ_PRIVATE_KEY_SUFFIX}",
+        f"{prefix}{_QSERVER_ZMQ_PUBLIC_KEY_SUFFIX}",
+    )
 
 
 def _report_fact(message: str, /, *, wrote: tuple[str, object] | None = None) -> None:
@@ -1263,7 +1355,8 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     """
     deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
-    if "bluesky" not in services or "virtual_accelerator" not in services:
+    lane_keys = _bluesky_lane_keys(config)
+    if not lane_keys or "virtual_accelerator" not in services:
         return
 
     # The substrate devices are ophyd-async Channel Access devices, which only
@@ -1316,8 +1409,22 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         )
         return
 
+    # One set of variables PER LANE. The device NAMES are a property of the
+    # facility and come out the same for both — the two lanes address the same
+    # PVs through different gateways — but the variables are per lane all the
+    # same, because that is what lets an operator narrow one lane's substrate
+    # without silently narrowing the other's. Lane 1's names are unchanged, so
+    # a single-lane project's ``.env`` gains nothing new here.
+    derived_by_lane: dict[str, str] = {}
+    for lane_key in lane_keys:
+        prefix = _bluesky_lane_env_prefix(lane_key)
+        for name, value in derived.items():
+            derived_by_lane[f"{prefix}{name.removeprefix(_BLUESKY_LANE_ONE.upper())}"] = value
+
     existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    generated = {k: v for k, v in derived.items() if k not in os.environ and k not in existing}
+    generated = {
+        k: v for k, v in derived_by_lane.items() if k not in os.environ and k not in existing
+    }
     if not generated:
         return
 
@@ -1335,18 +1442,20 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     )
 
 
-def _bluesky_curve_paths(project_dir: Path) -> dict[str, Path]:
-    """The document-plane certificate paths for one project, by role.
+def _bluesky_curve_paths(project_dir: Path, lane_key: str = _BLUESKY_LANE_ONE) -> dict[str, Path]:
+    """The document-plane certificate paths for one lane, by role.
 
     Args:
         project_dir: Project directory (the parent of the project ``.env``).
+        lane_key: The lane these certificates belong to. Defaults to lane 1,
+            whose directory is the one every single-lane project already has.
 
     Returns:
         Mapping of role name to path. ``bridge``/``queueserver``/
         ``bridge_clients`` are directories (the compose mount sources); the
         four remaining entries are the certificate files each side reads.
     """
-    base = project_dir / _BLUESKY_CURVE_DIR
+    base = project_dir / _bluesky_curve_dir(lane_key)
     bridge = base / "bridge"
     queueserver = base / "queueserver"
     clients = bridge / "clients"
@@ -1397,19 +1506,43 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
     stack to come up without a document plane (no live rows), which is the
     same degradation the bridge already handles.
 
+    Per LANE, and independently: a two-lane deployment gets two complete,
+    unrelated sets, because one shared pair would authenticate either lane's
+    publisher to either lane's proxy and let a plan running on one machine
+    inject documents into the other machine's run history. Each lane's set is
+    provisioned, repaired and reported on its own, so an incomplete set on one
+    lane never rotates the other lane's keys.
+
     Args:
         config: Raw deploy config (``deployed_services`` membership).
         env_path: Project ``.env`` path, used only to locate the project
             directory; defaults to ``Path(".env")`` like every other
             provisioning step here.
     """
-    services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "bluesky" not in services:
+    lane_keys = _bluesky_lane_keys(config)
+    if not lane_keys:
         return
 
     if env_path is None:
         env_path = Path(".env")
-    paths = _bluesky_curve_paths(env_path.resolve().parent)
+    project_dir = env_path.resolve().parent
+    for lane_key in lane_keys:
+        _ensure_bluesky_lane_document_plane_certs(lane_key, project_dir)
+
+
+def _ensure_bluesky_lane_document_plane_certs(lane_key: str, project_dir: Path) -> None:
+    """Provision one lane's document-plane certificate set.
+
+    The whole of :func:`_ensure_bluesky_document_plane_certs`'s contract —
+    unconditional, idempotent, existing-material-wins, never raising into a
+    deploy — applies here per lane; see that function for why.
+
+    Args:
+        lane_key: The lane's ``services.<lane>`` key.
+        project_dir: Project directory (the parent of the project ``.env``).
+    """
+    paths = _bluesky_curve_paths(project_dir, lane_key)
+    curve_dir = _bluesky_curve_dir(lane_key)
 
     certs = ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public")
     present = [name for name in certs if paths[name].is_file()]
@@ -1446,9 +1579,9 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
         return
 
     _report_fact(
-        f"bluesky CURVE certificates → {_BLUESKY_CURVE_DIR}/",
+        f"bluesky CURVE certificates → {curve_dir}/",
         wrote=(
-            f"{_BLUESKY_CURVE_DIR}/",
+            f"{curve_dir}/",
             "document-plane certificates (gitignored); containers read them at "
             "startup, so replacements need the bridge and queueserver recreated",
         ),
@@ -1543,16 +1676,41 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     ``zmq``) logs a warning and returns, leaving the ``:?`` guard to stop the
     deploy rather than this function.
 
+    Per LANE: a second lane runs a second RE Manager on a second control
+    socket, and one keypair across both would let either lane's bridge drive
+    the other lane's queue — the same reason each lane gets its own document
+    plane and its own launch token. Each lane's pair is minted, repaired and
+    validated on its own; a refusal on one lane stops the deploy before the
+    next lane is touched, which is the honest order when the refusal means an
+    operator set something unsatisfiable.
+
     Args:
         config: Raw deploy config (``deployed_services`` membership).
         env_path: Project ``.env`` path; defaults to ``Path(".env")``.
     """
-    services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "bluesky" not in services:
+    lane_keys = _bluesky_lane_keys(config)
+    if not lane_keys:
         return
 
     if env_path is None:
         env_path = Path(".env")
+    for lane_key in lane_keys:
+        _ensure_bluesky_lane_control_plane_keys(lane_key, env_path)
+
+
+def _ensure_bluesky_lane_control_plane_keys(lane_key: str, env_path: Path) -> None:
+    """Mint ONE lane's RE Manager control-socket CURVE keypair into ``.env``.
+
+    Every rule in :func:`_ensure_bluesky_control_plane_keys` — both halves are
+    secrets, existing values win, plaintext is not a supported mode, an
+    explicitly empty value is refused rather than minted over — applies here,
+    to this lane's own pair of variables. See that function for why.
+
+    Args:
+        lane_key: The lane's ``services.<lane>`` key.
+        env_path: Project ``.env`` path.
+    """
+    private_var, public_var = _qserver_zmq_key_vars(lane_key)
     existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
     def _is_set(name: str) -> bool:
@@ -1571,7 +1729,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     # as it rejects unset, and an empty public half leaves the bridge unable to
     # authenticate to a manager that does have a key. Minting over either one
     # would contradict a value the operator deliberately set.
-    for var in (_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR):
+    for var in (private_var, public_var):
         if (var in os.environ or var in existing) and not _effective_value(var, existing).strip():
             raise RuntimeError(
                 f"{var} is set but empty. An empty value would run the bluesky RE manager's "
@@ -1579,7 +1737,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
                 "the one route to plan execution that does not pass the bridge's launch-token "
                 "gate, and its container shares a network with every other service. Either "
                 f"unset {var} and let `osprey up` mint a keypair, or set "
-                f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} to the private half of a CURVE keypair of "
+                f"{private_var} to the private half of a CURVE keypair of "
                 "your own."
             )
 
@@ -1591,11 +1749,11 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     # cause rather than a mismatched-pair message about a value neither side
     # ever sees. Existing values are never overwritten, so refusing is the only
     # honest option here — minting over an operator's deliberate key is not.
-    for var in (_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR):
+    for var in (private_var, public_var):
         _assert_env_interpolation_safe(var, _effective_value(var, existing))
 
-    has_private = _is_set(_QSERVER_ZMQ_PRIVATE_KEY_VAR)
-    has_public = _is_set(_QSERVER_ZMQ_PUBLIC_KEY_VAR)
+    has_private = _is_set(private_var)
+    has_public = _is_set(public_var)
     if has_private and has_public:
         # Both present is the "operator supplied their own" path, and it is the
         # one shape the compose `:?` guards cannot check: two well-formed keys
@@ -1603,8 +1761,10 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
         # at runtime as a control-socket timeout with nothing pointing at the
         # keys. Verify the pairing here, where the message can name the cause.
         _verify_qserver_keypair_pairs(
-            _effective_value(_QSERVER_ZMQ_PRIVATE_KEY_VAR, existing),
-            _effective_value(_QSERVER_ZMQ_PUBLIC_KEY_VAR, existing),
+            _effective_value(private_var, existing),
+            _effective_value(public_var, existing),
+            private_var,
+            public_var,
         )
         return
     if has_public and not has_private:
@@ -1615,16 +1775,16 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
             "the compose template's fail-closed guard on the private key rather than "
             "start the manager in plaintext. Set %s to the private half of that keypair, "
             "or unset %s to let `osprey up` mint a fresh pair.",
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            public_var,
+            private_var,
+            private_var,
+            public_var,
         )
         return
 
     try:
         generated = _derive_qserver_keypair(
-            _effective_value(_QSERVER_ZMQ_PRIVATE_KEY_VAR, existing)
+            _effective_value(private_var, existing), private_var, public_var
         )
     except EnvInterpolationUnsafeError:
         # NOT swallowed like the failures below: the compose `:?` guard cannot
@@ -1638,13 +1798,13 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
             "(%s / %s). No key is written, so the compose template's fail-closed guard "
             "on the private key will stop the deploy rather than start the manager in "
             "plaintext.",
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            private_var,
+            public_var,
             exc_info=True,
         )
         return
 
-    if has_private and _QSERVER_ZMQ_PRIVATE_KEY_VAR in os.environ:
+    if has_private and private_var in os.environ:
         # The private half lives only in this shell, so writing its derived
         # public half to .env would leave a half-state on disk: the next deploy
         # from a clean shell would find a public key with no private one, hit
@@ -1654,7 +1814,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
         os.environ.update(generated)
         _report_fact(
             f"derived {', '.join(generated)} from this shell's "
-            f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} for this deploy only (not written to .env)"
+            f"{private_var} for this deploy only (not written to .env)"
         )
         return
 
@@ -1677,7 +1837,12 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     )
 
 
-def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
+def _verify_qserver_keypair_pairs(
+    private_key: str,
+    public_key: str,
+    private_var: str = _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+    public_var: str = _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+) -> None:
     """Refuse a configured keypair whose two halves do not belong together.
 
     Both halves being present is the operator-supplied path, and a mismatched
@@ -1688,8 +1853,13 @@ def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
     a named cause.
 
     Args:
-        private_key: The effective ``BLUESKY_QSERVER_ZMQ_PRIVATE_KEY``.
-        public_key: The effective ``BLUESKY_QSERVER_ZMQ_PUBLIC_KEY``.
+        private_key: The effective private-key value.
+        public_key: The effective public-key value.
+        private_var: Name of the variable ``private_key`` came from. Defaults
+            to lane 1's, which is the only name a single-lane deploy has; a
+            second lane passes its own so the message names the value the
+            operator actually set.
+        public_var: Name of the variable ``public_key`` came from.
 
     Raises:
         RuntimeError: The public key is not the one derived from the private
@@ -1708,20 +1878,20 @@ def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
             "Could not check that %s pairs with %s: the private key does not parse as a "
             "CURVE key. The deploy continues, but the manager will reject every "
             "control-socket call until that value is a valid z85 private key.",
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            private_var,
+            public_var,
             exc_info=True,
         )
         return
 
     if derived != public_key.strip():
         raise RuntimeError(
-            f"{_QSERVER_ZMQ_PUBLIC_KEY_VAR} is not the public half of "
-            f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR}. Both values are well-formed, so every "
+            f"{public_var} is not the public half of "
+            f"{private_var}. Both values are well-formed, so every "
             "compose guard would pass and the stack would start — but the bridge could "
             "never complete a CURVE handshake with the RE manager, and every queue call "
             "would fail as an unexplained control-socket timeout. Set "
-            f"{_QSERVER_ZMQ_PUBLIC_KEY_VAR} to the public half of that keypair, or unset "
+            f"{public_var} to the public half of that keypair, or unset "
             "both and let `osprey up` mint a matched pair."
         )
 
@@ -1795,7 +1965,11 @@ def _assert_env_interpolation_safe(var: str, value: str) -> None:
     )
 
 
-def _derive_qserver_keypair(private_key: str) -> dict[str, str]:
+def _derive_qserver_keypair(
+    private_key: str,
+    private_var: str = _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+    public_var: str = _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+) -> dict[str, str]:
     """The control-plane variables to append, given any private key already set.
 
     Freshly minted pairs are drawn until BOTH halves are free of ``$`` (see
@@ -1810,10 +1984,14 @@ def _derive_qserver_keypair(private_key: str) -> dict[str, str]:
     that path is checked and refused instead.
 
     Args:
-        private_key: The effective ``BLUESKY_QSERVER_ZMQ_PRIVATE_KEY``, or an
-            empty string when none is set. An empty value never reaches here —
-            the caller refuses it outright, since plaintext is not a supported
-            mode.
+        private_key: The effective private-key value, or an empty string when
+            none is set. An empty value never reaches here — the caller refuses
+            it outright, since plaintext is not a supported mode.
+        private_var: Name the minted private half is returned under. Defaults
+            to lane 1's; a second lane mints under its own name, because two
+            lanes sharing one keypair would let either lane's bridge drive the
+            other lane's queue.
+        public_var: Name the public half is returned under.
 
     Returns:
         The public half alone when a private key is already set (derived from
@@ -1829,16 +2007,16 @@ def _derive_qserver_keypair(private_key: str) -> dict[str, str]:
     if private_key.strip():
         public = zmq.curve_public(private_key.encode()).decode()
         # Not re-drawable: this half is determined by the operator's own key.
-        _assert_env_interpolation_safe(_QSERVER_ZMQ_PUBLIC_KEY_VAR, public)
-        return {_QSERVER_ZMQ_PUBLIC_KEY_VAR: public}
+        _assert_env_interpolation_safe(public_var, public)
+        return {public_var: public}
 
     for _ in range(_QSERVER_KEYPAIR_MINT_ATTEMPTS):
         public_bytes, secret_bytes = zmq.curve_keypair()
         public, secret = public_bytes.decode(), secret_bytes.decode()
         if "$" not in public and "$" not in secret:
             return {
-                _QSERVER_ZMQ_PRIVATE_KEY_VAR: secret,
-                _QSERVER_ZMQ_PUBLIC_KEY_VAR: public,
+                private_var: secret,
+                public_var: public,
             }
     raise EnvInterpolationUnsafeError(
         f"could not mint a bluesky RE manager keypair free of '$' in "
@@ -2899,7 +3077,12 @@ def _deploy_written_env_vars() -> set[str]:
     """
     written = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
     written |= {var for pairs in _SERVICE_DEFAULT_VARS.values() for var, _default in pairs}
-    written |= {_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR}
+    # Every lane's control-plane pair, not only lane 1's: the census is a
+    # census of names this command can write, and a two-lane deploy writes two
+    # pairs. Enumerated from the lane keys rather than from this deploy's
+    # config, because the census has none.
+    for _lane_key in (_BLUESKY_LANE_ONE, *_BLUESKY_SECOND_LANE_KEYS):
+        written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
     written |= set(_STORE_ISSUED_VARS)
 
@@ -5589,7 +5772,36 @@ def as_built_compose_files(config: dict, repo_root: Path | str) -> list[str]:
     from osprey.deployment.compose_generator import find_existing_compose_files
 
     services = [str(service) for service in (config.get("deployed_services") or [])]
-    return find_existing_compose_files(config, services, base=repo_root)
+    return _dedupe_compose_files(find_existing_compose_files(config, services, base=repo_root))
+
+
+def _dedupe_compose_files(compose_files: list[str]) -> list[str]:
+    """Drop repeats from a ``-f`` list, keeping first-seen order.
+
+    Two deployed services can name ONE compose template: a two-lane Bluesky
+    deployment declares ``services.bluesky`` and ``services.bluesky_va`` with
+    the same ``path``, because one template renders both lanes rather than a
+    second copy of the directory being kept in step with the first. The lookup
+    walks ``deployed_services``, so it reports that file once per lane.
+
+    Passing it twice is not obviously harmful — compose merges a document with
+    itself — but it is a claim the deploy does not mean to make, it doubles up
+    in every log line and status listing that echoes the file list, and how a
+    given runtime treats a repeated ``-f`` is not a bet worth taking.
+
+    :param compose_files: Paths in ``-f`` order, possibly with repeats
+    :type compose_files: list[str]
+    :return: The same paths, first occurrence only
+    :rtype: list[str]
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for compose_file in compose_files:
+        if compose_file in seen:
+            continue
+        seen.add(compose_file)
+        unique.append(compose_file)
+    return unique
 
 
 def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
@@ -6380,8 +6592,8 @@ def deploy_down(config_path, dev_mode=False):
     # Try to use existing compose files (suppress warnings for status check)
     from osprey.deployment.compose_generator import find_existing_compose_files
 
-    compose_files = find_existing_compose_files(
-        config, deployed_service_names, quiet=True, base=repo_root
+    compose_files = _dedupe_compose_files(
+        find_existing_compose_files(config, deployed_service_names, quiet=True, base=repo_root)
     )
 
     # If no existing compose files found, rebuild them

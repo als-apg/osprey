@@ -95,6 +95,24 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Control-system failure envelopes now name the machine they happened on: a
+  connect failure, a timeout, a limits refusal or a denied write carries the
+  active target's name, label and endpoint (`details.active_target`, plus an
+  `active target: ...` clause in the message). On a deployment with a runtime
+  live/VA switch, "the write timed out" no longer leaves the operator to
+  reconstruct *which machine* from session memory.
+- Enum channel reads (EPICS `mbbi`/`bi`/`bo` and PVA `NTEnum`) now carry
+  their state labels: the value stays the integer index on every protocol,
+  and the reading's metadata adds `enum_label` (the state the channel is in)
+  and `enum_labels` (every state in index order). An operator asking "what
+  mode is the device in?" is told `ACQUIRING`, not `2`.
+- A write the control system itself denies — EPICS access security answering
+  a put with "Write access denied" — is now reported as a refusal naming the
+  control system, instead of an `internal_error` that named nothing. The new
+  `CONTROL_SYSTEM_REFUSED` reason states that the write was sent, that the
+  control system turned it down, and that no value was written, so the
+  operator is not sent to check OSPREY's own write settings for access the
+  control system grants.
 - Interactive plot artifacts now follow the active theme everywhere: opened in
   their own tab ("Open in new tab"), on first visit with a deployment-pinned
   `web.theme`, and under every theme family — not just light/dark inside the
@@ -102,7 +120,6 @@ Compatibility is documented in release notes, not encoded in the version string.
   theme outside the main family fell back to the dark palette. HTML and table
   artifacts without styling of their own now take the theme's colors too, and
   the print view is always light.
-
 - The graph channel finder no longer mistakes its own row limit for the whole
   answer: `read_cypher` now warns when a result exactly fills the query's own
   `LIMIT`, the example catalogue gained a census query (count before listing
@@ -391,8 +408,40 @@ Compatibility is documented in release notes, not encoded in the version string.
   with the variable set-and-empty. Advisory only; `env.required` is where a
   deployment says a variable is mandatory.
 
+- A session can now be pointed at a different control system while it runs.
+  `control_target_set` moves it between the real machine (`live`) and the
+  virtual accelerator (`va`), and `control_target` reports where the session is
+  and what else it could reach — so a script can be rehearsed on the simulator
+  and then run on the machine without a rebuild, a redeploy or a restart. The
+  destination is connected and proved reachable, by reading its
+  `probe_channel`, before the current one is retired, so a switch that fails
+  leaves the session where it was. Switching *to* the live machine also
+  requires strict limits checking and
+  `control_system.target_switch.live_gateway_acknowledged`, set to the live
+  gateway's hostname; returning to a deployment's own baseline requires
+  neither. No target choice outlives the session — every server start returns
+  to the deployment baseline. `osprey build` now renders both targets'
+  connector blocks, so a project from the standard template has a
+  `virtual_accelerator:` block beside its `epics:` one. See the new "Switch the
+  Control Target at Run Time" how-to.
+
+- Approval prompts now name the control target they would act on — writes, plan
+  starts, patches and executions alike — and archive reads carry the target and
+  the archiver that served them.
+
+- A deployment can render a second Bluesky plan lane, one per control target,
+  with `bluesky.second_lane: true` in the build profile. Plans are then routed
+  to the lane serving the session's target, and `queue_start` names the lane
+  `queue_add` bound the plan to. Without it a deployment keeps its single lane
+  and refuses to queue or start plans while the session is pointed at a target
+  that lane does not serve.
+
 ### Changed
 
+- `osprey-connectors` now versions with the framework's calendar stream —
+  both wheels are built from one checkout and carry one number, so the
+  independent `0.x` line (and the question of what counts as a minor) is
+  gone.
 - Docs site: the root now always shows the latest release; development docs
   moved to `/latest/` with a development banner.
 

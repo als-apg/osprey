@@ -326,6 +326,9 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "control_system_write_tools": control_system.get("write_tools", []),
         # Control system type for protocol-aware safety rules
         "control_system_type": control_system.get("type", "mock"),
+        # Whether this deployment renders the target switch, for the
+        # switch-aware half of the control-system safety rule.
+        "target_switch_enabled": _renders_the_target_switch(control_system),
         # Gate for the `graph` MCP server: a ServerDefinition condition is a
         # plain truthiness test on this key, so it must be merged into the
         # context BEFORE resolve_servers runs (both render paths do — see
@@ -338,6 +341,26 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # build lint and the read-only-floor drift test cannot fork.
         "deny_defaults": list(DENY_DEFAULTS),
     }
+
+
+def _renders_the_target_switch(control_system: dict) -> bool:
+    """Whether the rendered config gives this deployment two targets to switch between.
+
+    Delegates to :func:`osprey_connectors.types.switch_capable`, the same
+    predicate the controls server uses at run time to decide whether its tools
+    are served by a connector-host child. Restating it here — "an epics block
+    and a virtual_accelerator block", say — would be a second opinion that gets
+    a ``doocs`` deployment wrong and a ``mock``-with-an-epics-block deployment
+    wrong in the other direction, and the failure would be a frozen rule
+    promising the agent a switch the runtime refuses to perform.
+
+    Deliberately not keyed on the ``control_system.target_switch`` tuning keys:
+    those have defaults and can be present in a deployment with nowhere to
+    switch to, while a connector block cannot be defaulted into existence.
+    """
+    from osprey_connectors.types import switch_capable
+
+    return switch_capable(control_system)
 
 
 def build_claude_code_context(

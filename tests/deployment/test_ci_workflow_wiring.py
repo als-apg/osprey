@@ -69,6 +69,11 @@ SCAN_AGENTIC_TEST_FILE = "tests/e2e/test_plan_stack_agentic.py"
 SCAN_AGENTIC_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 ARCHIVER_JOB = "archiver-world-e2e"
 ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
+TARGET_SWITCH_JOB = "target-switch-e2e"
+#: The agent-driven half of the same feature. A separate lane rather than a
+#: second step in the one above because it needs the LLM secret and the CLI,
+#: and lane-level `if:` gating is the only granularity GitHub offers.
+TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
 TWO_SHAPE_JOB = "two-shape-boot-e2e"
 TWO_SHAPE_TEST_FILE = "tests/e2e/test_two_shape_boot.py"
 TWO_SHAPE_BOOT_STEP = "Run two-shape boot E2E (podman)"
@@ -2537,6 +2542,7 @@ CLI_DEPENDENT_JOBS = (
     "e2e-tests",
     "channel-finder-benchmarks",
     SCAN_AGENTIC_JOB,
+    TARGET_SWITCH_AGENTIC_JOB,
 )
 
 BUNDLED_CLI_STEP = "Put the SDK's bundled Claude CLI on PATH"
@@ -4287,3 +4293,92 @@ def test_proxy_teardown_runs_even_when_the_assertion_fails__mutation_drops_the_c
     del _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_STOP_STEP)["if"]
     with pytest.raises(AssertionError, match="always"):
         test_proxy_teardown_runs_even_when_the_assertion_fails(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The control-target switch lane: registered in both halves of the gate
+# ---------------------------------------------------------------------------
+#
+# This lane needs no secrets — two Channel Access servers and a deterministic
+# switch between them — which makes it the easiest lane in the file to add and
+# the easiest to leave half-wired. The triple below is the same one every other
+# lane carries, for the same reason: a lane nothing reads is a lane nobody
+# notices going red.
+
+
+def test_all_checks_passed_needs_target_switch(workflow: dict[str, Any]) -> None:
+    """Both halves of the gate, for the reason spelled out on the gchat pair:
+    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
+    assert TARGET_SWITCH_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{TARGET_SWITCH_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_target_switch__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(TARGET_SWITCH_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_target_switch(mutated)
+
+
+def test_all_checks_passed_needs_target_switch__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the job is still waited on, but nothing reads its
+    result — the lane could go red forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if TARGET_SWITCH_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert TARGET_SWITCH_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_target_switch(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The agent-driven control-target switch lane: the same triple, one tier riskier
+# ---------------------------------------------------------------------------
+#
+# Its sibling above needs no secrets; this one needs the LLM key AND the SDK's
+# bundled CLI, which is two more ways to go vacuously green. Two of those are
+# covered elsewhere in this file and both cover this lane by construction: the
+# ``CLI_DEPENDENT_JOBS`` parametrization (the bundled-CLI step) and
+# ``_als_apg_probe_steps`` discovery (the pre-flight probe honours
+# ``ALS_APG_BASE_URL``). What is left is the gate wiring, pinned here.
+
+
+def test_all_checks_passed_needs_target_switch_agentic(workflow: dict[str, Any]) -> None:
+    """Both halves of the gate, for the reason spelled out on the gchat pair:
+    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care.
+
+    Worth its own pair rather than folding into the sibling's: these two lanes
+    can be added, reverted or re-landed independently — they share only the two
+    images — and a gate entry that quietly covers "the target-switch lane"
+    without saying which one is exactly how the expensive half goes unwatched.
+    """
+    assert TARGET_SWITCH_AGENTIC_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{TARGET_SWITCH_AGENTIC_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_target_switch_agentic__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(TARGET_SWITCH_AGENTIC_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_target_switch_agentic(mutated)
+
+
+def test_all_checks_passed_needs_target_switch_agentic__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half, and dangerous twice over here: this is the lane that
+    spends real API budget on five agent sessions, so nobody re-reads its log
+    once the roll-up is green."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [
+        line
+        for line in step["run"].splitlines(keepends=True)
+        if TARGET_SWITCH_AGENTIC_JOB not in line
+    ]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    # the needs entry survives
+    assert TARGET_SWITCH_AGENTIC_JOB in _jobs(mutated)[GATE_JOB]["needs"]
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_target_switch_agentic(mutated)

@@ -37,7 +37,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 
-from osprey.bluesky_bridge_connection import resolve_bridge_url
+from osprey.bluesky_bridge_connection import resolve_bridge_url, resolve_lane_bridge_urls
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.bluesky_web import channels, draft_relay, queue_relay, read_proxy
 from osprey.interfaces.vendor import vendor_url
@@ -70,6 +70,15 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # sidecar and the Bluesky MCP server agree on which bridge instance to talk
     # to.
     _app.state.bridge_url = resolve_bridge_url()
+    # A deployment that renders two PLAN LANES has two bridges, and the read
+    # proxy addresses them by lane (`?lane=`). Publishing the mapping here is
+    # what makes that addressing resolvable at request time. It is set ONLY on
+    # a multi-lane deployment: a single-lane sidecar publishes the one
+    # `bridge_url` it always has, and `resolve_lane_bridge_url` falls back to
+    # exactly that, so nothing about those deployments changes.
+    lane_urls = resolve_lane_bridge_urls()
+    if lane_urls:
+        _app.state.bridge_urls = lane_urls
     try:
         yield
     finally:

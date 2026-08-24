@@ -194,7 +194,7 @@ execution:
 control_system:
   # Control system type - determines which runtime connector to use
   # Note: Pattern detection is control-system-agnostic (same for all types)
-  type: "mock"  # Options: mock | epics
+  type: "mock"  # Options: mock | virtual_accelerator | epics
 
   # Write Access Control - Master safety switch
   writes_enabled: false  # Set true only for production hardware control
@@ -251,8 +251,45 @@ control_system:
     mock:
       response_delay_ms: 10   # Simulated per-operation response delay
       noise_level: 0.01       # Relative noise on generated values (0-1)
+    # Virtual Accelerator connector - a containerized PyAT-backed soft-IOC
+    # reached over real EPICS Channel Access. VirtualAcceleratorConnector is an
+    # EPICSConnector subclass, so the gateway shape below is identical to the
+    # `epics` block's. Requires the VA service running first: add
+    # virtual_accelerator to deployed_services and run `osprey up`. Select it
+    # with `type: virtual_accelerator` above, or switch a running session to it.
+    virtual_accelerator:
+      timeout: 5.0
+      # Channel the target switch reads to prove this target is reachable
+      # before making it active. A target with no probe_channel is never
+      # switched to. Replace with a channel your VA's machine model serves.
+      probe_channel: YOUR:PROBE:CHANNEL
+      # CA name-server (TCP) mode against localhost: the one host<->container
+      # CA configuration confirmed to work across container runtimes -
+      # broadcast discovery does not reliably cross the macOS<->container VM
+      # boundary.
+      #
+      # The gateway port is deliberately not written out: with it unset the
+      # connector follows services.virtual_accelerator.port, so moving the
+      # deployed soft-IOC's port is a one-place edit. Set `port:` on a gateway
+      # only to reach a VA this project does not deploy - one on another host,
+      # or a container published on a host port different from the one it
+      # serves on.
+      gateways:
+        read_only:
+          address: localhost
+          # port: 5074
+          use_name_server: true
+        write_access:
+          address: localhost
+          # port: 5074
+          use_name_server: true
     epics:
       timeout: 5.0
+      # Channel the target switch reads to prove the live machine is reachable
+      # before making it active. Facility-specific, so nothing is shipped set:
+      # while it is unset this target is never switched to (the deployment
+      # baseline still connects normally).
+      # probe_channel: YOUR:PROBE:CHANNEL
       # PVAccess (PVA) read routing. Addresses matching any glob below are read
       # through the p4p client (needed for NTNDArray camera frames); every other
       # address stays on Channel Access. Absent or empty means pure CA, exactly
@@ -282,6 +319,20 @@ control_system:
           address: your-gateway.example.com  # Replace with your EPICS gateway address
           port: 5084
           use_name_server: false
+
+  # Control-System Target Switch
+  # Bounds how a running session moves between the connector targets above.
+  target_switch:
+    drain_timeout_s: 5      # Seconds in-flight operations get to finish on the
+                            # old target before it is torn down regardless
+    probe_interval_s: 30    # Seconds between background reachability probes of
+                            # every target's gateways
+    # Operator acknowledgment for the live machine. Set it to your own live
+    # gateway's hostname to confirm the `epics` gateways above really are your
+    # facility's. While it is unset a session may not switch TO the live
+    # target; returning to it when it is this deployment's baseline is always
+    # allowed.
+    # live_gateway_acknowledged: your-gateway.example.com
 
   # Pattern Detection (Security Layer)
   # Purpose: Detect ALL control system operations for approval workflows

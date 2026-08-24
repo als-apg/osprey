@@ -74,6 +74,59 @@ def _alarm_name(code: Any) -> str:
         return "UNKNOWN"
 
 
+def _is_enum_type(pv_type: Any) -> bool:
+    """True when a Channel Access field type names an enumeration.
+
+    pyepics spells the type of an ``mbbi``/``bi``/``bo`` as ``"enum"`` or, in
+    the connector's default ``time`` form, ``"time_enum"`` — hence the substring
+    test rather than an equality check against one spelling.
+    """
+    return "enum" in str(pv_type)
+
+
+def _enum_label_fields(labels: Any, index: Any) -> tuple[list[str] | None, str | None]:
+    """Normalize a raw label list and resolve the label for ``index``.
+
+    Every branch fails soft: a control system that reports no labels, reports
+    them as something other than a sequence, or answers with an index outside
+    the list yields ``None`` rather than raising. A reading must never be lost
+    because its labels could not be resolved — the index alone is still a
+    correct, complete answer.
+    """
+    if labels is None or isinstance(labels, (str, bytes)):
+        return None, None
+    try:
+        normalized = [str(label) for label in labels]
+    except TypeError:  # not iterable — nothing usable was reported
+        return None, None
+    if not normalized:
+        return None, None
+
+    label: str | None = None
+    if isinstance(index, bool):
+        # bool is an int subclass, and a bi record's 0/1 is meaningful; keep it.
+        index = int(index)
+    if isinstance(index, int) and 0 <= index < len(normalized):
+        label = normalized[index]
+    return normalized, label
+
+
+def _ca_enum_labels(pv: Any, index: Any) -> tuple[list[str] | None, str | None]:
+    """The state labels of an enum-typed PV, and the one this reading is in.
+
+    ``pv.enum_strs`` triggers pyepics' lazy ``get_ctrlvars`` fetch, which is a
+    round trip to the IOC and so can time out or fail on a PV that answered its
+    value perfectly well. That is caught here: labels are an enrichment, never a
+    precondition of the read.
+    """
+    try:
+        labels = pv.enum_strs
+    except Exception as exc:  # ctrlvars fetch failed — the value still stands
+        logger.debug("Could not fetch enum labels for '%s': %s", getattr(pv, "pvname", pv), exc)
+        return None, None
+    return _enum_label_fields(labels, index)
+
+
 def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
     """Alarm name and severity of a readback, or ``(None, None)`` if unreported.
 
@@ -548,15 +601,19 @@ class EPICSConnector(ControlSystemConnector):
         # Extract metadata. The alarm status is reported by name; the raw CA
         # code stays in raw_metadata next to the severity so nothing is lost.
         alarm_code = getattr(pv, "status", None)
+        pv_type = getattr(pv, "type", None)
+        labels, label = _ca_enum_labels(pv, value) if _is_enum_type(pv_type) else (None, None)
         metadata = ChannelMetadata(
             units=getattr(pv, "units", "") or "",
             precision=getattr(pv, "precision", None),
             alarm_status=_alarm_name(alarm_code),
             timestamp=timestamp,
+            enum_labels=labels,
+            enum_label=label,
             raw_metadata={
                 "status": alarm_code,
                 "severity": getattr(pv, "severity", None),
-                "type": getattr(pv, "type", None),
+                "type": pv_type,
                 "count": getattr(pv, "count", None),
             },
         )
@@ -649,6 +706,11 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata.update(payload.pop("raw_metadata", {}))
 
         metadata = self._pva_metadata(value, timestamp, raw_metadata)
+        # Only the enum branch contributes these; every other payload leaves the
+        # fields at their None default, which is what marks a channel as not
+        # enum-typed.
+        metadata.enum_labels = payload.get("enum_labels")
+        metadata.enum_label = payload.get("enum_label")
 
         return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
 
@@ -711,22 +773,29 @@ class EPICSConnector(ControlSystemConnector):
         }
 
     def _pva_enum_value(self, value: Any) -> dict[str, Any]:
-        """NTEnum: the CHOICE STRING is the value; the index stays in raw_metadata.
+        """NTEnum: the INDEX is the value; the choices become enum metadata.
 
-        An operator reading a state channel wants "Open", not "1" — and the
-        index is meaningless without the choices list, which a later read of the
-        same channel may not even carry (servers send choices only on change).
+        Both halves of a state reading reach the operator, and each in the place
+        it belongs: ``value`` is the index, so a reading has one machine-readable
+        type whichever protocol served it, and the choice string arrives as
+        ``ChannelMetadata.enum_label`` — surfaced in the tool envelope, so
+        nobody has to know that "2" means ACQUIRING. Channel Access maps enums
+        the same way, which is what makes a channel's reading independent of
+        whether it was routed over CA or PVA.
+
+        The index and the choices list stay in ``raw_metadata`` as well: they
+        predate the typed fields and are what a PVA-specific consumer already
+        reads.
         """
         enum_field = _pva_field(value, "value")
         index = _pva_field(enum_field, "index")
         choices = list(_pva_field(enum_field, "choices", []) or [])
-
-        choice: Any = None
-        if isinstance(index, int) and 0 <= index < len(choices):
-            choice = choices[index]
+        labels, label = _enum_label_fields(choices, index)
 
         return {
-            "value": choice if choice is not None else index,
+            "value": index,
+            "enum_labels": labels,
+            "enum_label": label,
             "raw_metadata": {
                 "dtype": "enum",
                 "enum_index": index,
@@ -868,6 +937,22 @@ class EPICSConnector(ControlSystemConnector):
         # Step 3: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
         # offload, so a caller on the event loop is never stalled by the blocking
         # caget that max_step validation performs.
+
+        # A control-system denial (IOC access security answering the put with
+        # "Write access denied") is not a client bug and must not be reported as
+        # one. It is caught by class, resolved off the module this connector
+        # actually connected with — this module must never import pyepics
+        # (tests/connectors/test_import_isolation.py, and the readonly runtime
+        # forbids it outright). An empty tuple catches nothing, so a connector
+        # whose client library does not expose the class behaves exactly as
+        # before.
+        _refusal_class = getattr(getattr(self._epics, "ca", None), "CASeverityException", None)
+        control_system_refusals: tuple[type[BaseException], ...] = (
+            (_refusal_class,)
+            if isinstance(_refusal_class, type) and issubclass(_refusal_class, BaseException)
+            else ()
+        )
+
         def _validate_and_put():
             if self._limits_validator:
                 try:
@@ -881,10 +966,30 @@ class EPICSConnector(ControlSystemConnector):
                         f"Validation error — refusing write (fail-closed): {channel_address}: {e}"
                     )
                     return ("refused", e)  # sentinel: no caput issued
-            success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+            try:
+                success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+            except control_system_refusals as e:
+                # The control system was asked and said no. Every other caput
+                # error stays a raised failure: it leaves the outcome genuinely
+                # unknown, and a refusal claims the opposite.
+                return ("cs_refused", e)
             return ("ok", success)
 
         outcome, payload = await asyncio.to_thread(_validate_and_put)
+
+        if outcome == "cs_refused":
+            logger.warning(f"Control system refused write to {channel_address}: {payload}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=False,
+                error_message=(
+                    f"Write to '{channel_address}' refused by the control system "
+                    f"(access security); no value was written: {payload}"
+                ),
+                blocked=True,
+                refusal_reason="CONTROL_SYSTEM_REFUSED",
+            )
 
         if outcome == "refused":
             return ChannelWriteResult(
@@ -1045,8 +1150,18 @@ class EPICSConnector(ControlSystemConnector):
             return self._subscribe_pva(channel_address, callback, loop)
 
         def epics_callback(pvname=None, value=None, timestamp=None, **kwargs):
-            """Wrapper to convert EPICS callback to our format."""
+            """Wrapper to convert EPICS callback to our format.
+
+            pyepics hands a monitor callback a copy of the PV's whole argument
+            set, so ``enum_strs`` is among the kwargs — carrying the labels once
+            the PV's control variables have been fetched, and ``None`` until
+            then (pyepics does not fetch them on connect). Both cases are
+            handled: an update with no labels reports the index alone rather
+            than being dropped or delayed by a synchronous fetch on the
+            transport's own callback thread.
+            """
             alarm_code = kwargs.get("status")
+            labels, label = _enum_label_fields(kwargs.get("enum_strs"), value)
             pv_value = ChannelValue(
                 value=value,
                 timestamp=(
@@ -1057,6 +1172,8 @@ class EPICSConnector(ControlSystemConnector):
                 metadata=ChannelMetadata(
                     units=kwargs.get("units", ""),
                     alarm_status=_alarm_name(alarm_code),
+                    enum_labels=labels,
+                    enum_label=label,
                     raw_metadata={
                         "status": alarm_code,
                         "severity": kwargs.get("severity"),
@@ -1143,6 +1260,11 @@ class EPICSConnector(ControlSystemConnector):
         payload branches are skipped entirely, because the reply carries no
         payload to branch on. Failures translate the same way as
         :meth:`_read_channel_pva` — both go through :meth:`_pva_get`.
+
+        One consequence: the returned metadata carries no ``enum_labels``. The
+        NTEnum choices live under ``value``, which this request deliberately
+        does not ask for, and the label for "the current value" is meaningless
+        without a value anyway. Enum labels come from a read.
         """
         value = self._pva_get(channel_address, timeout, request=_PVA_METADATA_REQUEST)
         raw_metadata: dict[str, Any] = {"nt_id": _pva_type_id(value)}

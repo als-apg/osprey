@@ -32,6 +32,10 @@ def _make_channel_value(value, timestamp="2024-01-15T10:30:00"):
     cv.metadata.precision = 3
     cv.metadata.alarm_status = "NO_ALARM"
     cv.metadata.description = "Test channel"
+    # Not an enum channel: a bare MagicMock attribute would be truthy, and the
+    # read tool ships the enum keys only when they are not None.
+    cv.metadata.enum_label = None
+    cv.metadata.enum_labels = None
     return cv
 
 

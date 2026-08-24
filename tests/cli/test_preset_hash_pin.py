@@ -27,9 +27,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # ARIEL deployment answers structural questions through delegation instead
     # of direct mcp__graph__* calls — so the staleness advisory firing on
     # already-deployed projects is the correct signal.
-    "ariel-standalone": "sha256:0cbb6b39294bcee682f13f7325a26aca310def5ecf8ee40f7a1bf8399fa7e234",
+    "ariel-standalone": "sha256:ae72c2982cf20738d0d6783531e3619fa4fcccce13199b25056c4db4ce4e51f9",
     "channel-finder-standalone": (
-        "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
+        "sha256:71c5399c9ff3f181c1998f2e35d2cdb65a29efc499dcbae73f0d4a0982544f3a"
     ),
     # A digest here is the resolved content of the preset AND of every preset
     # that extends it, so a change in a base moves all four control-assistant
@@ -58,14 +58,28 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # deploy-visible, so the staleness advisory firing on already-deployed
     # projects is correct. `control-assistant-ariel` excludes the skill by
     # name, so only the notices moved its digest.
+    # Moved again — and this time EVERY bundled preset moved, which is the
+    # signature of a change to the shared hook list rather than to one tier.
+    # `target-state` joined every preset's `hooks:`, shipping the stdlib
+    # control-target state reader into `.claude/hooks/`. It is a library the
+    # approval hook imports, not an event hook: selection is what copies a hook
+    # file and docstring frontmatter is what wires one, and this module has no
+    # frontmatter, so a rebuilt project gains the file and gains no wiring. The
+    # advisory firing on already-deployed projects is correct — the rendered
+    # `.claude/hooks/` really does grow a file.
     # Moved (with every tier extending it) when the base gained the
     # facility-knowledge-graph agent in its `agents:` list — the subagent that
     # now owns the graph tools. A rebuilt project grows
     # `.claude/agents/facility-knowledge-graph.md` and its CLAUDE.md roster
     # entry; deploy-visible, so the advisory firing is correct.
-    "control-assistant": "sha256:aac30a004471d996c38e361945b9768dd5f86f38f91d4dd3609ddd015cf7c4a4",
+    # Re-recorded where the target-switch branch met main: the `target-state`
+    # hook and the facility-knowledge-graph agent are both in the resolved
+    # content now, so every digest below (bar channel-finder-standalone, on
+    # whose resolved content both lines already agreed) is the merged value,
+    # not either branch's own.
+    "control-assistant": "sha256:9d4a065ffa814c34921f9ab1d1f53c7d2a9e86c69ca783dea1b4e7c4bae00f9c",
     "control-assistant-ariel": (
-        "sha256:9f90484d19d93ccef25e0ae8b8a22851f8299619de85c170cead92043e7a9e2b"
+        "sha256:18d48c8612ed1bf5846df559692d929d6158269edf11bcdb67d9393860c23280"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -85,10 +99,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the merged preset actually hashes to. Deploy-visible for both reasons at
     # once, which is what the advisory should say.
     "control-assistant-readonly": (
-        "sha256:473d78864ae444ef95c339ee1f856b654e3a96474af237fa06d2110722d4e53c"
+        "sha256:6b9c8309e48cf1ee2cda1d6366730e710e22aecfff04325af2dc1a5a836d49b9"
     ),
     "control-assistant-readwrite": (
-        "sha256:05b92f5ae58db631731ecd4f165d7c6bc9b36ee974c5ece794edeffe5a393633"
+        "sha256:86355a4b061f85a5c78b2f47d780d06033c85a8f34c7b50d4cc8e6090d36e966"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
@@ -99,7 +113,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The comment-only fixes that shipped alongside it (correcting the
     # mislabelled memory-guard/writes-check comments in the other presets)
     # contributed nothing to any digest, including this one.
-    "hello-world": "sha256:dc1fcdfb8efa432395bbdab7aa55da8b82fd73ad0894ba844806e815ff8c9de7",
+    "hello-world": "sha256:b737b03979d25bec8de1aa4d382fa07ebc64971a093b59e8b0be21f1197ef395",
 }
 
 

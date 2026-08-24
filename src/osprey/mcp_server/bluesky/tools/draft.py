@@ -25,6 +25,22 @@ Every write this module makes carries a fixed ``client_id: "mcp-agent"`` so
 the bridge's SSE frames (and the human's BLUESKY panel) can distinguish agent
 edits from the human's own, and so the panel's echo-suppression never
 swallows an agent edit.
+
+**Drafts are per PLAN LANE, and revisions with them.** The draft is state held
+by a bridge process (one singleton draft plus one monotonic revision counter
+per process), so a deployment that renders two lanes has two independent
+drafts whose revision numbers run independently — revision 3 on the VA lane and
+revision 3 on the live lane are different plans. These tools address the ACTIVE
+lane, the one serving the target the session is currently on (the default in
+``server_context``'s HTTP boundary), which is what keeps the isolation honest:
+a draft composed while the session is on one target is edited, read, and
+queued on that target's lane, and a session switch moves the agent to the
+other lane's draft rather than carrying a revision across.
+
+So every result here names the lane it was read from, and **the launch pin is
+``(lane, revision)``, never the revision alone**: pass both to ``queue_add``
+and a session that switched in between is refused rather than queueing the
+other machine's draft at the same revision number.
 """
 
 from __future__ import annotations
@@ -39,6 +55,7 @@ from osprey.mcp_server.bluesky.server_context import (
     _http_delete_json,
     _http_get_json,
     _http_patch_json,
+    addressed_lane_key,
     bridge_error_message,
 )
 from osprey.mcp_server.errors import make_error
@@ -106,15 +123,21 @@ async def get_draft() -> str:
     anything.
 
     Returns:
-        JSON ``{"draft", "revision"}``. ``draft`` is ``null`` when no draft
-        exists yet (call set_draft with a ``plan_name`` to create
+        JSON ``{"draft", "revision", "lane"}``. ``draft`` is ``null`` when no
+        draft exists yet (call set_draft with a ``plan_name`` to create
         one); otherwise ``{"plan_name", "plan_args", "revision", "updated_by",
         "updated_at"}``. ``revision`` is a process-monotonic counter, present
-        even when ``draft`` is ``null``.
+        even when ``draft`` is ``null``. ``lane`` is the plan lane this draft
+        belongs to — pass it to ``queue_add`` alongside the revision, because
+        the two together are what identify a draft on a deployment with two
+        lanes.
     """
-    status, body = await anyio.to_thread.run_sync(_http_get_json, "/draft")
+    lane = addressed_lane_key()
+    status, body = await anyio.to_thread.run_sync(lambda: _http_get_json("/draft", lane=lane))
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+    if isinstance(body, dict):
+        body["lane"] = lane
     return json.dumps(body)
 
 
@@ -161,9 +184,12 @@ async def set_draft(
             for an Optional field rather than a deletion.
 
     Returns:
-        JSON ``{"revision", "changed", "plan_name"}`` on success —
+        JSON ``{"revision", "changed", "plan_name", "lane"}`` on success —
         ``changed`` lists the field keys whose value actually changed
-        (removed keys included), empty on a no-op patch.
+        (removed keys included), empty on a no-op patch, and ``lane`` is the
+        plan lane this draft belongs to. ``queue_add`` takes both ``revision``
+        and ``lane``: on a two-lane deployment the revision alone does not say
+        which machine's draft it is.
     """
     if plan_name is None and plan_args_patch is None and remove is None:
         return make_error(
@@ -183,7 +209,10 @@ async def set_draft(
     if remove is not None:
         payload["remove"] = remove
 
-    status, body = await anyio.to_thread.run_sync(_http_patch_json, "/draft", payload)
+    lane = addressed_lane_key()
+    status, body = await anyio.to_thread.run_sync(
+        lambda: _http_patch_json("/draft", payload, lane=lane)
+    )
     if status == 409 and isinstance(body, dict) and body.get("code") == "no_draft":
         return make_error(
             "no_draft",
@@ -198,6 +227,9 @@ async def set_draft(
         )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+
+    if isinstance(body, dict):
+        body["lane"] = lane
 
     # Success only (a rejected PATCH must not light up the panel): best-effort
     # activity highlight; must never alter the tool result.
@@ -225,15 +257,20 @@ async def clear_draft() -> str:
     draft exists is a no-op, not an error.
 
     Returns:
-        JSON ``{"revision", "cleared"}`` — ``cleared`` is ``false`` when no
-        draft existed (the no-op case; no revision bump), ``true`` when a
-        draft was discarded (revision bumps, never resets).
+        JSON ``{"revision", "cleared", "lane"}`` — ``cleared`` is ``false``
+        when no draft existed (the no-op case; no revision bump), ``true`` when
+        a draft was discarded (revision bumps, never resets). ``lane`` is the
+        plan lane whose draft this cleared: on a two-lane deployment the other
+        lane's draft is untouched.
     """
+    lane = addressed_lane_key()
     status, body = await anyio.to_thread.run_sync(
-        _http_delete_json, f"/draft?client_id={_CLIENT_ID}"
+        lambda: _http_delete_json(f"/draft?client_id={_CLIENT_ID}", lane=lane)
     )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+    if isinstance(body, dict):
+        body["lane"] = lane
 
     # Success only: best-effort activity highlight; must never alter the
     # tool result.

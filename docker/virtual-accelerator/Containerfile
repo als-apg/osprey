@@ -49,6 +49,12 @@ RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
 WORKDIR /opt/osprey
 COPY pyproject.toml README.md /opt/osprey/
 COPY src/ /opt/osprey/src/
+# The osprey-connectors workspace member rides along and installs from source
+# below, for the same reason osprey itself does: pip cannot see a uv workspace,
+# so without this the framework's `osprey-connectors` requirement would resolve
+# from PyPI -- a released snapshot beside checkout framework code, exactly the
+# version skew one image built from one checkout exists to rule out.
+COPY packages/ /opt/osprey/packages/
 
 # osprey's version comes from the git tag (hatch-vcs), and the staged build
 # context has no .git -- deliberately, since staging one would mean copying the
@@ -58,8 +64,10 @@ COPY src/ /opt/osprey/src/
 # SETUPTOOLS_SCM_PRETEND_VERSION is the one that works here: the
 # ``_FOR_<DIST_NAME>`` form needs the backend to hand setuptools-scm a dist
 # name, which hatch-vcs does not, so that form is silently ignored and the
-# build fails as if nothing had been set. Only osprey is built in this layer,
-# so the un-scoped variable reaches exactly one package. The build hook stamps
+# build fails as if nothing had been set. The un-scoped variable reaches both
+# source builds in this layer -- osprey and its osprey-connectors workspace
+# sibling -- and that is the point: the two version with the same calendar
+# stream, so one number is the correct answer for both. The build hook stamps
 # whatever lands here into src/osprey/_version.py, which is what
 # ``osprey.__version__`` reports at runtime -- so a build that does not pass
 # OSPREY_VERSION yields an image that honestly reports an unknown version
@@ -97,6 +105,8 @@ ARG OSPREY_VERSION=0.0.0.dev0+unknown
 # Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
 # carries no C toolchain at all.
 RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
+       pip install --no-cache-dir ./packages/osprey-connectors \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
        pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy
 

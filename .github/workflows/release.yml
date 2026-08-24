@@ -4,15 +4,18 @@ on:
   push:
     tags:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
-      - 'osprey-connectors-v*'  # Triggers on connector package tags like osprey-connectors-v0.1.0
 
-# ORDERING: the framework wheel depends on osprey-connectors from PyPI
-# (workspace sources apply only to local dev), so a connectors release
-# satisfying the framework's `osprey-connectors` requirement must be published
-# BEFORE a v*.*.* tag that needs it — verify-pypi-resolvable installs the built
-# framework wheel with its dependencies resolved from PyPI alone and blocks the
-# publish otherwise. (validate-install-docs cannot be that gate: it installs
-# with `--find-links dist`, so unpublished siblings resolve locally there.)
+# PAIRED PUBLISHING: osprey-connectors versions with the framework's own
+# calendar stream (same v-tags, same describe — see its pyproject.toml), so one
+# tag builds and publishes BOTH wheels, always carrying the same number. The
+# old two-tag dance (a connectors release published before the framework tag
+# that needed it, from its own osprey-connectors-v* trigger) is retired with
+# the 0.x line itself. verify-pypi-resolvable still gates the framework wheel,
+# resolving its dependencies from PyPI plus ONLY the sibling connectors wheel
+# this same run publishes — the one honest offline stand-in for the state PyPI
+# reaches the moment the publish job lands. (validate-install-docs cannot be
+# that gate: it installs with `--find-links dist`, so any unpublished sibling
+# resolves locally there.)
 
 permissions:
   contents: write  # Required for creating GitHub releases
@@ -36,28 +39,34 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
-    - name: Build package
-      run: uv build
+    - name: Build packages
+      # Both workspace packages: the framework and osprey-connectors ride the
+      # same v-tag and must land on PyPI together, carrying the same number.
+      run: uv build --all-packages
 
-    - name: Verify built version matches tag
-      # The version is derived from the tag rather than a literal, so this checks
-      # the artifact that is actually about to be published. A shallow checkout or
-      # a missing tag does not fail the build — it silently yields 0.1.devN — so
-      # this gate is what catches that before it reaches PyPI.
+    - name: Verify built versions match tag
+      # The versions are derived from the tag rather than a literal, so this
+      # checks the artifacts that are actually about to be published — every
+      # wheel, since both packages derive from the same tag. A shallow checkout
+      # or a missing tag does not fail the build — it silently yields 0.1.devN —
+      # so this gate is what catches that before it reaches PyPI.
       run: |
         TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-        WHEEL=$(ls dist/*.whl)
-        # Wheel filenames are <name>-<version>-<python tag>-...; field 2 is the version.
-        BUILT_VERSION=$(basename "$WHEEL" | cut -d'-' -f2)
-        echo "Tag version:   $TAG_VERSION"
-        echo "Built version: $BUILT_VERSION"
-        if [ "$TAG_VERSION" != "$BUILT_VERSION" ]; then
-          echo "❌ Version mismatch! Tag: $TAG_VERSION, Built: $BUILT_VERSION"
-          echo "   A clean checkout of tag v$TAG_VERSION must build exactly $TAG_VERSION."
-          echo "   A local segment or .postN means the tag is not what was built."
-          exit 1
-        fi
-        echo "✅ Built version matches tag: $TAG_VERSION"
+        echo "Tag version: $TAG_VERSION"
+        status=0
+        for WHEEL in dist/*.whl; do
+          # Wheel filenames are <name>-<version>-<python tag>-...; field 2 is the version.
+          BUILT_VERSION=$(basename "$WHEEL" | cut -d'-' -f2)
+          echo "$(basename "$WHEEL"): $BUILT_VERSION"
+          if [ "$TAG_VERSION" != "$BUILT_VERSION" ]; then
+            echo "❌ Version mismatch! Tag: $TAG_VERSION, Built: $BUILT_VERSION"
+            echo "   A clean checkout of tag v$TAG_VERSION must build exactly $TAG_VERSION."
+            echo "   A local segment or .postN means the tag is not what was built."
+            status=1
+          fi
+        done
+        [ "$status" -eq 0 ] && echo "✅ Every built version matches tag: $TAG_VERSION"
+        exit "$status"
 
     - name: Check package
       run: uvx twine check dist/*
@@ -85,10 +94,13 @@ jobs:
     runs-on: ubuntu-latest
 
     # The wheel about to be published, installed the way the docs tell users to
-    # install it: every dependency — workspace siblings included — must resolve
-    # from the index, with no --find-links escape hatch. This is what refuses to
-    # publish a framework wheel whose `osprey-connectors` pin nothing on PyPI
-    # satisfies yet.
+    # install it: every dependency must resolve from the index — except the one
+    # sibling this same run publishes. The connectors wheel is staged into its
+    # own find-links directory (never the whole dist/, which would let ANY
+    # unpublished dependency resolve locally and defeat the gate): PyPI plus
+    # that one wheel is exactly the index state the moment publish-to-pypi
+    # lands, so this is what refuses a framework wheel whose OTHER pins nothing
+    # on PyPI satisfies yet.
     steps:
     - name: Download distribution artifacts
       uses: actions/download-artifact@v8
@@ -99,9 +111,11 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@v7
 
-    - name: Install framework wheel with deps from PyPI only
+    - name: Install framework wheel with deps from PyPI plus the paired connectors wheel
       run: |
-        uv tool install ./dist/osprey_framework-*.whl
+        mkdir -p /tmp/sibling
+        cp dist/osprey_connectors-*.whl /tmp/sibling/
+        uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling
         osprey --version
 
   publish-to-pypi:
@@ -168,43 +182,7 @@ jobs:
         draft: false
         prerelease: false
 
-  publish-connectors-to-pypi:
-    name: Publish osprey-connectors to PyPI
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref_name, 'osprey-connectors-v')
-    environment:
-      name: pypi
-      url: https://pypi.org/project/osprey-connectors/
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-
-    - name: Set up Python
-      run: uv python install 3.11
-
-    - name: Verify version matches tag
-      run: |
-        TAG_VERSION="${GITHUB_REF_NAME#osprey-connectors-v}"
-        PACKAGE_VERSION=$(grep '^version = ' packages/osprey-connectors/pyproject.toml | cut -d'"' -f2)
-        echo "Tag version: $TAG_VERSION"
-        echo "Package version: $PACKAGE_VERSION"
-        if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
-          echo "❌ Version mismatch! Tag: $TAG_VERSION, Package: $PACKAGE_VERSION"
-          exit 1
-        fi
-        echo "✅ Version matches: $TAG_VERSION"
-
-    - name: Build osprey-connectors package
-      run: uv build --package osprey-connectors
-
-    - name: Check package
-      run: uvx twine check dist/*
-
-    - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        verbose: true
+# The former publish-connectors-to-pypi job (its own osprey-connectors-v* tag,
+# its own static-version check) is retired: the connectors package now versions
+# with the framework's calendar stream, and the build job above publishes both
+# wheels from the one v-tag.

@@ -38,6 +38,13 @@ uncaught 500. HTTP-level error responses from the bridge itself (404, 409,
 ...) are not exceptions to httpx at all; they flow straight through and are
 relayed as-is.
 
+Every route takes an optional ``lane`` query parameter naming which PLAN LANE
+the read is addressed to -- a two-lane deployment runs two bridges answering
+these same paths about two different machines. It is consumed here and never
+forwarded, defaults to lane 1 (the only lane a single-lane deployment has, so
+nothing about those requests changes), and a lane this deployment does not
+render is answered 404 rather than relayed from the other lane.
+
 Responses only ever carry the bridge's own body content and prefix-relative
 paths (path params/query params passed through verbatim) -- no absolute URLs
 are ever emitted, since panels consume these prefix-relative.
@@ -51,9 +58,52 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from osprey.bluesky_bridge_connection import LANE_ONE
 from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
 
 router = APIRouter()
+
+#: Query parameter naming which PLAN LANE a read is addressed to. A lane is a
+#: whole bridge stack bound at render time to one control-system target, and a
+#: two-lane deployment has two of them answering the same paths about two
+#: different machines. Absent means lane 1 -- which is every request a
+#: single-lane deployment can produce, so nothing about those changes.
+#:
+#: Consumed here and stripped: it addresses the sidecar, not the bridge, and
+#: the bridge has no parameter by that name.
+LANE_QUERY_PARAM = "lane"
+
+#: The 404 body for a lane this deployment does not render. A distinct answer
+#: from the 502 above on purpose: "I cannot reach that bridge" and "there is no
+#: such bridge here" are different claims, and the one thing neither may
+#: degrade into is relaying the read from the OTHER lane -- a run listing
+#: labelled with the wrong machine is worse than no listing.
+UNKNOWN_LANE_BODY: dict[str, str] = {"detail": "unknown bluesky lane"}
+
+
+def resolve_lane_bridge_url(request: Request, lane: str | None) -> str | None:
+    """The bridge base URL serving ``lane``, or ``None`` if there is no such lane.
+
+    Reads ``app.state.bridge_urls`` -- the per-lane mapping the sidecar's app
+    publishes on a two-lane deployment -- and falls back to the single
+    ``app.state.bridge_url`` for lane 1, which is the only URL a single-lane
+    deployment publishes and the only lane it can be asked about.
+
+    Deliberately returns ``None`` rather than lane 1's URL for an unrecognized
+    lane: relaying one lane's reads under another lane's name is the confusion
+    the lane axis exists to remove. An EMPTY lane is not unrecognized, though —
+    it names no lane at all, and is treated as lane 1 exactly like ``None``.
+
+    :param request: The incoming request, for its ``app.state``
+    :param lane: A lane's ``services.<lane>`` key, or ``None``/``""`` for lane 1
+    :return: The base URL with any trailing slash stripped, or ``None``
+    """
+    state = request.app.state
+    if not lane or lane == LANE_ONE:
+        return str(state.bridge_url).rstrip("/")
+    urls = getattr(state, "bridge_urls", None)
+    url = urls.get(lane) if isinstance(urls, dict) else None
+    return str(url).rstrip("/") if url else None
 
 
 async def _forward_get(request: Request, path: str) -> JSONResponse:
@@ -62,13 +112,26 @@ async def _forward_get(request: Request, path: str) -> JSONResponse:
     ``path`` must already be a properly-escaped bridge-relative path (path
     segments taken from the incoming request are quoted by the caller before
     being interpolated in). The incoming request's query params are forwarded
-    unchanged.
+    unchanged, except :data:`LANE_QUERY_PARAM`, which selects WHICH lane's
+    bridge is asked and is consumed here.
     """
     client: httpx.AsyncClient = request.app.state.client
-    bridge_url: str = request.app.state.bridge_url
+
+    # `or None`: an empty `?lane=` is a caller that named no lane, not a caller
+    # that named a lane called "". Answering that 404 would refuse a request
+    # whose bare form (`?lane` omitted entirely) is served — a difference the
+    # caller cannot see and nothing here means to draw.
+    lane = request.query_params.get(LANE_QUERY_PARAM) or None
+    bridge_url = resolve_lane_bridge_url(request, lane)
+    if bridge_url is None:
+        return JSONResponse(content=UNKNOWN_LANE_BODY, status_code=404)
+
+    # multi_items(), not a dict: repeated query keys are preserved exactly as
+    # they arrived, which is what "forwarded unchanged" has always meant here.
+    params = [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
 
     try:
-        response = await client.get(f"{bridge_url}{path}", params=request.query_params)
+        response = await client.get(f"{bridge_url}{path}", params=params)
     except httpx.RequestError:
         return JSONResponse(content=UNREACHABLE_BODY, status_code=502)
 

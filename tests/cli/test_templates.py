@@ -530,6 +530,7 @@ class TestTemplateManifest:
             "osprey_memory_guard.py",
             "osprey_notebook_update.py",
             "osprey_panels_context.py",
+            "osprey_target_state.py",
             "osprey_workspace_delta.py",
             "osprey_writes_check.py",
         }

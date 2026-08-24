@@ -28,6 +28,13 @@ _TYPE_TO_SUBDIR: dict[str, str] = {
 
 ARTIFACT_TYPES = list(_TYPE_TO_SUBDIR.keys())
 
+# Some files in hooks/ are shared libraries rather than hooks — imported by the
+# hooks beside them, wired to no event (``osprey_hook_log.py``,
+# ``osprey_target_state.py``). They are still enumerated here, and profiles name
+# them in their hooks list like any other artifact, because SELECTION is what
+# copies a file into ``.claude/hooks/`` while docstring FRONTMATTER is what
+# wires it to an event. A helper is selected everywhere and wired nowhere.
+
 
 def _claude_code_root() -> Path:
     """Return path to the built-in claude_code template directory."""

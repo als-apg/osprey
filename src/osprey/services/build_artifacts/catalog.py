@@ -231,6 +231,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Shared hook logging utility",
         ),
         BuildArtifact(
+            canonical_name="hooks/target-state",
+            template_path="claude/hooks/osprey_target_state.py",
+            output_path=".claude/hooks/osprey_target_state.py",
+            description="Shared control-system target-state reader",
+        ),
+        BuildArtifact(
             canonical_name="hooks/hook-config",
             template_path="claude/hooks/hook_config.json.j2",
             output_path=".claude/hooks/hook_config.json",

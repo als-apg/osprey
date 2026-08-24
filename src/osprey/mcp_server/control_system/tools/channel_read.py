@@ -676,8 +676,11 @@ async def channel_read(
     Args:
         channels: List of channel/PV addresses to read.
         include_metadata: If True, also report units, precision, alarm status and
-            description for each channel. Use channel_limits for the bounds a write
-            is checked against - the control system does not report those here.
+            description for each channel, plus enum_label/enum_labels on the entries
+            whose channel is enum-typed (an enum reads as its integer index, and the
+            label names the state that index stands for). Use channel_limits for the
+            bounds a write is checked against - the control system does not report
+            those here.
 
     Returns:
         JSON with a summary of channel values, one entry per channel. Channels
@@ -703,6 +706,11 @@ async def channel_read(
         # channel's display range, so this tool does not claim to either — and a
         # write bound is a limits-database question, not a control-system read.
         metadata_fields = ("units", "precision", "alarm_status", "description")
+        # Enum-only, and reported only when the control system had them: an
+        # ordinary analogue channel would otherwise grow two permanently-null
+        # keys in every reading, which reads as "this channel has no labels"
+        # rather than "labels do not apply here".
+        enum_metadata_fields = ("enum_label", "enum_labels")
 
         np = _numpy()
         inline_max = get_read_inline_max_elements()
@@ -751,6 +759,10 @@ async def channel_read(
             if include_metadata:
                 for field in metadata_fields:
                     entry[field] = getattr(cv.metadata, field, None)
+                for field in enum_metadata_fields:
+                    enum_value = getattr(cv.metadata, field, None)
+                    if enum_value is not None:
+                        entry[field] = enum_value
             readings_summary[addr] = entry
 
         summary: dict = {
@@ -767,6 +779,16 @@ async def channel_read(
                 ["value", "timestamp"] + (list(metadata_fields) if include_metadata else [])
             ),
         }
+        if include_metadata:
+            access_details["enum_fields_per_entry"] = {
+                "fields": list(enum_metadata_fields),
+                "meaning": (
+                    "Present only on enum-typed channels (EPICS mbbi/bi/bo and "
+                    "equivalents). value is the state's integer index; enum_label is "
+                    "that state's name and enum_labels every state in index order. An "
+                    "entry without these keys is not an enum channel."
+                ),
+            }
         if withheld:
             access_details["values_withheld"] = {
                 "channels": withheld,

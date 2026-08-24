@@ -35,6 +35,34 @@ everywhere:
 2. A client-side launch-token presence check, so an unarmed server refuses
    locally with no network call.
 
+3. A session-target check, on ``queue_add`` and ``queue_start`` only. A
+   deployment's plan lane is wired at build time to one control target, while
+   an agent session can be switched to the other one at run time
+   (``control_target_set``). Queuing or starting a Bluesky PLAN while the two
+   disagree would run it against a machine the session is not pointed at. This
+   layer is enforced HERE rather than at the bridge because the session target
+   is host state: a bridge serves its lane's target and never learns which
+   target the session is on. Halting is never gated by it, for the same reason
+   it is never gated by the kill switch.
+
+   What that check DOES depends on how many lanes the deployment renders, and
+   the lane count is the only branch point (see ``bluesky/lanes.py``):
+
+   * **One lane** — every deployment until ``bluesky.second_lane`` is opted
+     into. There is no other lane to route to, so a switched session is refused
+     outright: the blanket refusal this module has always carried, unchanged.
+   * **Two lanes** — one per control target. The switch stops being a refusal
+     and becomes an ADDRESS: the operation is routed to the lane serving the
+     session's target, ``queue_add`` returns the lane it bound the item to, and
+     ``queue_start`` must name that lane and is refused when it no longer
+     matches the active one (a session that switched between the add and the
+     start). It still refuses when NO single rendered lane serves the session's
+     target, which is a misrendered deployment rather than a switch.
+
+   Both branches come out of one resolved fact — ``LaneSituation.active``, the
+   lane whose target equals the session's — so the refusal and the routing
+   decision can never drift apart.
+
 ``queue_start`` carries layer 1 unconditionally, then delegates the token
 decision to the bridge: it posts with its launch token when it holds one and
 with no token header when it does not, and the bridge answers
@@ -61,19 +89,24 @@ an HTTP 4xx/5xx whose ``detail`` is ``{"code", "detail", ...extras}``, where
 ``capability``, ``manager_state``, ``revision``, ``plan`` and
 ``item_left_behind`` — as ``details``. Nothing is reworded or reclassified: a
 tool that renamed a refusal would put the agent and the panel on different
-vocabularies for the same event. The only envelopes minted here are the two
-local refusals (``writes_disabled``, ``launch_token_required``) and a
-last-resort ``bluesky_bridge_error`` for a bridge response that carried no
-structured detail at all.
+vocabularies for the same event. The only envelopes minted here are the three
+local refusals (``writes_disabled``, ``launch_token_required``,
+``session_target_mismatch``) and a last-resort ``bluesky_bridge_error`` for a
+bridge response that carried no structured detail at all.
 
-**No reason-code constants are imported or hardcoded here.** The capability
-reason codes are defined in ``osprey.services.bluesky_bridge.queue_backend``,
-which pulls in ``bluesky-queueserver-api`` and the runner wiring; importing it
-would break this server's standing invariant of making no bluesky/ophyd/tiled
-imports (see ``bluesky/server.py``). These tools never branch on a reason code
-— they pass the whole capability record through — so they need no copy of the
-vocabulary and cannot drift from it. The docstrings below name the codes as
-prose, for the agent reading them.
+**No reason-code constants are imported here, and exactly one is spelled out.**
+The capability reason codes are defined in
+``osprey.services.bluesky_bridge.queue_backend``, which pulls in
+``bluesky-queueserver-api`` and the runner wiring; importing it would break this
+server's standing invariant of making no bluesky/ophyd/tiled imports (see
+``bluesky/server.py``). For every code the bridge mints, these tools never
+branch on it — they pass the whole capability record through — so they need no
+copy of the vocabulary and cannot drift from it. The one exception is
+:data:`REASON_SESSION_TARGET_MISMATCH`, which no bridge can mint because the
+session target is host state; its string is spelled here and pinned equal to
+``queue_backend``'s constant by a test, so the vocabulary stays single even
+though the two layers cannot import each other. The docstrings below name the
+codes as prose, for the agent reading them.
 """
 
 from __future__ import annotations
@@ -82,8 +115,20 @@ import json
 from typing import NoReturn
 
 import anyio
+from fastmcp.exceptions import ToolError
 
 from osprey.bluesky_bridge_connection import unwrap_bridge_conflict_detail
+from osprey.mcp_server.bluesky.lanes import (
+    LANE_ONE,
+    REASON_LANE_MISMATCH,
+    REASON_LANE_REQUIRED,
+    REASON_UNKNOWN_LANE,
+    Lane,
+    LaneSituation,
+    compose_lane_capability,
+    lane_roster,
+    resolve_lane_situation,
+)
 from osprey.mcp_server.bluesky.server import mcp
 from osprey.mcp_server.bluesky.server_context import (
     _http_get_json,
@@ -91,8 +136,34 @@ from osprey.mcp_server.bluesky.server_context import (
     bridge_error_message,
     get_server_context,
 )
+from osprey.mcp_server.control_system.target_banner import (
+    TargetSituation,
+    baseline_refusal,
+)
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+
+# The capability reason code for "the session is pointed at a control target
+# this deployment's single plan lane does not serve". Defined as a constant in
+# `osprey.services.bluesky_bridge.queue_backend` beside the codes the bridge
+# mints; spelled again here because this module may not import that one (see
+# the module docstring), and pinned equal to it by
+# `tests/services/test_single_lane_switch_refusal.py`.
+#
+# Deliberately NOT `target_banner.BASELINE_REFUSAL_ERROR_TYPE`, which is the
+# generic "you are switched away" category every baseline-pinned holder refuses
+# with. The queue surface has its own machine-readable vocabulary — the
+# capability reason codes — and panels, the JS queue client and the MCP tools
+# all branch on THAT. A queue refusal that arrived under a code outside the
+# vocabulary would fall through every consumer's capability branch. The wording
+# is shared with the phoebus refusal all the same, because a user meets the same
+# fact in both places.
+REASON_SESSION_TARGET_MISMATCH = "session_target_mismatch"
+
+# Who is speaking in the refusal. A deployment renders exactly one plan lane,
+# bound at build time to one control target; serving both takes a second lane,
+# which is an opt-in deployment change.
+_LANE_SUBJECT = "This deployment's single Bluesky plan lane"
 
 # Remediation guidance per bridge refusal code, kept in one table so every
 # tool answers the same code with the same next step. Codes absent here get
@@ -146,6 +217,15 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
     "config_unreadable": [
         "The bridge could not read the project config to determine what it may execute; "
         "this needs an operator, not a retry.",
+    ],
+    # Minted locally by `_refuse_session_target_mismatch`, which names both
+    # targets. This static entry is the fallback for the same code arriving
+    # from a lane-aware bridge, so the two answers stay the same shape.
+    REASON_SESSION_TARGET_MISMATCH: [
+        "The session is pointed at a control target this deployment's plan lane does not "
+        "serve, so a Bluesky PLAN queued here would run somewhere else.",
+        "Switch the session back to the deployment baseline with control_target_set, or do "
+        "this work with the control-system tools, which follow the session target.",
     ],
     "manager_not_configured": [
         "No queue manager is deployed for this bridge; this needs an operator.",
@@ -263,6 +343,251 @@ def _refuse_unarmed(tool: str) -> NoReturn:
     )
 
 
+def _check_session_target(action: str, situation: TargetSituation) -> None:
+    """Refuse *action* unless the session is on the target this lane serves.
+
+    The SINGLE-LANE branch, and only that one — a deployment with two lanes
+    routes instead of refusing (see :func:`_bind_lane`).
+
+    The message and the first two suggestions come from the shared
+    baseline-pinned wording (``target_banner``), so this refusal and the
+    ``phoebus_drive`` one read as the same fact rather than as two unrelated
+    problems. What is added here is the part specific to the plan stack: a
+    second lane is a deployment change, so there is nothing to retry and nothing
+    for the agent to fix.
+
+    ``details`` carries the capability record this server composes from the
+    state file — the bridge cannot compose it, since it never learns the session
+    target — in the same ``{"code", "detail", "capability"}`` shape every other
+    queue refusal arrives in, so a consumer branching on ``details.code``
+    handles this one without a special case.
+
+    Returns normally — permitting the operation — whenever the session is on the
+    deployment baseline, INCLUDING every way the session target can fail to be
+    readable (no state file, a corrupt one, one owned by another session).
+    ``target_banner`` collapses all of those to "on the baseline", which is the
+    right direction here: no switch has happened, so the lane's target IS the
+    session's target, and refusing on unreadable state would break every
+    deployment that never switches at all — which today is all of them.
+
+    Args:
+        action: What is being refused, as a capitalised noun phrase, e.g.
+            ``"Queuing a Bluesky PLAN"``.
+        situation: The session/baseline pair, resolved once by the caller so
+            the refusal and the routing decision read the same facts.
+    """
+    refusal = baseline_refusal(_LANE_SUBJECT, action, situation)
+    if refusal is None:
+        return
+
+    message, suggestions = refusal
+    make_error(
+        REASON_SESSION_TARGET_MISMATCH,
+        message,
+        [
+            *suggestions,
+            "Retrying changes nothing and no token is involved: serving both targets at "
+            "once needs a second plan lane, which only an operator can add to the "
+            "deployment.",
+        ],
+        details={
+            "code": REASON_SESSION_TARGET_MISMATCH,
+            "detail": message,
+            "session_target": situation.session_target,
+            "baseline_target": situation.baseline_target,
+            "capability": {
+                "can_execute": False,
+                "reason": REASON_SESSION_TARGET_MISMATCH,
+                "detail": message,
+            },
+        },
+    )
+
+
+def _lane_details(code: str, message: str, situation: LaneSituation) -> dict:
+    """The details object every lane refusal carries.
+
+    Same ``{"code", "detail", "capability"}`` shape as every other queue
+    refusal — so a consumer branching on ``details.code`` and rendering
+    ``capability.detail`` needs no special case — plus the lane board:
+    ``lanes`` (every rendered lane, its target, and whether it is active) and
+    ``active_lane``. Whoever reads the refusal can then see WHY it happened
+    without a second call.
+    """
+    return {
+        "code": code,
+        "detail": message,
+        "session_target": situation.session_target,
+        "baseline_target": situation.baseline_target,
+        "lanes": lane_roster(situation),
+        "active_lane": situation.active.key if situation.active else None,
+        "capability": {"can_execute": False, "reason": code, "detail": message},
+    }
+
+
+def _refuse_unknown_lane(requested: str, situation: LaneSituation) -> NoReturn:
+    """The named lane is not one this deployment renders.
+
+    Refused rather than served from lane 1: answering about a different machine
+    than the one asked about is the confusion the lane axis exists to remove.
+    """
+    rendered = ", ".join(f"{lane.key!r} ({lane.target})" for lane in situation.lanes)
+    message = (
+        f"{requested!r} is not a Bluesky plan lane this deployment renders. It renders {rendered}."
+    )
+    make_error(
+        REASON_UNKNOWN_LANE,
+        message,
+        [
+            "Call queue_status for the lanes this deployment has and which one is active.",
+            "Adding a lane is a deployment change (bluesky.second_lane in the build "
+            "profile, then rebuild and redeploy), not something to retry.",
+        ],
+        details=_lane_details(REASON_UNKNOWN_LANE, message, situation),
+    )
+
+
+def _refuse_lane_required(action: str, situation: LaneSituation) -> NoReturn:
+    """A two-lane deployment was not told which lane to act on.
+
+    Not defaulted to the active lane on purpose. ``queue_start`` is the arming
+    action, and the lane it names is what pins the start to the same lane the
+    item was queued on: a start that silently took whichever lane happened to
+    be active would run a queue composed for one machine on whichever machine
+    the session had drifted to.
+    """
+    active = situation.active.key if situation.active else None
+    message = (
+        f"This deployment renders {len(situation.lanes)} Bluesky plan lanes, so "
+        f"{action.lower()} has to name which one. The lane the item was queued on is "
+        f"in the queue_add result; the lane the session is on right now is "
+        f"{active!r}."
+    )
+    make_error(
+        REASON_LANE_REQUIRED,
+        message,
+        [
+            "Pass lane=<the lane id queue_add returned> so the start applies to the "
+            "queue that item was added to.",
+            "queue_status lists every lane, the control target each drives, and which "
+            "one the session is currently on.",
+        ],
+        details=_lane_details(REASON_LANE_REQUIRED, message, situation),
+    )
+
+
+def _refuse_lane_mismatch(requested: str, action: str, situation: LaneSituation) -> NoReturn:
+    """The named lane is real, but it is not the one the session is on now.
+
+    The case this exists for is a session that switched between the add and the
+    start: the item is bound to the lane it was queued on, and starting it now
+    would drive a machine the session has left.
+    """
+    lane = situation.lane(requested)
+    lane_target = lane.target if lane else "unknown"
+    active = situation.active
+    message = (
+        f"{action} on the {requested!r} lane would act on the '{lane_target}' target, "
+        f"while this session is on the '{situation.session_target}' target"
+    )
+    message += f", which the {active.key!r} lane serves." if active else ", which no lane serves."
+    make_error(
+        REASON_LANE_MISMATCH,
+        message,
+        [
+            f"Switch the session back to the '{lane_target}' target with "
+            f"control_target_set(target='{lane_target}'), then start the "
+            f"{requested!r} lane's queue — that is the target its queued items "
+            f"were composed for.",
+            *(
+                [
+                    f"Or start the {active.key!r} lane instead, which serves the "
+                    f"target this session is on — but only if its queue is what "
+                    f"should run."
+                ]
+                if active
+                else []
+            ),
+        ],
+        details=_lane_details(REASON_LANE_MISMATCH, message, situation),
+    )
+
+
+def _refuse_no_active_lane(action: str, situation: LaneSituation) -> NoReturn:
+    """No single rendered lane serves the target this session is on.
+
+    Unreachable in a correctly rendered two-lane deployment, whose lanes cover
+    both targets by construction — this is the misrender (two lanes for one
+    target, or a lane whose declared target is neither). It fails closed, under
+    the session-target vocabulary every consumer already branches on, because
+    the alternative is choosing a machine on the agent's behalf.
+    """
+    rendered = ", ".join(f"{lane.key!r} ({lane.target})" for lane in situation.lanes)
+    message = (
+        f"{action} is refused: this session is on the '{situation.session_target}' "
+        f"target, and no single Bluesky plan lane in this deployment serves it "
+        f"(rendered lanes: {rendered})."
+    )
+    make_error(
+        REASON_SESSION_TARGET_MISMATCH,
+        message,
+        [
+            f"Switch the session to a target one of the rendered lanes serves, e.g. "
+            f"control_target_set(target='{situation.lanes[0].target}').",
+            "Or do this work with the control-system tools, which follow the session target.",
+            "A lane pair that does not cover the session's target is a deployment "
+            "problem, not something to retry: only an operator can re-render it.",
+        ],
+        details=_lane_details(REASON_SESSION_TARGET_MISMATCH, message, situation),
+    )
+
+
+def _bind_lane(action: str, *, requested: str | None = None, require: bool = False) -> Lane:
+    """The plan lane this operation binds to — or a refusal.
+
+    ONE code path, branching on the lane count and nothing else:
+
+    * **Single lane.** ``_check_session_target`` decides, exactly as it has
+      since the plan stack shipped: a session on the baseline proceeds, a
+      switched session is refused. The returned lane is then the only lane there
+      is, and ``require`` is ignored — a lane parameter is not something a
+      single-lane deployment can ask an agent for, and demanding one would
+      change behavior no second lane exists to justify.
+    * **Two lanes.** The active lane — the one serving the session's target — is
+      the address. ``require`` (``queue_start``) makes naming it mandatory, and a
+      named lane must be both rendered and currently active.
+
+    Args:
+        action: What is being bound, as a capitalised noun phrase, e.g.
+            ``"Queuing a Bluesky PLAN"``.
+        requested: The lane the caller named, or ``None``.
+        require: Whether a multi-lane deployment must be told the lane.
+
+    Returns:
+        The :class:`~osprey.mcp_server.bluesky.lanes.Lane` to address.
+    """
+    situation = resolve_lane_situation()
+
+    if not situation.multi_lane:
+        _check_session_target(action, situation.target_situation)
+        only = situation.lanes[0]
+        if requested is not None and requested != only.key:
+            _refuse_unknown_lane(requested, situation)
+        return only
+
+    if requested is not None and situation.lane(requested) is None:
+        _refuse_unknown_lane(requested, situation)
+    if situation.active is None:
+        _refuse_no_active_lane(action, situation)
+    if requested is None:
+        if require:
+            _refuse_lane_required(action, situation)
+        return situation.active
+    if requested != situation.active.key:
+        _refuse_lane_mismatch(requested, action, situation)
+    return situation.active
+
+
 def _code_of(body: object) -> str | None:
     """The bridge's machine-readable refusal code, or ``None`` if it sent none."""
     detail = unwrap_bridge_conflict_detail(body)
@@ -308,6 +633,160 @@ def _relay_refusal(
     return make_error(code, message, hints, details=detail)
 
 
+# Manager states that mean this lane's queue is draining toward hardware. From
+# the same vocabulary `queue_list` documents; a lane in one of these is a lane
+# with something to halt.
+_MOVING_MANAGER_STATES = frozenset(
+    {"executing_queue", "starting_queue", "executing_task", "paused"}
+)
+
+
+def _queue_in_motion(body: object) -> bool:
+    """Whether this lane's queue has something a halt would act on."""
+    if not isinstance(body, dict):
+        return False
+    if body.get("running_item"):
+        return True
+    status = body.get("status")
+    if not isinstance(status, dict):
+        return False
+    if status.get("running_item_uid") or status.get("queue_stop_pending"):
+        return True
+    return str(status.get("manager_state") or "") in _MOVING_MANAGER_STATES
+
+
+async def resolve_halt_lane() -> str | None:
+    """Which lane a HALT is addressed to: the one with a plan actually in motion.
+
+    Halting deliberately does NOT follow the session. Every other lane decision
+    here asks "where is this session pointed"; a halt asks "where is the
+    hardware moving", and those are different questions the moment an operator
+    switches targets while a plan runs. Gating a halt behind the session's
+    position would mean an agent that switched away could no longer stop the
+    plan it started — a halt with a failure mode, which is the one thing this
+    path must never have. So the lanes are probed for a queue that is running,
+    paused, or holding a pending stop, and that lane is the address.
+
+    Never raises and never refuses: a lane that cannot be read is skipped, and
+    when no lane reports motion (nothing is running anywhere, or every bridge is
+    unreachable) the answer falls back to the lane the session is on, whose
+    bridge then gives the honest ``nothing_running``. ``None`` means "the only
+    lane there is" — the single-lane deployment, which resolves nothing and
+    probes nothing, and equally a process with no resolved context at all: a
+    halt must never fail over its own lane bookkeeping.
+    """
+    try:
+        multi_lane = get_server_context().multi_lane
+    except RuntimeError:
+        return None
+    if not multi_lane:
+        return None
+
+    situation = resolve_lane_situation()
+    for lane in situation.lanes:
+        try:
+            status, body = await anyio.to_thread.run_sync(
+                lambda key=lane.key: _http_get_json("/queue", lane=key)
+            )
+        except ToolError:
+            # An unreachable lane cannot be the lane we halt on, and it must not
+            # stop us from finding the lane we can.
+            continue
+        if status == 200 and _queue_in_motion(body):
+            return lane.key
+    return situation.active.key if situation.active else LANE_ONE
+
+
+def _envelope_message(exc: ToolError) -> str:
+    """The human sentence out of a raised error envelope, or the raw message.
+
+    ``make_error`` puts a JSON envelope in the exception message. A caller that
+    is CATCHING one — the lane board, which turns another lane's failure into a
+    field rather than into its own refusal — wants the sentence, not the JSON.
+    """
+    try:
+        envelope = json.loads(str(exc))
+    except (TypeError, ValueError):
+        return str(exc)
+    if isinstance(envelope, dict) and envelope.get("error_message"):
+        return str(envelope["error_message"])
+    return str(exc)
+
+
+async def _lane_status_view(situation: LaneSituation) -> dict:
+    """Every lane's capability, with the host's active/inactive view composed on.
+
+    The producer split made concrete: each lane's bridge is asked for its own
+    static record, and the ONE field it cannot supply — whether the session is
+    pointed at that lane — is added here. An inactive lane that cannot be read
+    degrades to an ``error`` on its own entry rather than failing the whole
+    answer: a healthy active lane is the thing the caller most needs, and it is
+    still there.
+    """
+    entries: list[dict] = []
+    active_entry: dict | None = None
+    for lane in situation.lanes:
+        active = situation.active is not None and lane.key == situation.active.key
+        entry: dict = {"lane": lane.key, "lane_target": lane.target, "active": active}
+        try:
+            status, body = await anyio.to_thread.run_sync(
+                lambda key=lane.key: _http_get_json("/health", lane=key)
+            )
+        except ToolError as exc:
+            # A bridge that could not be reached at all, or a lane that cannot
+            # be addressed, raises out of the HTTP boundary. On the BOARD that
+            # is one lane's bad news, not the whole answer's: a downed inactive
+            # lane must not hide a healthy active one.
+            entry["error"] = _envelope_message(exc)
+        else:
+            if status != 200 or not isinstance(body, dict):
+                entry["error"] = bridge_error_message(body, status)
+            else:
+                entry["status"] = body.get("status")
+                entry["capability"] = compose_lane_capability(body.get("capability"), active=active)
+        entries.append(entry)
+        if active:
+            active_entry = entry
+
+    if active_entry is not None and "error" in active_entry:
+        # The active lane is the deployment this session is on; an unreadable
+        # capability there is the same refusal a single-lane deployment gives.
+        return make_error(
+            "bluesky_bridge_error",
+            active_entry["error"],
+            [
+                "The active lane's execution capability could not be read; treat it as "
+                "unable to execute until this check succeeds.",
+            ],
+        )
+
+    view: dict = {
+        "lanes": entries,
+        "active_lane": situation.active.key if situation.active else None,
+        "session_target": situation.session_target,
+        "baseline_target": situation.baseline_target,
+    }
+    if active_entry is not None:
+        view["status"] = active_entry.get("status")
+        view["capability"] = active_entry.get("capability")
+    else:
+        # No lane serves the session's target, so there is no capability to
+        # report as this session's — say so in the vocabulary every consumer
+        # already branches on rather than borrowing another lane's answer.
+        detail = (
+            f"This session is on the '{situation.session_target}' target, which no "
+            f"Bluesky plan lane in this deployment serves."
+        )
+        view["status"] = "ok"
+        view["capability"] = {
+            "can_execute": False,
+            "reason": REASON_SESSION_TARGET_MISMATCH,
+            "detail": detail,
+            "active": False,
+        }
+    return view
+
+
 # ---------------------------------------------------------------------------
 # Tool 1: capability — can this deployment execute at all?
 # ---------------------------------------------------------------------------
@@ -338,22 +817,45 @@ async def queue_status() -> str:
         sentence, which for a browse-only deployment names the exact command
         that makes it executable. Relay ``detail`` to the human verbatim.
 
+        On a deployment that renders TWO plan lanes the answer also carries
+        ``lanes`` — one entry per lane, each with its ``lane``, ``lane_target``,
+        ``status``, its own ``capability``, and ``active``: whether the session
+        is currently pointed at that lane's target. Exactly one lane is active
+        at a time (none, only if the rendered lanes do not cover the session's
+        target, which is a misrendered deployment). ``active_lane`` names it,
+        and the top-level ``status``/``capability`` are the ACTIVE lane's, so a
+        reader that ignores ``lanes`` still sees the deployment the session is
+        actually on. The ``lane``/``lane_target`` inside each capability are the
+        bridge's own render-time facts; ``active`` is the one field the host
+        adds, because only the host can see the session's target. A lane that
+        could not be read at all carries ``error`` instead of a capability —
+        one lane's bad news never hides the others.
+
     Refusals:
         - bluesky_bridge_error / bluesky_bridge_unreachable: the capability
           could not be read. Treat an unreadable capability as CANNOT EXECUTE
-          — never assume executability from a failed check.
+          — never assume executability from a failed check. On a two-lane
+          deployment this is raised for the ACTIVE lane; an inactive lane that
+          cannot be read contributes an ``error`` to its own entry instead of
+          hiding the active lane's answer.
     """
-    status, body = await anyio.to_thread.run_sync(_http_get_json, "/health")
-    if status != 200:
-        return make_error(
-            "bluesky_bridge_error",
-            bridge_error_message(body, status),
-            [
-                "The deployment's execution capability could not be read; treat it as "
-                "unable to execute until this check succeeds.",
-            ],
-        )
-    return json.dumps(body)
+    # The lane COUNT comes off the context's cached render-time answer, so a
+    # single-lane deployment reads no session state here at all — the
+    # short-circuit is literal, not merely equivalent.
+    if not get_server_context().multi_lane:
+        status, body = await anyio.to_thread.run_sync(_http_get_json, "/health")
+        if status != 200:
+            return make_error(
+                "bluesky_bridge_error",
+                bridge_error_message(body, status),
+                [
+                    "The deployment's execution capability could not be read; treat it as "
+                    "unable to execute until this check succeeds.",
+                ],
+            )
+        return json.dumps(body)
+
+    return json.dumps(await _lane_status_view(resolve_lane_situation()))
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +906,7 @@ async def queue_list() -> str:
 # Tool 3: enqueue the pinned draft
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def queue_add(draft_revision: int) -> str:
+async def queue_add(draft_revision: int, lane: str | None = None) -> str:
     """Add the shared plan draft, at a pinned revision, to the queue. Starts NOTHING.
 
     Step one of two. This queues exactly the draft the human can see in their
@@ -431,11 +933,26 @@ async def queue_add(draft_revision: int) -> str:
         draft_revision: The draft revision to queue, as returned by get_draft
             or set_draft. The bridge queues the draft snapshot pinned at this
             exact revision.
+        lane: The lane the revision was read from, as ``get_draft``/
+            ``set_draft`` report in their own ``lane`` field. A revision number
+            alone does NOT identify a draft on a deployment with two lanes:
+            each lane's bridge holds its own draft and counts its own
+            revisions, so revision 4 exists on both and means two different
+            plans. The pin is therefore ``(lane, revision)`` — pass the lane
+            you read the revision from and a session that switched in between
+            is refused (``lane_mismatch``) instead of silently queueing the
+            other machine's draft. Omitted, the add goes to whichever lane the
+            session is on now.
 
     Returns:
-        JSON ``{"run_id", "revision", "item"}`` — ``run_id`` is OSPREY's id for
-        the eventual run (use it with get_run / get_run_data once it executes),
-        and ``item.item_uid`` is the queue handle for this item.
+        JSON ``{"run_id", "revision", "item", "lane"}`` — ``run_id`` is
+        OSPREY's id for the eventual run (use it with get_run / get_run_data
+        once it executes), and ``item.item_uid`` is the queue handle for this
+        item. ``lane`` is the plan lane the item was queued on, and on a
+        deployment with two lanes it is what ``queue_start(lane=...)`` must be
+        given: it pins the start to the machine this item was composed for,
+        even if the session switches targets in between. A single-lane
+        deployment reports its one lane, ``"bluesky"``.
 
     Refusals (nothing is queued, and the pinned revision stays usable):
         - launch_token_required: the queue is already draining and this add
@@ -467,11 +984,32 @@ async def queue_add(draft_revision: int) -> str:
         - manager_not_configured / manager_unreachable / environment_unavailable:
           the manager or its worker environment is not available right now.
         - queue_request_rejected: the manager answered and refused the item.
+        - session_target_mismatch: this session is on a control target no plan
+          lane in this deployment serves, so the PLAN would run against another
+          machine. On a single-lane deployment that is any switch away from the
+          baseline; on a two-lane one it means the rendered pair does not cover
+          the session's target, which is a deployment problem. Refused before
+          the bridge is called. ``details.session_target`` /
+          ``details.baseline_target`` name both targets, and ``details.lanes``
+          lists what this deployment renders. Switch back with
+          control_target_set, or do the work with the control-system tools,
+          which follow the session target.
     """
+    # Before anything else: bind this add to a lane. On a single-lane
+    # deployment that is the switch refusal — a PLAN queued while the session
+    # is switched away would run against the lane's target, not the session's,
+    # and nothing is composed, sent, or spent, so the pinned revision stays
+    # usable. On a two-lane deployment it is the ADDRESS: the lane serving the
+    # session's target, which is the lane this item is then bound to and the
+    # lane id the result reports back. A caller that names the lane its
+    # revision came from is checked against that address, which is what makes
+    # (lane, revision) the pin rather than the revision alone.
+    bound = _bind_lane("Queuing a Bluesky PLAN", requested=lane)
+
     # Read the kill switch ONCE and reuse the answer, so the header decision
     # and the refusal wording can never disagree about it.
     writes_ok = _writes_enabled()
-    token = get_server_context().launch_token
+    token = get_server_context().launch_token_for(bound.key)
     # The token is withheld while writes are disabled: the bridge then treats
     # this as an unarmed add, permitting it onto an idle queue and refusing it
     # (launch_token_required) the moment the queue is draining. That is the
@@ -481,7 +1019,12 @@ async def queue_add(draft_revision: int) -> str:
     headers = {"X-Launch-Token": token} if token and writes_ok else None
 
     status, body = await anyio.to_thread.run_sync(
-        lambda: _http_post_json("/queue/items", {"draft_revision": draft_revision}, headers=headers)
+        lambda: _http_post_json(
+            "/queue/items",
+            {"draft_revision": draft_revision},
+            headers=headers,
+            lane=bound.key,
+        )
     )
     if status != 200:
         # The bridge's code and sentence are relayed untouched, including when
@@ -504,6 +1047,14 @@ async def queue_add(draft_revision: int) -> str:
             extra_hints=extra_hints,
         )
 
+    # The lane this item is BOUND to, reported on every deployment — including
+    # the single-lane one, where it is always `bluesky`. A field that appeared
+    # only on two-lane deployments would be a field every consumer has to
+    # handle the absence of, and `queue_start` would have no stable place to
+    # read the lane it must name back.
+    if isinstance(body, dict):
+        body["lane"] = bound.key
+
     run_id = body.get("run_id") if isinstance(body, dict) else None
     await notify_agent_activity_async(
         "queue_add", "run", detail=str(run_id) if run_id is not None else None
@@ -515,7 +1066,7 @@ async def queue_add(draft_revision: int) -> str:
 # Tool 4: start draining the queue (the arming action)
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def queue_start() -> str:
+async def queue_start(lane: str | None = None) -> str:
     """Start draining the queue. THE arming action — real motion follows.
 
     Step two of two, and the only way execution ever begins: the manager's own
@@ -530,6 +1081,16 @@ async def queue_start() -> str:
     is still refused while writes are off. The bridge then re-verifies the
     token, re-checks every queued session plan's validation, and opens the
     worker environment if needed.
+
+    Args:
+        lane: Which plan lane to start, as returned by ``queue_add`` in its
+            ``lane`` field. REQUIRED on a deployment that renders two lanes,
+            where it pins the start to the lane the item was queued on: if the
+            session switched targets between the add and the start, the
+            mismatch is refused rather than starting a queue composed for one
+            machine against the other. On a single-lane deployment there is
+            nothing to choose, so it may be omitted (naming that one lane is
+            accepted too).
 
     Returns:
         JSON ``{"started": true, "msg"}`` once the bridge has accepted the
@@ -568,20 +1129,43 @@ async def queue_start() -> str:
           the manager or its worker environment is unavailable.
         - queue_request_rejected: the manager refused the start (e.g. it is
           already running).
+        - session_target_mismatch: this session is on a control target that
+          this deployment's single plan lane does not serve, so starting would
+          run the queue against the other machine. Refused before the bridge is
+          called; nothing started. ``details.session_target`` /
+          ``details.baseline_target`` name both targets.
+        - lane_required (two-lane deployments only): this deployment renders
+          two plan lanes and the start named neither. Pass the ``lane`` the
+          ``queue_add`` result reported.
+        - lane_mismatch (two-lane deployments only): the named lane is not the
+          one this session is on — typically because the session switched
+          targets after the item was queued. Starting it would drive a machine
+          the session has left. ``details.lanes`` shows every lane and which is
+          active; switch back with control_target_set, or start the active
+          lane's own queue if that is what should run.
+        - unknown_bluesky_lane: the named lane is not one this deployment
+          renders at all. Never answered from another lane's bridge.
     """
     if not _writes_enabled():
         return _refuse_writes_disabled("queue_start")
 
+    # The queue drains against a LANE's target, not the session's. On a
+    # single-lane deployment a start issued while the two differ is refused
+    # outright; on a two-lane one the named lane must still be the lane the
+    # session is on, so an item queued before a switch cannot be started after
+    # it.
+    bound = _bind_lane("Starting the Bluesky plan queue", requested=lane, require=True)
+
     # A server without a token still goes to the bridge, sending no header:
     # the bridge is the one authority on arming, and it answers
     # launch_token_required either way.
-    token = get_server_context().launch_token
+    token = get_server_context().launch_token_for(bound.key)
     headers = {"X-Launch-Token": token} if token else None
 
     # anyio's run_sync only forwards positional args, and `headers` is
     # keyword-only on `_http_post_json`, hence the lambda.
     status, body = await anyio.to_thread.run_sync(
-        lambda: _http_post_json("/queue/start", {}, headers=headers)
+        lambda: _http_post_json("/queue/start", {}, headers=headers, lane=bound.key)
     )
     if status != 200:
         return _relay_refusal(
@@ -589,6 +1173,9 @@ async def queue_start() -> str:
             status,
             fallback_hints=["Check queue_list for the queue's current state."],
         )
+
+    if isinstance(body, dict):
+        body["lane"] = bound.key
 
     await notify_agent_activity_async("queue_start", "run", detail="queue")
     return json.dumps(body)
@@ -628,6 +1215,11 @@ async def queue_stop(cancel: bool = False) -> str:
         cancel: False (default) requests the stop. True withdraws a pending
             stop, which is an arming action.
 
+    On a deployment with two plan lanes this goes to the lane whose queue is
+    actually draining, not to the lane the session happens to be on. A stop is
+    about the hardware that is moving, and an operator who switched targets
+    mid-run must still be able to halt what they started.
+
     Returns:
         JSON ``{"stop_pending", "msg"}`` — ``stop_pending`` is true after a
         stop request, false after a withdrawal.
@@ -645,17 +1237,27 @@ async def queue_stop(cancel: bool = False) -> str:
         - queue_request_rejected: the manager refused (e.g. no stop is pending
           to withdraw).
     """
+    # The kill switch is read BEFORE anything reaches the network, so a
+    # withdrawal refused for writes-off is still refused with no request made
+    # at all — the ordering the local-refusal contract rests on.
+    if cancel and not _writes_enabled():
+        return _refuse_writes_disabled("queue_stop(cancel=True)")
+
+    # Halting follows the RUN, not the session: on a two-lane deployment the
+    # stop is addressed to the lane whose queue is actually draining, so a stop
+    # still reaches a plan started before the session switched targets. Never
+    # gated by that comparison — see `resolve_halt_lane`.
+    halt_lane = await resolve_halt_lane()
+
     headers = None
     if cancel:
-        if not _writes_enabled():
-            return _refuse_writes_disabled("queue_stop(cancel=True)")
-        token = get_server_context().launch_token
+        token = get_server_context().launch_token_for(halt_lane)
         if not token:
             return _refuse_unarmed("queue_stop(cancel=True)")
         headers = {"X-Launch-Token": token}
 
     status, body = await anyio.to_thread.run_sync(
-        lambda: _http_post_json("/queue/stop", {"cancel": cancel}, headers=headers)
+        lambda: _http_post_json("/queue/stop", {"cancel": cancel}, headers=headers, lane=halt_lane)
     )
     if status != 200:
         return _relay_refusal(

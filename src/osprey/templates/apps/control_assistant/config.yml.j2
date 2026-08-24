@@ -532,6 +532,10 @@ control_system:
     virtual_accelerator:
       timeout: 5.0
       simulation_file: data/simulation/machine.json
+      # Channel the target switch reads to prove this target is reachable
+      # before making it active. A target with no probe_channel is never
+      # switched to. This one is served by the simulation machine model above.
+      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       gateways:
         read_only:
           address: localhost
@@ -564,6 +568,11 @@ control_system:
     # on its local subnet.
     epics:
       timeout: 5.0
+      # Channel the target switch reads to prove the live machine is reachable
+      # before making it active. Facility-specific, so nothing is shipped set:
+      # while it is unset this target is never switched to (the deployment
+      # baseline still connects normally).
+      # probe_channel: SR:BEAM:CURRENT
       # pva_channels:
       #   - "*:IMAGE*"
       #   - "*:ARRAY*"
@@ -583,6 +592,20 @@ control_system:
           address: cagw-alsdmz.als.lbl.gov
           port: 5084
           use_name_server: false
+
+  # Control-System Target Switch (Layer 2)
+  # Bounds how a running session moves between the connector targets above.
+  target_switch:
+    drain_timeout_s: 5      # Seconds in-flight operations get to finish on the
+                            # old target before it is torn down regardless
+    probe_interval_s: 30    # Seconds between background reachability probes of
+                            # every target's gateways
+    # Operator acknowledgment for the live machine. Set it to your own live
+    # gateway's hostname to confirm the `epics` gateways above really are your
+    # facility's. While it is unset a session may not switch TO the live
+    # target; returning to it when it is this deployment's baseline is always
+    # allowed.
+    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov
 
 # Archiver Configuration
 archiver:

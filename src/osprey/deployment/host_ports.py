@@ -61,6 +61,17 @@ _SERVICE_REMEDY_KEYS = {
     "event-dispatcher": "services.event_dispatcher.port",
     "dispatch-worker": "dispatch.worker_port_base",
     "bluesky-bridge": "services.bluesky.port",
+    # The SECOND Bluesky plan lane, when a project opted into one
+    # (``bluesky.second_lane``). Its bridge is the only container the lane
+    # publishes — its RE Manager and Redis publish nothing, exactly like lane
+    # 1's — and its port is derived from lane 1's rather than authored, so the
+    # remedy named here is the key that actually moves it: lowering
+    # ``services.bluesky.port`` moves BOTH lanes, and the second lane's own
+    # ``port`` is what the render reads. Both spellings are listed because a
+    # lane is named for the target it serves, and which of the two exists
+    # depends on which target the deployment baseline is.
+    "bluesky-va-bridge": "services.bluesky_va.port",
+    "bluesky-live-bridge": "services.bluesky_live.port",
     "tiled": "services.bluesky.tiled_port",
     "bluesky-web": "services.bluesky_web.port",
     "virtual-accelerator": "services.virtual_accelerator.port",

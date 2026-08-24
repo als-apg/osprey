@@ -172,6 +172,7 @@ channel_finder_mode: hierarchical
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
   - writes-check      # Kill switch: refuse every write while writes_enabled is false
@@ -1005,6 +1006,8 @@ OSPREY_AUTH_PW_BOB=bob
 # DISPATCH_WORKER_TOKEN=  # event_dispatcher, dispatch_worker — authenticates the dispatch worker back to the dispatcher
 # BLUESKY_LAUNCH_TOKEN=  # bluesky — arms the Bluesky bridge's plan-launch endpoint
 # BLUESKY_TILED_API_KEY=  # bluesky — the key the bridge presents to the co-deployed Tiled catalog
+# BLUESKY_VA_LAUNCH_TOKEN=  # bluesky_va — arms the plan-launch endpoint of the second Bluesky lane, the one serving the virtual accelerator (only on a deployment with `bluesky.second_lane`)
+# BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)

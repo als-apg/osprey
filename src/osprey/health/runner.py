@@ -38,6 +38,12 @@ Execution model
   A callable-backed category that hits its budget yields exactly one synthesized
   ``error`` row named after the category. A run that synthesizes any such row
   sets :attr:`CheckReport.deadline_hit`.
+* **Baseline banner.** While the session is switched away from the deployment
+  baseline, the report opens with
+  :meth:`~osprey.health.runtime.HealthRuntime.baseline_pinned_row`'s
+  informational ``skip`` row naming both targets — the suite reports on the
+  deployment as configured, and every other row has to be read in that light.
+  On the baseline no row is added at all.
 """
 
 from __future__ import annotations
@@ -335,6 +341,17 @@ async def run_health_suite(
 
     grouped = await asyncio.gather(*(_run_category(r) for r in selected))
     results = [result for rows, _ in grouped for result in rows]
+
+    # The banner leads the report while the session is switched away from the
+    # deployment baseline: every row below it describes the baseline target, and
+    # a reader has to know that before reading the first one. It is emitted
+    # regardless of ``categories`` selection — which slice was run does not
+    # change which target the suite reported on — and is absent entirely on the
+    # baseline, so an unswitched report is unchanged.
+    banner = runtime.baseline_pinned_row()
+    if banner is not None:
+        results.insert(0, banner)
+
     deadline_hit = any(hit for _, hit in grouped)
     elapsed_ms = (perf_counter() - t0) * 1000.0
     return CheckReport(results=results, elapsed_ms=elapsed_ms, deadline_hit=deadline_hit)

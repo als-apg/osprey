@@ -2677,7 +2677,10 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
         _inject_gchat_bridge(build_profile.gchat_bridge, project_path)
         injected.append("Google Chat bridge")
     if build_profile.bluesky is not None:
-        _inject_bluesky(build_profile.bluesky, project_path)
+        # The VA block is handed over because a two-lane deploy on a live
+        # baseline puts its second lane on the virtual accelerator, and
+        # _inject_va has not written that service to config.yml yet.
+        _inject_bluesky(build_profile.bluesky, project_path, build_profile.virtual_accelerator)
         injected.append("bluesky bridge")
     if build_profile.bluesky_web is not None:
         _inject_bluesky_web(build_profile.bluesky_web, project_path)

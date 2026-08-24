@@ -253,11 +253,14 @@ class TestLiveReads:
         assert reading.metadata.units == SCALAR_UNITS
         assert reading.metadata.precision == SCALAR_PRECISION
 
-    async def test_ntenum_reads_as_the_choice_string(self, connector):
-        """An operator reading a state channel gets "Open", not 1."""
+    async def test_ntenum_reads_as_the_index_with_its_label(self, connector):
+        """An operator reading a state channel gets 1 *and* "Open"."""
         reading = await connector.read_channel(ENUM)
 
-        assert reading.value == ENUM_CHOICES[ENUM_INDEX]
+        assert reading.value == ENUM_INDEX
+        assert not isinstance(reading.value, str)
+        assert reading.metadata.enum_label == ENUM_CHOICES[ENUM_INDEX]
+        assert reading.metadata.enum_labels == ENUM_CHOICES
         raw = reading.metadata.raw_metadata
         assert raw["nt_id"] == "epics:nt/NTEnum:1.0"
         assert raw["enum_index"] == ENUM_INDEX
@@ -460,7 +463,11 @@ class TestThroughTheToolBody:
         assert data["status"] == "success"
         readings = data["summary"]["readings"]
         assert readings[SCALAR]["value"] == pytest.approx(SCALAR_VALUE)
-        assert readings[ENUM]["value"] == ENUM_CHOICES[ENUM_INDEX]
+        assert readings[ENUM]["value"] == ENUM_INDEX
+        assert readings[ENUM]["enum_label"] == ENUM_CHOICES[ENUM_INDEX]
+        assert readings[ENUM]["enum_labels"] == ENUM_CHOICES
+        # The scalar is not an enum, so it grows neither key.
+        assert "enum_label" not in readings[SCALAR]
         assert CA_UNREACHABLE not in readings
 
         failures = data["summary"]["channels_failed"]

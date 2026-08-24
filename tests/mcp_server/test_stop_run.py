@@ -131,7 +131,12 @@ async def test_stop_run_is_ungated_with_writes_off_and_no_token(tmp_path, monkey
     # keyword-count assertion would conflate a transport budget with an arming
     # credential — the one thing this test exists to forbid.
     assert "headers" not in post.call_args.kwargs
-    assert set(post.call_args.kwargs) == {"timeout"}
+    # `lane` joined `timeout` on the same footing: it is an ADDRESS (which plan
+    # lane's bridge), not a credential, and on a single-lane deployment it is
+    # None — the only lane there is. Same reasoning as the timeout budget: this
+    # assertion forbids arming headers, not transport arguments.
+    assert set(post.call_args.kwargs) == {"lane", "timeout"}
+    assert post.call_args.kwargs["lane"] is None
 
 
 async def test_stop_run_does_not_read_the_writes_kill_switch(tmp_path, monkeypatch):

@@ -45,6 +45,7 @@ claude_md_template: CLAUDE.ariel.md.j2
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate logbook entry creation on user approval prompt
   - error-guidance    # Post-error hook that surfaces remediation hints

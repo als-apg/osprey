@@ -504,7 +504,10 @@ class TestStalenessAndAdoption:
 
         stale, originals = _stale_graphdb(
             volumes=[f"{_PROJECT}_graphdb_data"],
-            container_env={f"{_PROJECT}-graphdb": {"NEO4J_AUTH": "neo4j/matchingpw"}},
+            container_env={
+                # A fixture credential, not a secret.
+                f"{_PROJECT}-graphdb": {"NEO4J_AUTH": "neo4j/matchingpw"}  # gitleaks:allow
+            },
             env_path=env_path,
         )
 
