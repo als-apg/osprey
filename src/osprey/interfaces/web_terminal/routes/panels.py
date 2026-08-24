@@ -17,8 +17,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
+from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
-from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,31 @@ async def health(request: Request):
         "session_id": session_id,
         "version": __version__,
     }
+
+
+@router.get("/api/session")
+async def session_probe():
+    """Authenticated liveness probe for the operator's session.
+
+    A tiny credentialed endpoint the frontend polls after a channel drops, so it
+    can tell an expired session apart from a flaky network. It is deliberately
+    **not** in the middleware exempt set: the auth gate runs ahead of this
+    handler, so a request carrying a live operator credential (the operator
+    secret header or a valid session cookie) reaches here and gets a 200, while
+    an absent or expired credential is refused with 401 by the gate itself and
+    never reaches this body.
+
+    That app-level 401 is the whole point. Single-user deployments have no nginx
+    perimeter in front of the app, so ``/health`` — which is exempt so the
+    container healthcheck can curl it credential-less — always answers 200 and
+    can never signal an expired session. This route can, because it sits behind
+    the same auth gate every other API route does.
+
+    Returns:
+        ``{"status": "ok"}`` with a 200. The body carries no session detail; the
+        status code (200 here, or 401 from the gate) is the entire signal.
+    """
+    return {"status": "ok"}
 
 
 @router.get("/api/artifact-server")
@@ -194,6 +219,9 @@ async def get_panels(request: Request):
             "open_tiles": [...]|None,   # last-reported service tiles, reading order
             "open_tiles_age_s": float|None,   # seconds since that report (None = never)
             "open_tiles_dock": bool|None,     # reporting client had a dock shell (None = never)
+            "docs_url": str,            # target of the rail's Documentation control
+            "feedback_github_repo": str,   # "owner/repo" for the prefilled new-issue URL
+            "feedback_email": str,      # recipient of the prefilled mailto: draft
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -262,6 +290,14 @@ async def get_panels(request: Request):
 
     So ``[]`` always means known-empty and ``null`` always means unknown; the
     age tells the two flavours of unknown apart.
+
+    ``docs_url``, ``feedback_github_repo`` and ``feedback_email`` are the
+    resolved ``web.docs_url`` / ``web.feedback.*`` values that address the two
+    utility controls at the far end of the rail: the Documentation link target,
+    and the two outbound channels the feedback dialog offers (a prefilled
+    GitHub issue and a prefilled ``mailto:`` draft). The store ceiling
+    (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
+    server-side pruning and nothing in the browser acts on it.
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
@@ -297,6 +333,12 @@ async def get_panels(request: Request):
     open_tiles_ts = getattr(request.app.state, "open_tiles_ts", None)
     open_tiles_age = None if open_tiles_ts is None else time.time() - open_tiles_ts
     open_tiles_dock = getattr(request.app.state, "open_tiles_dock", None)
+    # Utility-cluster targets. The defaults mirror app.DEFAULT_DOCS_URL /
+    # DEFAULT_FEEDBACK_GITHUB_REPO / DEFAULT_FEEDBACK_EMAIL, spelled as
+    # literals here for the same routes->app import-cycle reason as above.
+    docs_url = getattr(request.app.state, "docs_url", "https://als-apg.github.io/osprey")
+    feedback_github_repo = getattr(request.app.state, "feedback_github_repo", "als-apg/osprey")
+    feedback_email = getattr(request.app.state, "feedback_email", "thellert@lbl.gov")
     return {
         "enabled": enabled,
         "custom": custom,
@@ -315,6 +357,9 @@ async def get_panels(request: Request):
         "open_tiles": open_tiles,
         "open_tiles_age_s": open_tiles_age,
         "open_tiles_dock": open_tiles_dock,
+        "docs_url": docs_url,
+        "feedback_github_repo": feedback_github_repo,
+        "feedback_email": feedback_email,
     }
 
 

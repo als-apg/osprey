@@ -171,6 +171,11 @@ export function renderMarkdownInto(el, text) {
  * route (`_strip_for_chat`) drops a `tool_use` event's `input` before it leaves
  * the server, so no arguments reach this module.
  *
+ * The keyspace is server-agnostic by design: keys are short tool names with
+ * the `mcp__<server>__` prefix stripped, so a name owned by two servers
+ * (e.g. `capabilities` on both ariel and osprey_facility_knowledge) would
+ * share one phrase. Keep phrases generic enough to be true for every owner.
+ *
  * @type {Readonly<Record<string, string>>}
  */
 export const TOOL_PHRASES = Object.freeze({
@@ -196,7 +201,7 @@ export const TOOL_PHRASES = Object.freeze({
   screenshot_capture: 'taking a screenshot',
 
   // Workspace artifacts (plots, documents and stored datasets alike).
-  artifact_save: 'saving an artifact',
+  artifact_register: 'registering an artifact',
   artifact_get: 'opening an artifact',
   artifact_list: 'listing saved artifacts',
   artifact_read: 'reading a saved artifact',
@@ -300,13 +305,18 @@ export const TOOL_PHRASES = Object.freeze({
  * (`mcp__osprey__channel_write`) and the server-formatted `tool_name`
  * (`Channel Write`, from operator_session `_format_tool_name`) — and both fold
  * to the same key, so the table works whichever spelling an event carries.
+ * (Caveat: a tool name containing a literal `__` folds differently per
+ * spelling — no framework tool is named that way.)
  *
  * @param {string} name
  * @returns {string}
  */
 export function normaliseToolName(name) {
   return name
-    .replace(/^mcp__[^_]+__/, '')
+    // Non-greedy: the FIRST `__` after the server name ends the prefix — the
+    // server name may itself contain single underscores (osprey_workspace,
+    // osprey_facility_knowledge, or a facility-declared server named that way).
+    .replace(/^mcp__.+?__/, '')
     .trim()
     .replace(/[\s-]+/g, '_')
     .toLowerCase();

@@ -9,6 +9,7 @@ This module defines the core data models for ARIEL search service:
 
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -137,6 +138,35 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
 
 DEFAULT_SEARCH_MODE = "keyword"
 
+PREFERRED_SEARCH_MODE = "hybrid"
+
+
+def resolve_implicit_search_mode(is_enabled: Callable[[str], bool]) -> str:
+    """Pick the mode a search runs in when the config names none.
+
+    This is the fallback for a deployment whose config predates
+    ``ariel.default_search_mode`` or deliberately leaves it unset.
+    ``hybrid`` is the preferred answer, but it only exists in deployments
+    that run the qmd sidecar, so it is preferred rather than assumed.
+    ``keyword`` needs nothing beyond the logbook database and is always the
+    safe fallback.
+
+    A deployment that sets ``ariel.default_search_mode`` never reaches this —
+    see :meth:`osprey.services.ariel_search.config.ARIELConfig
+    .resolve_default_search_mode`.
+
+    Args:
+        is_enabled: Predicate answering whether a search module name is
+            enabled in the current deployment's configuration.
+
+    Returns:
+        ``PREFERRED_SEARCH_MODE`` when that module is enabled, else
+        ``DEFAULT_SEARCH_MODE``.
+    """
+    if is_enabled(PREFERRED_SEARCH_MODE):
+        return PREFERRED_SEARCH_MODE
+    return DEFAULT_SEARCH_MODE
+
 
 def normalize_search_mode(mode: object) -> str:
     """Normalize a search mode name to its canonical lowercase form.
@@ -239,6 +269,13 @@ class ARIELSearchResult:
         sources: Entry IDs used as sources
         search_modes_used: Names of the search modules that were executed
         reasoning: Explanation of results
+        diagnostics: Structured diagnostics from the executed search
+        expanded_terms: Vocabulary expansion actually applied to this search,
+            one ``{"original": str, "alternatives": [str, ...]}`` mapping per
+            expanded span. Empty when no vocabulary is configured, when the
+            caller switched expansion off, or when the executed search ran
+            without it -- it reports what the search contained, never what was
+            merely offered.
     """
 
     entries: tuple[dict[str, Any], ...]
@@ -247,6 +284,7 @@ class ARIELSearchResult:
     search_modes_used: tuple[str, ...] = field(default_factory=tuple)
     reasoning: str = ""
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
+    expanded_terms: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
 @dataclass

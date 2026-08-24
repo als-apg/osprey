@@ -9,9 +9,13 @@ pipeline grows the tier-3 cross-paradigm views (``in_context``, ``hierarchical``
 subset from them.
 
 Tier 2 is retired: only tiers 1 and 3 are published. Tier 1 ships the
-``in_context`` paradigm only; tier 3 ships all three. The published tiers (and
-the paradigms each ships) come from
-:data:`osprey.services.channel_finder.benchmarks.generator.TIER_PARADIGMS`.
+``in_context`` paradigm only; tier 3 ships every tier view. The published tiers
+(and the paradigms each ships) come from
+:data:`osprey.services.channel_finder.benchmarks.generator.TIER_PARADIGMS`,
+which subtracts ``graph`` from the paradigm registry: a graph store is seeded
+from the facility corpus TTL, so there is no graph database for these scripts
+to write or validate.
+
 Because regeneration is spec-driven and atomic, all published tiers/paradigms
 are always regenerated together -- there is no per-tier or per-format selection.
 

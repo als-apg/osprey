@@ -42,9 +42,12 @@ _HOT_CHANGE_PATHS = {
 # Key paths reported to the activity feed with a safety marker
 _SAFETY_KEY_PREFIX = "control_system."
 
-# Cold keys whose generic "restart the MCP server" note would understate what is
-# actually required. `writes_enabled` is enforced at three layers and only the
-# hook layer re-reads config per call, so a patch alone leaves writes denied.
+# Cold keys whose generic "restart the MCP server" note leaves out something the
+# operator needs. `writes_enabled` is enforced at three layers and only the hook
+# layer re-reads config per call, so a patch alone leaves writes denied. The
+# `target_switch.*` keys and `control_system.type` are cold for the same reason:
+# the controls server reads them through a config it caches at launch. Their
+# notes also point at the run-time switch, so nobody rebuilds to change target.
 _COLD_CHANGE_NOTES = {
     "config.yml": {
         "control_system.writes_enabled": (
@@ -52,6 +55,32 @@ _COLD_CHANGE_NOTES = {
             "caches it at launch and the enforced `permissions.deny` list is not "
             "regenerated. Run `osprey build` and restart the agent, or writes "
             "stay blocked."
+        ),
+        "control_system.type": (
+            "cold — requires an MCP server restart (start a new agent session). "
+            "To change control target for the session instead, use the "
+            "`control_target_set` tool: it switches live/virtual at run time and "
+            "asks for approval first. Do not rebuild to switch target."
+        ),
+        "control_system.target_switch.drain_timeout_s": (
+            "cold — the controls server reads this when a switch drains in-flight "
+            "work, through the config it cached at launch, so a patch does not "
+            "change the switch you are about to run. Restart the MCP server "
+            "(start a new agent session) to pick up the new value. The switch "
+            "itself is the `control_target_set` tool, not a config change."
+        ),
+        "control_system.target_switch.probe_interval_s": (
+            "cold — the target prober reads its interval once, when the controls "
+            "server starts. Restart the MCP server (start a new agent session) to "
+            "pick up the new value. The switch itself is the `control_target_set` "
+            "tool, not a config change."
+        ),
+        "control_system.target_switch.live_gateway_acknowledged": (
+            "cold — this is the operator's deliberate statement that the live "
+            "gateway named here is the real machine. The controls server reads it "
+            "through the config it cached at launch, so restart the MCP server "
+            "(start a new agent session) before the live target counts as "
+            "switchable by `control_target_set`."
         ),
     },
 }

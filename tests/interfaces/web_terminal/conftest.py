@@ -28,7 +28,7 @@ needs live file watching through the app factory.
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePath
 from unittest.mock import patch
 
 import pytest
@@ -44,9 +44,16 @@ class StubWorkspaceWatcher:
     directory without an OS-level observer being involved.
     """
 
-    def __init__(self, workspace_dir: Path, broadcaster: FileEventBroadcaster) -> None:
+    def __init__(
+        self,
+        workspace_dir: Path,
+        broadcaster: FileEventBroadcaster,
+        *,
+        feedback_rel: PurePath | None = None,
+    ) -> None:
         self.workspace_dir = workspace_dir
         self.broadcaster = broadcaster
+        self.feedback_rel = feedback_rel
         self.started = False
 
     def start(self) -> None:

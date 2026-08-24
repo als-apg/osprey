@@ -464,6 +464,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     env_raw = raw.get("env", {})
     env = EnvConfig(
         required=env_raw.get("required", []),
+        pinned=env_raw.get("pinned", []),
         defaults=env_raw.get("defaults", {}),
         file=env_raw.get("file"),
     )
@@ -516,6 +517,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
+            second_lane=bool(bluesky_raw.get("second_lane", False)),
             plan_dir=bluesky_raw.get("plan_dir"),
             excluded_plans=excluded_plans,
         )

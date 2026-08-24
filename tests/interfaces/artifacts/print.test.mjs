@@ -183,14 +183,14 @@ describe('printArtifact: guards and dispatch', () => {
 
   describe('iframe strategy (plot_html, table_html, dashboard_html, html, text, json, unknown)', () => {
     test.each([
-      ['plot_html', '/files/a1/beam_profile.png'],
-      ['table_html', '/files/a1/beam_profile.png'],
-      ['dashboard_html', '/files/a1/beam_profile.png'],
-      ['html', '/files/a1/beam_profile.png'],
-      ['text', '/files/a1/beam_profile.png'],
-      ['json', '/files/a1/beam_profile.png'],
-      ['some_unrecognized_type', '/files/a1/beam_profile.png'],
-    ])('%s opens the raw file URL in a sized popup and injects print-cleanup styles', (artifact_type, expectedUrl) => {
+      ['plot_html', '/files/a1/beam_profile.png?theme=light'],
+      ['table_html', '/files/a1/beam_profile.png?theme=light'],
+      ['dashboard_html', '/files/a1/beam_profile.png?theme=light'],
+      ['html', '/files/a1/beam_profile.png?theme=light'],
+      ['text', '/files/a1/beam_profile.png?theme=light'],
+      ['json', '/files/a1/beam_profile.png?theme=light'],
+      ['some_unrecognized_type', '/files/a1/beam_profile.png?theme=light'],
+    ])('%s opens the raw file URL pinned to the light theme in a sized popup and injects print-cleanup styles', (artifact_type, expectedUrl) => {
       const win = makeFakeWindow();
       const openSpy = vi.fn(() => win);
       vi.stubGlobal('open', openSpy);
@@ -209,9 +209,9 @@ describe('printArtifact: guards and dispatch', () => {
     });
 
     test.each([
-      ['markdown', '/api/markdown/a1/rendered'],
-      ['notebook', '/api/notebooks/a1/rendered'],
-    ])('%s opens its server-rendered endpoint', (artifact_type, expectedUrl) => {
+      ['markdown', '/api/markdown/a1/rendered?theme=light'],
+      ['notebook', '/api/notebooks/a1/rendered?theme=light'],
+    ])('%s opens its server-rendered endpoint pinned to the light theme', (artifact_type, expectedUrl) => {
       const win = makeFakeWindow();
       const openSpy = vi.fn(() => win);
       vi.stubGlobal('open', openSpy);

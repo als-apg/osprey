@@ -94,6 +94,25 @@ keys:
       PRESENCE is all-templates; VALUES deliberately diverge ([] /
       [openobserve] / [postgresql, openobserve]). The guard must not assert
       value equality here.
+  images.registry:
+    rendered: false
+    evidence: 'images\.get\("registry"\)'
+    note: >-
+      Hidden key, unset in all five templates. One of the two stack-wide image
+      axes (`compose_generator.resolve_image_axes`): the registry every
+      OSPREY-built image's DEFAULT reference is prefixed with, so the images CI
+      pushes and the images a deploy pulls are the same images. Overridden by
+      OSPREY_IMAGE_REGISTRY in the environment, and outranked in the other
+      direction by a `services.<svc>.image` pin or an
+      `OSPREY_<SVC>_IMAGE` compose override. Never applied to the third-party
+      pins beside them — prefixing an upstream name yields no image at all.
+  images.tag:
+    rendered: false
+    evidence: 'images\.get\("tag"\)'
+    note: >-
+      The other axis, same layering. Defaults to `local` — the tag `osprey up`
+      builds on the host — so a deployment that sets neither key renders
+      byte-for-byte what it rendered before the axes existed.
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
   services.openobserve: {evidence: 'get\("openobserve", \{\}\)'}
@@ -148,6 +167,99 @@ keys:
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.
 
+  # The graph store, shipped LIVE in the ariel-standalone and control-assistant
+  # templates (block and `deployed_services` entry always emitted together — a
+  # deployed graphdb without a block is refused pre-compose). Every regex below
+  # — except `path`, which cites the generic compose-generator read shared with
+  # its three neighbours, and the two query bounds at the end of the block —
+  # anchors on deployment/graphdb_service.py, the single resolver the compose
+  # render, the port-conflict sweep, the health category and the seeder all
+  # read through, so deleting it fails the guard rather than rotting quietly.
+  # The query bounds are the one pair the deploy path never sees: they shape a
+  # single agent query, so the graph MCP server reads them at query time and
+  # their evidence anchors there instead.
+  services.graphdb:
+    evidence: '_graphdb_block\(config\)'
+  services.graphdb.path:
+    evidence: 'service_config\["path"\]'
+    note: >-
+      Same generic compose-generator read as the openobserve/postgresql/qmd
+      `path` keys — it resolves any service's fragment directory, graphdb
+      included.
+  services.graphdb.image:
+    evidence: '_text\(block\.get\("image"\)'
+    note: >-
+      Pinned to neo4j:5.20-community by DEFAULT_IMAGE, and the pin is about the
+      neosemantics (n10s) plugin's release cadence rather than Neo4j's: without
+      n10s the store cannot import the RDF corpus at all, and it publishes no
+      build for 5.23+. Overridable per project for a mirror or a pre-baked
+      image; the compose fragment layers ${OSPREY_GRAPHDB_IMAGE} over it.
+  services.graphdb.port_host:
+    evidence: '_port\(block\.get\("port_host"\)'
+    note: >-
+      Published bolt port (7687), the only protocol the neo4j driver speaks.
+      `deployment/host_ports.py` cites GRAPHDB_PORT_CONFIG_KEY from this same
+      module, so the port-conflict remedy cannot drift from the schema.
+  services.graphdb.http_port_host:
+    evidence: 'block\.get\("http_port_host"\)'
+    note: >-
+      Published HTTP port (7474) for the Neo4j Browser and the container
+      healthcheck. NOT the health category, which dials the store over bolt on
+      `port_host` (or an explicit `uri`). Graphdb is the first single compose
+      service publishing two host ports, which is why the port-conflict remedy
+      resolves per container port — a conflict on 7474 that named `port_host`
+      would send the operator to edit the wrong number.
+  services.graphdb.ttl_path:
+    evidence: '_optional_text\(block\.get\("ttl_path"\)'
+    note: >-
+      Optional RDF/Turtle corpus the store is seeded from; unset brings the
+      store up bootstrapped but empty. Kept verbatim by
+      GraphdbServiceConfig.ttl_path and resolved against the config file's
+      directory by its consumers, per the `facility_knowledge.bundle_path` rule
+      — resolving it against the process cwd would give a deploy and a CLI verb
+      two different files from one config value.
+  services.graphdb.heap_initial_size:
+    evidence: 'block\.get\("heap_initial_size"\)'
+    note: >-
+      JVM heap the server starts with. Spelled explicitly because Neo4j sizes
+      nothing automatically inside a container: left unset it reads the host's
+      memory and picks numbers the container's own limit will not honour.
+  services.graphdb.heap_max_size:
+    evidence: 'block\.get\("heap_max_size"\)'
+    note: Ceiling the JVM heap may grow to. Same container-sizing reason as above.
+  services.graphdb.pagecache_size:
+    evidence: 'block\.get\("pagecache_size"\)'
+    note: >-
+      Off-heap cache for graph data and indexes. Separate from the heap and not
+      taken out of it: the container's memory budget is roughly heap max plus
+      this plus about half a gigabyte of JVM overhead.
+  services.graphdb.query_timeout_s:
+    evidence: '_setting\(QUERY_TIMEOUT_CONFIG_KEY'
+    note: >-
+      Transaction timeout the graph MCP server hands to the store for one
+      `read_cypher` call, so a runaway traversal is cancelled server-side
+      instead of being held open by a client that has already given up. Read in
+      mcp_server/graph/server_context.py rather than by the deploy resolver —
+      the value never reaches compose, so this is the first graphdb key whose
+      evidence sits outside deployment/graphdb_service.py.
+  services.graphdb.query_max_rows:
+    evidence: '_setting\(QUERY_MAX_ROWS_CONFIG_KEY'
+    note: >-
+      Rows one `read_cypher` call returns before the result is truncated; the
+      tool reports the truncation, so a partial answer is never mistaken for a
+      complete one. Bounds what a question costs the AGENT's context window
+      rather than what it costs the store, which is why it is a query-time key
+      and not a container one.
+  # `services.graphdb.bind_address` is deliberately absent for the same reason
+  # qmd's is — every service publishes on the project-wide
+  # `deployment.bind_address`, and graphdb reuses that one reading.
+  # `services.graphdb.uri` and `services.graphdb.username` are absent too, but
+  # for a different reason: they are read (by `resolve_graphdb_connection`, for
+  # an EXTERNAL store this deployment connects to but does not run) and simply
+  # rendered by no shipped template, so a manifest entry would fail the
+  # phantom-key check. There is deliberately no `password` key at any layer —
+  # the credential lives in the project .env as GRAPHDB_PASSWORD.
+
   # ── Safety / approval ───────────────────────────────────────────────
   approval:
     all-templates: true
@@ -164,8 +276,21 @@ keys:
       Absent from channel_finder_standalone by design — its only
       approval-governed tool (setup_patch) is covered by default_policy.
       See governed_sets.
-  approval.tools.channel_write: {evidence: 'channel_write'}
-  approval.tools.channel_read: {evidence: 'channel_read'}
+  approval.tools.channel_write:
+    evidence: 'approval\.tools\.channel_write'
+    note: >-
+      Anchored for the same reason as channel_read below: `channel_write`
+      names the MCP tool as well as the policy key, and the literal has now
+      spread past the vacuity ceiling -- a bare match no longer proves a
+      reader exists. The anchored form cites the settings-panel schema and
+      the config-writer default that actually serve this key.
+  approval.tools.channel_read:
+    evidence: 'approval\.tools\.channel_read'
+    note: >-
+      Anchored on the settings-panel schema that serves this key rather than
+      on the bare word. `channel_read` names the MCP tool as well as the
+      policy, so the literal spread across enough modules to trip the
+      vacuity guard -- a match that no longer proved a reader existed.
   approval.tools.archiver_read: {evidence: 'archiver_read'}
   approval.tools.execute: {covered-by: approval.tools}
   approval.tools.setup_patch: {evidence: 'setup_patch'}
@@ -202,6 +327,10 @@ keys:
     evidence: 'get_config_value\("control_system\.write_verification\.default_level", "callback"\)'
   control_system.write_verification.default_tolerance_percent:
     evidence: 'default_tolerance_percent'
+  control_system.read_inline_max_elements:
+    evidence: '"control_system\.read_inline_max_elements"'
+  control_system.channel_read_artifact_retention:
+    evidence: '"control_system\.channel_read_artifact_retention"'
   control_system.connector: {covered-by: control_system}
   control_system.connector.mock: {covered-by: control_system.connector}
   control_system.connector.mock.simulation_file: {evidence: 'simulation_file'}
@@ -210,7 +339,7 @@ keys:
   control_system.connector.epics: {covered-by: control_system.connector}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics}
   control_system.connector.epics.gateways: {evidence: 'gateways'}
-  control_system.connector.epics.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.epics.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
   control_system.connector.epics.gateways.read_only.address: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.port: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.use_name_server: {evidence: 'use_name_server'}
@@ -222,7 +351,7 @@ keys:
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file'}
   control_system.connector.virtual_accelerator.gateways: {evidence: 'gateways'}
-  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
   control_system.connector.virtual_accelerator.gateways.read_only.address: {covered-by: control_system.connector.virtual_accelerator.gateways.read_only}
   control_system.connector.virtual_accelerator.gateways.read_only.use_name_server:
     evidence: 'use_name_server'
@@ -230,6 +359,40 @@ keys:
   control_system.connector.virtual_accelerator.gateways.write_access.address: {covered-by: control_system.connector.virtual_accelerator.gateways.write_access}
   control_system.connector.virtual_accelerator.gateways.write_access.use_name_server:
     evidence: 'use_name_server'
+  control_system.connector.virtual_accelerator.probe_channel:
+    forward-declared: true
+    note: >-
+      The channel the target switch reads to prove this target is reachable
+      before it becomes the active one. Written by the templates ahead of the
+      switch's own reader (this branch); a target without one is ineligible,
+      which is why the VA block ships it set and the epics block does not.
+  control_system.connector.epics.probe_channel:
+    rendered: false
+    forward-declared: true
+    note: >-
+      Same key, commented in both templates that carry an epics block. A live
+      probe channel is facility-specific and cannot be guessed, and an unset
+      one leaves the live target un-switchable-to rather than falsely
+      eligible — the fail-closed direction.
+
+  # ── Control-system target switch ────────────────────────────────────
+  control_system.target_switch:
+    forward-declared: true
+    note: >-
+      Tuning + acknowledgment block for the running-session control-system
+      target switch. Rendered ahead of its readers on this branch.
+  control_system.target_switch.drain_timeout_s: {forward-declared: true}
+  control_system.target_switch.probe_interval_s: {forward-declared: true}
+  control_system.target_switch.live_gateway_acknowledged:
+    rendered: false
+    forward-declared: true
+    note: >-
+      Commented in every template that renders an epics block. The operator
+      sets it to their OWN live gateway hostname; the shipped example is a
+      real-hostname-SHAPED string on purpose (an actually-real one in the
+      control_assistant template, a neutral one in the project template), so
+      nothing can string-test a value for "still the default". Only
+      set-and-non-empty is ever checked.
 
   # ── Archiver ────────────────────────────────────────────────────────
   archiver: {evidence: 'get_config_value\("archiver", \{\}\)'}
@@ -239,6 +402,8 @@ keys:
   # control-assistant default became mongodb_archiver — a matcher that tracks a
   # default is a matcher that goes quiet on the change it should have caught.
   archiver.type: {evidence: 'archiver\.type is not set'}
+  # Point budget behind archiver_read's span-derived default bin (issue #117).
+  archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points'}
   archiver.epics_archiver: {evidence: 'epics_archiver'}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver}
   archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver}
@@ -315,8 +480,12 @@ keys:
       deliberately differs (10 providers in project/control_assistant/
       hello_world, a 6-provider subset in the two standalone bundles). The
       guard checks SHAPE per provider (base_url present, all three tiers
-      mapped), never membership. A provider with no models map hard-errors in
-      build/claude_code_resolver.py, which is the quoted evidence.
+      mapped), never membership. At runtime a tier no source maps falls back
+      to the default model with a warning; only a provider with no models map
+      AND no default model to fall back on hard-errors in
+      build/claude_code_resolver.py, which is the quoted evidence. The guard
+      stays stricter than the runtime on purpose — a shipped template should
+      map every tier rather than lean on that fallback.
 
   # ── Claude Code ─────────────────────────────────────────────────────
   claude_code:
@@ -408,9 +577,87 @@ keys:
   ariel.ingestion: {covered-by: ariel}
   ariel.ingestion.adapter: {covered-by: ariel.ingestion}
   ariel.ingestion.source_url: {evidence: 'source_url'}
-  ariel.search_modules: {evidence: 'search_modules'}
+  ariel.default_search_mode: {evidence: 'default_search_mode'}
+  # The facility vocabulary: shorthand the operators type, mapped to the words
+  # the logbook prose actually uses. Read ONCE at config parse — the file is
+  # loaded by ARIELConfig.from_dict, not lazily on first search — so each leaf
+  # anchors on its own reader in config.py rather than a covered-by chain. That
+  # matters here for the same reason it does for the hybrid knobs above: a
+  # present-but-malformed knob is refused, never defaulted, and the refusal
+  # message IS the reader, so the regex dies with it.
+  ariel.vocabulary:
+    evidence: 'config_dict\.get\("vocabulary"\)'
+  ariel.vocabulary.enabled:
+    evidence: '_vocab_bool\(data, "enabled"'
+    note: >-
+      The off switch. Shipped false everywhere except the control_assistant
+      bundle, which ships the example vocabulary as the format tutorial. False
+      means nothing is read at all, so a stale `path` left behind is inert
+      rather than a startup failure.
+  ariel.vocabulary.path:
+    evidence: '_VOCABULARY_PREFIX\}\.path must be a non-empty string'
+    note: >-
+      Config-relative, resolved against the directory holding config.yml — the
+      same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
+      with no value here is a validate() error rather than a silent no-op, and
+      a file that fails to load is stored as a keyed error, never swallowed.
+  ariel.vocabulary.expand_by_default:
+    evidence: '_vocab_bool\(data, "expand_by_default"'
+    note: >-
+      Whether a request that expresses no preference gets expansion. Shipped
+      explicitly as true beside `enabled`, because the per-request
+      `expand_query` argument overrides it and an operator reading the config
+      should be able to see which way the default falls.
+  ariel.vocabulary.canonical_to_acronym:
+    evidence: '_vocab_bool\(data, "canonical_to_acronym"'
+    note: >-
+      Default true: a query that spells a phrase out should still reach entries
+      that wrote the acronym.
+  ariel.vocabulary.canonical_to_shorthand:
+    evidence: '_vocab_bool\(data, "canonical_to_shorthand"'
+    note: >-
+      Default false, the opposite of its acronym sibling: expanding prose into
+      operator shorthand adds noise far more often than recall.
+  ariel.vocabulary.expand_modes:
+    rendered: false
+    evidence: '_VOCABULARY_PREFIX\}\.expand_modes names no enabled search'
+    note: >-
+      Unset — the shipped state — means "all enabled modes"; the key exists so a
+      facility whose hybrid reranking degrades under expansion can drop `hybrid`
+      without giving up keyword expansion. An entry naming a module that is
+      unknown or not enabled is a validate() error, so the templates omit the
+      key rather than shipping a list that would rot as modules are toggled —
+      hence `rendered: false`: the omission is the design, and the default "every
+      enabled search module" can never go stale because nothing restates it.
+  ariel.search_modules:
+    evidence: 'config_dict\.get\("search_modules", \{\}\)\.items\(\)'
   ariel.search_modules.keyword: {covered-by: ariel.search_modules}
   ariel.search_modules.keyword.enabled: {covered-by: ariel.search_modules.keyword}
+  # The keyword module's pattern knobs. Same rule as the hybrid stanza below,
+  # for the same reason: SearchModuleConfig.from_dict keeps only `enabled`,
+  # `provider`, `model` and `settings`, so a knob written as a sibling of
+  # `enabled` is inert forever with no error. Each leaf therefore anchors on the
+  # type refusal that proves the nested spelling is the one being read — the
+  # refusal message IS the reader, so the regex dies with it.
+  ariel.search_modules.keyword.settings:
+    evidence: '_SETTINGS_PREFIX = "search_modules\.keyword\.settings"'
+  ariel.search_modules.keyword.settings.patterns_enabled:
+    evidence: '_SETTINGS_PREFIX\}\.patterns_enabled must be a boolean'
+    note: >-
+      Shipped as `true`, matching DEFAULT_PATTERNS_ENABLED: `/regex/` spans and
+      `*` globs are what an operator reaches for first. False makes both forms
+      ordinary full-text tokens — the escape hatch for a facility whose entry
+      text is full of literal asterisks. A present-but-malformed value is
+      refused, never defaulted, because defaulting it would leave the
+      deployment on the behaviour it explicitly asked to leave.
+  ariel.search_modules.keyword.settings.pattern_timeout_seconds:
+    evidence: '_SETTINGS_PREFIX\}\.pattern_timeout_seconds must be a number'
+    note: >-
+      Shipped as `10.0`, matching DEFAULT_PATTERN_TIMEOUT_SECONDS. The envelope
+      is applied only to a search that actually emitted a `~*` predicate, so a
+      pattern-free query is untouched by it. Never clamped up into range: a
+      configured `0` means the deployment believes it disabled the envelope,
+      and answering that with a silent ten seconds is worse than naming the key.
   ariel.search_modules.semantic: {covered-by: ariel.search_modules}
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic}
@@ -515,18 +762,42 @@ keys:
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)'}
   web.theme:
-    evidence: 'get_config_value\("web\.theme", "main"\)'
+    evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
     note: >-
       Live in project only; commented in control_assistant; absent from the
       three others. The default is "main" whether the key is live or absent,
       so no behaviour depends on the form. Deliberately per-template.
-      The shipped default family was renamed from "osprey" to "main"; the
-      evidence tracks the default in app.py, so it moves with that rename.
+      Read in one place — theme_config.configured_web_theme(), the shared
+      resolver the web terminal and the artifact gallery both call — where
+      the shipped default family lives as the DEFAULT_WEB_THEME constant
+      the evidence cites, so it survives a future rename of the family.
   web.panels: {evidence: 'web\.panels'}
   web.panels.ariel: {covered-by: web.panels}
   web.panels.ariel.enabled: {covered-by: web.panels.ariel}
   web.panels.channel-finder: {covered-by: web.panels}
   web.panels.channel-finder.enabled: {covered-by: web.panels.channel-finder}
+  web.docs_url:
+    evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
+    note: >-
+      Rendered live in the four templates that carry a `web:` block;
+      hello_world has none, so this is deliberately not all-templates.
+      The `\s*` between the call's parts is load-bearing: these four reads sit
+      in one lifespan block, and the formatter wraps a call across lines purely
+      on line length, so a single-line pattern reds the guard when a rename
+      pushes an unrelated call past the margin.
+  web.feedback:
+    evidence: 'get_config_value\("web\.feedback\.'
+    note: >-
+      The block is never read as a mapping — each of the three leaves below
+      has its own dotted lookup in the web terminal's lifespan. The evidence
+      anchors on the prefix those readers share, so this entry dies with the
+      last of them rather than outliving them all.
+  web.feedback.github_repo:
+    evidence: 'get_config_value\(\s*"web\.feedback\.github_repo",\s*DEFAULT_FEEDBACK_GITHUB_REPO\s*\)'
+  web.feedback.email:
+    evidence: 'get_config_value\(\s*"web\.feedback\.email",\s*DEFAULT_FEEDBACK_EMAIL\s*\)'
+  web.feedback.max_store_bytes:
+    evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)'}
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)'}
   web.channel_suggestions.max_channels:
@@ -808,13 +1079,35 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 273
+  expected_union_size: 309
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
     it. Because it cannot fail, it only stays useful if it is re-derived
     whenever a template's key set changes; it had drifted 9 low before the qmd
     blocks landed, which is exactly how a soft counter stops being a signal.
+    284 -> 289 absorbs two separate movements, recorded here so the arithmetic
+    stays checkable: the target-switch work adds exactly FOUR rendered paths
+    (control_system.target_switch{,.drain_timeout_s,.probe_interval_s} and
+    control_system.connector.virtual_accelerator.probe_channel — the generic
+    template's new virtual_accelerator block introduces no path the
+    control_assistant template did not already render), and the remaining ONE
+    is pre-existing drift measured at this branch's base: archiver.auto_bin_points
+    landed with #117 with a `keys` entry but without bumping this counter.
+    289 -> 298 folds in the ariel vocabulary block, which moved the same
+    counter from 284 to 294 on its own line of development. That value was
+    re-derived by running the guard against the merged templates, not by
+    adding the two increments — adding them gives 299, one high, so a counter
+    reconciled by arithmetic across two branches is a counter that drifts.
+    Re-derived at 285 when the `services.graphdb` block landed: 9 of those 12
+    are the graphdb keys, the other 3 were drift that had accumulated since the
+    previous re-derivation. Re-derived again at 287 when the graph MCP server
+    added `services.graphdb.query_timeout_s` and `query_max_rows` to the same
+    block — exactly two keys, both in the two app templates that already
+    carried the block, so no other template's key set moved.
+    305 -> 309 when the target-switch branch merged main: re-derived by running
+    the guard on the merged templates, and this time the arithmetic agrees —
+    main's 305 plus the branch's four target-switch paths, nothing else moved.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
@@ -857,9 +1150,9 @@ governed_sets:
       Not exhaustive claims in any shipped comment — recorded so a future
       change to the default-enabled server set is visible. Re-derived
       2026-08-02 with the method above.
-    project: [channel_write, channel_read, archiver_read, execute, setup_patch, entry_create, draft_concept]
-    control_assistant: [channel_write, channel_read, archiver_read, execute, setup_patch, entry_create, draft_concept]
-    hello_world: [channel_write, channel_read, archiver_read, execute, setup_patch, draft_concept]
+    project: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, entry_create, draft_concept]
+    control_assistant: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, entry_create, draft_concept]
+    hello_world: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, draft_concept]
   draft_concept_note: >-
     draft_concept is approval-governed in project, control_assistant and
     hello_world (osprey_facility_knowledge is enabled by default and carries the
@@ -867,6 +1160,10 @@ governed_sets:
     default_policy: always. Fail-closed and correctly described by the shipped
     comment. This is the reason the governed set is 7/7/6 while the
     approval.tools LISTS are 6/6/6 — do not "fix" one to match the other.
+    control_target_set is governed the same way and for the same reason: the
+    controls server carries the approval hook on it, and it appears in no
+    approval.tools block, so it too falls to default_policy. That is what
+    makes the governed set 8/8/7 rather than 7/7/6.
 
 # ---------------------------------------------------------------------------
 # kept_readers — code that legitimately still mentions a DELETED key. These are

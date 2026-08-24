@@ -49,7 +49,11 @@ from PIL import Image
 
 import osprey.interfaces.design_system as design_system_pkg
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.conftest import (
+    _apply_all,
+    _run_app_server,
+    use_process_web_credentials,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -303,6 +307,11 @@ def _okf_panel_server(tmp_path: Path):
 def _bluesky_web_server(tmp_path: Path):
     from osprey.interfaces.bluesky_web.app import app as bluesky_web_app
 
+    # Being a module-level singleton, this app's gate keeps whatever credential
+    # holder was current when the module was first imported — which is stale for
+    # every test after that one, so the session cookie the browser fixture mints
+    # is refused. Re-point it at this test's holder before serving.
+    use_process_web_credentials(bluesky_web_app)
     return _run_app_server(bluesky_web_app)
 
 
@@ -345,6 +354,18 @@ TARGETS: list[VisualTarget] = [
     ),
     VisualTarget("artifacts_gallery", _artifacts_server, path="/", modes=MODES),
     VisualTarget("ariel", _ariel_server, path="/", modes=MODES),
+    # Embedded mode drops the panel's own header entirely (the hub tile bar is
+    # the one header, see ``body.embedded .header`` in ariel's layout.css) and
+    # opens on Browse rather than Search, since embedded users search the
+    # logbook through the agent. Wait for that redirect to land so the baseline
+    # captures the browse view, not the pre-navigation search shell.
+    VisualTarget(
+        "ariel_embedded",
+        _ariel_server,
+        path="/?embedded=true",
+        wait_selector="#view-browse.active",
+        modes=MODES,
+    ),
     VisualTarget("channel_finder", _channel_finder_server, path="/", modes=MODES),
     # D14/D15 regression guard: embedded mode must hide the standalone logo +
     # theme switcher (component self-hides via body.embedded) while keeping

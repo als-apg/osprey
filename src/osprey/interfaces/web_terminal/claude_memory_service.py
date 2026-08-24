@@ -1,6 +1,6 @@
 """Claude Memory Service — reads/writes Claude Code native memory files.
 
-Provides CRUD operations on ``~/.claude/projects/<encoded>/memory/*.md``
+Provides CRUD operations on ``<config-dir>/projects/<encoded>/memory/*.md``
 files. Stateless service class instantiated per-request with a project
 directory, following the same pattern as :class:`ScaffoldGalleryService`.
 """
@@ -11,7 +11,7 @@ import logging
 import re
 from pathlib import Path
 
-from osprey.agent_runner.project_paths import encode_claude_project_path
+from osprey.agent_runner.project_paths import claude_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +49,11 @@ class ClaudeMemoryService:
         """Return the Claude Code memory directory for this project.
 
         Claude Code stores memory files in
-        ``~/.claude/projects/<encoded>/memory/``;
-        see :func:`osprey.cli.project_utils.encode_claude_project_path`
-        for the encoding rule.
+        ``<config-dir>/projects/<encoded>/memory/``;
+        see :func:`osprey.agent_runner.project_paths.claude_project_dir` for
+        how the root and the encoded name are resolved.
         """
-        encoded = encode_claude_project_path(self._project_dir)
-        return Path.home() / ".claude" / "projects" / encoded / "memory"
+        return claude_project_dir(self._project_dir) / "memory"
 
     # ── List ──────────────────────────────────────────────────────────
 

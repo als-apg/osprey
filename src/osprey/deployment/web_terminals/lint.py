@@ -45,6 +45,7 @@ from osprey.deployment.web_terminals.ports import (
 from osprey.deployment.web_terminals.render import (
     SUPPORTED_AUTH_METHODS,
     _auth_tls_context,
+    _configured_external_origin,
     _external_origin,
 )
 
@@ -134,10 +135,14 @@ def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Fi
         # Reads each persona's rendered config.yml, so it rides on the same
         # gate: a profile has no rendered project to compare against yet.
         findings.extend(_check_persona_bundle_path_agreement(root, web_terminals, users))
+        # Resolves notice paths against the project directory, so it rides the
+        # same gate: a profile has no rendered project to look in yet.
+        findings.extend(_check_notice_docs(root, web_terminals))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
     findings.extend(_check_nginx_image(web_terminals))
+    findings.extend(_check_external_origin(web_terminals))
     findings.extend(_check_auth_method(web_terminals))
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
@@ -1365,6 +1370,51 @@ def _check_nginx_image(web_terminals: dict[str, Any]) -> list[Finding]:
     return []
 
 
+def _check_external_origin(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``external_origin``, when set, replaces the derived browser origin —
+    the value every terminal checks a mutating request's ``Origin`` against, the
+    landing link, and the OIDC ``redirect_uri``. It exists for the topology where
+    a load balancer terminating TLS in front of this nginx is what browsers
+    actually reach, so nothing in this config can name that address.
+
+    Absent is fine (``deploy.fqdn`` and the published port are used instead). A
+    non-string, or a string that is not ``scheme://host[:port]`` and nothing
+    else, is an ERROR: render refuses it too, and this is the same rejection at
+    scaffold time. An empty string is a WARN — it falls back to the derivation,
+    so it is inert but almost certainly a mistake.
+
+    The failure this catches is quiet, which is why it is worth catching early:
+    a value with a trailing slash or a stray path segment renders a deployment
+    whose landing page and terminals all load, and whose every write, approval
+    and chat message answers 403 with an origin message inside a container."""
+    if "external_origin" not in web_terminals:
+        return []
+    value = web_terminals.get("external_origin")
+    if isinstance(value, str) and not value.strip():
+        return [
+            Finding(
+                severity="warn",
+                code="web_terminals.empty_external_origin",
+                message=(
+                    "modules.web_terminals.external_origin is set but empty; the origin "
+                    "derived from deploy.fqdn applies. Remove the key or set the address "
+                    "browsers actually reach this deployment on"
+                ),
+            )
+        ]
+    try:
+        _configured_external_origin({"modules": {"web_terminals": web_terminals}})
+    except ValueError as exc:
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_external_origin",
+                message=str(exc),
+            )
+        ]
+    return []
+
+
 # --- auth seam checks --------------------------------------------------------
 #
 # These are scaffold-time feedback only. The authoritative deploy-path gates
@@ -1671,3 +1721,51 @@ def _check_auth_credential_collisions(
         )
         for suffix, colliding in env_var_suffix_collisions(names).items()
     ]
+
+
+def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
+    """Every path in ``landing.notices`` must name a file that exists.
+
+    A missing notice is a ``warn``, not an ``error``: the page still renders and
+    every other section still appears. But it is reported rather than swallowed,
+    because :func:`osprey.deployment.web_terminals.render._build_notices`
+    deliberately does NOT fall back to the packaged default here — a facility
+    that mistyped ``local-procedures.md`` would otherwise get OSPREY's safety
+    text in its place and no indication that their own document never loaded.
+    """
+    from osprey.deployment.compose_generator import resolve_repo_root
+
+    landing = as_dict(web_terminals.get("landing"))
+    raw = landing.get("notices")
+    if not isinstance(raw, list):
+        return []
+
+    repo_root = resolve_repo_root(root)
+    findings: list[Finding] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            findings.append(
+                Finding(
+                    severity="warn",
+                    code="notice-invalid",
+                    message=(
+                        f"modules.web_terminals.landing.notices contains {entry!r}, "
+                        "which is not a path. Each entry is a path to a markdown "
+                        "file, relative to the project directory."
+                    ),
+                )
+            )
+            continue
+        if not (repo_root / entry).is_file():
+            findings.append(
+                Finding(
+                    severity="warn",
+                    code="notice-missing",
+                    message=(
+                        f"modules.web_terminals.landing.notices lists {entry!r}, "
+                        "which does not exist. That section will be missing from "
+                        "the landing page."
+                    ),
+                )
+            )
+    return findings

@@ -11,12 +11,18 @@
 # services.openobserve.image in config.yml. Pin a digest in production if
 # you need byte-for-byte reproducibility.
 #
-# Root credentials double as the OTLP ingest credentials: ZO_ROOT_USER_EMAIL /
-# ZO_ROOT_USER_PASSWORD configure the single admin account AND authenticate the
-# agent's OTLP push. Set them once in the project .env so the compose service and
-# the agent's telemetry resolver read the SAME values (single source of truth) —
-# the `${VAR:-default}` form below falls back to a dev default when unset, which
-# you MUST override before exposing the store beyond localhost.
+# ZO_ROOT_USER_EMAIL / ZO_ROOT_USER_PASSWORD initialize the store's single admin
+# account, and that is ALL they do here: they are read once, when the data volume
+# is first created. Set them in the project .env — the `${VAR:-default}` form
+# below falls back to a dev default when unset, which you MUST override before
+# exposing the store beyond localhost.
+#
+# The agent does NOT push telemetry with these. `osprey up` uses the root
+# credential once, in-process, to create a separate ingest service account
+# through the store's API, and writes the token the store issues for it into the
+# project .env — that token is what the agent's telemetry block references. The
+# store learns of that account only through the API, so nothing about it appears
+# in this file; the root password never reaches a rendered config.
 
 services:
   openobserve:

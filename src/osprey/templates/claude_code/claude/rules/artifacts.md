@@ -14,10 +14,14 @@ rather than recreating content.
 
 ## Creating Artifacts
 
-### Inside `execute` — use `save_artifact()`
+Two ways in, chosen by where the thing you are saving lives.
 
-A `save_artifact(obj, title, description)` function is available in the exec
-namespace. It auto-detects the object type:
+### A live Python object — `save_artifact()` inside `execute`
+
+Plots, DataFrames, dicts of computed numbers: anything that exists only in
+the running process. `save_artifact(obj, title, description)` is a function
+in the exec namespace; it serializes the object, detecting the type from the
+object itself:
 
 ```python
 # Plotly interactive plot
@@ -33,17 +37,26 @@ save_artifact(plt.gcf(), title="Orbit Distortion")
 # DataFrame table
 save_artifact(df.describe(), title="BPM Statistics")
 
-# Markdown or HTML string
-save_artifact("<h1>Report</h1><p>All clear.</p>", title="Shift Summary")
+# Computed results as JSON — a dict saves as json
+save_artifact({"tune_x": 0.21, "tune_y": 0.31}, title="Tunes",
+              artifact_type="json", category="lattice_analysis")
 ```
 
-### Standalone — use `artifact_save` MCP tool
+`artifact_type=` overrides the detected type; `category=` groups it in the
+gallery. Results computed in code are saved from that code — never copied
+into a tool call afterwards.
 
-Register existing files or inline content without running Python:
+### A file on disk, or text you already have — `artifact_register` MCP tool
 
-- `file_path` — register a screenshot, CSV, or any file already on disk
-- `content` + `content_type` — pass markdown/HTML/text/JSON directly
+Screenshots, a CSV or PDF a tool left on disk, a markdown summary written in
+your reply. Nothing is serialized; the content is stored as given:
+
+- `file_path` — register a file already on disk
+- `content` + `content_type` — store literal text; `content_type` is required
+  and is one of `markdown`, `html`, `text`, `json`
 - `category` — optional gallery category for grouping. See the type registry for valid categories.
+
+`artifact_register` never runs Python and cannot take a live object.
 
 ## Notebook Artifacts
 
@@ -79,6 +92,6 @@ render as monospaced plain text without typesetting.
 - Use descriptive titles — they're the primary identifier in the gallery
 - Add descriptions for context (what analysis produced this, what it shows)
 - Use `save_artifact()` in Python for computed outputs (plots, tables)
-- Use `artifact_save` tool for screenshots, summaries, and file registration
+- Use `artifact_register` for screenshots, written summaries, and files already on disk
 - Use `artifact_focus` to direct the user's attention to a specific artifact
 - Use `NotebookEdit` to refine notebook cells before sharing

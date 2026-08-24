@@ -24,8 +24,28 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates" / "services"
+# Rooted at the templates/ PROJECT root, not services/, because service
+# templates import the shared axis macros as "services/_*.j2" — the spelling
+# compose_generator's own loader resolves. Template names below stay relative
+# to services/ via the second search path.
+_TEMPLATES_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
+TEMPLATE_DIR = _TEMPLATES_ROOT / "services"
+_LOADER_ROOTS = [str(_TEMPLATES_ROOT), str(TEMPLATE_DIR)]
 BLUESKY_TEMPLATE = "bluesky/docker-compose.yml.j2"
+
+
+def _image_defaults(project_name: str) -> dict[str, str]:
+    """The image map ``_inject_project_metadata`` injects, for hand-built ctx.
+
+    The bridge's image line renders its innermost fallback from this mapping,
+    so a context assembled by hand still has to carry it. Taken from the
+    production helper rather than restated, so these renders follow the
+    registry and tag axes instead of pinning a name the generator may not
+    produce any more.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    return resolve_image_defaults({"project_name": project_name})
 
 
 def _render(
@@ -53,6 +73,7 @@ def _render(
             "project_name": "proj",
             "project_root": "/tmp/proj",
         },
+        "osprey_images": _image_defaults("proj"),
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
         "deployment": {},
@@ -60,7 +81,7 @@ def _render(
         "control_system": {"writes_enabled": writes_enabled},
         "services": {"bluesky": bluesky, "virtual_accelerator": {"port": 5064}},
     }
-    env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+    env = Environment(loader=FileSystemLoader(_LOADER_ROOTS))
     return yaml.safe_load(env.get_template(BLUESKY_TEMPLATE).render(context))
 
 
@@ -595,7 +616,7 @@ def test_redis_image_is_pinned_and_overridable(rendered: dict[str, Any]) -> None
 
 def test_redis_image_honours_a_config_override() -> None:
     context_image = "my-registry/redis:7.4"
-    env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+    env = Environment(loader=FileSystemLoader(_LOADER_ROOTS))
     rendered = yaml.safe_load(
         env.get_template(BLUESKY_TEMPLATE).render(
             {
@@ -603,6 +624,7 @@ def test_redis_image_honours_a_config_override() -> None:
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
                 },
+                "osprey_images": _image_defaults("proj"),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],
@@ -740,7 +762,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
         f"the Dockerfile no longer declares ARG {_DEV_BUILD_ARG}"
     )
 
-    env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+    env = Environment(loader=FileSystemLoader(_LOADER_ROOTS))
     rendered = yaml.safe_load(
         env.get_template(BLUESKY_TEMPLATE).render(
             {
@@ -748,6 +770,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
                 },
+                "osprey_images": _image_defaults("proj"),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],
@@ -771,6 +794,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
                 },
+                "osprey_images": _image_defaults("proj"),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],

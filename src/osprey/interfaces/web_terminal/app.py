@@ -22,23 +22,25 @@ from jinja2 import pass_context
 
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
 from osprey.interfaces.vendor import vendor_url
-from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
+from osprey.interfaces.web_terminal.file_watcher import (
+    FileEventBroadcaster,
+    WorkspaceWatcher,
+    resolve_store_rel,
+)
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
-from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncIterator
 
     from jinja2.runtime import Context
-
-    from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -139,87 +141,6 @@ def _launch_panel_server(app: FastAPI, key: str) -> None:
         setattr(app.state, attr, None)
 
 
-def _load_theme_registry() -> tuple[list[ThemeManifestEntry], dict[str, dict[str, str]]]:
-    """Load the baked theme manifest + per-family defaults for SSR resolution.
-
-    Thin alias for
-    :func:`osprey.interfaces.design_system.theme_config.load_theme_registry`,
-    kept because this module's lifespan and its tests both reach for it by this
-    name. The multi-user landing-page renderer resolves the same config value
-    through that same module, so the two surfaces cannot disagree about what
-    ``web.theme`` means.
-
-    Returns:
-        ``(entries, defaults)`` as produced by
-        :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`
-        and :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`.
-    """
-    from osprey.interfaces.design_system.theme_config import load_theme_registry
-
-    return load_theme_registry()
-
-
-def resolve_web_theme_id(
-    configured: str,
-    entries: Sequence[ThemeManifestEntry],
-    defaults: dict[str, dict[str, str]],
-) -> str:
-    """Resolve the ``web.theme`` config value into a concrete baked theme id.
-
-    ``web.theme``-named alias for
-    :func:`osprey.interfaces.design_system.theme_config.resolve_theme_id`,
-    which documents the full contract (family vs concrete id, the warn +
-    fallback on an unknown value, and the guarantee that the result is always a
-    real baked id — what the pre-paint ``theme-boot.js`` rung requires). The
-    multi-user landing-page renderer calls that same function, so the two
-    surfaces cannot disagree about what ``web.theme`` means.
-
-    The returned id alone does NOT say whether the deployment pinned a mode —
-    see :func:`resolve_web_theme_pinned_mode` for that half.
-
-    Args:
-        configured: The raw ``web.theme`` config value.
-        entries: The theme manifest.
-        defaults: The per-family ``{family: {mode: id}}`` map.
-
-    Returns:
-        A concrete theme id present in ``entries``.
-    """
-    from osprey.interfaces.design_system.theme_config import resolve_theme_id
-
-    return resolve_theme_id(configured, entries, defaults, config_key="web.theme")
-
-
-def resolve_web_theme_pinned_mode(
-    configured: str,
-    entries: Sequence[ThemeManifestEntry],
-) -> str | None:
-    """The light/dark mode a ``web.theme`` value *pins*, if any.
-
-    ``web.theme``-named alias for
-    :func:`osprey.interfaces.design_system.theme_config.resolve_pinned_mode`,
-    which documents why the pin has to be carried separately from the resolved
-    id at all.
-
-    The lifespan server-renders the result as ``<html data-theme-mode>``, and
-    the browser needs it: without that attribute ``theme-manager.js``'s hub
-    assumes ``mode: 'auto'`` on a first visit and immediately re-resolves the
-    mode from the OS, silently discarding a configured pin one frame after
-    paint.
-
-    Args:
-        configured: The raw ``web.theme`` config value.
-        entries: The theme manifest.
-
-    Returns:
-        ``"dark"`` or ``"light"`` when ``configured`` names a concrete theme id;
-        ``None`` when it names a family or is unknown.
-    """
-    from osprey.interfaces.design_system.theme_config import resolve_pinned_mode
-
-    return resolve_pinned_mode(configured, entries)
-
-
 #: The two supported web UI modes. ``expert`` is the full split-pane terminal
 #: workspace; ``simple`` is the pared-down operator layout. ``expert`` is the
 #: default so an absent/misconfigured ``web.ui_mode`` never strands a deployment
@@ -235,7 +156,8 @@ def resolve_ui_mode(configured: str) -> str:
     ``"simple"``). Anything else — a typo, ``None``, an empty string — is
     logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
 
-    Mirrors the warn+fallback shape of :func:`resolve_web_theme_id`: it never
+    Mirrors the warn+fallback shape of the ``web.theme`` resolver
+    (:func:`~osprey.interfaces.design_system.theme_config.resolve_theme_id`): it never
     raises, so a bad value degrades to the safe default instead of blocking
     server startup.
 
@@ -274,6 +196,100 @@ DEFAULT_RAIL_POSITION = "left"
 #: /api/panels`` echoes it to the browser so ``rail-position.js`` can follow
 #: a live family switch without carrying its own copy.
 FAMILY_RAIL_DEFAULTS: dict[str, str] = {"retro": "top"}
+
+#: Where the Documentation control in the rail's utility cluster points when
+#: ``web.docs_url`` is absent. A facility hosting its own copy of the docs
+#: overrides the key; the default is the published site.
+DEFAULT_DOCS_URL = "https://als-apg.github.io/osprey"
+
+#: ``owner/repo`` used to build the prefilled new-issue URL when
+#: ``web.feedback.github_repo`` is absent.
+DEFAULT_FEEDBACK_GITHUB_REPO = "als-apg/osprey"
+
+#: Recipient of the prefilled ``mailto:`` draft when ``web.feedback.email``
+#: is absent — the OSPREY maintainers.
+DEFAULT_FEEDBACK_EMAIL = "thellert@lbl.gov"
+
+#: Ceiling (bytes) on the on-disk feedback store before the oldest saved
+#: contexts are pruned; 256 MB unless ``web.feedback.max_store_bytes`` says
+#: otherwise. Submission headers are never pruned, only their contexts.
+DEFAULT_FEEDBACK_MAX_STORE_BYTES = 256 * 1024 * 1024
+
+
+def coerce_config_str(key: str, value: object, default: str) -> str:
+    """Return a configured string value, falling back to *default*.
+
+    An **absent** key means "use the default": the caller reads it with
+    *default* already in hand, so a facility with no ``config.yml`` still gets
+    working Documentation and Feedback controls.
+
+    An **explicitly blank** value (``docs_url: ""``) means "this deployment has
+    no such target", and is returned as ``""``. That posture is what the rail
+    anchor, the status-bar link and the dialog's channel guard are built on: an
+    air-gapped control room blanks ``web.docs_url`` and gets no documentation
+    link rather than one that opens a dead tab, and blanking
+    ``web.feedback.github_repo`` retires the GitHub channel instead of aiming it
+    at the upstream maintainers' tracker. Folding blank back into the default
+    would make that whole posture unreachable while the UI kept claiming it.
+
+    A YAML key written with no value at all (``docs_url:``, i.e. ``None``) reads
+    as absent, not as blank — "I have not decided" rather than "there is none".
+
+    A value of some other type (a nested mapping from a mis-indented
+    ``config.yml``, say) is reported and discarded rather than repr'd into an
+    ``href`` or a ``mailto:``, which would render a control that silently goes
+    nowhere.
+
+    Args:
+        key: Dotted config key, used only for the warning message.
+        value: Whatever the config reader returned.
+        default: The shipped default for *key*.
+
+    Returns:
+        The stripped configured string (possibly ``""``), or *default*.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if value is not None:
+        logger.warning("%s is %r, not a string; using %r instead", key, value, default)
+    return default
+
+
+def coerce_store_ceiling(value: object, default: int = DEFAULT_FEEDBACK_MAX_STORE_BYTES) -> int:
+    """Return ``web.feedback.max_store_bytes`` as a positive byte count.
+
+    Guarded rather than trusted: the pruner deletes stored contexts until the
+    store fits under this number, so a ``0``, a negative, or a ``True`` that
+    ``int()`` would happily turn into ``1`` would empty the store on the next
+    submission while looking like ordinary pruning. A human-written ``256MB``
+    is rejected the same way — this key is a plain byte count.
+
+    Args:
+        value: Whatever the config reader returned.
+        default: The shipped ceiling to fall back to.
+
+    Returns:
+        A positive integer byte ceiling.
+    """
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        try:
+            ceiling = int(value)
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError is not hypothetical: YAML parses `.inf` and any
+            # overflowing exponent (1.0e+400) to float("inf"), which int()
+            # refuses. This helper is called outside the lifespan's try, so an
+            # escaping exception would abort startup outright.
+            ceiling = 0
+        if ceiling > 0:
+            return ceiling
+    logger.warning(
+        "web.feedback.max_store_bytes is %r, not a positive byte count; using %d",
+        value,
+        default,
+    )
+    return default
 
 
 def family_rail_default(family: str | None) -> str:
@@ -678,34 +694,24 @@ def _create_lifespan(
         # flash. Fails open on any load error — a missing/broken theme
         # registry must never block server startup.
         try:
-            from osprey.utils.config import get_config_value
+            from osprey.interfaces.design_system.theme_config import (
+                resolve_configured_web_theme,
+            )
 
-            # ``OSPREY_WEB_THEME`` takes precedence over ``web.theme``, so
-            # several containers sharing one baked config image can each be
-            # themed individually via the environment — the same shape
-            # ``OSPREY_WEB_APP_NAME`` uses above. Multi-user deployments set it
-            # per user from the roster's ``theme:`` key.
-            configured_web_theme = os.environ.get(
-                "OSPREY_WEB_THEME", ""
-            ).strip() or get_config_value("web.theme", "main")
-            theme_entries, theme_defaults = _load_theme_registry()
-            app.state.web_theme_id = resolve_web_theme_id(
-                configured_web_theme, theme_entries, theme_defaults
-            )
+            # The shared environment → ``web.theme`` → id/pin/family chain, so
+            # this page and the artifact pages the gallery serves cannot
+            # disagree about what a configured value means.
+            web_theme = resolve_configured_web_theme()
+            app.state.web_theme_id = web_theme.id
             # Whether the configured value pinned a mode (a concrete id) or only
-            # a palette (a family). Server-rendered alongside data-theme so the
-            # browser hub can honor a pin instead of assuming 'auto' — see
-            # resolve_web_theme_pinned_mode().
-            app.state.web_theme_mode = resolve_web_theme_pinned_mode(
-                configured_web_theme, theme_entries
-            )
-            # The resolved theme's family, kept for the rail-position block
-            # below (an unconfigured rail follows the family — see
-            # FAMILY_RAIL_DEFAULTS).
-            app.state.web_theme_family = next(
-                (entry.family for entry in theme_entries if entry.id == app.state.web_theme_id),
-                None,
-            )
+            # a palette (a family). Server-rendered alongside data-theme because
+            # without it theme-manager.js's hub assumes 'auto' on a first visit
+            # and re-resolves the mode from the OS one frame after paint,
+            # silently discarding the pin.
+            app.state.web_theme_mode = web_theme.pinned_mode
+            # Kept for the rail-position block below (an unconfigured rail
+            # follows the family — see FAMILY_RAIL_DEFAULTS).
+            app.state.web_theme_family = web_theme.family
         except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
             logger.warning(
                 "Could not resolve web.theme (config or theme-registry load failed); "
@@ -793,6 +799,10 @@ def _create_lifespan(
             inject_provider_env,
             load_provider_spec,
         )
+        from osprey.build.claude_code_telemetry import (
+            ObservabilityCredentialError,
+            telemetry_creds_are_store_issued,
+        )
 
         # Managed (enterprise) policy settings outrank the process environment
         # and --setting-sources project alike, so a policy `env` block setting a
@@ -820,7 +830,29 @@ def _create_lifespan(
             # (the project dir IS the render), which repo_root_for_config
             # answers with the same call.
             _env_dir = repo_root_for_config(app.state.config_path)
-            _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
+            try:
+                _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
+            except ObservabilityCredentialError as exc:
+                # Keep this arm ahead of any broader one added later: it
+                # subclasses ValueError.
+                #
+                # Resolving the provider resolves the telemetry block with it,
+                # so a store-issued credential no deploy has minted yet arrives
+                # here as a failure to read the provider — and the server exits
+                # at startup over it. A terminal nobody can open is the worse
+                # outcome: serve without telemetry and say so. Anything else —
+                # a credential an operator has to set, or one that is simply
+                # blank — keeps raising and still refuses the start.
+                if not telemetry_creds_are_store_issued(exc):
+                    raise
+                logger.warning(
+                    "Telemetry is off for this server — `osprey up` issues %s when it starts "
+                    "the telemetry store and passes them into each terminal container, so "
+                    "this server is either running outside a deployment or against a store "
+                    "that was never started",
+                    ", ".join(exc.unresolved_vars),
+                )
+                _spec = load_provider_spec(_project_dir, env_dir=_env_dir, include_telemetry=False)
             if _spec:
                 # The SPEC is read from the render; the ENV is read from the
                 # repo. inject_provider_env's bulk `.env` passthrough is given
@@ -874,7 +906,89 @@ def _create_lifespan(
             ).resolve()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
         app.state.workspace_base = workspace_dir  # alias for clarity
-        app.state.watcher = WorkspaceWatcher(workspace_dir, app.state.broadcaster)
+
+        # ── Documentation + feedback controls ──
+        # Read once here (the web.ui_mode / web.rail_position pattern) and
+        # echoed to the browser by GET /api/panels. Every read fails open: a
+        # facility with no config.yml still gets working Documentation and
+        # Feedback controls pointed at the project defaults.
+        #
+        # The four raw values are read together — a failure here means the
+        # config is unreadable, which really does concern all four — but each
+        # is validated SEPARATELY below. A single unusable value (a hand-written
+        # "256MB" ceiling, say) must not drag the others back to project
+        # defaults: silently redirecting a facility's feedback address to the
+        # upstream maintainer is exactly the failure a fail-open path must not
+        # produce.
+        try:
+            from osprey.utils.config import get_config_value
+
+            raw_docs_url = get_config_value("web.docs_url", DEFAULT_DOCS_URL)
+            raw_github_repo = get_config_value(
+                "web.feedback.github_repo", DEFAULT_FEEDBACK_GITHUB_REPO
+            )
+            raw_email = get_config_value("web.feedback.email", DEFAULT_FEEDBACK_EMAIL)
+            raw_max_store_bytes = get_config_value(
+                "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
+            )
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not read web.docs_url / web.feedback.* config keys; using defaults",
+                exc_info=True,
+            )
+            raw_docs_url = raw_github_repo = raw_email = raw_max_store_bytes = None
+        app.state.docs_url = coerce_config_str("web.docs_url", raw_docs_url, DEFAULT_DOCS_URL)
+        app.state.feedback_github_repo = coerce_config_str(
+            "web.feedback.github_repo", raw_github_repo, DEFAULT_FEEDBACK_GITHUB_REPO
+        )
+        app.state.feedback_email = coerce_config_str(
+            "web.feedback.email", raw_email, DEFAULT_FEEDBACK_EMAIL
+        )
+        app.state.feedback_max_store_bytes = coerce_store_ceiling(raw_max_store_bytes)
+
+        # The feedback store is sited on the CONFIGURED agent-data root and
+        # deliberately NOT on workspace_dir: with web_terminal.watch_dir set,
+        # the watched tree is somewhere else entirely and records written
+        # there would land outside the {user}-agent-data volume, where
+        # `osprey feedback` on the host cannot reach them. Never
+        # resolve_agent_data_root() either — that appends sessions/<id>, and
+        # the store spans sessions.
+        try:
+            from osprey.utils.workspace import resolve_shared_data_root
+
+            feedback_dir = resolve_shared_data_root() / "feedback"
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            feedback_dir = workspace_dir / "feedback"
+            logger.warning(
+                "Could not resolve the shared data root for the feedback store; falling back to %s",
+                feedback_dir,
+                exc_info=True,
+            )
+        app.state.feedback_dir = feedback_dir
+        # Workspace-relative form of the store: the *file watcher's* form, used
+        # below to drop change events for feedback writes. The file browser is
+        # not a consumer — routes/files.py derives its own predicate from
+        # ``feedback_dir``, because it must also handle symlink aliases and
+        # session-scoped roots that a single relative path cannot express.
+        # ``None`` when the store lies outside the watched tree (the watch_dir
+        # case above) — nothing to conceal there, and a bare relative_to()
+        # would raise and abort startup. The derivation is case-folded on a
+        # case-insensitive filesystem, where the store root and watch_dir can
+        # spell one directory two ways: an exact comparison would yield
+        # ``None`` there and silently disable the watcher's concealment.
+        # The derivation probes the filesystem, so the directory has to exist
+        # first. ``WorkspaceWatcher.start()`` creates it a few lines below, but
+        # that is too late: on a first-ever startup the probe would read an
+        # absent directory, yield ``None``, and leave concealment off for the
+        # life of the process. Suppressed because the watcher's own mkdir stays
+        # the authority on a genuine failure here.
+        with suppress(OSError):
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+        app.state.feedback_rel = resolve_store_rel(feedback_dir, workspace_dir)
+
+        app.state.watcher = WorkspaceWatcher(
+            workspace_dir, app.state.broadcaster, feedback_rel=app.state.feedback_rel
+        )
         app.state.watcher.start()
 
         # Load panel config and conditionally launch servers
@@ -1104,6 +1218,10 @@ def create_app(
     # Must be registered before configure_interface_app() mounts /static
     # (Starlette matches routes in registration order, so an explicit route
     # ahead of a Mount wins).
+    #
+    # A ``?token=`` arriving here is answered by WebAuthMiddleware before this
+    # route runs (it mints the session cookie and redirects to the clean URL),
+    # so the handler only ever renders the page.
     @app.get("/static/session.html")
     async def session_page(request: Request):
         return templates.TemplateResponse(request, "session.html", {"url_prefix": url_prefix})
@@ -1146,6 +1264,8 @@ def run_web(
     shell_command: list[str] | None = None,
     config_path: str | None = None,
     project_dir: str | None = None,
+    *,
+    browser_url: str | None = None,
 ) -> None:
     """Run the web terminal server.
 
@@ -1155,11 +1275,17 @@ def run_web(
         shell_command: Shell command to spawn in the PTY.
         config_path: Optional path to config file.
         project_dir: Optional OSPREY project directory.
+        browser_url: The URL to auto-open once the server answers. Defaults to
+            the bare ``http://<host>:<port>``. The single-user launcher passes
+            the operator's one-time ``?token=`` login URL here instead: the bare
+            URL sets no session cookie, so an auto-opened tab would land on the
+            login-required page, whereas the token URL exchanges for a cookie and
+            redirects to the clean URL. Keyword-only and defaulted so every other
+            caller keeps the bare-URL behavior unchanged.
     """
     import uvicorn
 
-    url = f"http://{host}:{port}"
-    _open_browser_when_ready(url)
+    _open_browser_when_ready(browser_url or f"http://{host}:{port}")
 
     app = create_app(config_path=config_path, shell_command=shell_command, project_dir=project_dir)
     uvicorn.run(app, host=host, port=port, log_level="info")

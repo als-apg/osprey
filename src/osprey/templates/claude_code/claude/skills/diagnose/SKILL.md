@@ -53,7 +53,7 @@ Query the session log in this order:
    - If timing matters: `session_log(since="<timestamp>")`
 
 **If session_log returns empty results**, this IS evidence. Record it as a finding and note the possible causes:
-- No OSPREY MCP tool calls were made (only built-in tools like Read/Write/Bash were used)
+- No MCP tool calls were made (only built-in tools like Read/Write/Bash were used)
 - The transcript hasn't been written yet (session still in progress, no flush)
 - The agent used only non-MCP tools that don't appear in the session log
 - The MCP server wasn't connected or wasn't running
@@ -70,7 +70,19 @@ Cross-reference against session_log findings:
 - Are there artifacts from unexpected sources? (different agent, different tool)
 - Does the artifact count match expected outputs?
 
-### 2d. Direct Evidence
+### 2d. Graph Store (when configured)
+
+If the failure involves the facility-knowledge-graph agent or the `graph` /
+`channel-finder` (graph mode) tools: their error envelopes are self-describing —
+*unreachable*, *authentication failed*, *empty*, and *timed out* each name their
+own remedy, so quote the envelope rather than re-deriving the diagnosis. An
+empty result with no error is different evidence: either the store holds no
+corpus, or the query named a label or property that does not exist (zero rows,
+never an error). Note which of the two the transcript supports. `osprey health`
+probes the same store from outside (graphdb category: bolt reachability,
+resource count) — cite it when the user has run it.
+
+### 2e. Direct Evidence
 
 Extract concrete details from conversation-visible tool responses:
 - Exact error messages and error codes
@@ -136,10 +148,10 @@ Populate the HTML with:
 
 ### 3b. Save to the gallery
 
-Call the `artifact_save` MCP tool:
+Call the `artifact_register` MCP tool:
 
 ```
-artifact_save(
+artifact_register(
     title="Diagnostic Report — <brief failure description>",
     description="Infrastructure failure investigation: <1-line summary>",
     content=<the HTML string>,

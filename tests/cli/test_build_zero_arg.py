@@ -15,15 +15,18 @@ the ``var/`` skeleton created by whichever command runs first in a fresh clone.
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
+import click
 import pytest
 import yaml
 from click.testing import CliRunner
@@ -305,6 +308,42 @@ class TestAFailedRenderPreservesThePreviousBuild:
         assert (lifecycle_repo / "build" / "config.yml").is_file()
 
 
+# A tree holding this file refuses to be deleted, for the whole of a test that
+# has asked for it. Stands in for the real reasons a leftover survives a sweep
+# — a subtree written by a container running as root, an NFS `.nfs*`
+# sillyrename — none of which a test can produce as one unprivileged user on
+# whatever filesystem the checkout happens to sit on.
+_UNDELETABLE_MARKER = "undeletable.marker"
+
+
+def _refuse_to_delete_marked_trees(monkeypatch, *, silently: bool = False) -> None:
+    """Make every marked tree undeletable, and take the retry wait to zero.
+
+    Two flavours, because both happen: the filesystem raises (an NFS
+    sillyrename left in an otherwise-swept directory reports ENOTEMPTY), or the
+    removal reports success and the tree is still standing anyway — which is
+    what ``ignore_errors=True`` made of the first flavour for as long as the
+    sweep used it.
+    """
+    real_rmtree = shutil.rmtree
+
+    def rmtree(target, *args, **kwargs):
+        if (Path(target) / _UNDELETABLE_MARKER).exists():
+            if silently:
+                return None
+            raise OSError(errno.ENOTEMPTY, "Directory not empty", str(target))
+        return real_rmtree(target, *args, **kwargs)
+
+    monkeypatch.setattr(build_cmd.shutil, "rmtree", rmtree)
+    monkeypatch.setattr(build_cmd, "_LEFTOVER_RETRY_SECONDS", 0)
+
+
+def _held_aside(repo: Path, leftover: Path) -> list[Path]:
+    """The copies of *leftover* the repair parked in the state zone."""
+    prefix = f"{leftover.name}{build_cmd._HELD_ASIDE_SUFFIX}"
+    return sorted(entry for entry in (repo / "var").iterdir() if entry.name.startswith(prefix))
+
+
 class TestSwapRecovery:
     """The one window where ``build/`` does not exist, and how it is closed."""
 
@@ -348,6 +387,61 @@ class TestSwapRecovery:
             "the build in place\n"
         )
         assert not zones.incoming.exists()
+
+    def test_an_undeletable_leftover_is_moved_aside_rather_than_left_in_the_way(
+        self, lifecycle_repo, monkeypatch
+    ):
+        zones = build_cmd._render_zones(lifecycle_repo)
+        zones.build_dir.mkdir()
+        zones.incoming.parent.mkdir(parents=True, exist_ok=True)
+        zones.incoming.mkdir()
+        (zones.incoming / _UNDELETABLE_MARKER).write_text("", encoding="utf-8")
+        _refuse_to_delete_marked_trees(monkeypatch)
+
+        build_cmd._repair_interrupted_swap(zones)
+
+        assert not zones.incoming.exists(), "the name the next swap renames onto is still taken"
+        aside = _held_aside(lifecycle_repo, zones.incoming)
+        assert len(aside) == 1
+        assert (aside[0] / _UNDELETABLE_MARKER).is_file(), "the tree was not carried across intact"
+
+    def test_a_build_recovers_from_a_leftover_that_cannot_be_deleted(
+        self, runner, lifecycle_repo, monkeypatch
+    ):
+        """The shipped failure: one undeletable leftover broke EVERY later build.
+
+        The swap renames onto ``var/.osprey-build-outgoing``, so a leftover
+        there that the repair could not remove used to surface — hundreds of
+        lines later, and on every build from then on — as a bare ENOTEMPTY
+        naming neither the path nor the reason.
+        """
+        assert _build(runner, lifecycle_repo).exit_code == 0
+        zones = build_cmd._render_zones(lifecycle_repo)
+        zones.outgoing.mkdir(parents=True)
+        (zones.outgoing / _UNDELETABLE_MARKER).write_text("", encoding="utf-8")
+        _refuse_to_delete_marked_trees(monkeypatch, silently=True)
+
+        result = _build(runner, lifecycle_repo)
+
+        assert result.exit_code == 0, result.output
+        assert (lifecycle_repo / "build" / "config.yml").is_file()
+        assert len(_held_aside(lifecycle_repo, zones.outgoing)) == 1
+
+    def test_a_leftover_that_cannot_even_be_moved_names_the_path_and_the_reason(
+        self, lifecycle_repo, monkeypatch
+    ):
+        stuck = lifecycle_repo / "var" / "stuck-zone"
+        stuck.mkdir(parents=True)
+        (stuck / _UNDELETABLE_MARKER).write_text("", encoding="utf-8")
+        _refuse_to_delete_marked_trees(monkeypatch)
+        blocked = lifecycle_repo / "var" / "occupied-by-a-file"
+        blocked.write_text("not somewhere a directory can be parked\n", encoding="utf-8")
+
+        with pytest.raises(click.ClickException) as raised:
+            build_cmd._clear_leftover(stuck, aside_root=blocked)
+
+        assert str(stuck) in str(raised.value)
+        assert "Directory not empty" in str(raised.value)
 
 
 @pytest.mark.slow

@@ -39,9 +39,12 @@ The everyday workflow stands on its own. From any project directory,
    osprey web
 
 launches the single-user Web Terminal as one local process — no containers, no
-proxy, ready in seconds at ``http://127.0.0.1:8087``. It is the fastest way to
-try OSPREY and the right tool whenever one person sits in front of one machine;
-:doc:`web-terminal/operate` covers it.
+proxy, ready in seconds at ``http://127.0.0.1:8087``. It prints a login URL
+(``…/?token=…``, once, at startup) that sets a session cookie before
+redirecting to the clean address. The token is that server's operator secret
+rather than a one-shot code, so treat the URL like a password. It is the
+fastest way to try OSPREY and the right tool whenever one person sits in front
+of one machine; :doc:`web-terminal/operate` covers it.
 
 The multi-user stack is strictly opt-in. It lives in a
 ``modules.web_terminals`` block in the deployment's built ``config.yml``, read
@@ -160,7 +163,10 @@ The config block
       ``osprey up``.
 
       The ``users`` list is the roster — the single source of truth for who
-      exists. A bare name (``- carol``) resolves to ``default_persona`` —
+      exists. A name becomes a URL path segment and an environment-variable
+      suffix, so it has to match ``[a-z0-9][a-z0-9_-]*``; that is checked in
+      every auth mode, not only behind a login wall. A bare name (``- carol``)
+      resolves to ``default_persona`` —
       read-only, so a hastily added user lands on the safe side; an entry with
       an explicit ``persona`` picks its tier, and an optional ``display_name``
       becomes that user's browser tab title. Each user's host ports are
@@ -170,6 +176,15 @@ The config block
       bob (index 1) on ``9092``, and ariel (index 2) on ``9093``. A panel
       whose ``*_base_port`` you don't set falls back to its built-in default,
       so the block above lists them only to make the layout visible.
+
+      One optional key belongs beside these rather than in the roster:
+      ``external_origin``, the address browsers actually reach this deployment
+      on. Leave it out and that address is derived from ``deploy.fqdn`` and
+      ``nginx_port``, which is right whenever a browser talks to this nginx
+      directly. Set it when something else stands in front — a facility load
+      balancer terminating TLS, a reverse proxy, a DNS alias — because the
+      terminals check it before allowing any action, and nothing here can guess
+      what that front door answers on. See :ref:`multi-user-https`.
 
       A persona may also name a landing-page section with ``landing_group``.
       Its users are lifted out of the roster's default section into one of
@@ -346,6 +361,52 @@ badge answers *which tier is this user on?* and here the card and its persona
 are the same word. Clicking any card opens that session at ``/u/<name>/``,
 proxied by nginx to its own container.
 
+What your operators read first
+------------------------------
+
+At the bottom of the landing page sit collapsible **notices** — the things your
+facility wants people to read before they open a terminal. Each notice is one
+markdown file, listed in config:
+
+.. code-block:: yaml
+
+   modules.web_terminals:
+     landing:
+       notices:
+       - data/landing/working-safely.md
+       - data/landing/local-procedures.md
+       footer: "ALS control room. Questions: ext. 5555."
+
+The file's first heading (``# Working safely with the agent``) becomes the
+section label, and everything after it becomes the panel. So adding a section
+means writing a file and listing it — there is no schema to learn, and nothing
+about the text lives in ``config.yml``.
+
+``osprey init`` writes a starter ``data/landing/working-safely.md`` into your
+project. It is yours: rewrite it for your facility, or drop it and list your own
+files instead. Sections appear in the order you list them, and each one gets an
+id from its filename, so you can point someone at
+``http://…:9080/#local-procedures`` rather than at the page.
+
+Two edge cases are worth knowing:
+
+* **Leave ``notices`` out entirely** and you get OSPREY's built-in safety
+  notice. A config that says nothing still ships something.
+* **Set ``notices: []``** for no notices at all. That is the explicit way to
+  turn them off.
+
+A file you list that does not exist is skipped and reported by ``osprey build``
+as a warning. It is *not* replaced by the built-in notice — showing OSPREY's
+safety text where your own procedures should have been would be worse than
+showing a gap.
+
+.. note::
+
+   Notice files are rendered to HTML at build time, so they are trusted input
+   at the same level as ``config.yml`` itself — anyone who can edit a notice can
+   already edit your deployment's configuration. The ``footer`` is a plain
+   string and is always escaped.
+
 Two sessions, two write postures
 --------------------------------
 
@@ -408,8 +469,9 @@ boundary itself: the refusal above fires with or without it.)
 Logging out and switching users
 -------------------------------
 
-Every session's header carries a chip naming the signed-in user; clicking it
-opens a small menu with **Log out**. That POSTs to the terminal's logout
+Every session's header carries a chip in the top-left naming the terminal — the
+display name where the roster sets one, the username otherwise. Clicking it
+opens a small menu naming the signed-in user, with **Log out**. That POSTs to the terminal's logout
 route, clears the local session pointer, and returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login
@@ -421,11 +483,27 @@ warm, and returning to the same user reconnects to it.
 Require a login
 ===============
 
-With no ``auth`` stanza the stack asks for no credentials and speaks plain
-HTTP: clicking a card on the landing page opens that terminal, and anyone who
-can reach the nginx port can click any card. That posture suits a **single
-trusted host** — a workstation or control-room machine you already trust — and
-nothing beyond it.
+With no ``auth`` stanza nginx asks for no credentials and speaks plain HTTP —
+but the terminals behind it are not open. Each one authenticates every request
+against its own operator secret, which ``osprey up`` mints into the
+deployment's ``.env`` for every roster user whether or not authentication is
+on. Clicking a card on the landing page therefore reaches a terminal that
+refuses you until you have opened that user's login URL once:
+
+.. code-block:: bash
+
+   osprey users login-url alice
+
+The URL carries alice's secret and trades it for a session cookie. Send each
+person only their own, the way you would send a password; it stays valid until
+you rotate it, which means deleting that user's ``OSPREY_TERMINAL_SECRET_*``
+line from ``.env`` and running ``osprey up`` again. (``osprey up`` names the
+verb in its summary but never prints the URLs.)
+
+What this posture does *not* do is tell one person from another at the front
+door: whoever holds a URL is that user. It suits a **single trusted host** —
+a workstation or control-room machine you already trust — and nothing beyond
+it.
 
 The ``control-assistant`` preset ships with password login switched on, in its
 demo posture: each roster user's password is seeded into the repository's
@@ -443,8 +521,11 @@ about each request before proxying anything. Nothing depends on the per-user
 containers policing themselves.
 
 Note that the persona split is a *capability* boundary, enforced per project —
-it decides what a session may do, never who may open it. Those are separate
-questions, and login answers only the second.
+it decides what a session may do, never who may open it. Login answers the
+separate question of who may open a session. In this multi-user stack that login
+is the per-user auth described above; note that even single-user ``osprey web``
+gates every request on a session cookie, handed out by the login URL it prints
+at startup, so "no login" is never the single-user default either.
 
 Choose a method
 ---------------
@@ -559,11 +640,13 @@ opt out of the login wall:
        persona: ariel
        login: false
 
-With authentication on, that entry is served exactly as the whole deployment is
-with authentication off: no login, no session, open to anyone who can reach the
-nginx port. No password is provisioned for it (``osprey users passwd`` refuses
-the name and says why), and nginx never asks the authentication service about
-it. Session cookies still never reach its container.
+With authentication on, that entry sits outside the login wall: nginx never
+asks the authentication service about it, and no password is provisioned for it
+(``osprey users passwd`` refuses the name and says why). Outside the wall is not
+the same as open — the entry is gated exactly as the whole deployment is with
+authentication off, by its own operator secret, so a browser still has to open
+``osprey users login-url ariel`` once. Cookies from the login wall never reach
+its container.
 
 Only the literal ``false`` opts an entry out. Absence, ``true``, and any typo
 all mean "login required" — a misspelling can lock an entry down, never open it
@@ -574,6 +657,8 @@ Opting out is for entries whose *content* is public by design. Anything that
 can reach a control system, write anywhere, or spend provider tokens belongs
 behind the wall.
 
+.. _multi-user-https:
+
 Serve it over HTTPS
 -------------------
 
@@ -583,8 +668,9 @@ deployment with ``auth.method`` other than ``none`` and ``tls.enabled: false``
 therefore have to pick one of two ways to get the connection encrypted.
 
 **Let this nginx terminate TLS.** Set ``tls.enabled: true`` with a certificate
-and key, and nginx serves HTTPS on 443, redirects the plain port to it, and
-marks session cookies so browsers only ever send them over HTTPS. Bringing the
+and key, and nginx serves HTTPS on 443, redirects the plain port to it, and marks
+session cookies — the login wall's and each terminal's own — so browsers only
+ever send them over HTTPS. Bringing the
 certificate is still your job, but getting it *into* the container is not:
 
 .. code-block:: yaml
@@ -623,6 +709,34 @@ ingress proxy already presents the certificate and forwards to this host, set
 normal deployment, not a workaround: the browser's connection is encrypted by
 the thing in front, and the hop it forwards over is yours to keep private.
 
+This shape needs one key more, and it is **required**, not optional:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       external_origin: https://terminals.example.org   # what the browser reaches
+       auth:
+         method: password
+         allow_insecure_http: true
+
+``external_origin`` is the address **browsers** open, which here is the load
+balancer's, not this host's. Every terminal refuses a request that would change
+something — a chat message, an approval, a file write — unless the browser says
+it came from that address, and nothing in the rest of this configuration can
+work out what the thing in front answers on. Leave it unset and the
+deployment looks entirely healthy: the containers are up, the landing page
+renders, each terminal opens — and every action taken in one is refused.
+
+Write it as a bare origin: a scheme, a host, and a port if it is not the
+scheme's default. No path, no trailing slash. Anything else is refused when you
+build, which is the point — the alternative is finding out from a browser.
+
+Set it in any deployment where the address people type is not this nginx's own,
+including a plain reverse proxy or a DNS alias in front of it. When browsers
+reach this nginx directly — every other shape on this page — leave it out and
+the address is derived from ``deploy.fqdn`` and the published port.
+
 What ``allow_insecure_http`` is *not* is a way to postpone certificates on a
 reachable host. With it set and nothing terminating TLS, anyone who can watch
 the traffic can copy a session cookie and become that user. An isolated network
@@ -655,10 +769,11 @@ For each user, in order:
    deploy's output. Nothing can recover it afterwards, so capture it and hand it
    to the person.
 
-``<USER>`` is the username uppercased with ``-`` turned into ``_``. Because that
-mapping is what keeps one user's password out of another user's terminal, an
-authenticated deployment refuses to render when two roster names collide under
-it (``alice-b`` and ``alice_b``), or when a name falls outside
+``<USER>`` is the username uppercased with ``-`` turned into ``_``. That mapping
+is what keeps one user's credentials out of another user's terminal, and it keys
+each terminal's operator secret as well as its password — so *every* deployment,
+authenticated or not, refuses to render when two roster names collide under it
+(``alice-b`` and ``alice_b``), or when a name falls outside
 ``[a-z0-9][a-z0-9_-]*``.
 
 To change a password later:

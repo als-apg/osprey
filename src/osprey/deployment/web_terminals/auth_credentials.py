@@ -21,6 +21,15 @@ project ``.env`` as a convenience input and is hashed on the way in, while
 Only the latter is ever handed to a container, so a plaintext password set for
 convenience never ships.
 
+One further per-user secret lives here without living in ``.env.auth``: the
+web-terminal handshake secret (:func:`ensure_terminal_secrets`), keyed
+``OSPREY_TERMINAL_SECRET_<USER>`` and minted into the deploy ``.env``. It is
+provisioned by the same "existing value wins" rule and by the same suffix
+mapping, which is why it is written beside its siblings rather than in a module
+of its own — but it is a different *file*, because two services (nginx and that
+user's own terminal) must both read it, and ``.env.auth`` exists precisely to be
+mounted by neither.
+
 Username validity is enforced *here* as a hard raise rather than left to lint:
 ``osprey up`` never runs lint, and two usernames that normalize onto one
 env-var suffix (``alice-b`` and ``alice_b``) would silently share a single hash
@@ -60,7 +69,17 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix_collisions,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey.utils.dotenv import compose_unsafe_vars, dotenv_line_var, parse_dotenv_file
+from osprey.utils.dotenv import (
+    DEPLOY_MINTED_BANNER,
+    ENV_AUTH_BANNER,
+    ENV_LOCAL_FILENAME,
+    append_profile_env,
+    atomic_write,
+    compose_unsafe_vars,
+    dotenv_line_var,
+    env_file_lock,
+    parse_dotenv_file,
+)
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -86,6 +105,20 @@ STATE_SECRET_VAR = "OSPREY_AUTH_STATE_SECRET"
 
 #: Both signing secrets, in a fixed order so an appended block is byte-stable.
 SESSION_SECRET_VARS = (SESSION_SECRET_VAR, STATE_SECRET_VAR)
+
+#: Env-var stem for one user's web-terminal handshake secret, completed by
+#: :func:`env_var_suffix`. Deliberately NOT an ``.env.auth`` variable: nginx
+#: reads it (to stamp the header on every proxied request) and so does that
+#: user's own terminal container (to verify it), and ``.env.auth`` is the file
+#: only the auth sidecar ever mounts. The deploy ``.env`` is the one store both
+#: of those services already interpolate from.
+TERMINAL_SECRET_VAR_PREFIX = "OSPREY_TERMINAL_SECRET_"
+
+#: What a terminal-secret refusal calls the thing it could not provision. The
+#: mint runs in EVERY auth method, so this message reaches operators who
+#: configured no authentication at all; naming the secrets rather than the auth
+#: credentials is what keeps such a refusal about something they can find.
+TERMINAL_SECRET_SUBJECT = "secrets"
 
 _HASH_HEADER = "# Auto-generated web-terminal auth password hashes (osprey deploy)"
 _SECRET_HEADER = "# Auto-generated web-terminal auth signing secrets (osprey deploy)"
@@ -128,8 +161,35 @@ class AuthCredentialsResult:
     missing: tuple[str, ...]
 
 
-def _validate_usernames(usernames: list[str]) -> None:
+#: What :func:`_validate_usernames` calls the thing it was about to provision,
+#: by default. Names the auth credentials because that is what the module's
+#: original caller mints; the terminal-secret caller passes its own, because it
+#: runs on EVERY deployment — ``auth.method: none`` included — and a refusal
+#: naming "auth credentials" on an auth-off deployment describes a feature the
+#: operator did not turn on.
+_AUTH_CREDENTIALS_SUBJECT = "auth credentials"
+
+
+def _validate_usernames(
+    usernames: list[str],
+    *,
+    var_prefix: str = PW_HASH_VAR_PREFIX,
+    subject: str = _AUTH_CREDENTIALS_SUBJECT,
+) -> None:
     """Reject a roster this module cannot key credentials for, with a hard raise.
+
+    Args:
+        usernames: The roster names about to be keyed.
+        var_prefix: The env-var stem the collision message names, so a refusal
+            points at the variable the *caller* was about to write rather than
+            at whichever namespace happened to be checked first. Every stem here
+            shares one suffix mapping, so a collision under any of them is a
+            collision under all of them.
+        subject: What the refusal says it could not provision. Parametrized for
+            the same reason ``var_prefix`` is: this gate now runs on every
+            deployment through :func:`ensure_terminal_secrets`, so a roster name
+            outside the charset is refused on an auth-off deployment too — and
+            the operator reading that refusal has no auth to go and look at.
 
     Raises:
         RuntimeError: If any username falls outside the roster charset, or if
@@ -138,7 +198,7 @@ def _validate_usernames(usernames: list[str]) -> None:
     invalid = [name for name in usernames if not USERNAME_CHARSET_RE.fullmatch(name)]
     if invalid:
         raise RuntimeError(
-            "Cannot provision web-terminal auth credentials: "
+            f"Cannot provision web-terminal {subject}: "
             f"{', '.join(repr(name) for name in sorted(invalid))} does not match "
             f"{USERNAME_CHARSET_RE.pattern!r} (usernames become nginx location keys "
             "and URL path segments). Refusing to deploy."
@@ -147,13 +207,13 @@ def _validate_usernames(usernames: list[str]) -> None:
     collisions = env_var_suffix_collisions(usernames)
     if collisions:
         detail = "; ".join(
-            f"{', '.join(repr(n) for n in names)} -> {PW_HASH_VAR_PREFIX}{suffix}"
+            f"{', '.join(repr(n) for n in names)} -> {var_prefix}{suffix}"
             for suffix, names in collisions.items()
         )
         raise RuntimeError(
-            "Cannot provision web-terminal auth credentials: distinct usernames map "
+            f"Cannot provision web-terminal {subject}: distinct usernames map "
             f"onto one credential variable ({detail}). They would share a single "
-            "password, so one user's credentials would open another's terminal. "
+            "secret, so one user's credentials would open another's terminal. "
             "Rename one of them. Refusing to deploy."
         )
 
@@ -165,6 +225,12 @@ def _mint_password() -> str:
 
 def _append_entries(env_auth_path: Path, entries: dict[str, str], header: str) -> None:
     """Append ``entries`` to ``.env.auth`` under ``header``, creating it 0600.
+
+    A file created here is stamped with
+    :data:`~osprey.utils.dotenv.ENV_AUTH_BANNER` at the top, ahead of the first
+    per-block ``header`` — creation is the only moment the file-top readme can
+    be added, since every later write appends below it and the rewrite paths
+    preserve existing lines.
 
     The file is opened with an explicit 0600 creation mode rather than being
     created and then chmod'ed, so a hash is never briefly world-readable.
@@ -181,14 +247,17 @@ def _append_entries(env_auth_path: Path, entries: dict[str, str], header: str) -
         OSError: If the file or its directory cannot be written.
     """
     prefix = ""
+    file_banner = ""
     if env_auth_path.is_file():
         text = env_auth_path.read_text(encoding="utf-8")
         if text and not text.endswith("\n"):
             prefix = "\n"
+    else:
+        file_banner = ENV_AUTH_BANNER
     block = "".join(f"{key}={value}\n" for key, value in entries.items())
     fd = os.open(env_auth_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a", encoding="utf-8") as fh:
-        fh.write(f"{prefix}{header}\n{block}")
+        fh.write(f"{prefix}{file_banner}{header}\n{block}")
 
 
 def _normalize_mode(env_auth_path: Path) -> None:
@@ -592,6 +661,344 @@ def ensure_auth_session_secrets(project_root: str | Path) -> AuthSecretsResult:
         preexisting=tuple(preexisting),
         missing=tuple(missing),
     )
+
+
+@dataclass(frozen=True)
+class TerminalSecretsResult:
+    """Outcome of one :func:`ensure_terminal_secrets` run.
+
+    Every field carries env-var NAMES, never values — a terminal secret is the
+    whole of a user's proof to their own terminal, so it must not reach a log,
+    a return value, or an exception message.
+
+    ``missing`` is the fail-closed gate's signal, and it is computed from the
+    file as it stands AFTER the write rather than from what the write attempted:
+    the question a deploy has to answer is "does every roster user have a usable
+    secret now?", which a report of what this call happened to mint cannot
+    answer for a value some earlier run established.
+    """
+
+    env_path: Path
+    changed: bool
+    minted: tuple[str, ...]
+    preexisting: tuple[str, ...]
+    missing: tuple[str, ...]
+
+
+def _drop_env_assignments(env_path: Path, is_target: Callable[[str], bool]) -> tuple[str, ...]:
+    """Remove every assignment line in ``env_path`` whose variable is a target.
+
+    The deploy ``.env`` is append-only to
+    :func:`~osprey.utils.dotenv.append_profile_env` — a key already in the file
+    is never rewritten, which is what protects an operator's secrets from a
+    re-deploy. This is the one narrow exception to that, and it works by
+    *removal* rather than by rewriting a value: the callers either have nothing
+    to preserve (a departed user's secret) or are about to append a replacement
+    (a blank value that must be re-minted), and a line that is gone cannot be
+    the one a later parse returns.
+
+    ALL assignments of a target variable go, not just the last one. A file where
+    the same variable is assigned twice would otherwise keep a superseded line
+    that a differently-ordered reader could still pick up.
+
+    Comments, blank lines, and every other variable's lines are preserved
+    verbatim. The rewrite goes through
+    :func:`~osprey.utils.dotenv.atomic_write`, so a reader sees either the whole
+    old file or the whole new one, and the result carries the 0600 mode that
+    function enforces on a file holding facility secrets.
+
+    The read, the filter and the replace happen under
+    :func:`~osprey.utils.dotenv.env_file_lock` — the SAME lock
+    :func:`~osprey.utils.dotenv.append_profile_env` takes, which is the whole
+    point. The deploy ``.env`` is appended to by several unrelated writers
+    (``osprey up`` persisting a minted service token, ``osprey build`` writing
+    its derived keys, profile seeding), and a locked append landing between an
+    unlocked read here and its replace would be discarded without a trace. The
+    lock is re-entrant, so a caller that already holds it — to make a drop and
+    the append that replaces it one critical section — is not blocked here.
+
+    The emptiness check runs BEFORE the lock: a file with nothing to remove is
+    not rewritten at all, so it needs no lock, and taking one would create a
+    ``.lock`` file (and fail on a read-only directory) for a call that does
+    nothing.
+
+    Args:
+        env_path: The ``.env`` to rewrite. A file that does not exist is a
+            no-op, not an error.
+        is_target: Predicate over a variable name; ``True`` drops the line.
+
+    Returns:
+        The variable names actually removed, de-duplicated, in file order.
+        Empty when nothing matched — in which case the file is not rewritten at
+        all, so an unwritable ``.env`` with nothing to remove still succeeds.
+
+    Raises:
+        OSError: If the file cannot be read or the rewrite cannot be written.
+    """
+    if not env_path.is_file():
+        return ()
+    with env_file_lock(env_path):
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        kept: list[str] = []
+        removed: list[str] = []
+        for line in lines:
+            var = dotenv_line_var(line)
+            if var is not None and is_target(var):
+                removed.append(var)
+                continue
+            kept.append(line)
+        if not removed:
+            return ()
+        atomic_write(env_path, "".join(f"{line}\n" for line in kept))
+    return tuple(dict.fromkeys(removed))
+
+
+def terminal_secret_var(username: str) -> str:
+    """The env var holding ``username``'s web-terminal handshake secret.
+
+    One definition of the name, shared by the mint, the purge and the render,
+    so a secret can never be written under one spelling and looked up under
+    another.
+    """
+    return f"{TERMINAL_SECRET_VAR_PREFIX}{env_var_suffix(username)}"
+
+
+def ensure_terminal_secrets(
+    project_root: str | Path, usernames: Iterable[str]
+) -> TerminalSecretsResult:
+    """Establish an ``OSPREY_TERMINAL_SECRET_<USER>`` for every roster user.
+
+    The per-user half of the terminal's own front door: nginx stamps this value
+    onto every request it proxies to that user's terminal, and the terminal
+    refuses anything arriving without it. One secret per user rather than one
+    per deployment, so a value leaked from one container cannot be replayed
+    against a neighbour's terminal.
+
+    Written to the deploy ``.env``, NOT to ``.env.auth``. Both nginx and the
+    per-user terminal must read it, and ``.env.auth`` is by construction the
+    file only the auth sidecar mounts; the deploy ``.env`` is what compose
+    interpolates ``${OSPREY_TERMINAL_SECRET_<USER>}`` from for both services.
+
+    Called on the deploy preflight path for EVERY deployment, including one with
+    ``auth.method: none``. Authentication decides who may reach a terminal
+    through the front door; this secret decides that the front door is the only
+    way in at all, which an auth-off multi-user deployment needs just as much —
+    arguably more, since nothing else stands between one user's browser and
+    another user's terminal port.
+
+    Per user, in precedence order:
+
+    1. A non-empty value already in the deploy ``.env`` wins and is left exactly
+       as it is. Re-deploying is therefore idempotent, and an operator who
+       pinned a secret by hand keeps it.
+    2. A present-but-empty (or whitespace-only) value is RE-MINTED, and its
+       existing line(s) are removed first — ``append_profile_env`` would
+       otherwise refuse to touch a key already in the file, leaving the user
+       with a blank secret their terminal reads as "no secret configured". A
+       machine-generated secret has no meaningful empty state, the same
+       judgement :func:`ensure_auth_session_secrets` makes about the signing
+       secrets.
+    3. Otherwise a fresh secret is minted through the shared service-token
+       recipe (``token_urlsafe(32)``, 256 bits), so it is generated and checked
+       exactly like every other deploy-time secret and picks up any constraint
+       registered for it later.
+
+    Neither the process environment nor any other file is consulted: compose
+    interpolates the compose file's ``${...}`` references from the deploy
+    ``.env``, so a value visible only to this process is not the one that will
+    be in force, and suppressing the mint on account of it would deploy a
+    terminal whose secret nobody holds.
+
+    A write failure is reported through ``missing`` rather than raised, matching
+    :func:`ensure_auth_credentials` and :func:`ensure_auth_session_secrets` so
+    the deploy gate owns the abort and can name the deployment's context.
+
+    Args:
+        project_root: Directory holding the deploy ``.env``.
+        usernames: Roster usernames — ``entry["name"]`` for each
+            :func:`~osprey.deployment.web_terminals.personas.normalize_users`
+            entry. The WHOLE roster, including ``login: false`` entries: opting
+            out of the login wall does not opt a terminal out of needing a front
+            door. Order is preserved; a name repeated verbatim is processed once.
+
+    Returns:
+        A :class:`TerminalSecretsResult` naming which variables were minted,
+        which were already established, and which are still unusable.
+
+    Raises:
+        RuntimeError: If a username is outside the roster charset, if two
+            distinct usernames collide onto one secret variable, or if the
+            effective value fails a constraint registered for it in
+            ``service_tokens`` (including the universal "no ``$``" rule, which a
+            compose-interpolated value cannot survive). The message names the
+            variable, never the value.
+    """
+    ordered: list[str] = []
+    for name in usernames:
+        if name not in ordered:
+            ordered.append(name)
+    _validate_usernames(
+        ordered,
+        var_prefix=TERMINAL_SECRET_VAR_PREFIX,
+        subject=TERMINAL_SECRET_SUBJECT,
+    )
+
+    env_path = Path(project_root) / ENV_LOCAL_FILENAME
+    stored = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    preexisting: list[str] = []
+    pending: dict[str, str] = {}
+    blank: set[str] = set()
+    for name in ordered:
+        var = terminal_secret_var(name)
+        value = stored.get(var)
+        if value is not None and value.strip():
+            preexisting.append(var)
+            continue
+        if value is not None:
+            blank.add(var)
+        pending[var] = _generate_token(var)
+
+    changed = False
+    minted: list[str] = []
+    if pending:
+        try:
+            # ONE critical section over the drop and the append: a re-mint that
+            # released the lock in between would let another writer's append
+            # land on the file this call is about to rewrite, and would leave a
+            # window in which the user has no assignment at all. The lock is
+            # re-entrant, so the calls below take it and find it held.
+            with env_file_lock(env_path):
+                if blank:
+                    _drop_env_assignments(env_path, blank.__contains__)
+                appended = append_profile_env(env_path, pending, DEPLOY_MINTED_BANNER)
+        except OSError as exc:
+            # Fail-closed, but not from here: the deploy gate owns the abort so
+            # it can name the deploy context. Say so loudly meanwhile — variable
+            # names only.
+            logger.error(
+                "Could not write web-terminal secrets to %s (%s). No value could be "
+                "established for: %s",
+                env_path,
+                exc,
+                ", ".join(sorted(pending)),
+            )
+        else:
+            minted = list(appended.added)
+            changed = bool(minted)
+            # A key that reappeared between the read and the write — a
+            # concurrent `osprey up`, an operator saving the file — keeps
+            # whatever it now holds, because the file always wins. It is
+            # reported as pre-existing rather than as a conflict to warn about:
+            # nobody chose the value this call would have written.
+            preexisting.extend(appended.unchanged)
+            preexisting.extend(conflict.key for conflict in appended.conflicts)
+            if minted:
+                report_fact(
+                    logger,
+                    f"Provisioned web-terminal secret(s) {', '.join(minted)} in {env_path}",
+                )
+
+    # Read back what is actually on file, which is what compose will
+    # interpolate — for the just-minted values and the carried-over ones alike.
+    post = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    missing: list[str] = []
+    for name in ordered:
+        var = terminal_secret_var(name)
+        effective = post.get(var, "").strip()
+        if not effective:
+            missing.append(var)
+            continue
+        if not _validate_var(var, effective):
+            _raise_invalid_var(var, effective)
+
+    return TerminalSecretsResult(
+        env_path=env_path,
+        changed=changed,
+        minted=tuple(minted),
+        preexisting=tuple(preexisting),
+        missing=tuple(missing),
+    )
+
+
+def purge_terminal_secret(username: str, project_root: str | Path) -> bool:
+    """Remove ``username``'s terminal secret from the deploy ``.env``.
+
+    The deploy-``.env`` counterpart of :func:`purge_auth_credentials`, which
+    only ever touches ``.env.auth``: without this a decommissioned user's secret
+    would sit in the deployment's secret store indefinitely, and a re-added
+    same-name user would silently inherit it — a value the previous holder's
+    browser, container and any copy they took away still knows.
+
+    Every other line — comments, banners, other users' secrets, every unrelated
+    variable — is preserved verbatim.
+
+    Like :func:`purge_auth_credentials` this does not validate ``username``:
+    removing an entry for a name the roster should never have accepted is always
+    safe, and a lifecycle teardown must not be blocked by the departing user's
+    spelling.
+
+    Args:
+        username: The roster username whose secret should be removed.
+        project_root: Directory holding the deploy ``.env``.
+
+    Returns:
+        ``True`` if the file changed, ``False`` if it was absent or held no
+        secret for that user.
+
+    Raises:
+        OSError: If the file exists, holds the entry, and cannot be rewritten.
+    """
+    env_path = Path(project_root) / ENV_LOCAL_FILENAME
+    target = terminal_secret_var(username)
+    removed = _drop_env_assignments(env_path, lambda var: var == target)
+    if not removed:
+        return False
+    report_fact(logger, f"Removed web-terminal secret {target} from {env_path}")
+    return True
+
+
+def purge_orphan_terminal_secrets(
+    project_root: str | Path, usernames: Iterable[str]
+) -> tuple[str, ...]:
+    """Remove terminal secrets belonging to nobody on ``usernames``.
+
+    What ``osprey users prune`` needs and :func:`purge_terminal_secret` cannot
+    give it: prune targets orphans discovered in the runtime rather than a named
+    user, so the departed names are not known to the caller. This asks the
+    complementary question — which ``OSPREY_TERMINAL_SECRET_*`` variables in the
+    deploy ``.env`` belong to no current roster user — and removes exactly those.
+
+    Defined against the roster rather than against the runtime on purpose: a
+    secret for a user who has no roster entry is stale whether or not their
+    container was still around to be pruned.
+
+    Args:
+        project_root: Directory holding the deploy ``.env``.
+        usernames: The CURRENT roster. An empty roster means every terminal
+            secret in the file is an orphan, which is the honest reading — a
+            deployment with no web-terminal users has no terminal to hold one.
+
+    Returns:
+        The variable names removed, empty when there was nothing to remove.
+
+    Raises:
+        OSError: If entries had to be removed and the file could not be
+            rewritten.
+    """
+    keep = {terminal_secret_var(name) for name in usernames}
+
+    def _is_orphan(var: str) -> bool:
+        return var.startswith(TERMINAL_SECRET_VAR_PREFIX) and var not in keep
+
+    env_path = Path(project_root) / ENV_LOCAL_FILENAME
+    removed = _drop_env_assignments(env_path, _is_orphan)
+    if removed:
+        report_fact(
+            logger,
+            f"Removed orphaned web-terminal secret(s) {', '.join(removed)} from {env_path}",
+        )
+    return removed
 
 
 def purge_auth_credentials(username: str, project_root: str | Path) -> bool:

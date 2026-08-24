@@ -217,6 +217,102 @@ channel named. The same refusal applies to a claim (below).
 it to decide what counts as a hardware write. A hand-written copy would be
 treated as yours and never regenerate, quietly freezing that decision.
 
+.. _profile-context-baseline:
+
+The shared web-terminal baseline
+--------------------------------
+
+``web-terminal-context/`` is the one convention directory that accepts a loose
+file: ``base.md``, the text every operator's terminal starts from. It sits
+beside the per-operator directories and rides the same channel, landing at
+``docker/web-terminal-context/base.md``.
+
+Three layers stack, in this order:
+
+- **the framework's fallback.** Every build installs a generic ``base.md`` into
+  the rendered project, so a deployment always has one.
+- **the profile's own copy.** A ``web-terminal-context/base.md`` in the profile
+  is copied over that fallback. ``osprey init`` materializes one — from the app
+  template's text where it ships its own, otherwise the framework's — so the
+  baseline is in your repository from the first minute, where you can read and
+  edit it.
+- **each operator's ``extra.md``.** At seed time the baseline and that user's
+  ``web-terminal-context/<user>/extra.md`` are concatenated, and the result
+  becomes their ``CLAUDE.md``.
+
+Unlike the per-operator directories, the baseline is **not** roster-derived. It
+is copied on every build, including a persona render that has no roster at all,
+and ``osprey init`` writes it whenever the profile stands up web terminals
+(``modules.web_terminals.enabled``) — even when the roster is still empty, so a
+profile that names no operators yet still starts from text it can see. A
+profile with no web-terminal module gets no ``web-terminal-context/``.
+
+A persona drops it with the ordinary convention vocabulary, qualified like any
+other profile-shipped file:
+
+.. code-block:: yaml
+
+   exclude:
+     web-terminal-context:
+       - web-terminal-context/base.md   # the framework fallback renders instead
+
+The baseline is the only part of this tree a persona has to exclude. A persona
+delta switches the web-terminal module off, so its render resolves an empty
+roster and copies no operator directories in the first place — naming one here
+matches nothing and is silently ignored.
+
+To keep the baseline in the deployment but leave it out of one persona's
+terminals, set ``seed_base: false`` on that persona's catalog entry
+(``modules.web_terminals.personas.<name>``): its users are seeded from their
+own ``extra.md`` alone.
+
+.. admonition:: ``base.md`` is the only loose file
+   :class: important
+
+   Any other file directly in ``web-terminal-context/`` is refused at build
+   time, and the message names both routes: move it into the directory of the
+   operator it belongs to, or rename it to ``base.md`` if it is the text
+   everyone starts from. Directory names here are matched against the resolved
+   roster, so a directory invented to hold a stray file is skipped as an
+   operator who has left — and nothing in it would ever be read.
+
+
+.. _profile-self-contained:
+
+A profile is self-contained
+===========================
+
+Everything a profile contributes lives inside the profile directory. That is
+what keeps a build reproducible: clone the deployment repository anywhere, and
+the same project renders.
+
+The build holds the convention directories to it. An entry that is a symlink
+resolving outside the profile is refused, with the remedy — copy the target in
+instead. ``osprey scaffold claim`` refuses the same shape before it moves
+anything, because a claim that carried such a link into the profile would
+report success and then break every later build.
+
+.. note::
+
+   The check catches the mistake, not an adversary: copies dereference
+   symlinks, and the scan does not descend into a symlinked directory. Read it
+   as the rule the build holds you to, not as a boundary it enforces.
+
+The ``data:`` tree is the exception
+-----------------------------------
+
+``data:`` is a path the profile *names*, not material the build finds by
+convention, and it is checked differently. The path resolves against the
+profile directory, and only its existence and shape are checked — that it is
+there, and that it is a directory. Containment is never checked, so a tree may
+sit above the profile directory (``data: ../shared-data``): a tree more than
+one profile builds from can live beside them rather than inside either.
+
+Staleness is unaffected. The resolved tree is folded into the profile hash
+wherever it sits, so editing it still reports the built project as out of date.
+The exception is about where the tree may live, not about the build losing
+sight of it.
+
 
 .. _profile-claim:
 
@@ -259,8 +355,8 @@ A claim is refused, with the reason, when:
 - the artifact is **generated**, not authored — ``hook_config.json``,
   ``settings.json``, ``.mcp.json``, ``CLAUDE.md``. The message names the config
   key that *does* control it;
-- the file is a symlink pointing outside the project (a profile must be
-  self-contained to be reproducible);
+- the artifact is a symlink, or holds one pointing outside itself — a profile
+  must be :ref:`self-contained <profile-self-contained>`;
 - the profile slot is already occupied. A claim never overwrites profile
   material.
 
@@ -463,6 +559,73 @@ block's ``plan_dir`` key does the opposite — it installs a directory of your
 facility's own plans; see :doc:`bluesky/write-plans`.
 
 
+.. _profile-host-variants:
+
+One repository, several hosts
+=============================
+
+A test stand and a control-room machine can run the same deployment and still
+need different settings — another hostname, other ports, a different theme.
+Keeping two copies of the repository in step is the thing to avoid. Keep one
+profile instead, plus a small overlay per host:
+
+.. code-block:: text
+
+   my-facility/
+     profile.yml            # what every host shares
+     profiles/
+       teststand.yml        # what the test stand changes
+       control-room.yml     # what the control room changes
+     .env.variant           # which of the two THIS host builds
+
+An overlay holds only the differences, in the same spelling ``profile.yml``
+uses:
+
+.. code-block:: yaml
+
+   # profiles/teststand.yml
+   config:
+     deploy.fqdn: teststand.example.org
+     web.theme: dark
+
+Each host names the one it wants in ``.env.variant`` at the repository root:
+
+.. code-block:: bash
+
+   echo OSPREY_PROFILE_VARIANT=teststand > .env.variant
+
+``osprey build`` merges that overlay over ``profile.yml`` before it renders
+anything, and says which variant it used in its output. Personas are rendered
+for the same host, so a stack cannot come up half-configured for another one.
+
+The overlays are committed: which hosts a deployment has is part of what the
+deployment is. The choice between them is not — ``.env.variant`` is covered by
+the generated ``.gitignore`` along with the rest of the ``.env*`` family, so
+each host keeps its own answer, and a build warns if the file ever does get
+committed. There is no command-line flag for this today; the file is how a
+host chooses. If one is added later, a variant named on the command line will
+win over the file.
+
+Three cases worth knowing about:
+
+- **No setting, or an empty one.** The build renders ``profile.yml`` as
+  tracked and the overlays sit unused. This is also what a host that has never
+  heard of variants does, so adding ``profiles/`` to a repository changes
+  nothing until a host selects something.
+- **A name the repository has no file for.** The build stops and lists the
+  names that would work. The previous ``build/`` is left as it was, as with
+  every other refusal.
+- **Switching variants.** Rebuild. ``build/`` is the render of one host's
+  profile, and editing the setting does not re-render anything by itself —
+  but switching ``.env.variant`` (or editing the selected overlay) marks the
+  existing ``build/`` out of date, so ``osprey up`` names the stale render
+  instead of starting it silently.
+
+An overlay adds and replaces; it does not subtract. Lists are merged rather
+than swapped, so use :ref:`exclude: <profile-exclude>` to take something away
+on one host — that works in an overlay like anywhere else.
+
+
 .. _profile-secrets:
 
 Secrets
@@ -566,12 +729,14 @@ Profile YAML reference
      - string
      - ``control_assistant``
      - App template (data bundle) to render. Valid: ``control_assistant``,
-       ``hello_world``, ``ariel_standalone``.
+       ``hello_world``, ``ariel_standalone``, ``channel_finder_standalone``.
    * - ``data``
      - string
      - ``None``
      - Facility data tree, relative to the profile directory (``data`` in a
-       materialized profile). Replaces the bundled tree wholesale.
+       materialized profile). Replaces the bundled tree wholesale. May resolve
+       above the profile directory; only existence and shape are checked
+       (see :ref:`profile-self-contained`).
    * - ``provider``
      - string
      - *required*
@@ -587,12 +752,15 @@ Profile YAML reference
      - string
      - ``None``
      - Channel finder pipeline (``hierarchical``, ``middle_layer``,
-       ``in_context``).
+       ``in_context``, ``graph``). ``graph`` searches the deployment's graph
+       store instead of a channel database, so it needs a ``services.graphdb``
+       block (see :ref:`profile-graph-mode`).
    * - ``tier``
      - int
      - derived
      - Channel-database tier (1 or 3). Defaults from the channel finder mode;
-       tier 1 is ``in_context``-only.
+       tier 1 is ``in_context``-only. ``graph`` has no tiered artifacts at all —
+       leave ``tier`` unset there.
    * - ``connector``
      - string
      - *from preset*
@@ -638,7 +806,11 @@ Profile YAML reference
    * - ``env``
      - mapping
      - ``{}``
-     - Variables the deployment needs: ``required``, ``defaults``, ``file``.
+     - Variables the deployment needs: ``required``, ``defaults``, ``file``,
+       ``pinned``. ``env.pinned`` lists variables ``.env.shared`` decides and a
+       host may not override; a deploy refuses rather than start on a
+       contradicting value (see :ref:`deployment-pinned-env`). Same name pattern
+       as ``required``, and a machine-minted name cannot be pinned.
    * - ``dependencies``
      - list
      - ``[]``
@@ -798,9 +970,9 @@ are overridable per facility from ``config:``, using dotted keys:
 .. code-block:: yaml
 
    config:
-     claude_code.permissions.remove_deny: ["Bash", "WebSearch"]  # drop from the deny list
-     claude_code.permissions.allow: ["WebSearch"]                # then allow outright
-     claude_code.permissions.ask: ["Bash"]                       # or route to human approval
+     claude_code.permissions.remove_deny: ["WebSearch", "WebFetch"]  # drop from the deny list
+     claude_code.permissions.allow: ["WebSearch"]                    # then allow outright
+     claude_code.permissions.ask: ["WebFetch"]                       # or route to human approval
 
 .. list-table::
    :header-rows: 1
@@ -809,7 +981,8 @@ are overridable per facility from ``config:``, using dotted keys:
    * - Key
      - Effect
    * - ``remove_deny``
-     - Remove entries from the built-in deny defaults
+     - Remove entries from the built-in deny defaults. Removing a write-capable
+       tool that nothing else gates fails the build — see below
    * - ``deny``
      - Add facility-specific deny entries
    * - ``allow``
@@ -824,7 +997,28 @@ are overridable per facility from ``config:``, using dotted keys:
 
    Permissions resolve as **deny > ask > allow**, and a static ``deny`` entry
    cannot be overridden during a session — an in-session "allow once" will not
-   unblock it. Use ``ask`` for tools you want gated but still reachable.
+   unblock it. Use ``ask`` for tools you want gated but still reachable. For the
+   same reason, listing a tool under ``ask`` or ``allow`` does nothing until you
+   also remove it from the deny list.
+
+.. admonition:: You cannot un-gate a tool that can write
+   :class: warning
+
+   ``Bash``, ``Edit``, ``Write``, ``MultiEdit`` and ``NotebookEdit`` can write
+   files or shell out, so ``osprey build`` refuses a profile in which one of
+   them is neither in ``permissions.deny`` nor matched by a ``PreToolUse`` hook
+   matcher. A ``remove_deny: ["Bash"]`` with nothing put in its place is
+   therefore a build failure, not a silent widening. (The shipped presets gate
+   the three file-writing tools with the ``memory-guard`` hook rather than
+   denying them, so ordinary memory and notebook writes still work.)
+
+   The build checks that a covering rule *exists*, not that the hook behind it
+   refuses anything: a ``PreToolUse`` hook that exits 0 without a
+   ``permissionDecision`` allows the call. A tool whose only cover is a matcher
+   your own profile declares therefore builds with a warning — check that hook
+   really denies. Matchers are read the way the agent runtime reads them: the
+   bare tool name, a ``|`` alternation, any regex that matches the name
+   (unanchored), or ``*``/``.*``/empty for every tool.
 
 
 .. _profile-services:
@@ -862,6 +1056,61 @@ declares ``network: host`` whose render does not carry it. See
 :ref:`deployment-network-attachment` for what host mode changes and for
 ``dispatch.network``, the single knob that covers the event dispatcher and its
 workers.
+
+.. _profile-graph-mode:
+
+Graph-mode channel finding
+==========================
+
+``channel_finder_mode: graph`` points the channel finder at the deployment's
+graph store: the agent searches the facility knowledge graph for channels
+instead of reading a channel database. The store *is* the database, so the
+profile ships no channel-database inputs and pins no ``tier`` — what it does
+need is a ``services.graphdb`` block, and the paradigm works with either shape
+that block comes in.
+
+A deployment that runs its own store already has one. The ``control_assistant``
+app template renders ``graphdb`` into ``services`` and ``deployed_services``,
+and ``osprey up`` starts, bootstraps and seeds it — see :doc:`deploy-project/index`:
+
+.. code-block:: yaml
+
+   name: control-room
+   app_template: control_assistant
+   provider: anthropic
+   channel_finder_mode: graph     # no `tier` — graph has no tiered artifacts
+
+To search a store the facility already runs, name it instead of deploying one.
+That takes three things: an explicit ``uri`` on the block, the store's password
+in the project ``.env`` as ``GRAPHDB_PASSWORD`` (nothing is minted for a store
+this deployment does not own), and ``graphdb`` off the ``deployed_services``
+list — otherwise the build still stands up a local Neo4j nobody queries.
+``deployed_services`` is a list, so the override replaces it whole; write out
+the services you *do* want rather than the one you are removing.
+
+.. code-block:: yaml
+
+   channel_finder_mode: graph
+   config:
+     services.graphdb.uri: bolt://graph.facility.org:7687
+     services.graphdb.username: neo4j    # default `neo4j`
+     # Whole-list replacement: the template's default is
+     # [postgresql, openobserve, qmd, graphdb].
+     deployed_services: [postgresql, openobserve, qmd]
+
+An external store has to already hold a corpus for the mode to answer anything:
+generate one with ``osprey knowledge build-ttl`` and load it with ``osprey
+knowledge seed-graph`` (see :doc:`use-facility-graph`). A store this deployment
+runs gets that during ``osprey up``; a store it only connects to does not.
+
+A profile whose app template carries no ``services.graphdb`` block at all — the
+channel-finder app template carries none — is refused at build time, naming the
+missing block, rather than rendering a channel finder with nothing to read. An
+attached project (``deploy_services: false``) is refused the same way unless it
+names an external store, because it renders ``services: {}`` whatever its app
+template says. For what the mode changes about the agent's answers, see
+:doc:`use-channel-finder`; for the corpus behind them,
+:doc:`use-facility-graph`.
 
 .. _profile-va-archiver:
 
@@ -1295,7 +1544,13 @@ different project name so it gets a profile of its own.
 **"Profile convention directories are invalid"** — a convention directory has
 the wrong shape: a ``.md`` directory holding something else, a skill that is a
 file rather than a directory, or a symlink pointing outside the profile. Every
-problem is listed at once.
+problem is listed at once. The symlink case is the self-containment rule; copy
+the target in (see :ref:`profile-self-contained`).
+
+**"web-terminal-context/<name> is a file"** — that directory holds one
+directory per operator, plus the shared ``base.md``. Move the file into the
+directory of the operator it belongs to, or rename it to ``base.md`` if it is
+the text everyone starts from (see :ref:`profile-context-baseline`).
 
 **"project/ mirror writes N build-owned path(s)"** — the mirror targets a path
 another channel owns. The message names the channel, and the exact move where

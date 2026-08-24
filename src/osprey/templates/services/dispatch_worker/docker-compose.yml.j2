@@ -37,10 +37,11 @@ services:
 {%- set worker_port = (port_base | int) + (i - 1) * (port_stride | int) if on_host else port_base %}
   dispatch-worker-{{ i }}:
     {#- The template-level fallback mirrors _worker_image_target's Python
-        fallback (<project>:local — the PROJECT image `osprey up`
-        builds), for renders where _inject_project_metadata's setdefault
-        didn't fire (e.g. a null `dispatch_worker:` config key). #}
-    image: ${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image | default(osprey_labels.project_name ~ ':local') }}}
+        fallback (the PROJECT image `osprey up` builds, carrying whatever
+        registry and tag the image axes resolved to), for renders where
+        _inject_project_metadata's setdefault didn't fire (e.g. a null
+        `dispatch_worker:` config key). #}
+    image: ${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image | default(osprey_images.worker) }}}
     # NO build: block here on purpose. The project image (<project>:local) is
     # built once by `osprey up` (deployment/container_lifecycle.py) from
     # the project root before `docker compose up` runs; the worker just

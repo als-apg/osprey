@@ -188,10 +188,17 @@ def test_preset_control_assistant_ships_live_openobserve_telemetry(
     # hardcoded localhost endpoint would make the in-container worker emit to its
     # own loopback and silently drop everything, so it must be absent.
     assert "endpoint" not in tel
-    # Creds carry the ${VAR:-default} form (mirrors the compose template) so the
-    # resolver never hits its fail-loud path before the first deploy mints them.
-    assert tel["openobserve"]["password"] == "${ZO_ROOT_USER_PASSWORD:-Complexpass#123}"
-    assert tel["openobserve"]["user"] == "${ZO_ROOT_USER_EMAIL:-root@example.com}"
+    # The agent authenticates as the store's dedicated INGEST service account,
+    # never as root: the store still initializes itself from ZO_ROOT_USER_*, but
+    # that pair stays in the compose file and the root password never reaches
+    # the agent's config.
+    assert tel["openobserve"]["user"] == "${ZO_INGEST_USER_EMAIL:-ingest@example.com}"
+    # The token carries NO ${VAR:-default}, and that absence is the point: a
+    # literal default token in a shipped template would be a published
+    # credential. `osprey up` provisions the account and writes the token the
+    # store issues into .env; the preflights defer this one variable rather
+    # than refusing a start that has not reached that step yet.
+    assert tel["openobserve"]["password"] == "${ZO_INGEST_SA_TOKEN}"
 
 
 def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
@@ -700,9 +707,15 @@ class TestBuildProfileChannelFinderModeValidation:
             profile.validate(tmp_path)
 
     def test_validate_accepts_valid_channel_finder_modes(self, tmp_path: Path) -> None:
+        """Every registered paradigm validates — the check derives from the registry.
+
+        Read from :data:`VALID_CHANNEL_FINDER_MODES` rather than a literal list so
+        registering a paradigm cannot leave this test asserting a stale set.
+        """
+        from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
         from osprey.cli.build_profile import BuildProfile
 
-        for mode in ("in_context", "hierarchical", "middle_layer"):
+        for mode in VALID_CHANNEL_FINDER_MODES:
             BuildProfile(name="t", channel_finder_mode=mode).validate(tmp_path)
 
     def test_validate_accepts_none_channel_finder_mode(self, tmp_path: Path) -> None:
@@ -823,29 +836,27 @@ class TestDeployServicesKnob:
         assert not (_project(tmp_path, "op") / "services").exists()
 
 
-def test_set_unservable_model_fails_build(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A model the selected provider cannot serve must fail the build itself.
+def test_set_free_form_model_builds(runner: CliRunner, tmp_path: Path) -> None:
+    """A model ID outside the provider's tier map builds — it passes through.
 
-    The web-terminal container runs the same resolver strict at startup, so a
-    build that merely warns here ships a deploy whose per-user terminals
-    crash-loop behind the reverse proxy (502). The build is the checkpoint the
-    operator actually watches — it must stop the `build && deploy` chain.
+    Refusing here kept every model the tier map did not name (a newly released
+    ID, a gateway-only alias) unusable until the map caught up. The resolver
+    now trusts the provider to serve the ID and puts it in ANTHROPIC_MODEL
+    verbatim; a misspelt ID fails at the provider, naming the ID.
     """
-    with caplog.at_level(logging.ERROR):
-        result = _materialize(
-            runner,
-            str(tmp_path),
-            "smoke",
-            "hello-world",
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=anthropic/claude-opus",
-        )
-    assert result.exit_code != 0, result.output
-    _assert_build_error_logged(caplog, "neither a model tier nor a model id")
+    result = _materialize(
+        runner,
+        str(tmp_path),
+        "smoke",
+        "hello-world",
+        "--set",
+        "provider=als-apg",
+        "--set",
+        "model=anthropic/claude-opus",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = _config_yaml(_project(tmp_path, "smoke"))
+    assert cfg["claude_code"]["default_model"] == "anthropic/claude-opus"
 
 
 def test_set_value_invalid_yaml_raises() -> None:
@@ -998,3 +1009,60 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     wide_owned = [str(entry) for entry in _config_yaml(wide)["scaffold"]["user_owned"]]
     assert "agents/orbit-writer" in wide_owned, wide_owned
     assert "commands/osprey/scan" in wide_owned, wide_owned
+
+
+class TestGraphModeRequiresAGraphStore:
+    """`osprey init` refuses graph mode on a preset whose app template has no store.
+
+    The paradigm is selectable on any profile, but its store is a service rather
+    than a bundled database file — so the one preset built on the storeless
+    ``channel_finder_standalone`` template turns the mode away at
+    materialization time, before a project that could not answer anything
+    reaches disk.
+    """
+
+    def test_set_graph_mode_on_the_standalone_preset_is_refused(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """The refusal reaches the operator by name of the block it is missing.
+
+        `osprey init` reports an unmaterializable preset as a usage error (exit
+        2) on stderr, not through the build log — the operator got the ``--set``
+        wrong, and the message says which block would have made it right.
+        """
+        result = _materialize(
+            runner,
+            str(tmp_path),
+            "cf",
+            "channel-finder-standalone",
+            "--set",
+            "channel_finder_mode=graph",
+        )
+        assert result.exit_code == 2, result.output
+        assert "services.graphdb" in result.output
+        assert "channel_finder_mode: graph" in result.output
+        assert not (tmp_path / "cf" / "profile.yml").exists()
+
+    def test_set_graph_mode_on_the_control_assistant_preset_is_accepted(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Control: the same ``--set`` on a store-deploying preset materializes.
+
+        Without it the refusal above could pass because ``--set
+        channel_finder_mode=graph`` is refused everywhere rather than because
+        this app template ships no store.
+        """
+        repo = pathlib.Path(tmp_path) / "cr"
+        result = runner.invoke(
+            init,
+            [
+                str(repo),
+                "--preset",
+                "control-assistant",
+                "--no-git",
+                "--set",
+                "channel_finder_mode=graph",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert _profile_yaml(repo)["channel_finder_mode"] == "graph"

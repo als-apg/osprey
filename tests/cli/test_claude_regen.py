@@ -22,7 +22,7 @@ from osprey.cli.templates.manager import TemplateManager
 # Hook modules that are shipped into .claude/hooks/ as importable support code
 # rather than as hook entry points. They are deliberately absent from
 # settings.json and are excluded from the settings <-> hooks parity invariant.
-HOOK_LIBRARY_MODULES = {"osprey_hook_log.py"}
+HOOK_LIBRARY_MODULES = {"osprey_hook_log.py", "osprey_target_state.py"}
 
 _HOOK_BASENAME_RE = re.compile(r"osprey_[A-Za-z0-9_]+\.py")
 
@@ -327,11 +327,16 @@ class TestSafetyPreservation:
         assert any("osprey_writes_check.py" in cmd for cmd in hook_commands)
 
     def test_has_memory_guard_hook(self, regen_project):
-        """Write PreToolUse hook for memory guard is present."""
+        """The memory guard survives regen, gating every write tool.
+
+        The matcher is the guard's frontmatter ``tools:`` copied verbatim, so
+        it is also the exact list of tools the guard can refuse. A regen that
+        narrowed it would leave a rule in place and a tool ungated.
+        """
         settings_path = regen_project / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
-        assert "Write" in pre_matchers
+        assert "Write|MultiEdit|NotebookEdit" in pre_matchers
 
     def test_hooks_remain_executable(self, regen_project):
         """After regen, all hook .py files retain executable permissions."""
@@ -427,9 +432,9 @@ class TestSafetyPreservation:
         every event hook is unconditionally wired — there is no configuration in
         this fixture under which a shipped hook is legitimately unreferenced.
 
-        ``osprey_hook_log`` is excluded: it is imported by the other hooks as a
-        logging helper and is not itself a hook entry point (see
-        ``HOOK_LIBRARY_MODULES``).
+        ``osprey_hook_log`` and ``osprey_target_state`` are excluded: the other
+        hooks import them as a logging helper and a control-target state reader,
+        and neither is itself a hook entry point (see ``HOOK_LIBRARY_MODULES``).
         """
         settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         hooks_dir = regen_project / ".claude" / "hooks"

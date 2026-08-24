@@ -1,9 +1,17 @@
 """Render channel-finder benchmark JSON results as a markdown table.
 
-Pairs with the session-end dump in ``test_channel_finder_mcp_benchmarks.py``.
 By default reads the most recent JSON in
 ``tests/e2e/claude_code/benchmark_results/``; pass a path to format a
 specific run. Output is markdown on stdout.
+
+The payload it takes is ``{"run_timestamp_utc": ..., "aggregates": {paradigm:
+{...}}, "results": {query_key: {...}}}``. Aggregates are keyed by paradigm
+name. Per-query entries say which paradigm they belong to in a ``paradigm``
+field — the same value ``BenchmarkRun.paradigm`` records — because the runner
+numbers its queries by their index in the shared query set, so an id carries no
+paradigm of its own and all four paradigms number the same ten queries
+identically. :data:`PIPELINE_PREFIX` is the older spelling, kept for payloads
+whose keys are hand-written per-paradigm ids (``hier_01``).
 
 Usage:
     uv run python tests/e2e/claude_code/format_benchmark_results.py
@@ -23,8 +31,13 @@ PIPELINE_LABELS = {
     "hierarchical": "Hierarchical",
     "middle_layer": "Middle Layer",
     "in_context": "In-Context",
+    "graph": "Graph",
 }
 
+#: Legacy fallback: per-paradigm query-id prefixes. There is deliberately no
+#: ``graph_`` entry — the graph lane numbers its queries by dataset index like
+#: every other lane, so a graph entry names its paradigm in the ``paradigm``
+#: field and a prefix here would be a spelling nothing writes.
 PIPELINE_PREFIX = {
     "hier_": "hierarchical",
     "ml_": "middle_layer",
@@ -32,7 +45,15 @@ PIPELINE_PREFIX = {
 }
 
 
-def _pipeline_for(qid: str) -> str:
+def _pipeline_for(qid: str, entry: dict[str, Any] | None = None) -> str:
+    """Which paradigm a per-query entry belongs to.
+
+    The entry's own ``paradigm`` field wins; the id prefix is the fallback for
+    the older hand-written spelling.
+    """
+    paradigm = (entry or {}).get("paradigm")
+    if paradigm in PIPELINE_LABELS:
+        return str(paradigm)
     for prefix, name in PIPELINE_PREFIX.items():
         if qid.startswith(prefix):
             return name
@@ -74,7 +95,7 @@ def _format_per_query(results: dict[str, dict[str, Any]]) -> list[str]:
 
     by_pipeline: dict[str, list[dict[str, Any]]] = {p: [] for p in PIPELINE_LABELS}
     for qid, entry in results.items():
-        pipeline = _pipeline_for(qid)
+        pipeline = _pipeline_for(qid, entry)
         if pipeline in by_pipeline:
             by_pipeline[pipeline].append(entry)
 

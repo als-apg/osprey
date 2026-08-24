@@ -166,11 +166,18 @@ function contributeViewNav() {
 
 // ---- Pipeline Switcher ----
 
-/** @type {Record<string, string>} */
-const PIPELINE_LABELS = {
+/**
+ * Header badge / switcher labels, one entry per pipeline type the panel serves.
+ * A type with no entry falls back to its raw key upper-cased, so every
+ * paradigm the Explore view mounts belongs here. Exported for the dispatch
+ * contract test (explore-graph.test.mjs).
+ * @type {Record<string, string>}
+ */
+export const PIPELINE_LABELS = {
   hierarchical: 'HIERARCHICAL',
   in_context: 'IN-CONTEXT',
   middle_layer: 'MIDDLE LAYER',
+  graph: 'GRAPH',
 };
 
 /**
@@ -179,7 +186,9 @@ const PIPELINE_LABELS = {
 function updatePipelineBadge(type) {
   const badge = document.getElementById('pipeline-badge');
   if (!badge) return;
-  badge.textContent = (PIPELINE_LABELS[type] || type?.toUpperCase() || '') + ' ▾';
+  // A null type is the unconfigured project; the badge must still carry text,
+  // or the switcher collapses to a zero-size box and vanishes from the layout.
+  badge.textContent = (PIPELINE_LABELS[type] || type?.toUpperCase() || 'NOT CONFIGURED') + ' ▾';
 }
 
 function buildPipelineDropdown() {

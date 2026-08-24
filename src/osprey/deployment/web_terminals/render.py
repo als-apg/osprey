@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import posixpath
 import re
+import shutil
 from importlib.resources import as_file, files
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -22,13 +24,19 @@ from osprey.deployment.compose_generator import (
     repo_relative_mount_source,
     resolve_repo_root,
 )
+from osprey.deployment.web_terminals.auth_credentials import (
+    TERMINAL_SECRET_VAR_PREFIX,
+    terminal_secret_var,
+)
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     as_dict,
+    config_archiver_password_env,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_facility_bundle,
+    config_needs_graphdb_password,
     config_needs_launch_token,
     effective_image_source,
     entry_requires_login,
@@ -108,6 +116,319 @@ _DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 #: the file's values are high-entropy mints and IdP-issued credentials, and
 #: only the hash of the whole file — never a variable's value — is emitted.
 AUTH_ENV_DIGEST_LABEL = "osprey.auth.env.digest"
+
+#: Request header nginx carries a user's operator secret to that user's terminal
+#: in. The app authenticates every HTTP/WS request against it, so nginx — the
+#: single origin in front of every terminal — is what turns "reached the proxy"
+#: into "is the operator". Spelled once here because the rendered snippet and
+#: the app's own middleware are the two ends of one contract.
+TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+
+#: Prefix of the per-user environment variable one user's operator secret is
+#: minted into (deploy ``.env``) and read back out of (nginx's envsubst pass).
+#: Re-exported from
+#: :data:`~osprey.deployment.web_terminals.auth_credentials.TERMINAL_SECRET_VAR_PREFIX`
+#: rather than spelled again: the mint writes the variable and this module reads
+#: it, and a prefix defined twice is a prefix that can be minted one way and
+#: referenced another. Kept under a render-side name because the templates and
+#: the render errors below refer to it by that name.
+TERMINAL_SECRET_ENV_PREFIX = TERMINAL_SECRET_VAR_PREFIX
+
+#: Output-relative directory the per-user nginx *templates* land in — mounted
+#: read-only at ``/etc/nginx/templates``, where the base image's entrypoint
+#: envsubsts every file into ``NGINX_ENVSUBST_OUTPUT_DIR``. Deliberately a
+#: directory of its own, separate from the rendered ``nginx/nginx.conf``: the
+#: entrypoint processes the whole directory, so nothing that is not a per-user
+#: snippet may live in it.
+NGINX_TEMPLATES_OUTPUT_DIR = "nginx/templates"
+
+#: How one per-user snippet is named. The user's own name, not its env-var
+#: suffix, so the include the nginx template emits inside that user's location
+#: can be spelled from the same ``svc.user`` the location itself is keyed by.
+_SECRET_TEMPLATE_PREFIX = "secret-"
+_SECRET_TEMPLATE_SUFFIX = ".conf.template"
+
+#: What a roster name may look like once it is a FILENAME and an nginx
+#: ``include`` argument. Wider than
+#: :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`, which
+#: the deploy path now applies in every auth method (the terminal-secret mint
+#: runs whatever ``auth.method`` says, and ``_validate_usernames`` gates it), so
+#: on that path this rule is the looser of two and never the one that refuses.
+#: It is kept separate because ``render_web_terminals`` is also called with no
+#: mint behind it — by lint, by tests, by any caller passing
+#: ``terminal_secrets`` for a roster it did not provision — and what turning a
+#: name into a FILE makes newly dangerous is narrower than what makes it a bad
+#: identity: a name that stops being one path component, ``../`` escaping the
+#: templates directory the write seam clears, or a separator splitting the
+#: include into two arguments. Each refusal names its own rule, so an operator
+#: reading one knows which of the two they broke.
+_SECRET_TEMPLATE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+#: What the DERIVED variable suffix must look like. The filename rule above
+#: admits ``.`` — legal in a filename and in an nginx ``include`` — while
+#: :func:`~osprey.deployment.web_terminals.personas.env_var_suffix` maps only
+#: ``-`` to ``_``, so ``alice.b`` would derive ``OSPREY_TERMINAL_SECRET_ALICE.B``.
+#: That is not a legal environment-variable name: envsubst does not recognize
+#: the reference, leaves it in the snippet verbatim, and nginx refuses to start
+#: with ``invalid variable name`` — a crash-looping proxy whose error names
+#: neither the user nor the config key. Checked separately from the filename so
+#: each refusal can say which of the two rules was broken.
+_ENV_VAR_SUFFIX_RE = re.compile(r"[A-Z0-9_]+")
+
+
+def terminal_secret_env_var(username: str) -> str:
+    """The environment variable one roster user's operator secret travels in.
+
+    A thin alias of
+    :func:`~osprey.deployment.web_terminals.auth_credentials.terminal_secret_var`,
+    which is where the name is actually derived. There is one derivation, not
+    two agreeing ones: the mint writes this variable into the deploy ``.env``
+    and the rendered artifacts reference it, and a name derived twice is a name
+    that can be minted one way and read another — which fails as a terminal
+    that refuses every request rather than as anything visible at render time.
+
+    The render-side spelling is kept because the templates, the render refusals
+    and their tests all name it, and because this module is what a reader of
+    the artifacts arrives at first.
+
+    Args:
+        username: The roster name, exactly as configured.
+
+    Returns:
+        ``OSPREY_TERMINAL_SECRET_<SUFFIX>``, with the suffix from
+        :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`.
+    """
+    return terminal_secret_var(username)
+
+
+def _session_cookie_name(web_port: int) -> str:
+    """The browser cookie one user's app hands out, as nginx must spell it.
+
+    Read from the app's own
+    :func:`~osprey.interfaces.common_middleware.session_cookie_name` rather than
+    re-spelled here. The perimeter forwards exactly this cookie on the locations
+    where it injects no operator secret, so a name assembled independently would
+    forward a cookie the app does not read — a terminal that cannot hold a
+    session, with nothing in either end's config to show why.
+
+    Imported inside the function, like the theme reader further down: this
+    module is on the deploy path and the interfaces package pulls in the web
+    stack, which a render has no other reason to load.
+
+    Args:
+        web_port: The user's allocated ``web`` port — the value the app itself
+            publishes as ``OSPREY_WEB_PORT`` and derives the cookie name from.
+
+    Returns:
+        ``osprey_terminal_session_<port>``.
+    """
+    from osprey.interfaces.common_middleware import session_cookie_name
+
+    return session_cookie_name(web_port)
+
+
+def _secret_template_path(username: str) -> str:
+    """Output-relative path of one user's rendered nginx template snippet."""
+    return (
+        f"{NGINX_TEMPLATES_OUTPUT_DIR}/{_SECRET_TEMPLATE_PREFIX}{username}{_SECRET_TEMPLATE_SUFFIX}"
+    )
+
+
+def _secret_template_content(username: str) -> str:
+    """One user's snippet: a single ``proxy_set_header`` naming that user's variable.
+
+    Built here rather than as a ``.j2`` under ``templates/`` because it is one
+    directive with one substitution, and because the file is an *nginx* template
+    — its ``${...}`` is resolved by the container's envsubst pass at start, not
+    by Jinja2 at render time. That is the whole mechanism: the secret's value
+    never enters a rendered artifact, so nothing on disk in ``build/`` (or in a
+    git status, or in an image layer) holds it.
+
+    The comment lines carry no ``$`` for the same reason — envsubst does not
+    know what a comment is, and would substitute a bare ``$NAME`` inside one.
+
+    The substitution is QUOTED, which decides how a blank variable fails. envsubst
+    resolves a present-but-empty variable to nothing, and the compose carrier
+    guarantees the variable is always present (``${VAR:-}``), so a blank entry in
+    the deploy ``.env`` reaches nginx as an empty substitution. Unquoted that
+    emits ``proxy_set_header X-Osprey-Terminal-Secret ;`` — not a directive nginx
+    accepts, so the proxy refuses to start and EVERY user's terminal is down over
+    one blank variable, with an error naming a generated file rather than the
+    roster. Quoted it emits an empty header value, which only that user's app
+    refuses (it fails closed on a credential that does not match), so the blast
+    radius of one blank variable is the one user it belongs to. The trade is
+    deliberate: a quieter failure for a narrower one, on a condition the deploy
+    gate (``_provision_terminal_secrets``) already refuses ahead of the render.
+    """
+    return (
+        f"# Rendered by OSPREY (osprey.deployment.web_terminals.render).\n"
+        f"# Injects {username}'s operator secret into requests proxied to that\n"
+        f"# user's terminal. Included only from that user's authenticated\n"
+        f"# location, so no terminal ever sees another user's secret. The value\n"
+        f"# is substituted by nginx's entrypoint at container start from\n"
+        f"# {terminal_secret_env_var(username)}, and appears in no rendered artifact.\n"
+        f"proxy_set_header {TERMINAL_SECRET_HEADER} "
+        f'"${{{terminal_secret_env_var(username)}}}";\n'
+    )
+
+
+def clear_nginx_templates_dir(dest: Path | str) -> list[Path]:
+    """Empty the rendered nginx-templates directory beneath *dest*.
+
+    Called by the write seam **before** it writes a render's output, and
+    unconditionally — including on a render that carries no secrets at all.
+    Without it a decommissioned user's snippet survives every later re-render:
+    the base image's entrypoint envsubsts *every* file in the mounted templates
+    directory, so nginx would keep emitting a ``proxy_set_header`` for a user
+    who is no longer on the roster, from a variable the deploy ``.env`` may
+    still hold. Stale routing is caught by the roster verbs re-rendering
+    ``nginx.conf``; a stale *snippet* is not, because nothing else ever
+    overwrites it.
+
+    The whole subtree goes, not just the files sitting directly in it: the
+    entrypoint walks the mounted directory recursively (a template in a
+    subdirectory is processed into the matching subdirectory of the output),
+    so a leftover one level down is exactly as live as one at the top. Removing
+    the directory and recreating it empty is safe because it is nothing but
+    render output in the disposable ``build/`` zone — unlike its parent, which
+    holds ``nginx.conf`` and ``landing.html`` and is left untouched.
+
+    The directory is recreated even when there was nothing to remove, because
+    the nginx service bind-mounts it: a missing source is materialized by the
+    container runtime as a root-owned directory (or refused outright), which is
+    a confusing failure for a deployment that simply has no snippets yet.
+
+    Args:
+        dest: The artifacts destination the render mapping's relative paths are
+            written beneath (``<repo>/build`` on every deploy path).
+
+    Returns:
+        Every file removed, in sorted order — empty on a first render, where the
+        directory does not exist yet.
+    """
+    directory = Path(dest) / NGINX_TEMPLATES_OUTPUT_DIR
+    removed: list[Path] = []
+    if directory.is_dir():
+        removed = sorted(path for path in directory.rglob("*") if path.is_file())
+        shutil.rmtree(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    return removed
+
+
+def _terminal_secret_artifacts(
+    services: list[dict[str, Any]], terminal_secrets: dict[str, str], *, auth_method: str
+) -> dict[str, str]:
+    """Build one nginx template snippet per roster user with a GATED location.
+
+    Every roster user is CHECKED — the four refusals below cover the whole
+    roster, because every user's container reads its own secret whatever the
+    perimeter does with it — but only a user whose ``/u/<user>/`` location
+    actually ``include``s a snippet gets one written. That is exactly the
+    predicate nginx.conf.j2 emits the include under (``auth_method != "none"
+    and not svc.login_exempt``), spelled here so the two cannot disagree.
+
+    A snippet for anyone else is a plaintext operator secret substituted into
+    the nginx container's filesystem for no reader: with authentication off
+    nginx injects no header at all (the browser reaches the app through that
+    user's own ``?token=`` exchange), and a ``login: false`` entry is served
+    ungated with the header explicitly CLEARED. Not written, so the invariant
+    the nginx ``-T`` tests reason about — every file under
+    ``/etc/nginx/osprey`` is included by exactly one location — holds by
+    construction rather than by luck.
+
+    Args:
+        services: The resolved per-user service entries (``user`` and
+            ``login_exempt`` are read).
+        terminal_secrets: ``{username: secret}`` as provisioned into the deploy
+            ``.env``. Only the KEYS are used — a value is read solely to refuse
+            an absent one, and is never rendered anywhere.
+        auth_method: The parsed ``auth.method`` (see :func:`_auth_tls_context`).
+            ``"none"`` means no location is gated, so no snippet is written.
+
+    Returns:
+        ``{output-relative path: content}``, one entry per gated roster user —
+        empty when nothing is gated.
+
+    Raises:
+        ValueError: On any of four fail-closed conditions — a roster name that
+            is not usable as a single filename (see
+            :data:`_SECRET_TEMPLATE_NAME_RE`), a name whose derived variable is
+            not a legal environment-variable name (see
+            :data:`_ENV_VAR_SUFFIX_RE`), two names that derive the SAME
+            variable, or a user with no non-blank secret. Each of the four
+            fails invisibly if it is allowed through: an illegal variable name
+            is left verbatim by envsubst and kills nginx at start with
+            ``invalid variable name``; two users sharing a variable share one
+            secret, which is the isolation this carrier exists to establish; a
+            blank secret renders a header that substitutes to empty, which nginx
+            accepts and the app then refuses on every request — a terminal that
+            401s behind a healthy-looking proxy, with nothing in the render to
+            explain it. Every message names the offending user and variable.
+    """
+    unusable = [
+        service["user"]
+        for service in services
+        if not _SECRET_TEMPLATE_NAME_RE.fullmatch(service["user"])
+    ]
+    if unusable:
+        named = ", ".join(repr(name) for name in unusable)
+        raise ValueError(
+            f"modules.web_terminals.users {named} cannot carry an operator secret: "
+            "each roster name becomes a single snippet filename under "
+            f"{NGINX_TEMPLATES_OUTPUT_DIR}/ and the argument of the nginx `include` "
+            "that reads it, so a name that is not one plain path component would "
+            f"write outside that directory or split the directive. Rename them to "
+            f"match {_SECRET_TEMPLATE_NAME_RE.pattern!r}"
+        )
+    illegal = [
+        service["user"]
+        for service in services
+        if not _ENV_VAR_SUFFIX_RE.fullmatch(env_var_suffix(service["user"]))
+    ]
+    if illegal:
+        named = ", ".join(f"{name!r} ({terminal_secret_env_var(name)})" for name in illegal)
+        raise ValueError(
+            f"modules.web_terminals.users {named} derive an illegal environment-variable "
+            "name for their operator secret. env_var_suffix() only uppercases and maps "
+            "'-' to '_', so any other punctuation survives into the variable: nginx's "
+            "envsubst leaves such a reference verbatim and nginx then refuses to start "
+            "with `invalid variable name`, which says nothing about the roster. Rename "
+            f"them so the derived suffix matches {_ENV_VAR_SUFFIX_RE.pattern!r}"
+        )
+    collisions = env_var_suffix_collisions([service["user"] for service in services])
+    if collisions:
+        detail = "; ".join(
+            f"{', '.join(repr(name) for name in names)} all key "
+            f"{TERMINAL_SECRET_ENV_PREFIX}{suffix}"
+            for suffix, names in collisions.items()
+        )
+        raise ValueError(
+            f"modules.web_terminals.users collide on their operator-secret variable "
+            f"({detail}): colliding names would share one secret, so nginx would inject "
+            "the same credential into both terminals and neither could tell the two "
+            "operators apart. Rename one of them. Checked whatever auth.method says, "
+            "unlike the sidecar's own collision gate — this carrier is rendered even "
+            "with authentication off, and the isolation it provides is the same"
+        )
+    missing = [
+        service["user"]
+        for service in services
+        if not str(terminal_secrets.get(service["user"], "") or "").strip()
+    ]
+    if missing:
+        named = ", ".join(f"{name} ({terminal_secret_env_var(name)})" for name in missing)
+        raise ValueError(
+            f"modules.web_terminals.users {named} have no operator secret. Every roster "
+            "user needs one: nginx injects it as the "
+            f"{TERMINAL_SECRET_HEADER} header on that user's location, and a terminal "
+            "reached without it refuses every request. Mint the missing variables into "
+            "the deploy .env (osprey up does this in preflight) and re-render"
+        )
+    return {
+        _secret_template_path(service["user"]): _secret_template_content(service["user"])
+        for service in services
+        if auth_method != "none" and not service.get("login_exempt")
+    }
 
 
 def _container_agent_data_dir(config: Any, container_project_dir: str) -> str:
@@ -195,8 +516,11 @@ def render_web_terminals(
     dispatcher_personas: set[str] | None = None,
     ariel_personas: set[str] | None = None,
     launch_token_personas: set[str] | None = None,
+    graphdb_personas: set[str] | None = None,
     facility_bundle_personas: set[str] | None = None,
     facility_bundle_gid: int | None = None,
+    archiver_password_personas: dict[str, str] | None = None,
+    terminal_secrets: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -255,6 +579,22 @@ def render_web_terminals(
             what lets the ``bluesky`` MCP server arm a queue start without a
             second confirmation, so a read-only persona holding it would be able
             to move hardware. ``None`` emits no line.
+        graphdb_personas: Persona names whose project configures a graph store,
+            and whose users therefore need the Neo4j password ``osprey up``
+            minted into the deploy ``.env`` (see
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_graphdb_password`).
+            Same placement and same reason as ``dispatcher_personas``: the
+            consumer is the ``graph`` MCP server inside the container, which
+            resolves what to dial and with which password through
+            :func:`osprey.deployment.graphdb_service.resolve_graphdb_connection`
+            — that reads ``GRAPHDB_PASSWORD`` from the environment and otherwise
+            falls back to the shipped default, so a container that never
+            receives it authenticates with the wrong password against a store
+            initialized with the minted one, and every graph query fails on
+            auth. Unlike ``launch_token_personas`` this set is not a tier
+            boundary: Neo4j has one write-capable account, and read-only-ness is
+            enforced by that server's read transactions rather than by which
+            persona holds the credential. ``None`` emits no line.
         facility_bundle_personas: Persona names whose project names a
             ``facility_knowledge.bundle_path``, and whose container therefore
             gets the deployment's knowledge bundle bind-mounted (see
@@ -278,11 +618,47 @@ def render_web_terminals(
             directory does not exist yet, or a platform with no gids) emits no
             ``group_add``, which is the honest render rather than a guessed
             group.
+        archiver_password_personas: ``{persona_name: env_var_name}`` for the
+            personas whose archiver connector authenticates with a password,
+            resolved from disk by
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_password`.
+            Same placement and same reason as ``dispatcher_personas``; a map
+            rather than a set because the connector reads the variable its own
+            ``archiver.<type>.password_env`` names, and the line emitted into
+            the user's ``environment:`` block carries exactly that name (the
+            control-assistant preset spells it ``MONGO_ROOT_PASSWORD``, which
+            ``osprey up`` mints). Without it the agent's every archiver read
+            fails with "Environment variable '…' is not set" while the same
+            project works on the single-user host path, which reads the whole
+            deploy ``.env``. ``None`` emits no line.
+        terminal_secrets: ``{username: operator secret}`` as provisioned into
+            the deploy ``.env``, resolved from disk and passed in for the same
+            reason ``auth_env_digest`` is. Supplying it adds one
+            ``nginx/templates/secret-<user>.conf.template`` to the returned
+            mapping (see :data:`NGINX_TEMPLATES_OUTPUT_DIR`) for each roster
+            user whose location is GATED — the only ones an ``include`` ever
+            reads (see :func:`_terminal_secret_artifacts`); the three artifacts
+            render byte-identically either way. **Only the keys are used.** A value is read solely to refuse an absent one — no
+            secret value enters any rendered artifact, which is why the snippet
+            is an nginx *template* naming
+            :func:`terminal_secret_env_var`'s variable rather than a rendered
+            conf holding the secret. ``None`` (the default, and the ``osprey
+            scaffold web-terminals render`` path, which has no deploy ``.env``
+            to read) emits no snippets at all: the render stays exactly what it
+            was before this carrier existed. The per-service variable NAME and
+            external origin are threaded on every render regardless — neither is
+            a secret, and the compose reference resolves to empty when the
+            deploy ``.env`` holds nothing.
 
     Returns:
-        Mapping of output-relative-path to rendered content, for exactly three
-        artifacts: ``docker-compose.web.yml``, ``nginx/nginx.conf``, and
-        ``nginx/landing.html``.
+        Mapping of output-relative-path to rendered content: the three artifacts
+        ``docker-compose.web.yml``, ``nginx/nginx.conf`` and
+        ``nginx/landing.html``, plus — only when ``terminal_secrets`` is
+        supplied — one ``nginx/templates/secret-<user>.conf.template`` per
+        roster user with a gated location. The write seam clears that directory
+        first (see
+        :func:`clear_nginx_templates_dir`), so a decommissioned user's snippet
+        cannot survive a re-render.
 
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is missing/not an int,
@@ -299,6 +675,9 @@ def render_web_terminals(
             ``strict`` contract — render always resolves strictly), or if
             ``modules.web_terminals.mcp.topology`` is set to anything other than
             ``per_container_stdio`` (see :func:`_check_mcp_topology`), or if
+            ``terminal_secrets`` is supplied and a roster user has no non-blank
+            secret in it, or a roster name is not usable as one snippet filename
+            (both :func:`_terminal_secret_artifacts`), or if
             ``auth_env_digest`` is not a sha256 hex digest — the value is
             templated verbatim into compose YAML, so anything but lowercase hex
             is rejected here rather than trusted not to carry YAML structure.
@@ -375,6 +754,30 @@ def render_web_terminals(
                 # which would be a second copy of the mapping free to drift from
                 # the one that keys the password hashes.
                 "oidc_subject_env": f"OSPREY_AUTH_OIDC_SUBJECT_{env_var_suffix(entry['name'])}",
+                # The env-var NAME this user's operator secret travels in — the
+                # credential nginx injects as a request header and the app
+                # authenticates every request against. A name, never a value:
+                # the compose service references it as
+                # `${OSPREY_TERMINAL_SECRET_<SUFFIX>:-}` so the secret is
+                # interpolated at container-create time from the deploy .env,
+                # and nginx substitutes the same variable into this user's
+                # snippet at start. Resolved HERE through the shared
+                # terminal_secret_env_var(), for the same reason
+                # `oidc_subject_env` is: a template-side `upper|replace` would
+                # be a second copy of the mapping, free to drift from the one
+                # the secret was minted under.
+                "terminal_secret_env": terminal_secret_env_var(entry["name"]),
+                # The name of the ONE cookie this user's app reads, resolved
+                # HERE through the app's own
+                # :func:`~osprey.interfaces.common_middleware.session_cookie_name`
+                # so the perimeter and the app cannot disagree about it. nginx
+                # forwards this cookie and nothing else on the locations where it
+                # injects no operator secret: one cookie jar serves the whole
+                # origin, so the browser's raw `Cookie` header names every other
+                # terminal (and, with auth on, the sidecar's own session) that
+                # browser has unlocked — and these containers run
+                # agent-generated code.
+                "session_cookie": _session_cookie_name(user_ports["web"]),
                 **user_ports,
                 # One env line per companion family, derived from the web-server
                 # registry (PANEL_ENV_VARS) so a newly registered companion is
@@ -414,6 +817,25 @@ def render_web_terminals(
                     if entry.get("persona")
                     else config_needs_launch_token(root)
                 ),
+                # Whether this user's container gets the graph store's Neo4j
+                # password (see the `graphdb_personas` arg). Persona-less
+                # entries are answered from this same config, with no disk read,
+                # exactly as above.
+                "wants_graphdb": (
+                    entry["persona"] in (graphdb_personas or set())
+                    if entry.get("persona")
+                    else config_needs_graphdb_password(root)
+                ),
+                # The NAME of the variable this user's archiver connector
+                # authenticates with (see the `archiver_password_personas`
+                # arg), or None for no grant. Persona-less entries are
+                # answered from this same config, with no disk read, exactly
+                # as above.
+                "archiver_password_env": (
+                    (archiver_password_personas or {}).get(entry["persona"])
+                    if entry.get("persona")
+                    else config_archiver_password_env(root)
+                ),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the
                 # deployment configures no bundle. One key rather than a
@@ -421,7 +843,7 @@ def render_web_terminals(
                 # container_project_dir, so the target is per service and the
                 # template must not be able to emit a mount without one.
                 # Persona-less entries are answered from this same config with
-                # no disk read, exactly as the three grants above.
+                # no disk read, exactly as the four grants above.
                 "container_bundle_dir": (
                     _container_bundle_dir(root, entry["container_project_dir"])
                     if (
@@ -463,6 +885,17 @@ def render_web_terminals(
     _check_roster_charset(services, auth_tls_ctx["auth_method"])
     _check_roster_env_var_collisions(services, auth_tls_ctx["auth_method"])
 
+    # Built (and refused) ahead of the Jinja pass so a roster user with no
+    # operator secret stops the render before any artifact exists, rather than
+    # after three of them have been produced.
+    secret_templates = (
+        _terminal_secret_artifacts(
+            services, terminal_secrets, auth_method=auth_tls_ctx["auth_method"]
+        )
+        if terminal_secrets is not None
+        else {}
+    )
+
     tls_enabled = auth_tls_ctx["tls_enabled"]
     # The one origin every absolute URL in this deployment is built from (see
     # _external_origin). Derived only when something actually needs it: a
@@ -474,6 +907,18 @@ def render_web_terminals(
         else ""
     )
     landing_url = _landing_url(root, nginx_port, tls_enabled=tls_enabled) if services else ""
+
+    # Every service is told the deployment's external origin, because the app
+    # inside each container checks a mutating request's `Origin` against it —
+    # the CSRF half of the carrier. One deployment-wide value rather than a
+    # per-service one: there is exactly one origin (see _external_origin), and a
+    # service that believed in a different one would reject the very links the
+    # landing page hands out. It is derived here rather than deferred to nginx's
+    # per-request `$host` because a container reads its environment once, at
+    # start — and because `$host` carries no port, so a deployment behind a
+    # non-443 plain-HTTP nginx would check against an origin no browser sends.
+    for service in services:
+        service["external_origin"] = external_origin
 
     # The bundle's host path AS CONFIGURED. Read here rather than inside the
     # per-service loop: every entitled user mounts the same one directory, and
@@ -536,10 +981,13 @@ def render_web_terminals(
         "external_origin": external_origin,
         **auth_tls_ctx,
     }
+    landing_cfg = as_dict(web_terminals.get("landing"))
     landing_ctx = {
         "facility_name": resolve_facility_name(root, ""),
-        "groups": _build_groups(as_dict(web_terminals.get("landing")), resolved_users),
+        "groups": _build_groups(landing_cfg, resolved_users),
         "theme_blocks": _landing_theme_blocks(root),
+        "notices": _build_notices(landing_cfg, root),
+        "footer": _landing_footer(landing_cfg),
     }
 
     template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
@@ -559,6 +1007,10 @@ def render_web_terminals(
         _COMPOSE_OUTPUT: rendered_compose,
         _NGINX_OUTPUT: rendered_nginx,
         _LANDING_OUTPUT: rendered_landing,
+        # Additive, and only when the caller holds the secrets: a render with
+        # none in hand (the scaffold path) returns exactly the three artifacts
+        # it always did, byte for byte.
+        **secret_templates,
     }
 
 
@@ -666,44 +1118,191 @@ def _landing_theme_blocks(root: dict[str, Any]) -> list[dict[str, Any]]:
     return blocks
 
 
+#: ``modules.web_terminals.external_origin``, as a whole-string match: a scheme,
+#: a host, an optional port, and nothing else. No path (not even ``/``), no
+#: query, no fragment, no credentials, no trailing slash — this value is compared
+#: character-for-character against the ``Origin`` header a browser sends, and a
+#: browser never puts any of those in one. Only ``http`` and ``https`` are
+#: accepted: those are the two schemes this perimeter can serve, and a typo like
+#: ``htps://`` would otherwise render an origin nothing can ever match.
+_EXTERNAL_ORIGIN_RE = re.compile(r"https?://[A-Za-z0-9._~%-]+(?::\d+)?\Z")
+
+
+def _configured_external_origin(root: dict[str, Any]) -> str:
+    """``modules.web_terminals.external_origin`` as configured, validated.
+
+    Returns the empty string when the key is absent or blank — the derived
+    origin then applies (:func:`_external_origin`).
+
+    Raises:
+        ValueError: If the value is not a string, or is not
+            ``scheme://host[:port]`` and nothing else. Refused HERE rather than
+            trusted, because nothing downstream would report it: the value is
+            baked into every container as ``OSPREY_TERMINAL_EXTERNAL_ORIGIN``
+            and compared against the browser's ``Origin`` as a whole string, so
+            a trailing slash or a stray path segment produces a deployment whose
+            pages all load and whose every write answers 403.
+    """
+    web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
+    if "external_origin" not in web_terminals:
+        return ""
+    value = web_terminals.get("external_origin")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(
+            f"modules.web_terminals.external_origin {value!r} is not a string; it must "
+            "be the origin a browser reaches this deployment on, e.g. "
+            "'https://terminals.example.org'"
+        )
+    origin = value.strip()
+    if not origin:
+        return ""
+    if not _EXTERNAL_ORIGIN_RE.fullmatch(origin):
+        raise ValueError(
+            f"modules.web_terminals.external_origin {origin!r} is not an origin. It must "
+            "be scheme://host[:port] with nothing after the host — no path, no trailing "
+            "slash, no query (e.g. 'https://terminals.example.org', "
+            "'http://terminals.example.org:8443'). Each terminal compares it against the "
+            "browser's Origin header as a whole string, so anything else renders a "
+            "deployment whose pages load and whose every write is refused"
+        )
+    return origin
+
+
 def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool) -> str:
     """Build the one origin every absolute URL this deployment emits is derived from.
 
-    Two consumers need an absolute URL that a browser will actually resolve: the
-    landing link baked into each container (:func:`_landing_url`) and the auth
-    sidecar's OIDC ``redirect_uri``. Those two must agree exactly — an IdP
-    rejects a ``redirect_uri`` that isn't character-for-character the registered
-    one, and a landing link on a different origin would drop the session cookie
-    — so both come from here rather than being assembled twice.
+    Three consumers need an absolute URL that a browser will actually resolve:
+    the landing link baked into each container (:func:`_landing_url`), the auth
+    sidecar's OIDC ``redirect_uri``, and the ``OSPREY_TERMINAL_EXTERNAL_ORIGIN``
+    each per-user app checks a mutating request's ``Origin`` against. All three
+    must agree exactly — an IdP rejects a ``redirect_uri`` that isn't
+    character-for-character the registered one, a landing link on a different
+    origin would drop the session cookie, and an ``Origin`` that does not match
+    is refused — so they come from here rather than being assembled three times.
 
-    Scheme and port follow ``tls.enabled``: with TLS on, the 443 server is the
-    sole content server (the plain listener only redirects to it), and 443 is
-    left implicit, which is both the canonical origin serialization and the form
-    an IdP client registration is normally written in. With TLS off the origin
-    is plain HTTP on the published ``nginx_port``.
+    ``modules.web_terminals.external_origin`` WINS when set, and is returned
+    verbatim. It exists because the derivation below describes only the topology
+    where a browser talks to THIS nginx directly. A facility load balancer or
+    ingress proxy terminating TLS in front of it (the shape
+    ``auth.allow_insecure_http`` is documented for) is a supported deployment in
+    which the browser's origin is the front terminator's — a different host, and
+    usually a different scheme — and nothing derivable from this config can name
+    it. Without the override every write from such a deployment is refused while
+    the pages themselves load, which reads as a broken app rather than as a
+    configuration gap.
 
-    The host comes from ``deploy.fqdn``: the schema documents that field as
-    reachable from developers' laptops (used in client-mode profiles), whereas
-    ``deploy.host`` is only guaranteed SSH-resolvable (may be a bare
+    Otherwise the origin is derived. Scheme and port follow ``tls.enabled``:
+    with TLS on, the 443 server is the sole content server (the plain listener
+    only redirects to it), and 443 is left implicit, which is both the canonical
+    origin serialization and the form an IdP client registration is normally
+    written in. With TLS off the origin is plain HTTP on the published
+    ``nginx_port``. A default port left explicit here is not a mismatch: both
+    ends of the ``Origin`` check normalize it away
+    (:func:`osprey.interfaces.common_middleware._normalize_origin`).
+
+    The derived host comes from ``deploy.fqdn``: the schema documents that field
+    as reachable from developers' laptops (used in client-mode profiles),
+    whereas ``deploy.host`` is only guaranteed SSH-resolvable (may be a bare
     `~/.ssh/config` alias, not a browser-reachable hostname).
 
     Args:
-        root: The parsed facility config (only ``deploy.fqdn`` is read).
-        nginx_port: The published plain-HTTP port, used only when TLS is off.
+        root: The parsed facility config (``modules.web_terminals.external_origin``
+            and ``deploy.fqdn`` are read).
+        nginx_port: The published plain-HTTP port, used only when TLS is off and
+            no origin is configured.
         tls_enabled: The parsed ``tls.enabled`` (see :func:`_auth_tls_context`).
 
     Raises:
-        ValueError: If ``deploy.fqdn`` is missing or blank.
+        ValueError: If ``modules.web_terminals.external_origin`` is set to
+            something that is not an origin (see
+            :func:`_configured_external_origin`), or if it is unset and
+            ``deploy.fqdn`` is missing or blank.
     """
+    configured = _configured_external_origin(root)
+    if configured:
+        return configured
     deploy = as_dict(root.get("deploy"))
     host = str(deploy.get("fqdn") or "").strip()
     if not host:
         raise ValueError(
             "deploy.fqdn is required to render modules.web_terminals landing_url "
             "(OSPREY_TERMINAL_LANDING_URL) when at least one user is configured "
-            "or authentication is enabled"
+            "or authentication is enabled. Set it, or — when a load balancer in "
+            "front of this nginx is what browsers actually reach — set "
+            "modules.web_terminals.external_origin to that address"
         )
     return f"https://{host}" if tls_enabled else f"http://{host}:{nginx_port}"
+
+
+def deployment_external_origin(config: Any) -> str:
+    """The origin a browser reaches this deployment's web terminals on.
+
+    :func:`_external_origin` as a question a caller holding nothing but the
+    rendered config can ask. Everything an operator is handed to open — the
+    landing link, the auth sidecar's OIDC ``redirect_uri``, and the per-user
+    login URL :func:`terminal_login_url` builds — comes from this one
+    derivation, so a link printed by one verb cannot land on a different origin
+    than the one the containers check a mutating request's ``Origin`` against.
+
+    Args:
+        config: The rendered deployment config (``build/config.yml`` as loaded).
+
+    Returns:
+        ``modules.web_terminals.external_origin`` verbatim when it is set;
+        otherwise ``https://<fqdn>`` with TLS on and
+        ``http://<fqdn>:<nginx_port>`` without.
+
+    Raises:
+        ValueError: If ``modules.web_terminals.nginx_port`` is missing or is not
+            an int; if ``modules.web_terminals.external_origin`` is set to
+            something that is not an origin; or if it is unset and
+            ``deploy.fqdn`` is missing or blank — the values an origin cannot be
+            assembled without.
+    """
+    root = as_dict(config)
+    web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
+    nginx_port = web_terminals.get("nginx_port")
+    if not isinstance(nginx_port, int):
+        raise ValueError("modules.web_terminals.nginx_port is required and must be an int")
+    tls_enabled = bool(_auth_tls_context(web_terminals)["tls_enabled"])
+    return _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+
+
+def terminal_login_url(config: Any, username: str, secret: str) -> str:
+    """One user's ``?token=`` login URL — the way in when nginx authenticates nobody.
+
+    With ``auth.method: none`` (the default) nginx injects no operator secret and
+    runs no login flow, so the per-user app's own gate is the only one standing:
+    a browser arrives with no cookie, and the single way to get one is a GET to
+    that user's terminal carrying the operator secret as ``?token=``. The app
+    exchanges it for the session cookie and redirects to the token-stripped URL.
+    Nothing else in a multi-user deployment hands that URL out, which is why this
+    exists as a verb (``osprey users login-url``) rather than as a line printed
+    once during a deploy that may have scrolled away.
+
+    The secret is percent-encoded into the query. It is generated by
+    ``token_urlsafe`` and so needs no escaping today; encoding it anyway means an
+    operator who pinned a secret of their own by hand in the deploy ``.env`` gets
+    a URL that still means what it says.
+
+    Args:
+        config: The rendered deployment config, for the origin
+            (:func:`deployment_external_origin`).
+        username: The roster user this URL is for. Rendered into the path as the
+            nginx location key, exactly as the perimeter spells it.
+        secret: That user's operator secret, read from the deploy ``.env``. Never
+            logged by anything here — the caller owns where the URL goes.
+
+    Returns:
+        ``<origin>/u/<user>/?token=<secret>``.
+
+    Raises:
+        ValueError: Whatever :func:`deployment_external_origin` raises.
+    """
+    origin = deployment_external_origin(config)
+    return f"{origin}/u/{username}/?token={quote(secret, safe='')}"
 
 
 def _landing_url(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool = False) -> str:
@@ -1148,3 +1747,112 @@ def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:
             "`url` entries are a separate, already-supported path and are "
             "unaffected by this restriction)."
         )
+
+
+#: Landing footer used when ``landing.footer`` is unset. A deployment that wants
+#: no footer at all sets it to an empty string — absence means "we did not say",
+#: which is different from "we said none".
+_DEFAULT_LANDING_FOOTER = (
+    "OSPREY multi-user web terminal stack. Experimental system. Proceed with caution."
+)
+
+#: Package-relative notice rendered when ``landing.notices`` is absent entirely.
+#: Shipped inside the wheel so a config that says nothing about notices still
+#: carries the safety copy; ``notices: []`` is how a deployment asks for none.
+_PACKAGED_NOTICE = "notices/working-safely.md"
+
+#: Markdown extensions enabled for notice documents. Deliberately empty: notices
+#: are prose with headings, lists and emphasis, and every extension is another
+#: syntax a facility author has to know about before their file renders the way
+#: they meant it to.
+_NOTICE_MD_EXTENSIONS: list[str] = []
+
+
+def _notice_slug(stem: str) -> str:
+    """Element id for a notice, derived from its filename stem.
+
+    Gives each section a stable deep-link (``…/#local-procedures``) so an
+    operator can be pointed at one notice rather than at the page.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
+    return slug or "notice"
+
+
+def _split_notice(text: str, fallback_title: str) -> tuple[str, str]:
+    """Split a notice document into its ``<summary>`` label and its body.
+
+    The document's leading ``# H1`` is the label, so adding a notice needs no
+    config beyond the path — the file names itself. A document with no H1 keeps
+    all of its text as body and falls back to the filename-derived title, which
+    is wrong-looking enough to be noticed without dropping content.
+    """
+    lines = text.lstrip("\n").splitlines()
+    if lines and lines[0].startswith("# "):
+        return lines[0][2:].strip(), "\n".join(lines[1:])
+    return fallback_title, text
+
+
+def _render_notice(text: str, *, stem: str) -> dict[str, str]:
+    """Convert one notice document to the template's notice shape."""
+    import markdown as md
+
+    title, body = _split_notice(text, stem.replace("-", " ").replace("_", " ").strip())
+    return {
+        "id": _notice_slug(stem),
+        "title": title,
+        # HTML by construction, so landing.html.j2 emits it with `|safe`. The
+        # author of a notice already controls config.yml, so this is not a trust
+        # boundary being crossed — but it IS the one value on the page that is
+        # not escaped, which is why notices are files a deployment opts into
+        # rather than strings anything else can reach.
+        "body_html": md.markdown(body, extensions=_NOTICE_MD_EXTENSIONS),
+    }
+
+
+def _packaged_notice() -> dict[str, str]:
+    """The shipped default notice, read from package data."""
+    notice_path = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH, _PACKAGED_NOTICE)
+    return _render_notice(
+        notice_path.read_text(encoding="utf-8"),
+        stem=PurePosixPath(_PACKAGED_NOTICE).stem,
+    )
+
+
+def _build_notices(landing_cfg: dict[str, Any], root: dict[str, Any]) -> list[dict[str, str]]:
+    """Build the landing page's collapsible notice sections.
+
+    Three cases, deliberately distinct:
+
+    * ``notices`` absent — render the packaged default, so a config that says
+      nothing still ships the safety copy.
+    * ``notices: []`` — render none. The deployment said so explicitly.
+    * ``notices: [path, ...]`` — render those, in order. A listed path that does
+      not exist is SKIPPED and reported by :mod:`.lint`, never silently replaced
+      with the packaged default: substituting OSPREY's safety text for a
+      facility's missing ``local-procedures.md`` would be worse than a gap.
+    """
+    if "notices" not in landing_cfg:
+        return [_packaged_notice()]
+
+    raw = landing_cfg.get("notices")
+    if not isinstance(raw, list):
+        return []
+
+    repo_root = resolve_repo_root(root)
+    notices: list[dict[str, str]] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        doc = repo_root / entry
+        if not doc.is_file():
+            continue
+        notices.append(_render_notice(doc.read_text(encoding="utf-8"), stem=doc.stem))
+    return notices
+
+
+def _landing_footer(landing_cfg: dict[str, Any]) -> str:
+    """The landing footer line. Absent means the shipped default; empty means none."""
+    footer = landing_cfg.get("footer")
+    if footer is None:
+        return _DEFAULT_LANDING_FOOTER
+    return str(footer)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,9 +28,25 @@ logger = get_logger("ariel")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+#: The panel starts on every one of these; they only describe how much of it
+#: works. ``ok`` — the config parsed clean; ``configuration_warning`` — the
+#: config parsed and the service can run, but a key is wrong;
+#: ``configuration_invalid`` — the config did not parse, or the facility
+#: vocabulary it asked for could not be loaded, so search is dead.
+CONFIG_STATUS_OK = "ok"
+CONFIG_STATUS_WARNING = "configuration_warning"
+CONFIG_STATUS_INVALID = "configuration_invalid"
 
-def load_ariel_config(config_path: str | Path | None = None) -> dict[str, Any]:
-    """Load ARIEL configuration from config.yml.
+#: Remedies are derived from the error class, never written per call site, so
+#: the banner, ``/api/capabilities`` and the UI name the same operator action.
+REMEDY_NO_CONFIG_FILE = "mount config.yml at /app/config.yml or set CONFIG_FILE, then restart"
+REMEDY_NAMED_KEY = "fix the named key in config.yml and restart"
+
+
+def load_ariel_config_with_path(
+    config_path: str | Path | None = None,
+) -> tuple[dict[str, Any], Path]:
+    """Load ARIEL configuration from config.yml, reporting the file it came from.
 
     Looks for config in:
     1. Provided config_path argument
@@ -40,11 +57,16 @@ def load_ariel_config(config_path: str | Path | None = None) -> dict[str, Any]:
     Environment variable overrides:
     - ARIEL_DATABASE_HOST: Override database host (for Docker networking)
 
+    The path matters as much as the dictionary: a relative
+    ``ariel.vocabulary.path`` resolves against the directory of the file that
+    was actually read, and the settings editor writes back to it.
+
     Args:
         config_path: Optional explicit path to config file.
 
     Returns:
-        ARIEL configuration dictionary.
+        Tuple of the ARIEL configuration dictionary and the resolved path of
+        the config.yml it was read from.
 
     Raises:
         RuntimeError: If no config file is found.
@@ -97,11 +119,177 @@ def load_ariel_config(config_path: str | Path | None = None) -> dict[str, Any]:
                         logger.info(f"Overriding database host with {db_host_override}")
                         ariel_config["database"]["uri"] = new_uri
 
-            return ariel_config
+            return ariel_config, path
 
     raise RuntimeError(
         "No config.yml found. Set CONFIG_FILE environment variable "
         "or mount config.yml at /app/config.yml"
+    )
+
+
+def load_ariel_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """Load ARIEL configuration from config.yml.
+
+    Thin delegation to :func:`load_ariel_config_with_path` for callers that do
+    not need the file the configuration came from.
+
+    Args:
+        config_path: Optional explicit path to config file.
+
+    Returns:
+        ARIEL configuration dictionary.
+
+    Raises:
+        RuntimeError: If no config file is found.
+    """
+    return load_ariel_config_with_path(config_path)[0]
+
+
+def _derive_config_status(
+    config_errors: list[str],
+    *,
+    vocabulary_errors: list[str],
+    parse_failed: bool,
+    config_found: bool,
+) -> tuple[str, str | None]:
+    """Classify configuration errors and derive the matching operator remedy.
+
+    Two classes, because they degrade different things: a config that did not
+    parse at all, or a facility vocabulary that could not be loaded, kills the
+    search path (``configuration_invalid``); a pre-existing ``validate()``
+    error leaves a working service and only warns (``configuration_warning``).
+    The remedy follows from the class, so no surface writes its own.
+
+    Args:
+        config_errors: Every error to report, in the order they were collected.
+        vocabulary_errors: The vocabulary subset of ``config_errors``.
+        parse_failed: Whether loading or parsing raised.
+        config_found: Whether a config.yml was discovered at all.
+
+    Returns:
+        Tuple of the status string and the derived remedy (None when ok).
+    """
+    if not config_errors:
+        return CONFIG_STATUS_OK, None
+    if vocabulary_errors:
+        from osprey.services.ariel_search.exceptions import VocabularyError
+
+        return CONFIG_STATUS_INVALID, VocabularyError.remedy
+    if not config_found:
+        return CONFIG_STATUS_INVALID, REMEDY_NO_CONFIG_FILE
+    if parse_failed:
+        return CONFIG_STATUS_INVALID, REMEDY_NAMED_KEY
+    return CONFIG_STATUS_WARNING, REMEDY_NAMED_KEY
+
+
+@dataclass(frozen=True)
+class _ConfigState:
+    """Everything the panel knows about its configuration before it opens a socket.
+
+    Attributes:
+        config: The parsed ``ARIELConfig``, or None when loading or parsing
+            raised. A None here is what stops the database attempt.
+        path: The config.yml actually read, or None when none was found. Routes
+            resolve config-relative paths against its directory and the settings
+            editor writes back to it.
+        errors: Every error to report, in the order they were collected.
+        status: One of the ``CONFIG_STATUS_*`` values.
+        remedy: The class-derived operator action, None when ok.
+    """
+
+    config: Any
+    path: Path | None
+    errors: list[str]
+    status: str
+    remedy: str | None
+
+
+def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
+    """Load, parse, validate and classify the configuration.
+
+    Kept out of the lifespan and out of the database attempt on purpose: a
+    broken config.yml must not be reported as an unreachable database, and it
+    must not stop the panel from starting — the settings editor is how the
+    operator repairs it. Nothing here raises; every failure becomes an entry in
+    ``errors`` and a status a surface can render.
+
+    Args:
+        config_path: Explicit config file to read, or None for the search order
+            :func:`load_ariel_config_with_path` implements.
+
+    Returns:
+        The classified state, ready to publish on ``app.state``.
+    """
+    ariel_config: Any = None
+    resolved_path: Path | None = None
+    parse_failed = False
+    try:
+        from osprey.services.ariel_search import ARIELConfig
+
+        # load_ariel_config_with_path has already resolved the DSN (and applied
+        # the container host override to it), so the section carries an explicit
+        # `database.uri` by the time it is parsed here.
+        config_dict, resolved_path = load_ariel_config_with_path(config_path)
+        ariel_config = ARIELConfig.from_dict(config_dict, config_dir=resolved_path.parent)
+        config_errors = list(ariel_config.validate())
+    except Exception as e:
+        parse_failed = True
+        ariel_config = None
+        config_errors = [str(e)]
+
+    # A test-double config is not a list — only a real list counts as
+    # vocabulary errors, so the classification cannot misfire on one.
+    raw_vocabulary_errors = getattr(ariel_config, "vocabulary_errors", None)
+    vocabulary_errors = raw_vocabulary_errors if isinstance(raw_vocabulary_errors, list) else []
+
+    status, remedy = _derive_config_status(
+        config_errors,
+        vocabulary_errors=vocabulary_errors,
+        parse_failed=parse_failed,
+        config_found=resolved_path is not None,
+    )
+    return _ConfigState(
+        config=ariel_config,
+        path=resolved_path,
+        errors=config_errors,
+        status=status,
+        remedy=remedy,
+    )
+
+
+def _config_banner(status: str, config_errors: list[str], remedy: str | None) -> str:
+    """Render the configuration banner logged at startup.
+
+    Deliberately distinct from the database banner: an operator reading the log
+    must be able to tell a broken config.yml from an unreachable database.
+
+    Args:
+        status: One of the ``CONFIG_STATUS_*`` values.
+        config_errors: The errors to list.
+        remedy: The derived operator action.
+
+    Returns:
+        The multi-line banner text.
+    """
+    if status == CONFIG_STATUS_INVALID:
+        headline = "CONFIGURATION INVALID"
+        impact = (
+            "  STILL WORKING: Web UI, drafts, config/settings endpoints\n  NOT WORKING:   Search\n"
+        )
+    else:
+        headline = "CONFIGURATION WARNING"
+        impact = "  The panel is running; the named key is not doing what it says.\n"
+    listed = "\n".join(f"    {error}" for error in config_errors)
+    return (
+        "\n"
+        "============================================================\n"
+        f"  ARIEL: {headline} — {len(config_errors)} errors\n"
+        "============================================================\n"
+        f"{listed}\n"
+        "\n"
+        f"{impact}"
+        f"\n  Remedy: {remedy}\n"
+        "============================================================"
     )
 
 
@@ -136,45 +324,56 @@ def _create_lifespan(config_path: str | Path | None = None):
         except Exception as e:
             logger.warning(f"Registry initialization failed (non-fatal): {e}")
 
+        # Resolved before any database work, and never raising, so a broken
+        # config.yml cannot be reported as an unreachable database.
+        state = _resolve_config_state(config_path)
+        ariel_config = state.config
+
+        # Set on BOTH paths, so every route can read them with getattr.
+        app.state.config_path = state.path
+        app.state.ariel_config = state.config
+        app.state.config_errors = state.errors
+        app.state.config_status = state.status
+        app.state.config_remedy = state.remedy
+
+        if state.errors:
+            logger.warning(_config_banner(state.status, state.errors, state.remedy))
+
         # Try to connect to the database; degrade gracefully if unavailable.
+        # This runs whenever a config object exists, INDEPENDENT of
+        # config_errors: a vocabulary error degrades only the search path,
+        # while browse, entries, status and publishing keep working.
         service = None
-        try:
-            from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+        if ariel_config is None:
+            logger.info("Skipping database connection: no usable configuration")
+        else:
+            try:
+                from osprey.services.ariel_search import create_ariel_service
 
-            # load_ariel_config has already resolved the DSN (and applied the
-            # container host override to it), so the section carries an
-            # explicit `database.uri` by the time it is parsed here.
-            config_dict = load_ariel_config(config_path)
-            config = ARIELConfig.from_dict(config_dict)
+                service = await create_ariel_service(ariel_config)
 
-            errors = config.validate()
-            if errors:
-                raise RuntimeError(f"Configuration errors: {errors}")
-
-            service = await create_ariel_service(config)
-
-            healthy, message = await service.health_check()
-            if healthy:
-                logger.info(f"ARIEL service ready: {message}")
-            else:
-                logger.warning(f"ARIEL service degraded: {message}")
-        except Exception as e:
-            logger.warning(
-                "\n"
-                "============================================================\n"
-                "  ARIEL: DATABASE NOT AVAILABLE — DEGRADED MODE\n"
-                "============================================================\n"
-                "  The database connection failed. ARIEL is running without\n"
-                "  search, browse, or entry persistence.\n"
-                "\n"
-                "  STILL WORKING: Web UI, drafts, config/settings endpoints\n"
-                "  NOT WORKING:   Search, browse, entry creation, status\n"
-                "\n"
-                "  To restore full functionality, start PostgreSQL and\n"
-                "  restart the server.\n"
-                f"\n  Error: {e}\n"
-                "============================================================"
-            )
+                healthy, message = await service.health_check()
+                if healthy:
+                    logger.info(f"ARIEL service ready: {message}")
+                else:
+                    logger.warning(f"ARIEL service degraded: {message}")
+            except Exception as e:
+                logger.warning(
+                    "\n"
+                    "============================================================\n"
+                    "  ARIEL: DATABASE NOT AVAILABLE — DEGRADED MODE\n"
+                    "============================================================\n"
+                    "  The database connection failed. ARIEL is running without\n"
+                    "  search, browse, or entry persistence.\n"
+                    "\n"
+                    "  STILL WORKING: Web UI, drafts, config/settings endpoints\n"
+                    "  NOT WORKING:   Search, browse, entry creation, status\n"
+                    "\n"
+                    "  To restore full functionality, start PostgreSQL and\n"
+                    "  restart the server.\n"
+                    f"\n  Error: {e}\n"
+                    "============================================================"
+                )
 
         app.state.ariel_service = service
 
@@ -221,13 +420,19 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     @app.get("/health")
     async def health():
         """Simple health check endpoint."""
+        config_status = getattr(app.state, "config_status", None)
         service = getattr(app.state, "ariel_service", None)
         if service is not None:
             healthy, message = await service.health_check()
-            return {"status": "healthy" if healthy else "degraded", "message": message}
+            return {
+                "status": "healthy" if healthy else "degraded",
+                "message": message,
+                "config_status": config_status,
+            }
         return {
             "status": "degraded",
             "message": "Database unavailable — drafts, UI, and settings work",
+            "config_status": config_status,
         }
 
     configure_interface_app(app, static_dir=STATIC_DIR)
@@ -243,7 +448,16 @@ def run_web(
 ) -> None:
     """Run the ARIEL web interface.
 
-    CLI entry point for launching the web server.
+    CLI entry point for launching the web server — the launcher parent for both
+    shapes. It mints this deployment's operator secret and prints the one-time
+    ``?token=`` login URL (the operator's only way past the auth middleware)
+    before serving. Under ``--reload`` the mint MUST precede the worker spawn:
+    the ChangeReload worker uvicorn starts re-imports the factory in a fresh
+    process and inherits the secret through ``os.environ[OSPREY_TERMINAL_SECRET]``
+    that ``mint_and_announce`` sets, popping it at its own ``create_app``. The
+    print is suppressed when the secret was already supplied upstream (an
+    ancestor launcher or a multi-user deployment), so a supplied secret is
+    never re-echoed.
 
     Args:
         host: Host to bind to.
@@ -253,8 +467,27 @@ def run_web(
     """
     import uvicorn
 
+    from osprey.interfaces.common_middleware import WEB_PORT_ENV
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
+
+    # Publish the settled port before the app is constructed — and before the
+    # --reload worker is spawned, which inherits it. Cookies ignore ports, so
+    # two OSPREY servers on this host share an origin as far as the browser is
+    # concerned; the port is what keeps their session cookies from overwriting
+    # each other, and ``session_cookie_name()`` reads it from here.
+    os.environ[WEB_PORT_ENV] = str(port)
+
+    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
+    login_url = mint_and_announce(host, port)
+    if announce:
+        print(f"Open: {login_url}")
+
     if reload:
-        # Reload mode requires a string import path (uvicorn re-imports on change)
+        # Reload mode requires a string import path (uvicorn re-imports on
+        # change). The mint above ran in THIS parent, before the spawn, so the
+        # fresh worker inherits and pops OSPREY_TERMINAL_SECRET — minting in the
+        # factory instead would hand each reload a different secret and
+        # invalidate the URL just announced.
         uvicorn.run(
             "osprey.interfaces.ariel.app:create_app",
             factory=True,

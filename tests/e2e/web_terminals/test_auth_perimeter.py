@@ -331,6 +331,14 @@ def _override_text() -> str:
     ``deployed_services: []`` drops everything the preset would otherwise
     deploy: this lane deploys the web tier and nothing else, and a backend
     service would only add containers and bound ports to a proof about nginx.
+
+    Telemetry goes off with them, and for the same reason. The preset ships it
+    enabled against ``backend: openobserve`` with no explicit ``endpoint``, which
+    derives the store's address from THIS deploy — so dropping the store while
+    leaving the block on describes an exporter aimed at a port this lane binds
+    nothing to. It is also refused before it gets there: the ingest token is
+    minted by the store, and preflight will not generate ``.env.users`` for a
+    telemetry block naming a credential no deploy on this config can issue.
     """
     return yaml.safe_dump(
         {
@@ -341,6 +349,7 @@ def _override_text() -> str:
                 "facility.timezone": "UTC",
                 "deploy.fqdn": "127.0.0.1",
                 "deployed_services": [],
+                "claude_code.telemetry.enabled": False,
                 "modules.web_terminals": {
                     "enabled": True,
                     "image_source": "local",

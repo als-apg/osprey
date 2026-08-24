@@ -10,7 +10,9 @@ from __future__ import annotations
 import fcntl
 import os
 import tempfile
-from collections.abc import Mapping
+import threading
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -173,6 +175,59 @@ ENV_MERGED_BANNER = (
     f"# Merged from {' + '.join(ENV_CHAIN_FILENAMES)} (later file wins); edit those instead.\n"
 )
 
+# ---------------------------------------------------------------------------
+# Readme headers, one per generated env file. THE registry: every env file
+# OSPREY creates is stamped with its header at creation (and only then — the
+# writers are append-only, so an existing file's opening lines are the
+# operator's). Defined together so whoever opens any of these files gets the
+# same story about how they relate, and so a new env file cannot ship without
+# saying who reads it.
+# ---------------------------------------------------------------------------
+
+#: Header stamped when :func:`append_profile_env` CREATES the repo ``.env``.
+#: Existing files are never rewritten (the write is deliberately append-only),
+#: so a hand-authored ``.env`` keeps its own opening lines.
+ENV_LOCAL_BANNER = (
+    "# OSPREY deployment secrets (.env) — host-local, gitignored, mode 0600.\n"
+    "# Read by compose on every lifecycle verb (--env-file, after .env.shared,\n"
+    "# so on a key both files set this file wins) and appended to by `osprey up`\n"
+    "# when it mints a secret. Belongs here: provider API keys, service\n"
+    "# passwords/tokens, plaintext OSPREY_AUTH_PW_<USER> convenience passwords\n"
+    "# (hashed into .env.auth, never shipped), and per-host overrides of the\n"
+    "# committed defaults. Related files: .env.shared holds the committed,\n"
+    "# non-secret defaults; build/.env.merged is the generated single-file\n"
+    "# collapse handed to podman-compose; .env.example documents the variables.\n"
+)
+
+#: Header stamped at the top of every rendered ``.env.users`` — the deploy
+#: generator and ``osprey users env`` share one render helper carrying it
+#: (``osprey.deployment.web_terminals.env_production.render_env_users``).
+ENV_USERS_BANNER = (
+    "# OSPREY web-terminal runtime env (.env.users) — gitignored, mode 0600.\n"
+    "# Handed whole to every per-user web-terminal container via the\n"
+    "# `env_file: .env.users` entries in docker-compose.web.yml, baked in when\n"
+    "# a container is created. Belongs here: the runtime subset the terminals\n"
+    "# need — LLM provider credentials and module runtime vars — never\n"
+    "# build/CI-only variables, and never auth secrets (.env.auth is the auth\n"
+    "# sidecar's file). Derived from .env.shared + .env (later file wins) by\n"
+    "# `osprey up` or `osprey users env`; a deploy never overwrites an existing\n"
+    "# file. .env.example documents the variables themselves.\n"
+)
+
+#: Header stamped when the auth-credential writer CREATES ``.env.auth``
+#: (``osprey.deployment.web_terminals.auth_credentials._append_entries``).
+ENV_AUTH_BANNER = (
+    "# OSPREY web-terminal auth secrets (.env.auth) — gitignored, mode 0600.\n"
+    "# Read ONLY by the auth sidecar, via its `env_file: .env.auth` entry in\n"
+    "# docker-compose.web.yml — baked in at container creation, so a change\n"
+    "# takes effect at the next sidecar recreate; no per-user terminal ever\n"
+    "# receives this file. Belongs here: the OSPREY_AUTH_* variables — per-user\n"
+    "# password hashes (OSPREY_AUTH_PW_HASH_<USER>), the cookie-signing\n"
+    "# secrets, and a hand-added OIDC client secret. A plaintext\n"
+    "# OSPREY_AUTH_PW_<USER> convenience password goes in .env instead and is\n"
+    "# hashed in from there; .env.example documents the variables.\n"
+)
+
 
 @dataclass(frozen=True)
 class EnvConflict:
@@ -190,6 +245,71 @@ class ProfileEnvAppendResult:
     added: tuple[str, ...]
     unchanged: tuple[str, ...]
     conflicts: tuple[EnvConflict, ...]
+
+
+#: One ``threading.RLock`` per locked path, so two threads of one process
+#: serialize against each other as well: ``flock`` is held per open file
+#: DESCRIPTION and would let a second thread's independent ``open`` walk
+#: straight through the first's lock.
+_ENV_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_ENV_LOCK_REGISTRY_GUARD = threading.Lock()
+#: Paths this THREAD already holds the flock for, so a nested acquisition
+#: yields instead of blocking on itself (see :func:`env_file_lock`).
+_env_lock_state = threading.local()
+
+
+@contextmanager
+def env_file_lock(env_path: Path) -> Iterator[None]:
+    """Hold the exclusive lock guarding one ``.env``'s read-modify-write.
+
+    THE serialization point for these files, and the reason there is a public
+    one: every writer here rewrites the whole file through
+    :func:`atomic_write`, so a writer that reads, filters and replaces without
+    the lock silently DISCARDS anything a concurrent writer committed in
+    between. Several processes append to the same repo ``.env`` as a matter of
+    course -- ``osprey up`` persisting a minted service token, ``osprey build``
+    writing its derived keys, profile seeding -- so this is a routine race, not
+    a theoretical one.
+
+    The lock lives in a sibling ``<name>.lock`` rather than on the ``.env``
+    itself precisely because :func:`atomic_write`'s ``os.replace`` swaps the
+    inode out from under any lock held on the file. The lock file is created if
+    absent and is never removed: unlinking it would let two processes hold locks
+    on two different inodes and believe they were serialized.
+
+    **Re-entrant within one thread.** A caller that needs several operations to
+    be one critical section -- dropping a stale assignment and appending its
+    replacement, say -- wraps them in this and may still call
+    :func:`append_profile_env`, which takes the lock again and finds it already
+    held. Without that, the inner acquisition would open a SECOND file
+    description and ``flock`` would deadlock the process against itself.
+
+    :param env_path: The ``.env`` being guarded. Its parent directory must
+        exist and be writable, since the lock file is created beside it.
+    :raises OSError: If the lock file cannot be created or opened.
+    """
+    key = str(Path(env_path).resolve())
+    with _ENV_LOCK_REGISTRY_GUARD:
+        thread_lock = _ENV_THREAD_LOCKS.setdefault(key, threading.RLock())
+
+    held: set[str] = getattr(_env_lock_state, "held", None) or set()
+    _env_lock_state.held = held
+
+    with thread_lock:
+        if key in held:
+            # Already inside an outer `env_file_lock` on this path, in this
+            # thread. Re-locking would block forever on our own flock.
+            yield
+            return
+        lock_path = Path(key).with_name(Path(key).name + ".lock")
+        with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            held.add(key)
+            try:
+                yield
+            finally:
+                held.discard(key)
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def append_profile_env(
@@ -218,18 +338,16 @@ def append_profile_env(
 
     New keys go at the end of the file, under ``section_banner`` -- emitted
     only when that banner is not already present, so repeated appends grow one
-    section instead of stacking headers. The file is created with mode
+    section instead of stacking headers. A file created here (or one found
+    empty) is stamped with :data:`ENV_LOCAL_BANNER` first — creation is the
+    only moment the readme header can be added, since an existing file's
+    opening lines are the operator's. The file is created with mode
     ``0600`` when absent, and rewrites tighten an existing file to the same.
     The parent directory is *not* created: a missing profile directory raises,
     which is the signal the caller's degraded path is looking for.
     """
-    lock_path = profile_env_path.with_name(profile_env_path.name + ".lock")
-    with open(lock_path, "a+", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        try:
-            return _append_profile_env_locked(profile_env_path, entries, section_banner)
-        finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    with env_file_lock(profile_env_path):
+        return _append_profile_env_locked(profile_env_path, entries, section_banner)
 
 
 def _append_profile_env_locked(
@@ -259,6 +377,11 @@ def _append_profile_env_locked(
 
     if new_lines:
         lines = existing_text.splitlines()
+        if not lines:
+            # Born carrying the readme header: this write is creating the file
+            # (or filling an empty one), and the append-only contract means no
+            # later write may touch the top of it.
+            lines = ENV_LOCAL_BANNER.splitlines()
         if section_banner and section_banner not in lines:
             if lines:
                 lines.append("")

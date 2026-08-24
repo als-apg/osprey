@@ -4,7 +4,9 @@
 UNSET — the shape a deployment that never heard of them gets. This suite pins
 the shapes that appear once they are set: the dispatch pair on the host
 namespace, the chat bridges beside it, a repo carrying a shared env-chain file,
-and a two-worker stack fanning out across host ports.
+a two-worker stack fanning out across host ports, two services passing named
+host variables through to their containers, and every OSPREY-built image moved
+onto a registry and a released tag.
 
 Each scenario is a small, named delta over that same default context, rendered
 through the same context builder and the same Environment (both imported from
@@ -13,7 +15,14 @@ where the scenario differs). A scenario pins only the templates its delta
 reaches: four templates honor the network axis
 (``event_dispatcher``, ``dispatch_worker``, and the two bridges) and one renders
 the env chain, so rendering the other eight per scenario would commit eight
-copies of a file the defaults already pin.
+copies of a file the defaults already pin. The ``env:`` axis is honored by every
+service template but declared per service, so its scenarios pin exactly the
+templates that declare it: two single-container ones, plus ``bluesky`` on its
+own, because that file renders FOUR containers from one service block and the
+shape worth pinning there is that all four carry the names. The image axes are
+the exception — they are declared once for
+the whole stack, so that scenario reaches every template carrying an image this
+repo builds and pins all nine.
 
 **What these catch that the substring suites cannot.** ``network: host`` is not
 one edit to one line — it moves a service's network attachment, deletes its
@@ -66,6 +75,7 @@ from test_render_defaults_golden import (
 )
 from test_render_defaults_golden import (
     _PROJECT_NAME,
+    TEMPLATES,
     _pinned_context,
     _render_templates,
     _service_keys,
@@ -76,6 +86,50 @@ _GOLDEN_DIR = Path(__file__).parent / "render_axis_shapes"
 #: The chain file a repo carries when nothing shared it — the default probe
 #: shape, and the one every scenario but ``env-shared-chain`` renders against.
 _LOCAL_ENV_CHAIN = ("./.env",)
+
+#: The image axes the ``images-on-a-registry`` scenario declares. A registry
+#: with a project path under it and a tag that is obviously not ``local``, so a
+#: golden that quietly fell back to the unset shape reads as wrong at a glance.
+_AXIS_REGISTRY = "registry.example.org/physics/osprey"
+_AXIS_TAG = "v1.2.3"
+
+#: The host variables the ``service-env-passthrough`` scenario declares. Proxy
+#: settings are the case the axis exists for: non-secret, set on the host by
+#: whoever runs the machine, and meaningless for OSPREY to guess a value for.
+#: Three of them on one service so author order is observable in the golden,
+#: one on another so the single-name shape is pinned too.
+_ENV_PASSTHROUGH = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
+
+@contextmanager
+def _axes_unset() -> Iterator[None]:
+    """Render from the scenario's config alone, never from the ambient shell.
+
+    The image axes resolve ``OSPREY_IMAGE_REGISTRY`` / ``OSPREY_IMAGE_TAG``
+    ahead of the config keys, deliberately — that is how one shell overrides a
+    committed pin. It also means a developer who exported either variable would
+    render different bytes than CI does, and a byte-exact suite that the
+    ambient environment can move is pinning the machine, not the templates.
+
+    Wrapped around the regeneration entry point as well as the suite, because
+    the two must produce the same bytes and only one of them runs under pytest.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.delenv("OSPREY_IMAGE_REGISTRY", raising=False)
+        patch.delenv("OSPREY_IMAGE_TAG", raising=False)
+        yield
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _neutral_axis_environment() -> Iterator[None]:
+    """Hold :func:`_axes_unset` open for the whole module.
+
+    Module-scoped so it is in place before ``rendered`` builds its renders — a
+    function-scoped fixture would be set up after the module-scoped one it is
+    meant to protect.
+    """
+    with _axes_unset():
+        yield
 
 
 def _dispatch_defaults():
@@ -146,6 +200,11 @@ class Scenario:
     expected_chain: tuple[str, ...] = field(default=_LOCAL_ENV_CHAIN)
     """The ``env_file:`` entries the render must list for :attr:`chain`."""
 
+    overrides: dict = field(default_factory=dict)
+    """Top-level config keys overlaid on the default context, for axes that
+    live outside ``services.<key>`` — the image axes are declared for the whole
+    stack, not per service."""
+
 
 SCENARIOS: tuple[Scenario, ...] = (
     # The pair itself on the host namespace, with both stores deployed so the
@@ -196,6 +255,72 @@ SCENARIOS: tuple[Scenario, ...] = (
         deployed=("event_dispatcher", "dispatch_worker"),
         templates=("dispatch_worker",),
     ),
+    # Two services handed named host variables. The two are pinned together
+    # because their `environment:` blocks end differently — one on the shared
+    # `TZ:` line, one on a service-specific variable — and the macro appends to
+    # both, so a whitespace contract that only worked for the common shape would
+    # show here as a swallowed or duplicated line. Nothing else is declared:
+    # `deployed_services` stays empty, exactly as the default context leaves it,
+    # so the ONLY thing separating these goldens from the default ones is the
+    # passthrough itself.
+    Scenario(
+        name="service-env-passthrough",
+        services={
+            "virtual_accelerator": {"env": list(_ENV_PASSTHROUGH)},
+            "bluesky_web": {"env": [_ENV_PASSTHROUGH[1]]},
+        },
+        deployed=(),
+        templates=("virtual_accelerator", "bluesky_web"),
+    ),
+    # The same axis on the one template that renders MORE THAN ONE container
+    # from a single service block: the bridge, the queueserver that executes
+    # plans, Redis, and Tiled. `services.bluesky.env` is one declaration and the
+    # profile has no per-container spelling to narrow it with, so a name that
+    # reached some containers and not others would be silently partial — the
+    # shape this scenario exists to hold still. `tiled_enabled` is on so the
+    # optional fourth container is IN the render; it is the only container here
+    # whose presence the config decides.
+    Scenario(
+        name="service-env-multi-container",
+        services={"bluesky": {"env": list(_ENV_PASSTHROUGH), "tiled_enabled": True}},
+        deployed=("bluesky",),
+        templates=("bluesky",),
+    ),
+    # Every OSPREY-built image moved onto a registry and a released tag — the
+    # shape a deployment gets once CI's images and the compose documents are
+    # the same images. All eight are pinned in one scenario because the axes are
+    # stack-wide: a template left behind renders a tag nothing pushed, and the
+    # deploy fails on that one service alone. ``bluesky`` earns its place twice
+    # over — it is the only file where an axis-derived default and two
+    # third-party pins sit side by side.
+    Scenario(
+        name="images-on-a-registry",
+        services=_pair_blocks(on_host=False),
+        deployed=(
+            "event_dispatcher",
+            "dispatch_worker",
+            "qmd",
+            "virtual_accelerator",
+            "archiver_recorder",
+            "bluesky",
+            "bluesky_web",
+            "gchat_bridge",
+            "nextcloud_bridge",
+            "mongodb",
+        ),
+        templates=(
+            "event_dispatcher",
+            "dispatch_worker",
+            "qmd",
+            "virtual_accelerator",
+            "archiver_recorder",
+            "bluesky",
+            "bluesky_web",
+            "gchat_bridge",
+            "nextcloud_bridge",
+        ),
+        overrides={"images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG}},
+    ),
 )
 
 #: Every (scenario, service key) pair this suite pins, for parametrization.
@@ -241,6 +366,7 @@ def _scenario_context(scenario: Scenario, repo_root: Path) -> dict:
             "system": {"timezone": "UTC"},
             "deployed_services": list(scenario.deployed),
         }
+        | scenario.overrides
     )
 
 
@@ -493,6 +619,393 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
         )
 
 
+#: Every (scenario, service key, declared names) this suite pins a passthrough
+#: for. Derived from the scenarios rather than listed, so a template added to an
+#: ``env:``-declaring scenario arrives in these assertions instead of being
+#: pinned byte-for-byte and checked for nothing.
+ENV_CASES: tuple[tuple[Scenario, str, tuple[str, ...]], ...] = tuple(
+    (scenario, key, tuple(scenario.services[key]["env"]))
+    for scenario, key in CASES
+    if scenario.services.get(key, {}).get("env")
+)
+
+
+def _env_case_id(case: tuple[Scenario, str, tuple[str, ...]]) -> str:
+    scenario, key, _ = case
+    return f"{scenario.name}/{key}"
+
+
+#: Service templates that carry no ``env:`` axis at all. The dispatch pair is
+#: configured through the profile's ``dispatch:`` block, whose two
+#: ``services.<half>`` blocks are written wholesale by ``_inject_dispatch`` —
+#: there is no author-declared ``env:`` for the macro to read there, so the call
+#: is absent by intent rather than by oversight. Named here so that intent is
+#: asserted rather than assumed: a template that quietly stopped honoring the
+#: axis would otherwise just leave this set unchanged.
+_AXIS_FREE_TEMPLATES = frozenset({"event_dispatcher", "dispatch_worker"})
+
+
+@pytest.mark.parametrize("case", ENV_CASES, ids=_env_case_id)
+def test_declared_env_names_render_as_bare_interpolations(
+    case: tuple[Scenario, str, tuple[str, ...]],
+) -> None:
+    """Each declared name arrives as ``NAME: ${NAME}`` — no default, no refusal.
+
+    A ``:-`` fallback would mean the render inventing a value for a name it
+    knows nothing about, and the service would then start and look healthy while
+    running on the invention. A ``:?`` would let one unset variable abort the
+    whole compose document, taking down every other service in the deployment —
+    none of which asked for that variable. Empty-when-unset is what is left, and
+    it is also what keeps the value rotatable by editing the env chain alone.
+    """
+    scenario, key, declared = case
+    text = _golden_text(scenario, key)
+    for name in declared:
+        assert f"      {name}: ${{{name}}}\n" in text, (
+            f"{key} does not hand {name} to its container as a bare interpolation"
+        )
+
+
+@pytest.mark.parametrize("case", ENV_CASES, ids=_env_case_id)
+def test_every_container_of_a_declaring_service_carries_the_names(
+    case: tuple[Scenario, str, tuple[str, ...]],
+) -> None:
+    """EVERY container the block renders ends on the names, in author order.
+
+    Two properties in one assertion, because they are one decision.
+
+    *Order and position*: the names are the author's order because that is the
+    only order the rendered block can show, and they close the block because
+    that is where the macro is called from — the property that makes "add a
+    passthrough" a purely additive edit to a block whose existing lines a
+    reviewer can then skip past.
+
+    *Every container*: ``env:`` is declared once, on the service, and the
+    profile has no per-container spelling. So a file that renders several
+    containers from one block — ``bluesky`` renders four — must hand the names
+    to all of them or to none. Handing them to some is the failure this
+    enumerates the golden's own services to catch: an author declaring
+    ``HTTPS_PROXY`` for ``bluesky`` gets it in the bridge and, without this,
+    silently not in the queueserver that actually executes plans. Reading the
+    container list off the document rather than naming it here is what makes a
+    container ADDED to a template later fail this test instead of joining the
+    file un-covered.
+    """
+    scenario, key, declared = case
+    document = yaml.safe_load(_golden_text(scenario, key))
+
+    for name, service in document["services"].items():
+        rendered = [str(entry) for entry in service.get("environment", {})]
+        assert tuple(rendered[-len(declared) :]) == declared, (
+            f"{scenario.name}/{key}: container {name} does not close its "
+            f"environment block on the declared names in author order: {rendered}"
+        )
+
+
+def test_nothing_passes_a_variable_through_undeclared() -> None:
+    """No template hands over a name no service declared.
+
+    The macro is called from all ten service templates, and the default goldens
+    are rendered with the axis unset everywhere — so a call that read the wrong
+    service's block, or a macro that fell back to something other than nothing,
+    would show up as one of the scenarios' variables appearing in a render that
+    declared none of them.
+    """
+    declared = {name for _, _, names in ENV_CASES for name in names}
+
+    for path in sorted(_DEFAULTS_DIR.glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        for name in declared:
+            assert f"{name}: ${{{name}}}" not in text, (
+                f"{path.name} renders {name} with nothing declaring it"
+            )
+
+
+def test_every_service_template_hands_the_axis_to_every_container_it_renders() -> None:
+    """The whole bundled set, not just the templates a scenario happens to pin.
+
+    The goldens above prove the shape for the templates they name. This proves
+    the rule for all of them at once, by declaring the same names on EVERY
+    service block and rendering every bundled template: each container in each
+    render either carries the names or belongs to the dispatch pair, which
+    honors no ``env:`` axis at all.
+
+    Rendered rather than pinned deliberately — committing ten more goldens whose
+    only content is "the axis reached this file" would pin ten copies of what
+    the defaults already pin, and the property here is not what the bytes are
+    but that no container was skipped. A template that grows a second container
+    without a macro call fails here on the day it is written, which is the whole
+    reason this exists: that is exactly how ``bluesky``'s queueserver came to be
+    handed nothing while its bridge was handed everything.
+    """
+    services = {key: {"env": list(_ENV_PASSTHROUGH)} for key in _service_keys()}
+    # The one optional container in the bundled set; off by default, so without
+    # this the sweep would never look at Tiled.
+    services["bluesky"]["tiled_enabled"] = True
+
+    with _probe_repo(_LOCAL_ENV_CHAIN) as repo_root:
+        context = _pinned_context(
+            {
+                "project_name": _PROJECT_NAME,
+                "project_root": str(repo_root),
+                "services": services,
+                "deployment": {},
+                "system": {"timezone": "UTC"},
+                "deployed_services": list(services),
+            }
+        )
+        renders = _render_templates(context, TEMPLATES)
+
+    for filename, text in sorted(renders.items()):
+        key = filename.removesuffix(".yml")
+        document = yaml.safe_load(text)
+        # The bundled set includes the services-root document, which declares
+        # the shared network and no container at all — nothing there for a
+        # per-service axis to reach.
+        if "services" not in document:
+            continue
+        for name, service in document["services"].items():
+            rendered = [str(entry) for entry in service.get("environment", {})]
+            carried = tuple(rendered[-len(_ENV_PASSTHROUGH) :]) == _ENV_PASSTHROUGH
+            if key in _AXIS_FREE_TEMPLATES:
+                assert not carried, (
+                    f"{key}: {name} now honors the env axis — it is declared here as "
+                    "axis-free, so either the exclusion or this list is out of date"
+                )
+                continue
+            assert carried, (
+                f"{key}: container {name} is rendered from a service block that "
+                "declares an env passthrough and receives none of it"
+            )
+
+
+def test_image_axes_move_every_osprey_built_image() -> None:
+    """All eight OSPREY-built images land on the declared registry and tag.
+
+    Enumerated from the shipped suffix map rather than listed here, so an image
+    added to the stack arrives in this assertion instead of being quietly left
+    on ``:local`` — which is the whole failure this scenario exists to catch: a
+    deploy that pulls seven services from the registry and tries to run the
+    eighth from a tag the host never built.
+    """
+    from osprey.deployment.compose_generator import _OSPREY_IMAGE_SUFFIXES
+
+    scenario = _scenario("images-on-a-registry")
+    expected = {
+        f"${{OSPREY_{key.upper()}_IMAGE:-{_AXIS_REGISTRY}/{_PROJECT_NAME}{suffix}:{_AXIS_TAG}}}"
+        for key, suffix in _OSPREY_IMAGE_SUFFIXES.items()
+    }
+
+    rendered_images = set()
+    for key in scenario.templates:
+        document = yaml.safe_load(_golden_text(scenario, key))
+        for service in document["services"].values():
+            image = service.get("image")
+            if image and _AXIS_REGISTRY in image:
+                rendered_images.add(image)
+
+    assert rendered_images == expected, (
+        "the axis-set goldens do not carry exactly the eight built images — "
+        f"missing {sorted(expected - rendered_images)}, "
+        f"unexpected {sorted(rendered_images - expected)}"
+    )
+
+
+def test_image_axes_leave_the_third_party_pins_alone() -> None:
+    """Redis keeps its upstream coordinates on the registry shape.
+
+    A registry prefix is not a mirror. Applied to an upstream name it produces
+    a reference no registry serves, and the failure surfaces as a pull error at
+    deploy time rather than anywhere near the config that caused it. The
+    bluesky file is where the two kinds of image sit closest together — its
+    bridge is built here, its store is pulled from upstream. The set-equality
+    above is the general form of this: no image outside the eight acquired the
+    prefix anywhere in the nine templates.
+    """
+    axis = yaml.safe_load(_golden_text(_scenario("images-on-a-registry"), "bluesky"))
+    default = yaml.safe_load((_DEFAULTS_DIR / "bluesky.yml").read_text(encoding="utf-8"))
+
+    assert (
+        axis["services"]["bluesky-redis"]["image"] == default["services"]["bluesky-redis"]["image"]
+    ), "redis's upstream pin was rewritten by the image axes"
+
+
+def test_image_axes_leave_every_build_block_untouched() -> None:
+    """What a service BUILDS is unmoved by where its image is PULLED from.
+
+    The axes name a published image; they say nothing about how a host builds
+    one for itself. A build block that drifted with them would mean the same
+    ``osprey build`` produced different contexts depending on a registry
+    setting — and on the local shape, where the axes are unset, nothing would
+    ever show it.
+    """
+    scenario = _scenario("images-on-a-registry")
+    for key in scenario.templates:
+        axis = yaml.safe_load(_golden_text(scenario, key))["services"]
+        default = yaml.safe_load((_DEFAULTS_DIR / f"{key}.yml").read_text(encoding="utf-8"))[
+            "services"
+        ]
+        for name, service in axis.items():
+            if "build" not in service and name not in default:
+                continue
+            assert service.get("build") == default.get(name, {}).get("build"), (
+                f"{key}: {name}'s build block moved with the image axes"
+            )
+
+
+def test_the_required_va_image_variant_survives_the_axes() -> None:
+    """A recorder without a co-deployed VA still DEMANDS an explicit image.
+
+    That line is the one image reference the axes must not supply a default
+    for: the recorder runs the VA's image, and when the VA is not in this
+    deployment there is no local build to fall back to. Turning it into an
+    axis-derived default would replace a startup refusal naming the variable to
+    set with a pull of an image that was never pushed.
+    """
+    recorder = (_DEFAULTS_DIR / "archiver_recorder.yml").read_text(encoding="utf-8")
+
+    assert "${OSPREY_VA_IMAGE:?" in recorder, (
+        "the recorder's no-VA image is no longer the required-variable form"
+    )
+
+
+def test_the_environment_outranks_a_configured_axis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One shell can override a committed pin, on either axis independently.
+
+    The goldens above can only pin the config layer — a byte-exact baseline that
+    read the ambient environment would pin the machine it ran on. This covers
+    the layer above it, which is what an operator uses to run a stack against a
+    staging registry or a candidate tag without editing a committed file.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    config = {
+        "project_name": _PROJECT_NAME,
+        "images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG},
+    }
+    monkeypatch.setenv("OSPREY_IMAGE_TAG", "rc-9")
+
+    assert resolve_image_defaults(config)["worker"] == (f"{_AXIS_REGISTRY}/{_PROJECT_NAME}:rc-9"), (
+        "the configured tag outranked the environment"
+    )
+
+    monkeypatch.setenv("OSPREY_IMAGE_REGISTRY", "staging.example.org/")
+    assert resolve_image_defaults(config)["qmd"] == f"staging.example.org/{_PROJECT_NAME}-qmd:rc-9"
+
+
+def test_a_blank_environment_axis_cannot_clear_a_configured_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exported-but-empty variable leaves the committed pin standing.
+
+    The other half of the precedence rule, and the half that is easy to get
+    backwards: the environment replaces a configured axis, it does not clear
+    one. Blank counts as unset on both layers, so a stray ``OSPREY_IMAGE_TAG=``
+    in a wrapper script cannot silently move a registry deployment back onto the
+    ``local`` tag it has no build for.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    config = {
+        "project_name": _PROJECT_NAME,
+        "images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG},
+    }
+    monkeypatch.setenv("OSPREY_IMAGE_TAG", "")
+    monkeypatch.setenv("OSPREY_IMAGE_REGISTRY", "   ")
+
+    assert resolve_image_defaults(config)["worker"] == (
+        f"{_AXIS_REGISTRY}/{_PROJECT_NAME}:{_AXIS_TAG}"
+    ), "a blank environment axis cleared the configured one"
+
+
+@pytest.mark.parametrize(
+    ("configured_tag", "expected_tag"),
+    [
+        pytest.param(2024, "2024", id="int"),
+        pytest.param(2025.10, "2025.1", id="float"),
+    ],
+)
+def test_a_numeric_configured_tag_pins_that_tag(configured_tag: object, expected_tag: str) -> None:
+    """YAML reading a tag as a number does not silently drop the pin.
+
+    ``tag: 2024`` unquoted is an ``int`` and ``tag: 2025.10`` is a ``float``,
+    and both name a tag the operator plainly meant. Ignoring the key would
+    render the ``:local`` default, which on a host that only pulls fails as
+    "No such image" with nothing pointing back at the setting that was dropped.
+
+    The float case is pinned *as it renders*, trailing zero and all: ``2025.10``
+    is the number 2025.1, so it pins ``:2025.1``. That is the argument for
+    quoting a dotted tag, not a rounding this function may quietly correct.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    defaults = resolve_image_defaults(
+        {"project_name": _PROJECT_NAME, "images": {"tag": configured_tag}}
+    )
+
+    assert defaults["worker"] == f"{_PROJECT_NAME}:{expected_tag}"
+
+
+@pytest.mark.parametrize(
+    ("axis_key", "configured"),
+    [
+        pytest.param("tag", ["v1", "v2"], id="tag-list"),
+        pytest.param("tag", {"value": "v1"}, id="tag-mapping"),
+        pytest.param("tag", True, id="tag-bool"),
+        pytest.param("registry", ["registry.example.org"], id="registry-list"),
+    ],
+)
+def test_an_unusable_configured_axis_fails_loudly(axis_key: str, configured: object) -> None:
+    """A shape no image reference can carry is refused, naming key and type.
+
+    The refusal is the whole point: falling back to the packaged default here
+    would render ``<project>:local`` on a deployment that asked for a registry,
+    and the operator would meet that decision as a pull failure on a remote
+    host. A boolean is refused with the containers rather than coerced with the
+    numbers — YAML reads ``tag: yes`` as ``True``, which names no tag anyone
+    intended.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    with pytest.raises(ValueError) as excinfo:
+        resolve_image_defaults({"project_name": _PROJECT_NAME, "images": {axis_key: configured}})
+
+    message = str(excinfo.value)
+    assert f"images.{axis_key}" in message, "the refusal does not name the offending key"
+    assert type(configured).__name__ in message, "the refusal does not name the received type"
+
+
+def test_an_images_block_that_is_not_a_block_fails_loudly() -> None:
+    """``images:`` written as a bare value is refused rather than ignored.
+
+    The same silent drop one level up: a config that spells the registry as
+    ``images: registry.example.org`` instead of ``images.registry`` has said
+    exactly what it wants, and rendering ``:local`` past it moves the failure to
+    a pull on a host that has no local build.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    with pytest.raises(ValueError) as excinfo:
+        resolve_image_defaults({"project_name": _PROJECT_NAME, "images": "registry.example.org"})
+
+    assert "images" in str(excinfo.value)
+    assert "str" in str(excinfo.value), "the refusal does not name the received type"
+
+
+def test_an_unset_axis_renders_the_locally_built_name() -> None:
+    """With neither layer set the images are exactly what they always were.
+
+    The property every default golden in the sibling suite depends on: adding
+    the axes moved no deployment that has not asked for them.
+    """
+    from osprey.deployment.compose_generator import resolve_image_defaults
+
+    defaults = resolve_image_defaults({"project_name": _PROJECT_NAME})
+
+    assert defaults["worker"] == f"{_PROJECT_NAME}:local"
+    assert defaults["bluesky_bridge"] == f"{_PROJECT_NAME}-bluesky-bridge:local"
+
+
 def _service_env(scenario_name: str, key: str, compose_name: str) -> dict[str, str]:
     """The ``environment:`` mapping of one service in one scenario's golden.
 
@@ -509,12 +1022,13 @@ def _service_env(scenario_name: str, key: str, compose_name: str) -> dict[str, s
 
 def _regenerate() -> None:
     """Overwrite every scenario golden. See this module's update discipline."""
-    for scenario in SCENARIOS:
-        directory = _GOLDEN_DIR / scenario.name
-        directory.mkdir(parents=True, exist_ok=True)
-        for name, text in sorted(_render_scenario(scenario).items()):
-            (directory / name).write_text(text, encoding="utf-8")
-            print(f"wrote {directory / name}")
+    with _axes_unset():
+        for scenario in SCENARIOS:
+            directory = _GOLDEN_DIR / scenario.name
+            directory.mkdir(parents=True, exist_ok=True)
+            for name, text in sorted(_render_scenario(scenario).items()):
+                (directory / name).write_text(text, encoding="utf-8")
+                print(f"wrote {directory / name}")
 
 
 if __name__ == "__main__":

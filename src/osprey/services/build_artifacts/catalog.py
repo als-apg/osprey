@@ -115,6 +115,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Facility knowledge sub-agent",
         ),
         BuildArtifact(
+            canonical_name="agents/facility-knowledge-graph",
+            template_path="claude/agents/facility-knowledge-graph.md.j2",
+            output_path=".claude/agents/facility-knowledge-graph.md",
+            description="Facility knowledge graph sub-agent (structural Cypher queries)",
+        ),
+        BuildArtifact(
             canonical_name="agents/pyat-specialist",
             template_path="claude/agents/pyat-specialist.md.j2",
             output_path=".claude/agents/pyat-specialist.md",
@@ -123,7 +129,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
         # ── Rules ────────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="rules/safety",
-            template_path="claude/rules/safety.md",
+            template_path="claude/rules/safety.md.j2",
             output_path=".claude/rules/safety.md",
             description="Safety & tool confinement rules",
         ),
@@ -225,6 +231,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Shared hook logging utility",
         ),
         BuildArtifact(
+            canonical_name="hooks/target-state",
+            template_path="claude/hooks/osprey_target_state.py",
+            output_path=".claude/hooks/osprey_target_state.py",
+            description="Shared control-system target-state reader",
+        ),
+        BuildArtifact(
             canonical_name="hooks/hook-config",
             template_path="claude/hooks/hook_config.json.j2",
             output_path=".claude/hooks/hook_config.json",
@@ -234,7 +246,10 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/memory-guard",
             template_path="claude/hooks/osprey_memory_guard.py",
             output_path=".claude/hooks/osprey_memory_guard.py",
-            description="Write tool gate for Claude memory files",
+            description=(
+                "PreToolUse gate for every file-writing tool: Write/MultiEdit are held "
+                "to Claude memory files, NotebookEdit to the agent-data artifacts tree"
+            ),
         ),
         BuildArtifact(
             canonical_name="hooks/focus-validate",
@@ -320,6 +335,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/skills/operating-bluesky-plans/SKILL.md",
             output_path=".claude/skills/operating-bluesky-plans/SKILL.md",
             description="Stage, launch, and watch a registered Bluesky plan through the shared draft",
+        ),
+        BuildArtifact(
+            canonical_name="skills/bluesky-plans",
+            template_path="claude/skills/bluesky-plans/SKILL.md.j2",
+            output_path=".claude/skills/bluesky-plans/SKILL.md",
+            description="Index of the plans this deployment can run. The template renders an index built from the operator's own plan directory, so this artifact's framework hash tracks that directory: a claimed copy reports drift whenever a plan's docstring changes, not only when the framework template does.",
         ),
         # ── Output Styles ────────────────────────────────────────────
         BuildArtifact(
@@ -418,6 +439,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="bluesky_web",
             output_path="services/bluesky_web",
             description="Bluesky operator-facing web sidecar compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/graphdb",
+            template_path="graphdb",
+            output_path="services/graphdb",
+            description="Graph store compose template + seed corpus (Neo4j)",
             template_root="services",
             is_directory=True,
         ),

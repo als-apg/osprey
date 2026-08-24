@@ -702,10 +702,10 @@ def test_save_artifact_in_full_wrapper():
 
 @pytest.mark.unit
 def test_collect_artifacts_reads_manifest(tmp_path):
-    """_collect_artifacts() reads manifest.json and returns artifact dicts."""
+    """collect_artifacts() reads manifest.json and returns artifact dicts."""
     import json
 
-    from osprey.mcp_server.python_executor.executor import _collect_artifacts
+    from osprey.stores.artifact_manifest import collect_artifacts
 
     # Set up an artifacts/ subdirectory with a manifest and file
     art_dir = tmp_path / "artifacts"
@@ -725,7 +725,7 @@ def test_collect_artifacts_reads_manifest(tmp_path):
     ]
     (art_dir / "manifest.json").write_text(json.dumps(manifest))
 
-    result = _collect_artifacts(tmp_path)
+    result = collect_artifacts(tmp_path)
     assert len(result) == 1
     assert result[0]["title"] == "Test JSON"
     assert result[0]["artifact_type"] == "json"
@@ -734,10 +734,10 @@ def test_collect_artifacts_reads_manifest(tmp_path):
 
 @pytest.mark.unit
 def test_collect_artifacts_empty_when_no_manifest(tmp_path):
-    """_collect_artifacts() returns empty list when no manifest exists."""
-    from osprey.mcp_server.python_executor.executor import _collect_artifacts
+    """collect_artifacts() returns empty list when no manifest exists."""
+    from osprey.stores.artifact_manifest import collect_artifacts
 
-    assert _collect_artifacts(tmp_path) == []
+    assert collect_artifacts(tmp_path) == []
 
 
 @pytest.mark.unit
@@ -746,7 +746,7 @@ async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
 
-    # Create artifact file that _collect_artifacts would return
+    # Create artifact file that collect_artifacts would return
     art_dir = tmp_path / "collected_artifacts"
     art_dir.mkdir()
     art_file = art_dir / "abc123_test_data.json"
@@ -1269,6 +1269,38 @@ def test_describe_available_packages_falls_back_on_garbage_output(clean_package_
 
 
 @pytest.mark.unit
+def test_enumeration_snippet_drops_mypyc_shims(monkeypatch):
+    """The probe drops `<hash>__mypyc` shims whatever their hash starts with.
+
+    Both cases are exercised on purpose: a digit-leading hash is not an
+    identifier and would fall out anyway, so a filter that only ever sees that
+    one looks correct while leaking every letter-leading shim.
+    """
+    import contextlib
+    import importlib.metadata
+    import io
+
+    from osprey.mcp_server.python_executor.tools._package_inventory import _ENUMERATION_SNIPPET
+
+    monkeypatch.setattr(
+        importlib.metadata,
+        "packages_distributions",
+        lambda: {
+            "ada92cb5d92a588d1b93__mypyc": ["charset-normalizer"],  # letter-leading hash
+            "4c842c94c09923bae9e4__mypyc": ["mypy"],  # digit-leading hash
+            "_private": ["private-dist"],
+            "numpy": ["numpy"],
+        },
+    )
+
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        exec(_ENUMERATION_SNIPPET, {})  # noqa: S102 - runs the shipped probe verbatim
+
+    assert json.loads(captured.getvalue()) == ["numpy"]
+
+
+@pytest.mark.unit
 def test_empty_environment_falls_back(clean_package_cache):
     """An empty inventory tells us nothing usable — fall back rather than claim it."""
     assert clean_package_cache.render_package_line([]) == clean_package_cache.FALLBACK_DESCRIPTION
@@ -1305,14 +1337,28 @@ async def test_execute_tool_description_has_no_hardcoded_list():
     """The registered tool description is generated, not the old literal list."""
     from osprey.mcp_server.python_executor.server import mcp
     from osprey.mcp_server.python_executor.tools import python_execute  # noqa: F401
+    from osprey.mcp_server.python_executor.tools._package_inventory import PACKAGE_LINE_PREFIX
 
     description = (await mcp.get_tool("execute")).description
 
     assert "(e.g. numpy, pandas, scipy, at, matplotlib, plotly)" not in description
     assert "<<AVAILABLE_PACKAGES>>" not in description
     assert (
-        "Packages importable in the execution environment include:" in description
+        PACKAGE_LINE_PREFIX in description
         or "The set of installed packages could not be determined" in description
+    )
+
+    # The backend is subprocess-only. The rendered package line is excluded from
+    # the container check: it names whatever the environment installed, and a
+    # package name is not a backend claim.
+    prose = "\n".join(
+        line
+        for line in description.splitlines()
+        if not line.strip().startswith(PACKAGE_LINE_PREFIX)
+    )
+    assert "subprocess" in prose.lower(), "description must say code runs in a subprocess"
+    assert "container" not in prose.lower(), (
+        "description must not claim a container backend; execution is subprocess-only"
     )
 
 
@@ -1328,3 +1374,48 @@ def test_enumeration_probe_works_against_a_real_interpreter():
 
     assert names, "live interpreter reported no importable top-level packages"
     assert all(name.isidentifier() and not name.startswith("_") for name in names)
+
+
+# ============================================================================
+# readonly mode refuses control-system client imports before execution
+# ============================================================================
+
+
+ALIASED_CAPUT = "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)\n"
+
+
+@pytest.mark.unit
+async def test_python_execute_readonly_refuses_epics_import(tmp_path, monkeypatch):
+    """An aliased caput evades every write regex; the import itself is refused."""
+    monkeypatch.chdir(tmp_path)
+    mock_exec = _mock_execute_code(success=True, stdout="")
+
+    with patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec):
+        fn = _get_python_execute()
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(code=ALIASED_CAPUT, description="alias", execution_mode="readonly")
+
+    data = _exc_ctx["envelope"]
+    assert any("epics" in s for s in data["suggestions"]), data
+    mock_exec.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_python_execute_readwrite_allows_epics_import(tmp_path, monkeypatch):
+    """The denylist is a readonly gate only; readwrite runs are approved by a human."""
+    monkeypatch.chdir(tmp_path)
+    mock_exec = _mock_execute_code(success=True, stdout="")
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    with (
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
+        ),
+    ):
+        fn = _get_python_execute()
+        result = await fn(code=ALIASED_CAPUT, description="alias", execution_mode="readwrite")
+
+    assert extract_response_dict(result)["status"] == "success"
+    mock_exec.assert_called_once()

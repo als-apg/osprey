@@ -13,10 +13,22 @@ from osprey.mcp_server.ariel.server import (
     make_error,
     mcp,
     parse_date_filters,
-    serialize_entry,
 )
 from osprey.mcp_server.ariel.server_context import get_ariel_context
-from osprey.services.ariel_search.exceptions import ConfigurationError
+from osprey.mcp_server.ariel.tools.search_envelope import (
+    ResultWindow,
+    advanced_params,
+    raise_for_fault_exception,
+    raise_for_vocabulary_error,
+    raise_on_statement_fault,
+    success_envelope,
+)
+from osprey.services.ariel_search.exceptions import (
+    ConfigurationError,
+    PatternError,
+    SearchTimeoutError,
+    VocabularyError,
+)
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.hybrid_search")
 
@@ -33,6 +45,7 @@ async def hybrid_search(
     author: str | None = None,
     source_system: str | None = None,
     exclude_entry_ids: list[str] | None = None,
+    expand_query: bool | None = None,
 ) -> str:
     """Search the ARIEL logbook using hybrid keyword + semantic ranking.
 
@@ -58,10 +71,13 @@ async def hybrid_search(
         author: Filter by author name (partial match).
         source_system: Filter by source system (exact match).
         exclude_entry_ids: Entry IDs to exclude from results (for iterative search).
+        expand_query: Apply the facility vocabulary (shorthand/acronym expansion).
+            None = the configured default; see capabilities().vocabulary.expand_by_default.
 
     Returns:
-        JSON with matching entries and relevance scores. Scores order the
-        results and are not comparable across queries.
+        JSON with matching entries and relevance scores, plus the vocabulary
+        expansion applied. Scores order the results and are not comparable
+        across queries.
     """
     if not query or not query.strip():
         return make_error(
@@ -77,23 +93,22 @@ async def hybrid_search(
         parsed_start, parsed_end = parse_date_filters(start_date, end_date)
         time_range = (parsed_start, parsed_end) if parsed_start or parsed_end else None
 
-        adv: dict = {}
-        if author:
-            adv["author"] = author
-        if source_system:
-            adv["source_system"] = source_system
-
-        # Over-fetch to compensate for post-filtering excluded IDs
-        exclude_ids = set(exclude_entry_ids or [])
-        fetch_count = max_results + len(exclude_ids) if exclude_ids else max_results
+        window = ResultWindow.build(max_results, exclude_entry_ids)
 
         result = await service.search(
             query,
-            max_results=fetch_count,
+            max_results=window.fetch_count,
             time_range=time_range,
             mode="hybrid",
-            advanced_params=adv,
+            advanced_params=advanced_params(
+                author=author, source_system=source_system, expand_query=expand_query
+            ),
         )
+
+        # Category-specific faults first: a rejected pattern or a cancelled
+        # statement is not a sidecar outage, and _sidecar_fault matches on the
+        # source alone.
+        raise_on_statement_fault(result, "hybrid")
 
         fault = _sidecar_fault(result)
         if fault is not None:
@@ -101,24 +116,16 @@ async def hybrid_search(
                 "service_unavailable", f"ARIEL hybrid search is unavailable: {fault}", _hints()
             )
 
-        entries = [e for e in result.entries if e["entry_id"] not in exclude_ids]
-        entries = entries[:max_results]
-
-        entries_out = [serialize_entry(e, text_limit=500) for e in entries]
-
-        response = {
-            "query": query,
-            "mode": "hybrid",
-            "results_found": len(entries_out),
-            "reasoning": result.reasoning,
-            "sources": list(result.sources),
-            "entries": entries_out,
-        }
+        response = success_envelope(query, "hybrid", result, window.select(result.entries))
 
         return json.dumps(response, default=str)
 
     except ToolError:
         raise
+    except (PatternError, SearchTimeoutError) as exc:
+        raise_for_fault_exception(exc, "hybrid")
+    except VocabularyError as exc:
+        raise_for_vocabulary_error(exc, "hybrid")
     except ConfigurationError as exc:
         # Two different operator states reach this handler and they need
         # different advice. The service raises with config_key
@@ -219,7 +226,10 @@ def _hints() -> list[str]:
         logger.debug("could not resolve services.qmd while building hybrid_search hints")
 
     if base_url is None:
-        first = "No services.qmd block is configured in config.yml — add one to deploy the sidecar."
+        first = (
+            "No services.qmd block is configured — add one in the build profile "
+            "(profile.yml on the host), then rebuild and redeploy to get the sidecar."
+        )
     else:
         first = f"Check the sidecar is answering: curl {base_url}/health"
 

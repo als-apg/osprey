@@ -1,8 +1,9 @@
 /* OSPREY Design System — Agent-activity highlight utilities
    Hand-maintained. Shared, app-agnostic classes for surfacing agent activity
    in any interface. Colors come exclusively from design tokens (tokens.css) —
-   accent-family only, so the classes read correctly in all four themes
-   (dark / light / retro / high-contrast) with zero color literals here.
+   accent-family only, so the classes read correctly in every theme tokens.css
+   defines — each family in both its light and dark variant — with zero color
+   literals here.
 
    Contract (consumed across interfaces — do not rename):
      .agent-flash      one-shot 900ms glow; fired via flashElement(el) from

@@ -18,6 +18,7 @@ from osprey.mcp_server.workspace.transcript_reader import (
     TranscriptReader,
     _is_error_response,
 )
+from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 
 def _ts(minute: int) -> str:
@@ -125,6 +126,23 @@ class TestFindTranscriptDir:
             mp.setattr(Path, "home", lambda: tmp_path)
             result = reader.find_transcript_dir()
         assert result is None
+
+    def test_honours_claude_config_dir(self, tmp_path, monkeypatch):
+        """Transcripts live under ``$CLAUDE_CONFIG_DIR/projects``, not ``~/.claude``.
+
+        Inside a per-user web-terminal container both variables point at the
+        same mounted volume, so the ``~/.claude`` spelling names a directory
+        that does not exist and every session reads as "no transcript".
+        """
+        project_dir = tmp_path / "app" / "build"
+        project_dir.mkdir(parents=True)
+        config_dir = tmp_path / "data" / "claude-config"
+        claude_dir = config_dir / "projects" / encode_claude_project_path(project_dir)
+        claude_dir.mkdir(parents=True)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: config_dir))
+
+        assert TranscriptReader(project_dir).find_transcript_dir() == claude_dir
 
     def test_preserves_leading_dash_for_absolute_paths(self, tmp_path):
         """Encoding of absolute paths must keep the leading dash.
@@ -250,8 +268,8 @@ class TestReadSession:
         assert ev["arguments"] == {"channels": ["SR:CURRENT"]}
         assert "500.0" in ev["result_summary"]
 
-    def test_filters_non_osprey_tools(self, tmp_path):
-        """Non-OSPREY tools (e.g., Read, Bash) are not included."""
+    def test_filters_non_mcp_tools(self, tmp_path):
+        """Built-in (non-MCP) tools (e.g., Read, Bash) are not included."""
         transcript = tmp_path / "session.jsonl"
         entries = [
             _make_assistant_entry(
@@ -292,6 +310,175 @@ class TestReadSession:
 
         assert len(events) == 1
         assert events[0]["tool"] == "session_log"
+
+    @pytest.mark.parametrize("server_name", sorted(s.name for s in FRAMEWORK_SERVERS.values()))
+    def test_captures_every_framework_server(self, tmp_path, server_name):
+        """A tool call from ANY registered framework server appears in the log.
+
+        Pin test against silent observability loss: the reader must never
+        require a source edit to see a server the registry already knows.
+        """
+        transcript = tmp_path / "session.jsonl"
+        tool_name = f"mcp__{server_name}__some_tool"
+        entries = [
+            _make_assistant_entry(_ts(0), [{"id": "tu-1", "name": tool_name, "input": {}}]),
+            _make_user_entry(_ts(1), [{"tool_use_id": "tu-1", "content": "ok", "is_error": False}]),
+        ]
+        _write_transcript(transcript, entries)
+
+        events = TranscriptReader(tmp_path).read_session(transcript)
+
+        assert len(events) == 1, f"tool call from server {server_name!r} was dropped"
+        assert events[0]["tool"] == "some_tool"
+        assert events[0]["server"] == server_name
+
+    def test_captures_facility_custom_server(self, tmp_path):
+        """A facility-declared server with an underscored name OSPREY has never
+        heard of is captured — no source edit may be required."""
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            _make_assistant_entry(
+                _ts(0),
+                [
+                    {
+                        "id": "tu-1",
+                        "name": "mcp__als_custom_srv__do_thing",
+                        "input": {"x": 1},
+                    }
+                ],
+            ),
+            _make_user_entry(_ts(1), [{"tool_use_id": "tu-1", "content": "ok", "is_error": False}]),
+        ]
+        _write_transcript(transcript, entries)
+
+        events = TranscriptReader(tmp_path).read_session(transcript)
+
+        assert len(events) == 1
+        assert events[0]["tool"] == "do_thing"
+        assert events[0]["server"] == "als_custom_srv"
+        assert events[0]["full_tool_name"] == "mcp__als_custom_srv__do_thing"
+
+    def test_subagent_facility_knowledge_calls_survive(self, tmp_path):
+        """The reported bug: a facility-knowledge sub-agent's tool calls must
+        appear between its agent_start/agent_stop, not vanish."""
+        transcript = tmp_path / "parent.jsonl"
+        entries = [
+            _make_assistant_entry(
+                _ts(0),
+                [
+                    {
+                        "id": "task-1",
+                        "name": "Task",
+                        "input": {
+                            "subagent_type": "facility-knowledge",
+                            "prompt": "Look up DIPOLE01",
+                        },
+                    }
+                ],
+            ),
+            _make_user_entry(
+                _ts(5), [{"tool_use_id": "task-1", "content": "done", "is_error": False}]
+            ),
+        ]
+        _write_transcript(transcript, entries)
+
+        subagent_dir = tmp_path / "parent" / "subagents"
+        subagent_dir.mkdir(parents=True)
+        sub_entries = [
+            {
+                "type": "user",
+                "timestamp": _ts(1),
+                "sessionId": "test-session-123",
+                "message": {"role": "user", "content": "Look up DIPOLE01"},
+            },
+            _make_assistant_entry(
+                _ts(2),
+                [
+                    {
+                        "id": "fk-1",
+                        "name": "mcp__osprey_facility_knowledge__resolve_channel",
+                        "input": {"q": "DIPOLE01"},
+                    }
+                ],
+            ),
+            _make_user_entry(_ts(3), [{"tool_use_id": "fk-1", "content": "{}", "is_error": False}]),
+        ]
+        _write_transcript(subagent_dir / "agent-abc123.jsonl", sub_entries)
+
+        events = TranscriptReader(tmp_path).read_session(transcript)
+
+        tool_events = [e for e in events if e["type"] == "tool_call"]
+        assert len(tool_events) == 1
+        assert tool_events[0]["tool"] == "resolve_channel"
+        assert tool_events[0]["agent_id"] == "agent-abc123"
+        # The sub-agent's own tool events supply the lifecycle timestamps
+        # (a sub-agent with no MCP calls falls back to the Task's timestamp —
+        # see test_subagent_without_mcp_calls_gets_task_timestamp).
+        starts = [e for e in events if e["type"] == "agent_start"]
+        assert starts and starts[0]["timestamp"] == _ts(2)
+
+    def test_subagent_without_mcp_calls_gets_task_timestamp(self, tmp_path):
+        """A sub-agent that used only built-in tools still gets real lifecycle
+        timestamps — the Task dispatch time, not ``""`` (which sorts the
+        agent's lifecycle before the parent's first action)."""
+        transcript = tmp_path / "parent.jsonl"
+        entries = [
+            _make_assistant_entry(
+                _ts(4),
+                [
+                    {
+                        "id": "task-1",
+                        "name": "Task",
+                        "input": {"subagent_type": "grepper", "prompt": "Search the docs"},
+                    }
+                ],
+            ),
+            _make_user_entry(
+                _ts(6), [{"tool_use_id": "task-1", "content": "done", "is_error": False}]
+            ),
+        ]
+        _write_transcript(transcript, entries)
+
+        subagent_dir = tmp_path / "parent" / "subagents"
+        subagent_dir.mkdir(parents=True)
+        sub_entries = [
+            {
+                "type": "user",
+                "timestamp": _ts(5),
+                "sessionId": "test-session-123",
+                "message": {"role": "user", "content": "Search the docs"},
+            },
+            _make_assistant_entry(
+                _ts(5), [{"id": "g-1", "name": "Grep", "input": {"pattern": "x"}}]
+            ),
+        ]
+        _write_transcript(subagent_dir / "agent-grep1.jsonl", sub_entries)
+
+        events = TranscriptReader(tmp_path).read_session(transcript)
+
+        lifecycle = [e for e in events if e["type"] in ("agent_start", "agent_stop")]
+        assert len(lifecycle) == 2
+        assert all(e["timestamp"] == _ts(4) for e in lifecycle)
+        assert all(e["agent_type"] == "grepper" for e in lifecycle)
+
+    def test_tool_name_with_double_underscore_keeps_full_tool(self, tmp_path):
+        """Only the first ``__``-pair after ``mcp__`` delimits the server; a
+        ``__`` inside the tool name belongs to the tool."""
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            _make_assistant_entry(
+                _ts(0),
+                [{"id": "tu-1", "name": "mcp__srv__group__action", "input": {}}],
+            ),
+            _make_user_entry(_ts(1), [{"tool_use_id": "tu-1", "content": "ok", "is_error": False}]),
+        ]
+        _write_transcript(transcript, entries)
+
+        events = TranscriptReader(tmp_path).read_session(transcript)
+
+        assert len(events) == 1
+        assert events[0]["server"] == "srv"
+        assert events[0]["tool"] == "group__action"
 
     def test_error_detection_native(self, tmp_path):
         """Detects is_error from native tool_result flag."""

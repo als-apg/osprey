@@ -33,11 +33,12 @@ import click
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
-from .output import report
+from .output import report, section
 from .profile_conventions import (
     BUILD_OUTPUT_DIR,
     CONTEXT_BASELINE_FILENAME,
     PER_USER_CONTEXT_DIRNAME,
+    context_baseline_slot,
 )
 
 if TYPE_CHECKING:
@@ -76,6 +77,20 @@ def presets() -> None:
     Every name printed here is usable as 'osprey init --preset NAME'.
     """
     echo_preset_names()
+
+
+@profile.command()
+def artifacts() -> None:
+    """List every artifact the six profile lists can name.
+
+    One section per list key (hooks, rules, skills, agents, output_styles,
+    web_panels), each entry with a one-line description. The same menu
+    appears as commented entries in an emitted profile.yml.
+    """
+    from .build_profile_emit import artifact_menu_catalog
+
+    for kind, entries in artifact_menu_catalog().items():
+        section(kind, list(entries))
 
 
 @profile.command()
@@ -297,6 +312,23 @@ def _roster_user_names(config: Mapping[str, Any]) -> list[str]:
     from .build_profile_emit import effective_web_terminals
 
     return roster_user_names(effective_web_terminals(config))
+
+
+def _stands_up_a_web_tier(config: Mapping[str, Any]) -> bool:
+    """Whether the profile switches the web-terminal module on.
+
+    An empty roster covers two cases the seeding has to tell apart: a profile
+    with no web-terminal module at all, which has no context convention to
+    seed, and one whose module is on but names no users yet, which does — its
+    shared baseline is roster-independent, so it belongs in the profile whether
+    or not anyone is on the roster. The subtree is read through the same fold
+    :func:`_roster_user_names` uses, on the same "not switched on means no web
+    tier" rule as
+    :func:`~osprey.deployment.web_terminals.personas.roster_user_names`.
+    """
+    from .build_profile_emit import effective_web_terminals
+
+    return bool(effective_web_terminals(config).get("enabled"))
 
 
 # The two config paths a profile names a provider at. `claude_code.provider`
@@ -781,14 +813,12 @@ def _context_baseline_source(manager: TemplateManager, data_bundle: str) -> Path
     starts byte-identical to what the build would have used anyway, and every
     edit to it from then on is visible in the operator's own repo.
     """
-    bundle = (
+    bundle = context_baseline_slot(
         manager.template_root / "apps" / data_bundle / PER_USER_CONTEXT_DIRNAME
-    ) / CONTEXT_BASELINE_FILENAME
+    )
     if bundle.is_file():
         return bundle
-    return (
-        manager.template_root / "claude_code" / PER_USER_CONTEXT_DIRNAME
-    ) / CONTEXT_BASELINE_FILENAME
+    return context_baseline_slot(manager.template_root / "claude_code" / PER_USER_CONTEXT_DIRNAME)
 
 
 def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
@@ -838,6 +868,17 @@ class _MaterializedProfile(NamedTuple):
     from the file on disk rather than from the inputs. Presets ship the block
     commented out, so this is normally false on a fresh materialization; it
     decides whether there is anything to render a CI pipeline from."""
+
+    resolved: BuildProfile
+    """The materialized profile, resolved back from the written ``profile.yml``
+    — the same read-back that validates the round-trip, so what the caller
+    summarizes (the composition card) is a fact about what is on disk rather
+    than about what the inputs asked for."""
+
+    persona_deltas: dict[str, Mapping[str, Any]]
+    """The emitted persona deltas, parsed, keyed by persona name — empty for a
+    profile that emits none. The per-persona facts a summary needs (each tier's
+    panels and its write posture) live in these, not in the host profile."""
 
 
 def _materialize_profile_directory(
@@ -1023,19 +1064,25 @@ def _materialize_profile_directory(
             user_dir = target / _CONTEXT_CONVENTION_DIRNAME / user
             user_dir.mkdir(parents=True, exist_ok=True)
             (user_dir / ".gitkeep").touch()
-        if roster:
+        if _stands_up_a_web_tier(resolved.config):
             # The shared baseline, beside the slots — the one seeded entry that
             # carries content, because it IS content the deployment ships: the
             # build copies this file over the framework's fallback, so the text
             # every seeded user starts from lives in the operator's repo where
-            # they can read and edit it.
+            # they can read and edit it. Seeded on the module rather than the
+            # roster, because the copy side is roster-independent too
+            # (plan_convention_copies): a profile that names no users yet still
+            # starts from text it can see.
+            context_dir = target / _CONTEXT_CONVENTION_DIRNAME
+            context_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(
                 _context_baseline_source(manager, resolved.data_bundle),
-                target / _CONTEXT_CONVENTION_DIRNAME / CONTEXT_BASELINE_FILENAME,
+                context_baseline_slot(context_dir),
             )
             logger.debug(
                 "  Per-user context: %s (+ shared %s)",
-                ", ".join(f"{_CONTEXT_CONVENTION_DIRNAME}/{user}/" for user in roster),
+                ", ".join(f"{_CONTEXT_CONVENTION_DIRNAME}/{user}/" for user in roster)
+                or "no roster yet",
                 CONTEXT_BASELINE_FILENAME,
             )
 
@@ -1084,4 +1131,6 @@ def _materialize_profile_directory(
         shell_keys.skipped,
         profile_name_default,
         written.deploy is not None,
+        written,
+        persona_deltas,
     )

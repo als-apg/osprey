@@ -152,13 +152,13 @@ class TestConsumers:
     async def test_focus_tool_posts_to_env_port(self, artifact_config, monkeypatch, tmp_path):
         """The focus POST — the consumer that fails closed on a wrong port."""
         from osprey.mcp_server.workspace.tools import focus_tools
-        from osprey.mcp_server.workspace.tools.artifact_save import artifact_save
+        from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv(ENV_VAR, "9291")
 
         saved = extract_response_dict(
-            await get_tool_fn(artifact_save)(
+            await get_tool_fn(artifact_register)(
                 title="Port probe", content="# hi", content_type="markdown"
             )
         )

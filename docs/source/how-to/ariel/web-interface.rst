@@ -62,6 +62,50 @@ The interface has four views, accessible via the navigation bar. All views are r
 The four ARIEL views above were captured with OSPREY |captured_ariel| from the
 ``control-assistant`` tutorial's seeded logbook.
 
+Display Preferences
+===================
+
+The button at the top right of the header --- the one drawn as three sliders
+--- opens a small card holding everything about how the interface looks, plus
+the way in to its settings:
+
+**Appearance**
+   Light or Dark. It flips the shade without changing which theme you are in.
+
+**View**
+   Expert or Simple. Expert is the full interface. Simple clears away the
+   extras --- the four-tab strip becomes a single "Browse all entries" link,
+   the search mode tabs and advanced options disappear, and results lose their
+   relevance scores --- leaving a search box and a list of entries.
+
+**Theme**
+   One button per theme family: Main, DESY, High Contrast, and Retro. Picking
+   a family keeps whichever appearance you are already in, so a switch from
+   Main to High Contrast in dark stays dark.
+
+**Settings**
+   Opens the settings drawer, where you can read and edit ARIEL's
+   configuration block.
+
+Appearance, View, and Theme take effect straight away and leave the card open,
+so you can compare two looks without re-opening the menu. Settings closes it,
+because it takes you to a different surface. Click anywhere outside the card,
+or press ``Escape``, to dismiss it.
+
+**Your picks follow you.** The theme and view you choose here are remembered by
+your browser and shared with every OSPREY interface served from the same
+address --- pick a dark High Contrast look in ARIEL and the OSPREY web terminal
+comes up that way the next time you load it, and the other way round too. There
+is no separate preference to keep in step.
+
+ARIEL running *inside* the web terminal, as a panel, behaves differently on
+purpose. The terminal passes its own theme and view to the panel in the page
+address, and an address always outranks the remembered preference, so an
+embedded panel matches the terminal it sits in no matter what was set
+elsewhere. The embedded panel has no header of its own either --- the
+terminal's tile bar is the one header --- so the sliders button does not
+appear there.
+
 Capabilities API
 ================
 
@@ -73,7 +117,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
    :class: note
 
    - **XSS-safe highlights:** Search result highlights from PostgreSQL ``ts_headline`` are sanitized by ``sanitizeHighlight()`` in ``components.js`` --- only ``<b>`` and ``</b>`` tags are preserved; all other HTML is escaped.
-   - **CORS:** The development server uses ``allow_origins=["*"]``. Restrict this in production deployments.
+   - **No cross-origin surface:** The interface app registers no CORS middleware. The browser and the ``/api`` endpoints it calls are served from the same origin, so there is no cross-origin request path to allow or restrict.
    - **Frontend fallback:** If ``/api/capabilities`` is unavailable at startup, the frontend falls back to a default mode list so the interface remains usable.
 
 .. dropdown:: Technical Reference
@@ -231,7 +275,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
       .. tab-item:: App Internals
 
-         **App factory:** The ``create_app()`` function in :mod:`osprey.interfaces.ariel.app` is a standard FastAPI app factory. It accepts an optional ``config_path`` argument and returns a fully configured FastAPI application with CORS middleware, API routes, and static file serving.
+         **App factory:** The ``create_app()`` function in :mod:`osprey.interfaces.ariel.app` is a standard FastAPI app factory. It accepts an optional ``config_path`` argument and returns a fully configured FastAPI application with API routes and static file serving. It registers no CORS middleware --- the app and its ``/api`` endpoints share one origin, so there is no cross-origin surface.
 
          **Lifespan management:** The app uses FastAPI's ``lifespan`` context manager to initialize the ``ARIELSearchService`` on startup and clean it up on shutdown. During initialization:
 
@@ -290,7 +334,16 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          Side-drawer behavior (filters, advanced options, settings panels) comes
          from the shared ``<osprey-drawer>`` design-system component rather than
-         a page-local module.
+         a page-local module. The header's display-preferences popover is the
+         shared ``<osprey-display-menu>`` component in the same way: ARIEL
+         mounts the element and passes it the settings drawer's id, and the
+         component supplies the trigger, the card, the Appearance/View/Theme
+         rows, and the hiding-when-embedded rule.
+
+         Theming role: standalone, ARIEL is the *hub* --- the display menu is
+         the operator's control and its pick is the one that gets remembered.
+         Embedded, it is a *follower*: the web terminal owns the pick and
+         broadcasts it, and ARIEL applies what it is sent.
 
          **CSS architecture:**
 

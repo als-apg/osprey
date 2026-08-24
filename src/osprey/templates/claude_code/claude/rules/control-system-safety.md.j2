@@ -41,6 +41,25 @@ from epics import PV
 pv = PV("SR:MAG:QF:01:CURRENT:SP")
 pv.put(150)  # Bypasses all safety layers
 ```
+
+The same prohibition covers pvAccess (PVA) through the `p4p` library — every
+client flavor, not just the threaded one:
+
+```python
+# DO NOT use these — they bypass safety controls
+from p4p.client.thread import Context      # Bypasses all safety layers
+from p4p.client.asyncio import Context     # Same bypass, async client flavor
+ctxt = Context("pva")
+ctxt.get("SR:CAM:01:IMAGE")                 # Bypasses audit logging
+ctxt.put("SR:MAG:QF:01:CURRENT:SP", 150)    # Bypasses limits + approval
+ctxt.rpc("SR:SVC:ORBIT", request)           # Not approvable — refused at runtime
+```
+
+`ctxt.rpc(...)` is the one to remember: an rpc call carries an arbitrary
+payload, so limits checking cannot apply to it — there is nothing for the
+approval workflow to check. It is refused at runtime in every readonly run
+and wherever limits checking is enabled. Use `write_channel` for the write
+you actually need.
 {% elif cs_type == 'tango' %}
 ```python
 # DO NOT use these — they bypass safety controls
@@ -86,11 +105,76 @@ The `osprey.runtime` API enforces:
 
 Direct {{ protocol_name }} calls skip all of these protections.
 
-## Write Operations
+{% if target_switch_enabled | default(false) %}## Which Machine You Are Talking To
+
+This deployment can point the same tools at either of two machines:
+
+- **live** — the real accelerator. A write here moves real hardware.
+- **va** — the virtual accelerator, a simulation that answers the same channel
+  names. A write here moves nothing real.
+
+One of them is active at a time, and every approval prompt names the active
+target, so the operator sees which machine a write would land on before they
+approve it. Read that line rather than assuming a default — a session may
+already have been switched, and the channel names look the same either way.
+
+`control_target` reports the roster: which targets this deployment has, which
+one is active, and whether the other can be switched to right now. It is the
+authority on availability. Do not infer it from a config file, from an endpoint
+seen earlier, or from a channel that happened to answer.
+
+`control_target_set` is the only way to change targets, and it is approval-gated
+like any other write, so the operator decides. Nothing else moves a session
+between machines — not an environment variable, not a config edit, not a
+restart. When a request needs the other machine, ask for it with
+`control_target_set` and say why.
+
+Channels the deny list refuses stay refused on every target. That list says
+which channels this deployment will never write, not which machine is active,
+so switching to the virtual accelerator does not unlock a denied channel —
+and switching in order to reach one is not a workaround, it is the same
+refusal one step later.
+
+{% endif %}## Write Operations
 
 For scripts that write to the control system, use the `execute` MCP tool directly
-with `execution_mode: "write"` —
-the `execute` tool defaults to readonly mode, which blocks write operations.
+with `execution_mode: "readwrite"` — the `execute` tool defaults to readonly
+mode, which blocks write operations. Those are the only two accepted values;
+any other spelling is rejected before the script runs.
+
+A readonly run also refuses the indirect routes to the control system: starting
+a process (so a shelled-out `caput` fails) and loading a shared library through
+`ctypes`. This applies even when the intent is unrelated to hardware, so a
+readonly script cannot shell out at all. Every refusal is reported to the
+operator and recorded in the deployment's audit log, so working around one is
+never the right move — resubmit with `execution_mode: "readwrite"` and let the
+operator approve it.
+
+## Choosing the Right Tool
+
+Match the request to one tool and stop there. Reaching past the tool the request
+calls for is how a single read turns into a script and a single write turns into
+a sequence nobody approved.
+
+- **One live value** — use `channel_read`. No script is needed.
+- **One live write the operator asked for by name** — use `channel_write`.
+- **Python analysis over data you already retrieved** — use `execute`. It needs
+  no control-system access.
+- **Python that must touch the control system** — use `execute` and reach the
+  machine through the `osprey.runtime` API, never a protocol library directly.
+{%- if "bluesky" in enabled_servers | default([]) %}
+- **Multi-setting measurements** — use the Bluesky queue. Anything that sets the
+  machine to more than one value is a plan; see below.
+{%- else %}
+- **Multi-setting measurements** — no queue is configured in this deployment. Do
+  not stand in for one with a loop of `channel_write` calls or an `execute`
+  script that steps the setpoint — tell the operator what the measurement
+  would require.
+{%- endif %}
+
+The two write paths report an unverified write differently:
+`osprey.runtime.write_channel` raises, while `channel_write` reports it in
+`write_state`.
 {% if "bluesky" in enabled_servers | default([]) %}
 
 ## Measurements Go Through the Queue, Not Through Repeated Writes

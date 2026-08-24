@@ -313,6 +313,14 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         1,
         "config_cmd._emit, the module's own single byte seam.",
     ),
+    "cli/feedback_cmd.py": (
+        1,
+        "The one write in _export_sink's no---output branch. `feedback export` "
+        "runs inside output.machine_mode() when it has no file to write to, so "
+        "every human line is on stderr and stdout carries the export document "
+        "alone -- for a caller redirecting it into a file, the same class as "
+        "users_cmd's byte render.",
+    ),
     "cli/query_cmd.py": (
         2,
         "The two machine seams: the --json document, and the agent-text "

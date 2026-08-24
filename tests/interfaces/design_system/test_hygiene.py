@@ -1,11 +1,11 @@
-"""Fleet-wide hygiene scanner: hardcoded colors, ``var(--x)`` integrity, and
-stray token-defining blocks.
+"""Fleet-wide hygiene scanner: hardcoded colors, ``var(--x)`` integrity,
+stray token-defining blocks, and scale-literal drift.
 
 This module is the "hygiene" leg of the test pyramid described in the
 frontend-design-system PLAN (Task 1.11). It scans every ``.css``/``.js``/
 ``.html`` asset under ``src/osprey/interfaces/`` plus the single dispatch
 dashboard file (the design system is mounted there too, see Task 4.1) for
-three independent kinds of drift:
+each of the independent kinds of drift enumerated below:
 
 (a) Hardcoded color literals (hex, ``rgb()``/``rgba()``, ``hsl()``/
     ``hsla()``) that should have been expressed as ``var(--token)``
@@ -50,8 +50,9 @@ three independent kinds of drift:
     leading/z/duration scales`` commit). Unlike (a)-(c) this is not
     fleet-wide: it is scoped per-interface by ``SCALE_ENFORCED_INTERFACES``,
     which names the interfaces that have completed their CSS migration onto
-    the scale variables (currently web_terminal and design_system; others join
-    the set as they finish their respective migrations). An interface migrates
+    the scale variables (that set is the authoritative membership list —
+    interfaces join it as they finish their respective migrations, so it is
+    deliberately not re-enumerated here). An interface migrates
     its CSS onto the emitted scales, then adds its directory name to lock the
     migration in place and prevent new scale literals. Spacing (margin/padding/
     gap) and z-index are deliberately excluded from this check even for an
@@ -62,6 +63,19 @@ three independent kinds of drift:
     express. Both may still migrate opportunistically, and the emitted
     ``--space-*``/``--z-*`` scales remain the preferred spelling for new
     code — they're just not enforced here.
+
+(e) ARIEL's retired parallel scale layer: standalone ARIEL used to ship its
+    own ``--ariel-text-*``/``--ariel-space-*``/``--ariel-radius-*``/
+    ``--ariel-leading-*``/``--ariel-z-*`` scales plus an unprefixed
+    ``--transition-*`` trio, and its JS wrote scale literals into inline
+    ``style=``/``cssText`` strings. The ariel-design-parity migration
+    replaced all of it with the fleet scales; this check keeps the layer
+    from growing back in the two places check (d) structurally cannot see —
+    custom-property *definitions* (check (d) only reads declaration
+    *values*) and ``.js`` files (check (d) scans ``.css`` only). The
+    ``--ariel-score-*`` badge colors are exempt throughout: they are
+    generator-emitted extension tokens declared in ``tokens.css``, not part
+    of the retired local layer.
 
 Checks (a) and (c) share the same allowlist idea in spirit — a literal,
 commented exception list — but check (a)'s allowlist is *in the scanned
@@ -242,20 +256,10 @@ _SET_PROPERTY_RE = re.compile(r"\.setProperty\(\s*['\"]--([a-zA-Z0-9-]+)['\"]")
 #: fails the "no longer dangling" half of the assertion below.
 _KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
     {
-        # Not a real CSS/JS reference at all: osprey-theme-switcher.js's module
-        # docstring illustrates the general `var(--name)` syntax with a literal
-        # ellipsis placeholder, "var(--…)" -- the scanner's balanced-paren
-        # extraction faithfully (and here, spuriously) parses that prose as a
-        # call for a property literally named "…". There is no such property,
-        # declared or otherwise, because there is no such call; this is a false
-        # positive on documentation text, not a dangling style reference (the
-        # docstring was authored by rewrite-switcher-family-picker, Task 1.9).
-        (
-            "src/osprey/interfaces/design_system/static/js/components/osprey-theme-switcher.js",
-            "…",
-        ),
-        # Same prose false positive in the bluesky panel: its header comment
-        # describes token usage as "var(--…)". This file was always clean — it
+        # Prose false positive in the bluesky panel: its header comment
+        # describes token usage as "var(--…)" — the scanner's balanced-paren
+        # extraction spuriously parses that prose as a reference to a property
+        # literally named "…". This file was always clean — it
         # only entered the fleet-wide scan when the package moved from
         # services/ to interfaces/ (layering fix).
         ("src/osprey/interfaces/bluesky_web/panels/bluesky/panel.css", "…"),
@@ -545,7 +549,7 @@ def test_scale_literal_scanner() -> None:
 #: --radius-*, --duration-*), then adds its directory name to this set to lock
 #: the migration in place and prevent new scale literals. Interfaces not yet
 #: listed are subject to the color-hygiene check (a) only.
-SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset({"web_terminal", "design_system"})
+SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset({"web_terminal", "design_system", "ariel"})
 
 
 def test_scale_literal_zero_tolerance() -> None:
@@ -567,4 +571,279 @@ def test_scale_literal_zero_tolerance() -> None:
         "Scale literal(s) in a scale-enforced interface — use var(--text-*/"
         "--weight-*/--leading-*/--radius-*/--duration-*) or mark a deliberate "
         "exception with `/* hygiene-allow-scale: <reason> */`:\n" + "\n".join(offenders)
+    )
+
+
+# --- Check (e): ARIEL's retired parallel scale layer stays retired -----------------
+
+#: The interface directory name whose local scale layer this check guards.
+_ARIEL_GROUP = "ariel"
+
+#: A custom-property DECLARATION of one of the retired local scale families:
+#: the five ``--ariel-<family>-*`` scales plus the unprefixed
+#: ``--transition-*`` trio the migration folded into ``--duration-*``. The
+#: trailing ``:`` is what makes this a definition rather than a reference —
+#: ``var(--transition-fast)`` and ``var(--transition-fast, 150ms)`` both lack
+#: it, so a surviving *usage* is left to check (b) (it dangles once the
+#: definition is gone) and only the definition is reported here.
+#: ``--ariel-score-*`` is absent from the family list by design: those badge
+#: colors are generator-emitted extension tokens, not part of the retired
+#: layer.
+_ARIEL_SCALE_DEFINITION_RE = re.compile(
+    r"--(?:ariel-(?:text|space|radius|leading|z)|transition)-[a-zA-Z0-9-]+\s*:"
+)
+
+#: A ``var(--ariel-...)`` reference in ARIEL JS. The negative lookahead keeps
+#: the sanctioned ``--ariel-score-*`` extension tokens usable.
+_ARIEL_VAR_USE_RE = re.compile(r"var\(\s*--ariel-(?!score-)[a-zA-Z0-9-]+")
+
+#: A CSS comment, stripped (newline-for-newline, so line numbers survive)
+#: before the definition scan: prose recording what a value *used* to be
+#: spelled cannot define anything.
+_CSS_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+#: The scale-bearing declarations worth catching inside a JS string literal:
+#: font-size, font-weight, and the border-radius family. Spacing is excluded
+#: for the same reason check (d) excludes it in CSS. The value stops at a
+#: declaration separator or at either quote character, so a declaration that
+#: runs to the end of an unterminated ``style="..."`` attribute inside a
+#: template literal is still captured cleanly.
+_JS_SCALE_DECLARATION_RE = re.compile(
+    r"\b(font-size|font-weight|border(?:-\w+-\w+)?-radius)\s*:\s*([^;{}\"'`]+)"
+)
+
+#: A number carrying a typographic length unit. Percentages, unitless ``0``,
+#: and CSS-wide keywords (``inherit``, ``none``, ``transparent``, ...) are
+#: deliberately not matched — none of them encode a scale step.
+_LENGTH_LITERAL_RE = re.compile(r"\d+(?:\.\d+)?(?:px|rem|em)\b")
+
+#: Characters after which a ``/`` is a division operator rather than the
+#: start of a regex literal (identifier/literal enders). Everything else —
+#: ``=``, ``(``, ``,``, ``:``, ``return``'s trailing space, ... — precedes a
+#: regex literal.
+_DIVISION_AFTER = ")]}"
+
+
+def _mask_non_string_regions(text: str) -> str:
+    """Blank every character of JS ``text`` that is not inside a string literal.
+
+    Returns a same-length, same-line-numbering copy in which the contents of
+    every ``'``/``"``/`` ` `` literal survive and everything else — code,
+    line and block comments, regex literals — becomes a space. Scanning the
+    mask instead of the raw text is what makes check (e)'s "inside a string
+    literal" scope real: an inline style is always string content, while a
+    comment merely *mentioning* ``font-size: 12px`` is not a style at all.
+
+    Regex literals get their own skip arm rather than being left to the
+    string scanner, because they routinely contain a lone quote character
+    (``components.js``'s ``.replace(/"/g, '&quot;')``) that would otherwise
+    open a string and desynchronize the rest of the file. Template-literal
+    bodies are kept whole, interpolations included: an inline style built by
+    interpolation is still an inline style.
+    """
+    out = ["\n" if ch == "\n" else " " for ch in text]
+    i, n = 0, len(text)
+    prev = ""
+    while i < n:
+        ch = text[i]
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            continue
+        if ch == "/" and not (prev.isalnum() or prev in _DIVISION_AFTER):
+            j = i + 1
+            in_class = False
+            while j < n and text[j] != "\n":
+                c = text[j]
+                if c == "\\":
+                    j += 2
+                    continue
+                if c == "[":
+                    in_class = True
+                elif c == "]":
+                    in_class = False
+                elif c == "/" and not in_class:
+                    break
+                j += 1
+            prev = "/"
+            i = j + 1
+            continue
+        if ch in "'\"`":
+            quote = ch
+            j = i + 1
+            while j < n:
+                c = text[j]
+                if c == "\\":
+                    j += 2
+                    continue
+                if c == quote:
+                    break
+                out[j] = c
+                j += 1
+            prev = quote
+            i = j + 1
+            continue
+        if not ch.isspace():
+            prev = ch
+        i += 1
+    return "".join(out)
+
+
+def _is_js_scale_literal(prop: str, value: str) -> bool:
+    """Whether an inline-style ``prop: value`` pair carries a bare scale literal.
+
+    Mirrors :func:`_is_scale_literal`'s per-property split, restricted to the
+    three properties inline styles actually reach for: ``var()`` references
+    are stripped first so a token-supplied value mixed with other components
+    still passes, and the leftovers are judged per property.
+    """
+    without_var_calls = re.sub(r"var\([^)]*\)", "", value)
+    if prop == "font-weight":
+        return bool(re.search(r"\b\d{3}\b", without_var_calls)) or bool(
+            re.match(r"\s*(bold|bolder|lighter|normal)\b", without_var_calls)
+        )
+    if prop == "font-size":
+        return bool(_LENGTH_LITERAL_RE.search(without_var_calls))
+    return any(
+        _LENGTH_LITERAL_RE.fullmatch(component) and component not in ("0px", "0rem", "0em")
+        for component in without_var_calls.split()
+    )
+
+
+def _js_scale_literals(text: str) -> list[tuple[int, str]]:
+    """Every non-allowlisted inline-style scale literal in one JS file's text.
+
+    Returns ``(line_number, "property: value")`` pairs. Honors the same
+    ``hygiene-allow-scale`` line and ``-start``/``-end`` block markers as
+    check (d) — the marker is read off the *original* line, so it works
+    whether it sits in a comment beside the code or inside the string itself.
+    """
+    hits: list[tuple[int, str]] = []
+    masked_lines = _mask_non_string_regions(text).splitlines()
+    in_allowed_block = False
+    source_lines = text.splitlines()
+    for lineno, (line, masked) in enumerate(zip(source_lines, masked_lines, strict=True), start=1):
+        if _ALLOW_SCALE_BLOCK_START_MARKER in line:
+            in_allowed_block = True
+            continue
+        if _ALLOW_SCALE_BLOCK_END_MARKER in line:
+            in_allowed_block = False
+            continue
+        if in_allowed_block or _ALLOW_SCALE_LINE_MARKER in line:
+            continue
+        for prop, raw_value in _JS_SCALE_DECLARATION_RE.findall(masked):
+            value = raw_value.strip()
+            if _is_js_scale_literal(prop, value):
+                hits.append((lineno, f"{prop}: {value}"))
+    return hits
+
+
+def _ariel_files(suffix: str) -> list[Path]:
+    """Every in-scope ARIEL asset with the given suffix."""
+    return [
+        path
+        for path in _in_scope_files()
+        if path.suffix == suffix and _interface_group(path) == _ARIEL_GROUP
+    ]
+
+
+def test_js_string_mask() -> None:
+    """The mask keeps string contents and drops code, comments, and regexes."""
+    assert _mask_non_string_regions("x.style.cssText = 'font-size: 12px;';").strip() == (
+        "font-size: 12px;"
+    )
+    # A comment mentioning a declaration is not an inline style.
+    assert _mask_non_string_regions("// font-size: 12px is deliberate").strip() == ""
+    assert _mask_non_string_regions("/* font-size: 12px */").strip() == ""
+    # A regex literal carrying a lone quote must not open a string and swallow
+    # the rest of the file (components.js's escapeHtml chain does exactly this).
+    masked = _mask_non_string_regions("s.replace(/\"/g, '&quot;');\nq = 'font-size: 9px';")
+    assert masked.splitlines()[1].strip() == "font-size: 9px"
+    # Line numbering is preserved across a multi-line template literal.
+    assert _js_scale_literals('const t = `\n  <div style="font-size: 32px">\n`;') == [
+        (2, "font-size: 32px")
+    ]
+
+
+def test_js_scale_literal_scanner() -> None:
+    assert _js_scale_literals("a = 'font-size: 32px;'") == [(1, "font-size: 32px")]
+    assert _js_scale_literals("a = 'font-size: 0.85rem;'") == [(1, "font-size: 0.85rem")]
+    assert _js_scale_literals("a = 'font-size: var(--text-4xl);'") == []
+    assert _js_scale_literals("a = 'font-size: inherit;'") == []
+    assert _js_scale_literals("a = 'font-weight: 600;'") == [(1, "font-weight: 600")]
+    assert _js_scale_literals("a = 'font-weight: bold;'") == [(1, "font-weight: bold")]
+    assert _js_scale_literals("a = 'font-weight: var(--weight-semibold);'") == []
+    assert _js_scale_literals("a = 'border-radius: 4px;'") == [(1, "border-radius: 4px")]
+    assert _js_scale_literals("a = 'border-radius: 50%;'") == []
+    assert _js_scale_literals("a = 'border-radius: 0;'") == []
+    assert _js_scale_literals("a = 'border-radius: var(--radius-md) 0 0 var(--radius-md);'") == []
+    # Spacing is exempt here exactly as it is in check (d).
+    assert _js_scale_literals("a = 'width: 100px; margin: 8px 0;'") == []
+    assert _js_scale_literals("a = 'font-size: 9px;' // hygiene-allow-scale: x") == []
+
+
+def test_ariel_retired_name_scanners() -> None:
+    """The definition and reference regexes hit definitions only, score never."""
+    assert _ARIEL_SCALE_DEFINITION_RE.findall("  --ariel-text-sm: 14px;") == ["--ariel-text-sm:"]
+    assert _ARIEL_SCALE_DEFINITION_RE.findall("  --transition-fast: 150ms;") == [
+        "--transition-fast:"
+    ]
+    # A surviving *reference* is check (b)'s business, not this one's.
+    assert _ARIEL_SCALE_DEFINITION_RE.findall("  color: var(--transition-fast);") == []
+    assert _ARIEL_SCALE_DEFINITION_RE.findall("  color: var(--ariel-text-sm, 14px);") == []
+    # The sanctioned extension tokens are exempt on both sides.
+    assert _ARIEL_SCALE_DEFINITION_RE.findall("  --ariel-score-high-bg: red;") == []
+    assert _ARIEL_VAR_USE_RE.findall("color: var(--ariel-score-high);") == []
+    assert _ARIEL_VAR_USE_RE.findall("color: var(--ariel-space-3);") == ["var(--ariel-space-3"]
+
+
+def test_ariel_scale_layer_stays_retired() -> None:
+    """ARIEL's retired local scale layer may not grow back.
+
+    Three prohibitions, none of which check (d) can express (it reads
+    declaration values in ``.css`` files only):
+
+    - No ``--ariel-(text|space|radius|leading|z)-*`` or ``--transition-*``
+      custom property is *defined* anywhere in ARIEL's CSS. Redefining the
+      retired scale is how a parallel vocabulary comes back even while every
+      individual declaration value dutifully reads ``var(--something)``.
+    - No ``var(--ariel-...)`` reference survives in ARIEL's JS, where a
+      dangling reference is otherwise easy to miss.
+    - No font-size/font-weight/border-radius literal appears inside a JS
+      string literal — the inline ``style=``/``cssText`` strings that are
+      check (d)'s blind spot.
+
+    ``--ariel-score-*`` is exempt in all three: those badge colors are
+    generator-emitted extension tokens (they are declared in ``tokens.css``
+    like any other token), not remnants of the local layer. Only the third
+    prohibition carries a ``hygiene-allow-scale`` escape, mirroring check
+    (d); the first two have none, because a retired name always has a fleet
+    spelling to migrate to.
+    """
+    offenders: list[str] = []
+
+    for path in _ariel_files(".css"):
+        text = path.read_text(encoding="utf-8")
+        without_comments = _CSS_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+        for lineno, line in enumerate(without_comments.splitlines(), start=1):
+            for match in _ARIEL_SCALE_DEFINITION_RE.findall(line):
+                offenders.append(f"{_relpath(path)}:{lineno}: retired scale definition {match}")
+
+    for path in _ariel_files(".js"):
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for match in _ARIEL_VAR_USE_RE.findall(line):
+                offenders.append(f"{_relpath(path)}:{lineno}: retired scale reference {match})")
+        for lineno, hit in _js_scale_literals(text):
+            offenders.append(f"{_relpath(path)}:{lineno}: inline-style scale literal {hit}")
+
+    assert not offenders, (
+        "ARIEL's retired --ariel-*/--transition-* scale layer is growing back — "
+        "use the fleet scales instead (var(--text-*/--weight-*/--leading-*/"
+        "--radius-*/--space-*/--z-*/--duration-*)); --ariel-score-* is the only "
+        "sanctioned --ariel- name:\n" + "\n".join(offenders)
     )

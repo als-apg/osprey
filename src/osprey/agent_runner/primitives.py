@@ -136,7 +136,8 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
     Reads ``config.yml`` and runs the same resolver ``osprey chat``
     uses, so test routing matches production exactly.  Surfaces any unexpected
     error (missing config, YAML parse failure, resolver import failure) rather
-    than masking it as ``None``.
+    than masking it as ``None`` — with one carve-out, for the telemetry
+    credential a deploy has not issued yet (see below).
 
     Args:
         project_dir: Path to an initialized OSPREY project — the render holding
@@ -146,6 +147,10 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
             the benchmark runner.
     """
     from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.build.claude_code_telemetry import (
+        ObservabilityCredentialError,
+        telemetry_creds_are_store_issued,
+    )
 
     # load_provider_spec reads config.yml and expands ${VAR} in provider config
     # (e.g. a custom provider's base_url: ${ARGO_PROD_URL}) against an
@@ -153,7 +158,30 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
     # from the repo's secrets zone (see _secrets_dir), which is the same pairing
     # the dispatch worker and `osprey chat` read the spec with. The e2e/benchmark
     # override is applied last so it still wins (and is inert in production).
-    spec = load_provider_spec(project_dir, env_dir=_secrets_dir(project_dir), provider=provider)
+    env_dir = _secrets_dir(project_dir)
+    try:
+        spec = load_provider_spec(project_dir, env_dir=env_dir, provider=provider)
+    except ObservabilityCredentialError as exc:
+        # Keep this arm ahead of any broader one added later: it subclasses
+        # ValueError.
+        #
+        # Resolving the provider resolves the telemetry block with it, so a
+        # store-issued credential that no deploy has minted yet arrives here as
+        # a failure to read the provider — and every agent this project spawns
+        # would die on it, on a project whose only fault is never having been
+        # started. Run without telemetry instead; losing an agent run's traces
+        # is not a reason to withhold the run. Anything else — a credential an
+        # operator has to set, or one that is simply blank — keeps raising.
+        if not telemetry_creds_are_store_issued(exc):
+            raise
+        logger.warning(
+            "Telemetry is off for this run — `osprey up` issues %s when it starts the "
+            "telemetry store, and this project has not been started yet",
+            ", ".join(exc.unresolved_vars),
+        )
+        spec = load_provider_spec(
+            project_dir, env_dir=env_dir, provider=provider, include_telemetry=False
+        )
     return _apply_e2e_overrides(spec)
 
 

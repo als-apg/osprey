@@ -20,8 +20,9 @@ from osprey.interfaces.web_terminal.claude_memory_service import (
 
 @pytest.fixture()
 def fake_home(tmp_path, monkeypatch):
-    """Redirect Path.home() to a temp directory."""
+    """Redirect Path.home() to a temp directory (and unset CLAUDE_CONFIG_DIR)."""
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     return tmp_path
 
 
@@ -67,6 +68,22 @@ class TestResolveMemoryDir:
         d = s._resolve_memory_dir()
         # The .. should be resolved away
         assert ".." not in str(d)
+
+    def test_honours_claude_config_dir(self, tmp_path, project_dir, monkeypatch):
+        """Memory lives under ``$CLAUDE_CONFIG_DIR/projects``, not ``~/.claude``.
+
+        The per-user web-terminal container sets ``CLAUDE_CONFIG_DIR`` and
+        ``HOME`` to one mounted volume; the ``~/.claude`` spelling then names a
+        directory Claude Code never writes, and the memory gallery reads empty.
+        """
+        config_dir = tmp_path / "data" / "claude-config"
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: config_dir))
+
+        d = ClaudeMemoryService(project_dir)._resolve_memory_dir()
+
+        assert d.parent.parent == config_dir / "projects"
+        assert d.name == "memory"
 
 
 # ---------------------------------------------------------------------------

@@ -48,6 +48,12 @@ You have access to these ARIEL MCP tools:
 - **Use SQL queries** for structural questions (counting, date ranges, metadata filtering)
 - **Use `exclude_entry_ids`** on subsequent searches to avoid seeing the same entries
 - **Reformulate queries** based on vocabulary and terminology found in results
+- **Expansion is on by default** when a facility vocabulary is configured
+  (`capabilities` reports `vocabulary.expand_by_default`) — `keyword_search` and
+  `semantic_search` expand shorthand and acronyms; pass `expand_query: true`/`false`
+  to force or suppress it, and check `expanded_terms` for what was applied.
+  `keyword_search` also accepts `*` globs (3+ literal characters, e.g. `BPM*`) and
+  `/regex/` tokens for control-system names
 - **Use `browse`** with date filters for chronological exploration
 - **Use `filter_options`** to discover authors and source systems for filtering
 

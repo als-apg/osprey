@@ -53,6 +53,13 @@ Mock Mode (Development & R&D)
 
    channel_value = await connector.read_channel('ANY:MADE:UP:NAME')
    print(f"Value: {channel_value.value} {channel_value.metadata.units}")
+
+   # A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer
+   # state index, with the state names alongside it:
+   mode = await connector.read_channel('SR:DIAG:MODE')
+   print(f"{mode.value} means {mode.metadata.enum_label}")   # e.g. 2 means ACQUIRING
+   print(mode.metadata.enum_labels)  # ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
+
    await connector.disconnect()
 
 Production Mode (EPICS)
@@ -105,6 +112,84 @@ archiver (synthetic data) to the EPICS Archiver Appliance the same way:
 
    Write operations require explicit opt-in. See :ref:`write-safety-config` below for the
    ``writes_enabled`` setting that controls write permissions.
+
+PVAccess Channels (PVA)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``epics`` connector speaks Channel Access by default. Some data -- camera
+frames above all -- is served only over pvAccess, EPICS' second protocol. List
+those addresses as glob patterns under ``pva_channels`` and the connector reads
+them through pvAccess, while every other address keeps using Channel Access. One
+deployment covers both:
+
+.. code-block:: yaml
+
+   control_system:
+     type: epics
+     connector:
+       epics:
+         timeout: 5.0
+         pva_channels:
+           - "*:IMAGE*"
+           - "BL:CAM?:ARRAY"
+         pva_gateway:
+           address: pvagw.facility.edu
+           port: 5075               # default
+           use_name_server: false
+         gateways:
+           read_only: { address: cagw.facility.edu, port: 5064 }
+
+Patterns are matched with ``fnmatch.fnmatchcase`` -- case-sensitive, and the
+same on every operating system. Addresses stay exactly as you write them: no
+``pva://`` prefix is ever added, so the limits database, channel databases and
+audit records keep matching the strings they already use. An absent or empty
+``pva_channels`` list is a complete no-op -- the connector behaves exactly as it
+did before and never even imports the pvAccess client.
+
+``pva_gateway`` is a single flat block, unlike the ``read_only`` /
+``write_access`` pair on the Channel Access side, because pvAccess is read-only
+here. The block is only consulted when ``pva_channels`` is non-empty, and it becomes
+``EPICS_PVA_ADDR_LIST`` in the form ``address:port`` -- or
+``EPICS_PVA_NAME_SERVERS``, same form, when ``use_name_server`` is true, which
+makes the client connect over TCP instead of searching by UDP broadcast (that is
+what an SSH tunnel needs). Whenever the block is present,
+``EPICS_PVA_AUTO_ADDR_LIST`` is forced to ``"NO"`` -- the same containment the
+Channel Access side applies, so a deployment deliberately pinned to one gateway
+cannot also broadcast-discover servers on the local subnet.
+
+**PVA channels are read-only.** A write to an address matching a
+``pva_channels`` pattern comes straight back as a blocked
+``ChannelWriteResult`` naming the reason, with nothing sent on the network. That
+is a deliberate safety decision rather than an unfinished feature: a supervised
+pvAccess write path is separate work with its own review, and until it exists a
+refusal is the honest answer.
+
+pvAccess **RPC services** are refused too, and for a different reason. Code the
+agent runs through the Python executor cannot call ``Context.rpc(...)``: it is
+blocked at runtime and no approval can let it through, because an rpc payload
+carries an arbitrary request -- there is no way to tell a read from a write, and
+nothing for limits checking to validate. Use ``channel_read`` and
+``channel_write`` for the operation you actually need.
+
+A camera frame is almost always too large to return to the agent as raw
+numbers; see `Reading Large Values`_ below for what comes back instead.
+
+.. note::
+
+   Compressed NTNDArray frames are not decoded. When a camera's areaDetector
+   pvAccess plugin is configured with a codec (blosc, lz4, jpeg), the read fails
+   with an error naming the codec and the remedy -- disable pvAccess compression
+   for that channel -- rather than reshaping a compressed blob into a
+   plausible-looking image full of meaningless statistics.
+
+.. note::
+
+   The pvAccess client (``p4p``) ships with OSPREY as an ordinary dependency, so
+   there is normally nothing to install. The exception is a bare-metal install on
+   arm64 Linux, where ``p4p``, ``pvxslibs`` and ``epicscorelibs`` publish no
+   wheels and pip builds them from source: that host needs a C toolchain
+   (a compiler and ``make``) present. OSPREY's own project images already stage
+   one, so containerized deployments are unaffected.
 
 MongoDB Archiver
 ~~~~~~~~~~~~~~~~
@@ -163,6 +248,71 @@ provides rather than PyPI; without it, ``connect()`` fails with a clear
    ``callback`` is accepted but has no DOOCS equivalent, so it performs a
    readback and reports the level as ``readback``.
 
+
+Reading Large Values
+--------------------
+
+Array-valued channels -- camera frames, waveforms, orbit vectors -- are often
+far too big to hand to the agent as raw numbers. ``channel_read`` applies a size
+rule to every read, whatever protocol answered it: values within an element
+budget come back inline as JSON lists, and anything larger is saved to the
+artifact gallery and reported as a summary plus a handle to it. A Channel Access
+waveform takes exactly the same path as a pvAccess camera frame.
+
+.. code-block:: yaml
+
+   control_system:
+     read_inline_max_elements: 2000        # per-value element budget
+     channel_read_artifact_retention: 20   # readings kept per channel
+
+``read_inline_max_elements`` (default 2000) is the per-value budget. The default
+is the same inline budget OSPREY already plots against, which keeps ordinary
+waveforms and orbit vectors inline while camera frames take the artifact path.
+Only arrays are measured -- strings and single scalars are always inline,
+however long they are.
+
+One ``channel_read`` call also has an aggregate budget of four times that
+number, spent in request order, so a batch of individually small arrays cannot
+add up to a flood. Every withheld value says which of the two limits it hit, as
+``artifact_reason``:
+
+``per_value_threshold``
+    The value on its own is over ``read_inline_max_elements``. It will never
+    come back inline.
+
+``aggregate_budget``
+    The value is small enough by itself, but earlier channels in the same
+    request had already spent the call's budget. Reading this channel in a
+    smaller batch returns it inline.
+
+The summary that replaces the value reports shape, dtype and element count, plus
+min/max/mean for numeric data, along with the artifact's id and its
+``data_file`` path. What gets saved depends on the shape:
+
+- **1-D** -- an interactive chart in the artifact gallery, with the values as
+  JSON in ``data_file``. The x axis is the sample index, not wall-clock time:
+  one read of an array carries a single timestamp.
+- **2-D and 3-D with a color axis** -- a PNG preview as the gallery image, with the raw array
+  beside it as a ``.npy`` file (``data_file``). The preview is auto-scaled:
+  brightness is relative to that frame's own minimum and maximum, so it carries
+  no absolute units. ``data_file`` is the authoritative copy of the values.
+- **Layouts with no honest rendering** -- four dimensions and up, or a 3-D stack
+  with no color axis -- are still saved as a loadable ``.npy``, just without a
+  preview image.
+
+The agent reaches the numbers by loading ``data_file`` inside ``execute``:
+``numpy.load(data_file)`` returns the array with its original shape and dtype,
+and ``json.load`` opens a 1-D series file. If the artifact store cannot write at
+all, the read is still reported as successful, with an ``artifact_error`` field
+in place of the handle -- the machine did answer, and reporting the read as
+failed would be a false alarm.
+
+``channel_read_artifact_retention`` (default 20) bounds how far these readings
+pile up: only the newest N **unpinned** artifacts per channel are kept, and
+older ones are pruned as new readings are saved. Pinning a reading exempts it --
+a pinned entry is never pruned and never occupies a slot in the window either.
+Set the key to ``0`` to keep everything, remembering that an unattended polling
+loop will then grow the gallery without bound.
 
 Write Verification
 ------------------
@@ -243,9 +393,28 @@ All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.b
 ``tolerance_absolute`` takes priority over ``tolerance_percent`` (percentage of value).
 Each channel inherits any field it does not set from the ``defaults`` block, and a
 channel's own value always overrides it. ``writable`` defaults to ``true``; a channel's
-verification falls back to the ``defaults`` block's verification and then to the global
-``control_system.write_verification.default_level``. Set ``"writable": false`` -- on a
-channel, or in ``defaults`` to lock everything down by default -- to block writes.
+verification falls back to the ``defaults`` block's verification. Set ``"writable": false``
+-- on a channel, or in ``defaults`` to lock everything down by default -- to block writes.
+
+**Where the level comes from.** Passing no ``verification_level`` means "no opinion",
+not "no verification". The connector then resolves the level for that channel through
+four layers, using the first one that supplies a value:
+
+1. the channel's own ``verification`` entry in the limits database,
+2. the limits database ``defaults.verification`` block,
+3. ``control_system.write_verification`` in ``config.yml``,
+4. the built-in fallback: ``callback``, with no tolerance.
+
+The tolerance resolves through the same four layers, and it keeps doing so when the
+level was passed explicitly, but a layer only supplies a tolerance when the level it
+resolves to is ``readback``. Asking for ``readback`` on a channel whose limits entry
+declares ``level: readback`` with ``tolerance_percent: 1.0`` verifies at 1%, not at
+the built-in default -- pass ``tolerance`` as well to override that too.
+
+Batch writes resolve the same way. ``write_multiple_channels()`` carries one level for
+the whole batch, so when the caller omits it the keyword is left off each per-channel
+write and every channel resolves its own. This is why ``osprey.runtime.write_channels``
+verifies exactly like ``osprey.runtime.write_channel``.
 
 .. _write-safety-config:
 
@@ -313,6 +482,68 @@ Implementing Custom Connectors
 Subclass :class:`~osprey.connectors.control_system.base.ControlSystemConnector` and implement the abstract methods: ``connect``, ``disconnect``, ``read_channel``, ``write_channel``, ``read_multiple_channels``, ``subscribe``, ``unsubscribe``, ``get_metadata``, ``validate_channel``.
 
 You may also override the non-abstract ``write_multiple_channels()`` method if your backend benefits from atomic batch writes (e.g., disabling lattice recalculation between writes in a simulator). The default implementation writes sequentially via ``write_channel()``.
+
+**The verification arguments are optional.** Declare them as::
+
+   async def write_channel(
+       self,
+       channel_address: str,
+       value: Any,
+       timeout: float | None = None,
+       verification_level: str | None = None,
+       tolerance: float | None = None,
+   ) -> ChannelWriteResult:
+
+``None`` is a sentinel meaning "the caller did not specify a level" -- deliberately
+different from the ``"none"`` level, which means "write, and do not verify". When
+``verification_level`` arrives as ``None``, hand the channel and the value to the
+inherited ``_get_verification_config()`` helper, which walks the four layers described
+under `Write Verification`_ and returns the level and tolerance to use.
+
+A connector written before the sentinel existed -- one declaring a concrete default such
+as ``verification_level: str = "callback"`` -- keeps working unchanged. The batch path
+omits the keyword rather than forwarding ``None``, so that connector's own default still
+applies.
+
+**Three verification fields are optional too.**
+:class:`~osprey.connectors.control_system.base.WriteVerification` accepts, beyond the
+level and the readback value:
+
+- ``readback_alarm_status`` -- the alarm name the readback carried, as the control
+  system spells it (for EPICS, ``"NO_ALARM"``, ``"HIHI"``, and so on).
+- ``readback_alarm_severity`` -- the numeric severity: ``0`` healthy, ``1`` MINOR,
+  ``2`` MAJOR, ``3`` INVALID.
+- ``failure_kind`` -- a short tag for *why* verification failed, when the reason is
+  more specific than "the value did not match". A readback that raised is reported as
+  ``"readback_failed"``; a plain value mismatch leaves the field unset.
+
+Leaving a field at ``None`` means "not reported", which is deliberately different from a
+severity of ``0`` ("reported, and healthy"). A connector whose backend has no alarm
+concept leaves all three unset and remains fully supported.
+
+**Two metadata fields are enum-only.**
+:class:`~osprey.connectors.control_system.base.ChannelMetadata` accepts, beside units
+and precision:
+
+- ``enum_labels`` -- every state the channel can report, as a list of names in index
+  order (EPICS ``ZRST``..``FFST``, a PVAccess NTEnum's ``choices``).
+- ``enum_label`` -- the name of the state *this* reading is in.
+
+They belong to enum-typed records only (``mbbi``/``mbbo``/``bi``/``bo``, ``NTEnum``,
+and whatever your control system calls the same thing) and stay ``None`` everywhere
+else -- which is how a consumer tells a state channel from a numeric one. Report the
+**integer index** as ``ChannelValue.value`` and put the name here, rather than making
+the value a string: the reading then has one machine-readable type whichever protocol
+served it, and the operator-facing name is carried rather than lost. Populate them
+best-effort -- a control system that cannot report the label list, or an index outside
+it, leaves the fields unset and the read still succeeds.
+
+.. note::
+
+   Archiver connectors are a different contract: historical enum samples arrive as
+   **strings** in the ``value`` column and must not be coerced (see `Archiver
+   Connectors`_ below). A live read reports the index plus these labels; an archived
+   series reports what the archiver stored.
 
 Your connector must return the standard data models from ``osprey.connectors.control_system.base``: :class:`~osprey.connectors.control_system.base.ChannelValue`, :class:`~osprey.connectors.control_system.base.ChannelMetadata`, :class:`~osprey.connectors.control_system.base.ChannelWriteResult`, and :class:`~osprey.connectors.control_system.base.WriteVerification`.
 
@@ -404,6 +635,11 @@ a channel's own dtype flows straight through, and only combining a non-numeric
 channel with a numeric one in the same query promotes the shared ``value`` column to
 a mixed dtype. A custom connector must resist forcing ``value`` to ``float64`` "for
 consistency" -- doing so silently corrupts every enum/status channel it touches.
+
+This is deliberately not the live-read contract, where an enum reads as its index
+and the label travels in ``enum_label``. An archiver reports what its backend
+recorded, and what these backends recorded is the string; converting one form into
+the other would require a label list the archive does not carry.
 
 Query windows must also be normalized to UTC before touching the wire: a naive
 (timezone-less) ``start_date``/``end_date`` is facility-local, matching how the rest

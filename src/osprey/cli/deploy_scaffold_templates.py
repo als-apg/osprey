@@ -1,21 +1,23 @@
-"""Templates and render contexts for ``osprey scaffold ci``.
+"""Templates and render contexts for the ``osprey scaffold`` verbs.
 
-The scaffolding verb emits two files into a deployment repo — a CI pipeline and
-a post-deploy health check — and both are Jinja templates under
-``osprey/templates/deploy/``. This module owns three things the verb needs and
-nothing else: which template a platform selects, what context each template
-expects, and how to turn a profile into that context.
+Scaffolding emits generated files into a deployment repo — a CI pipeline, a
+post-deploy health check, a systemd unit — and every one of them is a Jinja
+template under ``osprey/templates/deploy/``. This module owns three things the
+verbs need and nothing else: which template a platform selects, what context
+each template expects, and how to turn a profile into that context.
 
 The split matters because the templates are held to a byte-for-byte golden
 (``tests/deployment/goldens/``). Layout decisions — column alignment, comment
 wording, divider widths — belong to the templates; the facts a facility supplies
 belong here, where they can be derived once and tested directly.
 
-Every input is a profile fact. Deployment coordinates come from the ``deploy:``
-block via :func:`osprey.cli.build_profile_deploy.parse_deploy_block`; everything
-else is read from the profile proper. The only value that is not a profile fact
-is the project name, which is the facility repo's directory name and therefore
-known only at emission time.
+Nearly every input is a profile fact. Deployment coordinates come from the
+``deploy:`` block via
+:func:`osprey.cli.build_profile_deploy.parse_deploy_block`; everything else is
+read from the profile proper. The exceptions are the handful of values a
+profile cannot know — the repo's directory name, and, for the systemd unit, the
+two absolute paths that describe the machine the unit will run on — and each
+one is passed in at emission time rather than guessed at here.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 import osprey
 from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
+from osprey.utils.shell_resolver import resolve_shell_command
 
 from .build_profile_deploy import DeployConfig
 from .build_profile_emit import effective_web_terminals
@@ -46,11 +49,32 @@ CI_TEMPLATES: dict[str, str] = {"gitlab": "gitlab-ci.yml.j2"}
 #: The post-deploy health check, emitted for every platform.
 VERIFY_TEMPLATE: str = "verify.sh.j2"
 
+#: The systemd unit that brings a deployment up at boot.
+SYSTEMD_TEMPLATE: str = "osprey.service.j2"
+
 #: Provenance markers the emitted files carry. A file whose first lines name one
 #: of these was written by the scaffolder and may be re-emitted; anything else is
 #: treated as hand-written.
 CI_MARKER: str = "deploy/gitlab-ci"
 VERIFY_MARKER: str = "deploy/verify"
+SYSTEMD_MARKER: str = "deploy/systemd"
+
+#: What the emitted unit is called. Fixed rather than chosen at emission time:
+#: the unit's own header tells the operator which file to copy and which name to
+#: pass ``systemctl``, and a name the caller could change is a name that header
+#: could get wrong.
+SYSTEMD_UNIT_NAME: str = "osprey.service"
+
+#: How long systemd may wait for ``osprey up -d``. A oneshot gets 90 seconds by
+#: default, which a start that pulls images first will exceed — and a start
+#: timeout kills the deploy halfway through. Fifteen minutes is long enough for
+#: a cold pull on a slow link and still short enough to end a genuinely wedged
+#: start rather than hang the boot on it.
+SYSTEMD_START_TIMEOUT_SEC: int = 900
+
+#: Where the unit's ``Documentation=`` points. The deployment how-to is the page
+#: that covers what a host needs before the unit can bring a stack up.
+DEPLOY_DOCS_URL: str = "https://als-apg.github.io/osprey/how-to/deploy-a-facility.html"
 
 #: The CI-only variable holding the deploy host's SSH private key. Fixed rather
 #: than profile-named: it authenticates the pipeline to the host and is never
@@ -83,6 +107,13 @@ USERS_ENV_NAME: str = USERS_ENV_FILENAME
 #: Probes run on the deploy host itself, so every target is loopback regardless
 #: of how the outside world reaches the service.
 PROBE_HOST: str = "localhost"
+
+#: Where a per-user web terminal answers a probe. Not ``/``: the application
+#: asks every caller for a credential, and the deploy host's probe has none, so
+#: ``/`` would report a perfectly healthy terminal as down. This route is the
+#: one the app's auth gate lets through unauthenticated, for exactly this kind
+#: of liveness question.
+TERMINAL_LIVENESS_PATH: str = "/health"
 
 
 @dataclass(frozen=True)
@@ -212,7 +243,36 @@ class VerifyContext:
         return any(probe.kind == "tcp" for group in self.groups for probe in group.probes)
 
 
-def render(template_name: str, context: CIContext | VerifyContext) -> str:
+@dataclass(frozen=True)
+class SystemdContext:
+    """Everything ``osprey.service.j2`` renders from.
+
+    Frozen, and every field a plain string: a unit file is read by systemd on a
+    host the scaffolder may never see, so nothing here may be recomputed from
+    the local machine after the caller has decided what it says.
+
+    Attributes:
+        facility_name: The profile's ``name:`` — the unit's ``Description``.
+        osprey_version: Installed framework version, for the provenance header.
+        repo_root: Absolute path of the deployment repo on the deploy host, and
+            the unit's ``WorkingDirectory``. Every ``osprey`` verb finds the
+            deployment by walking up from where it runs, and systemd starts a
+            unit in no particular directory.
+        osprey_bin: Absolute path to the ``osprey`` executable on that host. A
+            unit inherits a stripped ``PATH``, so a bare command name is not
+            reliably resolvable at boot.
+        timeout_start_sec: Seconds systemd allows ``osprey up -d`` — see
+            :data:`SYSTEMD_START_TIMEOUT_SEC`.
+    """
+
+    facility_name: str
+    osprey_version: str
+    repo_root: str
+    osprey_bin: str
+    timeout_start_sec: int = SYSTEMD_START_TIMEOUT_SEC
+
+
+def render(template_name: str, context: CIContext | VerifyContext | SystemdContext) -> str:
     """Render one deploy template.
 
     Args:
@@ -237,6 +297,8 @@ def render(template_name: str, context: CIContext | VerifyContext) -> str:
         state_dir=STATE_DIR_PATH,
         verify_path=VERIFY_PATH,
         users_env_name=USERS_ENV_NAME,
+        unit_name=SYSTEMD_UNIT_NAME,
+        docs_url=DEPLOY_DOCS_URL,
     )
 
 
@@ -325,6 +387,12 @@ def build_verify_context(
                 divider="Web tier",
                 heading="Web terminal",
                 probes=web_probes,
+                comment=(
+                    "The landing page is nginx's own file, served before anything asks",
+                    "the caller for a credential. A terminal is the application, which",
+                    "answers an uncredentialed GET / with a 401 — so it is probed at",
+                    f"{TERMINAL_LIVENESS_PATH}, the route its auth gate lets through.",
+                ),
             )
         )
 
@@ -344,6 +412,43 @@ def build_verify_context(
         osprey_version=osprey_version or osprey.__version__,
         groups=groups,
         runs_verify_on_up=_web_terminals(profile) is not None,
+    )
+
+
+def build_systemd_context(
+    profile: dict[str, Any],
+    repo_root: Path,
+    osprey_bin: str | None = None,
+    osprey_version: str | None = None,
+) -> SystemdContext:
+    """Derive the systemd unit's context from a profile and a machine.
+
+    Args:
+        profile: The resolved raw profile dict.
+        repo_root: The deployment repo's root. Resolved to an absolute path,
+            because a unit is started from no directory in particular; a caller
+            emitting a unit for a *different* host passes that host's path,
+            which is absolute already and travels through untouched.
+        osprey_bin: Absolute path to the ``osprey`` executable on the host that
+            will run the unit. Defaults to the one that would answer here,
+            resolved through the same helper the web terminal uses for a
+            stripped ``PATH``.
+        osprey_version: Version for the provenance header; defaults to the
+            installed framework's.
+
+    Returns:
+        The context :data:`SYSTEMD_TEMPLATE` renders against.
+
+    Raises:
+        FileNotFoundError: If no ``osprey_bin`` was given and no ``osprey``
+            executable can be found — a unit naming a command that is not
+            there would fail at boot, where nobody is watching.
+    """
+    return SystemdContext(
+        facility_name=str(profile.get("name", repo_root.name)),
+        osprey_version=osprey_version or osprey.__version__,
+        repo_root=str(repo_root.resolve()),
+        osprey_bin=osprey_bin or resolve_shell_command("osprey"),
     )
 
 
@@ -493,7 +598,18 @@ def _web_terminals(profile: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
-    """Probe the nginx landing page and one terminal per roster user."""
+    """Probe the nginx landing page and one terminal per roster user.
+
+    The two halves answer at different paths, and the difference is not
+    cosmetic. The landing page is nginx's own file, served before anything
+    asks the caller for a credential, so ``/`` is exactly what an operator
+    opening the deployment sees. A per-user terminal is the application, and
+    the application now refuses an uncredentialed request to ``/`` with a 401;
+    a probe pointed there would report every healthy terminal as down. Each
+    terminal is probed at its unauthenticated liveness route instead, which
+    is the same route its container healthcheck uses and the only one the
+    app's auth gate lets through without a credential.
+    """
     web = _web_terminals(profile)
     if web is None:
         return ()
@@ -518,7 +634,14 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
             continue
         if not name:
             continue
-        probes.append(Probe(kind="http", label=f"terminal ({name})", port=base + index))
+        probes.append(
+            Probe(
+                kind="http",
+                label=f"terminal ({name})",
+                port=base + index,
+                path=TERMINAL_LIVENESS_PATH,
+            )
+        )
 
     return tuple(sorted(probes, key=lambda probe: probe.port))
 

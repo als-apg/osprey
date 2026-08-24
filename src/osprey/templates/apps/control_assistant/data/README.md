@@ -7,7 +7,7 @@ edit them freely.
 ## Directory Structure
 
 As shipped by the preset, the channel-finder artifacts are staged for all tiers
-and all paradigms:
+and all three file-backed paradigms:
 
 ```
 data/
@@ -22,6 +22,10 @@ data/
 │   └── cross_paradigm/queries/           # Staged query sets, one per tier
 ├── channel_limits.json                    # Per-channel write limits
 ├── machine_state_channels.json            # Channels shown in the machine-state view
+├── demo_machine.ttl                       # Knowledge-graph corpus (graph paradigm)
+├── ariel/
+│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
+│   └── README.md                         # Vocabulary format walkthrough
 ├── facility_knowledge/                    # Markdown knowledge bundle
 ├── lattice/                               # Accelerator lattice files
 └── simulation/                            # Mock-connector scenarios
@@ -33,13 +37,16 @@ selected. It copies the active paradigm's database to a flat
 flat `benchmarks/queries.json`, and removes the `tiers/` and
 `benchmarks/cross_paradigm/` subtrees. `raw/` survives only for `in_context`
 builds — the CSV format cannot express a nested database, so it is dead weight
-for the other two paradigms.
+for the other paradigms.
 
 ## Database Paradigms
 
 `channel_finder_mode` in the build profile picks one of three ways to organize
-the same channel namespace. All three describe addresses in the
-`RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD` grammar.
+the same channel namespace as a file. All three describe addresses in the
+`RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD` grammar. The mode's fourth value,
+`graph`, is not one of them: it answers from the facility knowledge graph
+rather than a channel database. Its corpus is `demo_machine.ttl` in this
+directory, seeded into the `services.graphdb` store.
 
 ### `in_context` — flat structure
 

@@ -46,6 +46,7 @@
   <script src="{{ prefixed(vendor_url('xterm.js', '/static/vendor/xterm.min.js')) }}"></script>
   <script src="{{ prefixed(vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js')) }}"></script>
   <script src="{{ prefixed(vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js')) }}"></script>
+  <script src="{{ prefixed(vendor_url('xterm addon-clipboard', '/static/vendor/addon-clipboard.min.js')) }}"></script>
 
   <!-- highlight.js: data-href-dark/light let theme-manager.js swap the stylesheet at runtime -->
   <link id="hljs-theme" rel="stylesheet"
@@ -76,6 +77,7 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/palette.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/feedback-modal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
@@ -98,7 +100,44 @@
            whereas everything on the right is something you can DO. It used to
            render as a second grey chip beside the user name, where the two read
            as a pair of unrelated badges. -->
-      {% if app_name %}<span class="header-deployment" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
+      {#- Where the deployment knows a user, this chip is the identity menu's
+          trigger: operators read the name in the corner as "who am I / where am
+          I" and reach for it to leave. It opens a popover holding the identity
+          and Log out. Without a user (single-user terminals) there is nothing
+          to open, so it stays the plain label it has always been.
+
+          The popover is rendered here rather than built on demand: `#logout-btn`
+          is looked up BY ID by app.js's initLogoutButton() and by
+          palette-boot.js's "Log out" command, so it has to be in the DOM while
+          the menu is closed. Hidden by CSS, not by absence. -#}
+      {% if terminal_user %}
+      <div class="header-identity">
+        <button class="header-deployment header-identity-trigger" id="header-identity-trigger"
+                type="button" aria-haspopup="true" aria-expanded="false"
+                aria-controls="header-identity-menu"
+                title="{{ app_name or terminal_user }} — session menu">
+          <span class="header-identity-label">{{ app_name or terminal_user }}</span>
+          <span class="header-identity-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="header-identity-menu" id="header-identity-menu" role="menu">
+          <div class="header-identity-who">
+            <span class="header-identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
+            <span class="header-identity-who-name">{{ terminal_user }}</span>
+            {% if app_name %}<span class="header-identity-who-sub">{{ app_name }}</span>{% endif %}
+          </div>
+          {#- Only the ACTION depends on landing_url. A user with nowhere to
+              return to is still identified: the who-line states a fact. -#}
+          {% if landing_url %}
+          <button class="header-identity-logout" id="logout-btn" type="button" role="menuitem"
+                  data-landing-url="{{ landing_url }}"
+                  title="Log out {{ terminal_user }} and return to the landing page"
+                  aria-label="Log out {{ terminal_user }} and return to the landing page">
+            <span class="header-identity-logout-icon" aria-hidden="true">&#128682;</span>Log out
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% elif app_name %}<span class="header-deployment" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
     </div>
     <div class="header-right">
       <div class="header-actions">
@@ -162,42 +201,26 @@
                 <!-- One pill per theme family, rendered by display-menu.js -->
               </div>
             </div>
-            <!-- Session footer: who you are, then the two actions this card
-                 offers on the terminal itself. Identity used to sit in a header
-                 chip of its own whose popover held Log out; with that action
-                 moved here, the chip would have been a popover wrapped around a
-                 static label, so the name folded in beside the action it
-                 qualifies. An operator on several terminals can still confirm
-                 WHICH deployment they are about to leave before they leave it.
+            <!-- Action row: Settings, then Log out. The identity line moved to
+                 the header identity chip, and Log out lives in BOTH places —
+                 the chip is where operators reach for it (the name in the
+                 corner reads as "who am I"), while this row keeps the way out
+                 discoverable from the card they already have open. The chip's
+                 copy owns `#logout-btn` (app.js's initLogoutButton() and
+                 palette-boot.js both resolve that id), so this one carries its
+                 own id; initLogoutButton() binds both.
 
-                 Rendered only when the server knows a user
-                 (OSPREY_TERMINAL_USER), i.e. multi-user deployments. -->
-            {% if terminal_user %}
-            <div class="display-menu-identity">
-              <span class="display-menu-identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
-              <span class="display-menu-identity-name">{{ terminal_user }}</span>
-              {% if app_name %}<span class="display-menu-identity-sub">{{ app_name }}</span>{% endif %}
-            </div>
-            {% endif %}
-            <!-- Both buttons keep the contracts they arrived with, so this is a
-                 placement change and nothing else: Settings keeps
-                 `data-drawer-trigger` (settings.js's warning gate is the sole
-                 open path; app.js mirrors `.active` onto it), and Log out keeps
-                 `#logout-btn` + `data-landing-url` (app.js's initLogoutButton()
-                 and palette-boot.js's "Log out" command both find it by id).
-
-                 A flex pair, not a 2-column grid: a single-user terminal renders
-                 no logout, and Settings should then fill the row rather than
-                 sit in half of it. Both are present in BOTH ui modes — the
-                 warning gate, not the mode, is what guards expert
-                 configuration. -->
+                 Settings keeps `data-drawer-trigger` (settings.js's warning gate
+                 is the sole open path; app.js mirrors `.active` onto it), and is
+                 present in BOTH ui modes — the warning gate, not the mode, is
+                 what guards expert configuration. -->
             <div class="display-menu-actions">
               <button class="display-menu-settings" id="display-menu-settings" type="button"
                       data-drawer-trigger="settings-drawer" title="Open system settings">
                 <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>Settings
               </button>
               {% if terminal_user and landing_url %}
-              <button class="display-menu-logout" id="logout-btn" type="button"
+              <button class="display-menu-logout" id="display-menu-logout-btn" type="button"
                       data-landing-url="{{ landing_url }}"
                       title="Log out {{ terminal_user }} and return to the landing page"
                       aria-label="Log out {{ terminal_user }} and return to the landing page">
@@ -215,8 +238,9 @@
   <div class="shell-body">
 
     <!-- Left icon rail: one entry per enabled panel + the add-panel control,
-         stacked in a single 74px column. Entries are populated by
-         panel-manager.js through panel-rail.js; the "+" menu by panel-add-menu.js. -->
+         stacked in a single 74px column, with the two non-panel controls
+         pinned to the far end. Entries are populated by panel-manager.js
+         through panel-rail.js; the "+" menu by panel-add-menu.js. -->
     <div class="panel-rail-region">
       <nav class="panel-rail" id="panel-rail" role="tablist" aria-label="Panels">
         <!-- Populated by panel-manager.js -->
@@ -226,6 +250,40 @@
                 title="Add panel" aria-label="Add panel"
                 aria-haspopup="true" aria-expanded="false">&#xff0b;</button>
         <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
+      </div>
+      <!-- Utility cluster: the rail's controls that are not panels. A SIBLING
+           of the nav above, because createRail() replaceChildren()s that node
+           on every render. Separated from the tab group by its own rule and
+           pushed to the far end (bottom in the left column, right edge under
+           a top rail) so the two groups never read as one list.
+           Each control is an icon + label cell like a panel entry: the marks
+           alone did not say what they open. The label is the accessible name
+           (aria-label repeats it verbatim, as the rail entries do); `title`
+           carries the longer phrase the label abbreviates.
+           The docs href is filled in at boot from GET /api/panels.docs_url;
+           the anchor stays hidden until it has one (rail-utility.js). -->
+      <div class="panel-utility" id="panel-utility">
+        <a class="panel-utility-btn" id="panel-docs-link"
+           target="_blank" rel="noopener"
+           title="Documentation" aria-label="Docs" hidden>
+          <span class="panel-utility-icon" data-icon="docs" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 4.7C6.5 3.6 4.6 3.2 2.6 3.4L2.6 11.6C4.6 11.4 6.5 11.8 8 12.9"/>
+              <path d="M8 4.7C9.5 3.6 11.4 3.2 13.4 3.4L13.4 11.6C11.4 11.4 9.5 11.8 8 12.9"/>
+              <path d="M8 4.7L8 12.9"/>
+            </svg>
+          </span>
+          <span class="panel-utility-label">Docs</span>
+        </a>
+        <button class="panel-utility-btn" id="panel-feedback-btn" type="button"
+                title="Send feedback" aria-label="Feedback">
+          <span class="panel-utility-icon" data-icon="feedback" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4.6 2.7H11.4A2.1 2.1 0 0 1 13.5 4.8V9.3A2.1 2.1 0 0 1 11.4 11.4H7.0L3.5 14.1L4.4 11.4A2.1 2.1 0 0 1 2.5 9.3V4.8A2.1 2.1 0 0 1 4.6 2.7Z"/>
+            </svg>
+          </span>
+          <span class="panel-utility-label">Feedback</span>
+        </button>
       </div>
     </div>
 
@@ -306,8 +364,15 @@
          activity-strip.js via panel-manager's setActivityStripHandler seam. -->
     <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
     <div class="status-right">
-      <a class="status-item status-link" id="docs-link" href="https://als-apg.github.io/osprey/"
-         target="_blank" rel="noopener">Docs</a>
+      <!-- Same destination as the rail's Documentation control, under the same
+           rule and in the same shape: href-less and hidden until boot fills in
+           this deployment's web.docs_url from GET /api/panels
+           (feedback-boot.js). A deployment that blanks the key keeps it hidden,
+           so neither affordance can flash a dead link. `.status-item[hidden]`
+           in files.css is load-bearing — that class's display:flex would
+           otherwise beat the user-agent [hidden] rule. -->
+      <a class="status-item status-link" id="docs-link"
+         target="_blank" rel="noopener" hidden>Docs</a>
       <div class="status-item" id="status-clock">--:--:--</div>
     </div>
   </footer>

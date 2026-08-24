@@ -389,7 +389,7 @@ def hermetic_hub() -> Iterator[HermeticHub]:
        — serving the seeded store, and
     2. the web-terminal hub — ``web_terminal.create_app(...)`` — with a canned
        PTY that replays the transcript, its ``project_dir`` pointed at the seeded
-       directory so session discovery resolves to a controlled location.
+       directory so the session store resolves to a controlled location.
 
     The hub is wired to the pre-launched artifacts backend with the three patches
     the visual-regression harness uses (``_load_web_config`` → the seeded
@@ -570,10 +570,11 @@ def _fake_session_line() -> str:
 def _write_fake_session(session_dir: Path) -> Path:
     """Write ``<session_dir>/<DEMO_SESSION_ID>.jsonl`` and return its path.
 
-    Written *after* the PTY has spawned (so the hub's pre-spawn snapshot does not
-    include it) — the hub then discovers it as a new session and pushes the id to
-    the terminal label. Filename stem equals :data:`DEMO_SESSION_ID` so the active
-    session matches the seeded artifacts' ``session_id``.
+    Written *before* the page loads, so the id the browser resumes is already a
+    session the hub can see on disk: it then confirms that exact id back rather
+    than treating the resume as ambiguous. Filename stem equals
+    :data:`DEMO_SESSION_ID` so the active session matches the seeded artifacts'
+    ``session_id``.
     """
     session_dir.mkdir(parents=True, exist_ok=True)
     path = session_dir / f"{DEMO_SESSION_ID}.jsonl"
@@ -582,11 +583,12 @@ def _write_fake_session(session_dir: Path) -> Path:
 
 
 def _wait_for_session_ready(page, mode: str | None) -> None:
-    """Block until the published fake session has reached the terminal chrome.
+    """Block until the resumed session has reached the terminal chrome.
 
     Expert renders the session hex into ``#terminal-label`` (``Session 3f9a1c72``),
-    so it waits for that exact hex — the strong assertion that session discovery
-    ran and pushed the id, unchanged from the theme-only renderer.
+    so it waits for that exact hex — the strong assertion that the hub confirmed
+    the id this harness asked it to resume, unchanged from the theme-only
+    renderer.
 
     Simple mode's shell density pass (Task 5.4) hides ``#terminal-label`` and
     surfaces a ``Connected`` state in a sibling ``.terminal-label-simple`` span,
@@ -594,8 +596,8 @@ def _wait_for_session_ready(page, mode: str | None) -> None:
     writes ``Session <hex>`` into the (now hidden) ``#terminal-label`` on
     ``session_info`` in both modes, so Simple keys off that same write via
     ``textContent`` — which is populated regardless of CSS visibility — detected
-    as the label moving off its static ``Session`` placeholder. That proves
-    session discovery ran without depending on the Simple ``Connected`` chrome,
+    as the label moving off its static ``Session`` placeholder. That proves the
+    confirmation arrived without depending on the Simple ``Connected`` chrome,
     and never weakens the Expert hex wait.
     """
     if mode == "simple":
@@ -875,18 +877,32 @@ def _capture_variant(
     rail: str | None = None,
 ) -> CapturedVariant:
     """Drive one theme/mode variant to a viewport PNG; return its metadata."""
-    session_file = hub.session_dir / f"{DEMO_SESSION_ID}.jsonl"
-    # Ensure a clean slate so this variant's pre-spawn snapshot never already
-    # contains the fake record (a stale one would never be seen as "new").
-    session_file.unlink(missing_ok=True)
+    # Publish the fake session BEFORE the page loads. The terminal's session id
+    # has to be DEMO_SESSION_ID — the seeded artifacts are tagged with it and
+    # the panels scope themselves to the active session — and the resume path
+    # is what lets this harness choose it. With the record already on disk the
+    # hub takes its trusted branch (the requested id was in the pre-spawn
+    # snapshot) and confirms DEMO_SESSION_ID synchronously.
+    _write_fake_session(hub.session_dir)
 
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
-        # Pre-dismiss the one-time rail hint: it floats over the dock tab strip
-        # on a fresh profile, and every capture here runs on a fresh profile —
-        # the sheet documents the shells, not the onboarding callout.
+        from osprey.interfaces._serving import authorize_browser_context
+
+        # Every interface app here is gated by WebAuthMiddleware, which refuses
+        # a bare page with 401 so it never renders. The apps are served
+        # in-process (run_app_server), so the context can be authorized
+        # directly with a session cookie the in-process gate accepts.
+        authorize_browser_context(page.context)
+        # Two seeded localStorage keys, both about starting from a known state
+        # on the fresh profile every capture runs on:
+        #   * the one-time rail hint, pre-dismissed — it floats over the dock
+        #     tab strip, and the sheet documents the shells, not onboarding;
+        #   * the PTY session id, so initTerminal() connects mode=resume on
+        #     DEMO_SESSION_ID instead of letting the hub mint a random one.
         page.add_init_script(
-            "try { localStorage.setItem('osprey-rail-hint-dismissed-v1', '1') } catch (e) {}"
+            "try { localStorage.setItem('osprey-rail-hint-dismissed-v1', '1');"
+            f" localStorage.setItem('osprey-pty-session', '{DEMO_SESSION_ID}') }} catch (e) {{}}"
         )
         page.goto(
             _variant_url(hub.base_url, theme, mode, rail),
@@ -894,8 +910,8 @@ def _capture_variant(
             timeout=_NAV_TIMEOUT_MS,
         )
         # Wait for the canned transcript's sentinel to land in the terminal
-        # (xterm's DOM renderer keeps the text in .xterm-rows). This also implies
-        # the PTY has spawned and the hub's session snapshot has been taken.
+        # (xterm's DOM renderer keeps the text in .xterm-rows). This also
+        # implies the PTY has spawned.
         page.wait_for_function(
             "(s) => { const r = document.querySelector('.xterm-rows');"
             " return !!r && (r.textContent || '').includes(s); }",
@@ -903,10 +919,8 @@ def _capture_variant(
             timeout=_NAV_TIMEOUT_MS,
         )
 
-        # Now publish the fake session so the hub discovers it and the terminal
-        # header updates; wait for it to reach the label (Expert: the hex;
+        # Wait for the confirmed id to reach the header (Expert: the hex;
         # Simple: the Task 5.4 "Connected" state — see _wait_for_session_ready).
-        _write_fake_session(hub.session_dir)
         _wait_for_session_ready(page, mode)
 
         # Guard against a transcript that wraps at the real fitted width.
@@ -949,6 +963,15 @@ def _capture_variant(
         dest.write_bytes(png)
         return CapturedVariant(theme=theme, mode=mode, accent=accent, filename=dest.name, rail=rail)
     finally:
+        # Every variant now resumes the SAME session id, so they share one pool
+        # entry — and the hub hands a warm PTY straight over without re-running
+        # its command. The next variant would sit forever waiting for a
+        # transcript that already played. Emptying the pool makes each capture
+        # spawn its own replay again.
+        try:
+            page.request.post(f"{hub.base_url}/api/terminal/restart")
+        except Exception:
+            pass
         page.close()
 
 
@@ -1083,6 +1106,13 @@ def _capture_panel_variant(
 
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
+        from osprey.interfaces._serving import authorize_browser_context
+
+        # Every interface app here is gated by WebAuthMiddleware, which refuses
+        # a bare page with 401 so it never renders. The apps are served
+        # in-process (run_app_server), so the context can be authorized
+        # directly with a session cookie the in-process gate accepts.
+        authorize_browser_context(page.context)
         page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
         if surface.wait_selector:
             page.wait_for_selector(surface.wait_selector, state="attached", timeout=_NAV_TIMEOUT_MS)

@@ -26,8 +26,12 @@ CONTRACT = [
     ("lattice_dashboard/static/dashboard.css", "body.embedded #topbar"),
     ("health/static/dashboard.css", "body.embedded .hdr"),
     ("bluesky_web/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
-    # Theme switchers (hub owns theming)
-    ("ariel/static/css/layout.css", "body.embedded osprey-theme-switcher"),
+    # Theme switchers (hub owns theming). ARIEL is absent by design: it mounts
+    # <osprey-display-menu> instead, and that component injects its own
+    # `body.embedded osprey-display-menu { display: none }` rule, so there is
+    # no panel CSS to check. The browser test
+    # (tests/interfaces/web_terminal/test_contract_params.py's
+    # test_embedded_hides_branding_and_switcher[ariel]) covers it live.
     ("channel_finder/static/css/channel-finder.css", "body.embedded osprey-theme-switcher"),
     ("lattice_dashboard/static/dashboard.css", "body.embedded osprey-theme-switcher"),
     ("okf_panel/static/style.css", "body.embedded osprey-theme-switcher"),

@@ -29,6 +29,14 @@ HOOK_FILES = [
     "osprey_cf_feedback_capture.py",
 ]
 
+# Shared libraries that live beside the hooks but are imported by them rather
+# than wired as hooks themselves. They carry no front matter and are never
+# invoked as scripts, so the front-matter rules below do not apply to them.
+HELPER_MODULES = {
+    "osprey_hook_log.py",
+    "osprey_target_state.py",
+}
+
 # Required fields for all hooks
 REQUIRED_FIELDS = {"name", "description", "event"}
 
@@ -36,10 +44,10 @@ REQUIRED_FIELDS = {"name", "description", "event"}
 def test_hook_files_cover_every_hook():
     """HOOK_FILES must track every hook payload so new hooks can't be silently omitted.
 
-    osprey_hook_log.py is excluded: it's the frontmatter-less shared logging
-    library imported by the hooks above, not a hook itself.
+    HELPER_MODULES are excluded: they're the frontmatter-less shared libraries
+    imported by the hooks above, not hooks themselves.
     """
-    on_disk = {p.name for p in HOOKS_DIR.glob("osprey_*.py")} - {"osprey_hook_log.py"}
+    on_disk = {p.name for p in HOOKS_DIR.glob("osprey_*.py")} - HELPER_MODULES
     assert set(HOOK_FILES) == on_disk
 
 

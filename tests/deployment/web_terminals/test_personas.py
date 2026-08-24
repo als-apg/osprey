@@ -9,17 +9,21 @@ import pytest
 
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
+    config_archiver_password_env,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
+    config_needs_graphdb_password,
     config_needs_launch_token,
     entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
     freeze_user_indices,
     normalize_users,
+    personas_needing_archiver_password,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
+    personas_needing_graphdb_password,
     personas_needing_launch_token,
     personas_not_denying_bash,
     resolve_personas,
@@ -1605,6 +1609,152 @@ def test_personas_needing_launch_token_skips_unrendered_persona_projects(tmp_pat
 
 
 # ---------------------------------------------------------------------------
+# services.graphdb + the graph server -> per-user Neo4j password
+#
+# `GRAPHDB_PASSWORD` is the graph store's ONLY credential, and Neo4j's one
+# account is write-capable, so the read-only tier gets it too: read-only-ness
+# lives in the `graph` MCP server's read transactions, not in the password. That
+# is why this predicate never reads `writes_enabled` -- the read-only operator
+# terminal is precisely the tier graph search is meant to serve. What it does
+# read is the two keys that decide whether there is a store to dial and a server
+# to dial it: the `services.graphdb` block (present-and-resolvable), and the
+# graph server's `enabled` override (an override, so absence means enabled).
+# ---------------------------------------------------------------------------
+
+
+def test_config_needs_graphdb_password_reads_the_services_block() -> None:
+    """The `services.graphdb` block IS the entitlement, exactly as the `ariel:`
+    section is for the Postgres password. A fully-defaulted empty block still
+    configures a store, so it entitles."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": {}}}) is True
+    assert config_needs_graphdb_password({"services": {"graphdb": {"port_host": 7688}}}) is True
+    assert config_needs_graphdb_password({}) is False
+
+
+def test_config_needs_graphdb_password_denies_a_block_less_config() -> None:
+    """A bare `graphdb:` key parses as None and configures no store, and non-dict
+    sections are read defensively rather than raising."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": None}}) is False
+    assert config_needs_graphdb_password({"services": {}}) is False
+    assert config_needs_graphdb_password({"services": "graphdb"}) is False
+    assert config_needs_graphdb_password(None) is False
+
+
+def test_config_needs_graphdb_password_denies_a_malformed_block() -> None:
+    """A block this deployment could never reach entitles nothing. Refusing instead
+    would turn a typo in one persona's config.yml into a failed render of the whole
+    roster."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": {"port_host": "abc"}}}) is False
+
+
+def test_config_needs_graphdb_password_denies_when_the_graph_server_is_off() -> None:
+    """A configured store with no server to query it has no consumer."""
+    # Arrange
+    config = {
+        "services": {"graphdb": {}},
+        "claude_code": {"servers": {"graph": {"enabled": False}}},
+    }
+
+    # Assert
+    assert config_needs_graphdb_password(config) is False
+
+
+def test_config_needs_graphdb_password_defaults_the_graph_server_to_enabled() -> None:
+    """`claude_code.servers.graph.enabled` is an override over an already-enabled
+    default, so its absence must not deny the password."""
+    # Assert
+    assert (
+        config_needs_graphdb_password(
+            {"services": {"graphdb": {}}, "claude_code": {"servers": {"graph": {"enabled": True}}}}
+        )
+        is True
+    )
+    assert (
+        config_needs_graphdb_password(
+            {"services": {"graphdb": {}}, "claude_code": {"servers": {"controls": {}}}}
+        )
+        is True
+    )
+
+
+def test_config_needs_graphdb_password_ignores_the_write_switch() -> None:
+    """The read-only tier searches the graph too. Gating this on `writes_enabled`
+    -- as the launch token is gated -- would leave the read-only operator terminal
+    unable to reach the store at all."""
+    # Arrange
+    config = {"services": {"graphdb": {}}, "control_system": {"writes_enabled": False}}
+
+    # Assert
+    assert config_needs_graphdb_password(config) is True
+
+
+def test_personas_needing_graphdb_password_spans_both_tiers(tmp_path) -> None:
+    """Unlike the launch token, this entitlement set deliberately includes the
+    read-only persona: the store has one account, and the read guarantee is the
+    graph server's, not the credential's. A persona configuring no store is still
+    excluded."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "rw",
+                {
+                    "control_system": {"writes_enabled": True},
+                    "services": {"graphdb": {"port_host": 7687}},
+                },
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "ro",
+                {
+                    "control_system": {"writes_enabled": False},
+                    "services": {"graphdb": {"port_host": 7687}},
+                },
+            ),
+        },
+        "logbook": {
+            "project": "lb",
+            "project_path": _write_persona_project_config(tmp_path, "lb", {"services": {}}),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+            {"name": "carol", "index": 2, "persona": "logbook"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_graphdb_password(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite", "readonly"}
+
+
+def test_personas_needing_graphdb_password_skips_unrendered_persona_projects(tmp_path) -> None:
+    """A persona whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    # Act / Assert
+    assert personas_needing_graphdb_password(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
 # Shipped-artifact reads: .claude/settings.json Bash deny
 # ---------------------------------------------------------------------------
 
@@ -1869,3 +2019,118 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
 
     # Act / Assert
     assert settings_json_denies_bash(tmp_path / "bommed") is True
+
+
+# ---------------------------------------------------------------------------
+# Archiver connector -> per-user store password
+#
+# The archiver connector authenticates with the variable its own config block
+# names (`archiver.<type>.password_env`); `osprey up` mints it into the deploy
+# `.env` for a store the project deploys. `.env.users` excludes service tokens
+# by design and cannot say "the personas whose archiver reads this", so the
+# grant is per-user, and it carries the configured NAME because the block may
+# point at a facility-run store under any variable.
+# ---------------------------------------------------------------------------
+
+_MONGO_ARCHIVER = {
+    "type": "mongodb_archiver",
+    "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+}
+
+
+def test_config_archiver_password_env_reads_the_selected_connector_block() -> None:
+    """The variable named by the SELECTED connector's block is the entitlement."""
+    assert config_archiver_password_env({"archiver": _MONGO_ARCHIVER}) == "MONGO_ROOT_PASSWORD"
+
+
+def test_config_archiver_password_env_ignores_an_unselected_connector_block() -> None:
+    """The shipped config carries a `mongodb_archiver:` block under `type: mock_archiver`;
+    a block the selected type never reads entitles nothing."""
+    archiver = {**_MONGO_ARCHIVER, "type": "mock_archiver"}
+
+    assert config_archiver_password_env({"archiver": archiver}) is None
+
+
+def test_config_archiver_password_env_follows_any_connector_that_names_one() -> None:
+    """The key, not the connector name, is what is read: a future connector with a
+    `password_env` is granted exactly like MongoDB's."""
+    archiver = {"type": "facility_db", "facility_db": {"password_env": "FACILITY_DB_PW"}}
+
+    assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
+
+
+@pytest.mark.parametrize(
+    "missing", [{}, {"archiver": None}, {"archiver": {"type": "mock_archiver"}}]
+)
+def test_config_archiver_password_env_is_none_without_a_named_variable(missing: dict) -> None:
+    assert config_archiver_password_env(missing) is None
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None, 7])
+def test_config_archiver_password_env_treats_a_blank_name_as_unset(blank: Any) -> None:
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": blank}}
+
+    assert config_archiver_password_env({"archiver": archiver}) is None
+
+
+@pytest.mark.parametrize("bad", ["MONGO PASSWORD", "1PASS", "PW=x", "${PW}", "pw-name"])
+def test_config_archiver_password_env_refuses_a_name_compose_cannot_carry(bad: str) -> None:
+    """The name is emitted into a compose `environment:` line verbatim, so anything
+    that is not a plain identifier is refused here rather than rendered broken."""
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": bad}}
+
+    with pytest.raises(ValueError, match="password_env"):
+        config_archiver_password_env({"archiver": archiver})
+
+
+def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tmp_path) -> None:
+    """The grant is a persona -> variable-name map, so two personas reading two
+    different stores each get their own line and a persona with no archiver gets none."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path, "rw", {"archiver": _MONGO_ARCHIVER}
+            ),
+        },
+        "facility": {
+            "project": "fac",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "fac",
+                {"archiver": {"type": "other_db", "other_db": {"password_env": "OTHER_DB_PW"}}},
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path, "ro", {"archiver": {"type": "mock_archiver"}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+            {"name": "carol", "index": 2, "persona": "facility"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_archiver_password(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite": "MONGO_ROOT_PASSWORD", "facility": "OTHER_DB_PW"}
+
+
+def test_personas_needing_archiver_password_skips_unrendered_persona_projects(tmp_path) -> None:
+    """A persona whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    assert personas_needing_archiver_password(config, tmp_path) == {}

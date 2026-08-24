@@ -40,6 +40,13 @@ Follow this approach to find the most relevant logbook entries:
 2. **Keyword search first**: `keyword_search(query=...)` — start with exact term
    matching. This is fast and precise for known terms, names, and specific events.
 
+   When a facility vocabulary is configured, `keyword_search` and `semantic_search`
+   expand shorthand and acronyms by default (`capabilities` reports
+   `vocabulary.expand_by_default`); pass `expand_query: true`/`false` to force or
+   suppress it, and check `expanded_terms` for what was applied. `keyword_search`
+   also accepts `*` globs (a glob needs 3+ literal characters, e.g. `BPM*`) and
+   `/regex/` tokens for control-system names.
+
 3. **Semantic search to broaden**: If keyword results are insufficient, use
    `semantic_search(query=...)` — finds conceptually similar entries even when
    exact terms don't match.

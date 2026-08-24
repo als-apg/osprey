@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import warnings
@@ -12,6 +13,7 @@ from typing import Any
 
 import yaml
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
@@ -31,6 +33,36 @@ logger = logging.getLogger("osprey.cli.templates")
 # must be denied. Module-level so tests can assert against the same set the
 # renderer actually uses instead of re-declaring it.
 _MIXED_READ_WRITE_TEMPLATES = {"python"}
+
+#: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
+#:
+#: This is the interactive permission layer's hard floor: entries land in
+#: ``permissions.deny``, which Claude Code refuses without ever offering an
+#: approval prompt. ``Bash`` and ``Edit`` are the two that matter most — they
+#: are the unmediated shell-out and unmediated file-patch escape hatches around
+#: every other control the profile installs.
+#:
+#: Three consumers share this one definition, and they must not fork:
+#:
+#: * ``settings.json.j2`` renders it, in this order, into ``permissions.deny``
+#:   (minus anything a facility lists under ``permissions.remove_deny``). It
+#:   arrives there as the ``deny_defaults`` context key, written by
+#:   :func:`config_derived_context` so BOTH render paths carry it.
+#: * The build lint checks that every write-capable built-in is either denied
+#:   here or gated by a ``PreToolUse`` hook rule.
+#: * ``tests/agent_runner/test_write_tools.py`` guards that the headless
+#:   read-only floor is never more permissive than this interactive one.
+#:
+#: Order is load-bearing only in that it fixes the rendered array's order;
+#: appending is always safe, reordering churns every built project's diff.
+DENY_DEFAULTS: tuple[str, ...] = (
+    "Bash",
+    "Edit",
+    "WebFetch",
+    "WebSearch",
+    "mcp__plugin_playwright_playwright__*",
+    "mcp__plugin_context7_context7__*",
+)
 
 
 def apply_textbooks_root(ctx: dict, project_dir: Path) -> None:
@@ -214,6 +246,42 @@ def _derive_runtime_interpreter(
     return sys.executable
 
 
+def _graphdb_configured(config: dict) -> bool:
+    """Whether this project declares a graph store to query.
+
+    Truthy exactly when ``services.graphdb`` is a mapping — including the
+    fully-defaulted ``graphdb: {}`` — and falsy when the key is absent or is the
+    bare ``graphdb:`` that YAML parses as ``None``. That is
+    :func:`~osprey.deployment.graphdb_service.resolve_graphdb_service_config`'s
+    own reading of the block, borrowed rather than re-implemented so the render
+    and the deploy cannot disagree about whether a store exists.
+
+    A malformed block is *warned* about and treated as absent. The resolver
+    raises on one, because a deploy that publishes a port nobody dials is worse
+    than a refusal — but this caller is a render, and aborting it over a bad
+    heap size would take out every unrelated artifact in the build. Dropping the
+    graph server instead costs the agent its graph tools and says so loudly.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+
+    Returns:
+        Whether the graph MCP server has a store to point at.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+
+    try:
+        return resolve_graphdb_service_config(config) is not None
+    except ValueError as exc:
+        logger.warning(
+            "services.graphdb is malformed (%s) — rendering as if no graph store were "
+            "configured, so the graph MCP server and its tools are left out of this "
+            "project. Fix the key named above in config.yml and re-render.",
+            exc,
+        )
+        return False
+
+
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read straight out of a project's ``config.yml``.
 
@@ -258,7 +326,41 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "control_system_write_tools": control_system.get("write_tools", []),
         # Control system type for protocol-aware safety rules
         "control_system_type": control_system.get("type", "mock"),
+        # Whether this deployment renders the target switch, for the
+        # switch-aware half of the control-system safety rule.
+        "target_switch_enabled": _renders_the_target_switch(control_system),
+        # Gate for the `graph` MCP server: a ServerDefinition condition is a
+        # plain truthiness test on this key, so it must be merged into the
+        # context BEFORE resolve_servers runs (both render paths do — see
+        # build_claude_code_context). Without a configured store the server is
+        # left out of the render entirely rather than shipped as a tool that
+        # can only fail.
+        "graphdb_configured": _graphdb_configured(config),
+        # The interactive deny floor settings.json.j2 renders into
+        # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
+        # build lint and the read-only-floor drift test cannot fork.
+        "deny_defaults": list(DENY_DEFAULTS),
     }
+
+
+def _renders_the_target_switch(control_system: dict) -> bool:
+    """Whether the rendered config gives this deployment two targets to switch between.
+
+    Delegates to :func:`osprey_connectors.types.switch_capable`, the same
+    predicate the controls server uses at run time to decide whether its tools
+    are served by a connector-host child. Restating it here — "an epics block
+    and a virtual_accelerator block", say — would be a second opinion that gets
+    a ``doocs`` deployment wrong and a ``mock``-with-an-epics-block deployment
+    wrong in the other direction, and the failure would be a frozen rule
+    promising the agent a switch the runtime refuses to perform.
+
+    Deliberately not keyed on the ``control_system.target_switch`` tuning keys:
+    those have defaults and can be present in a deployment with nowhere to
+    switch to, while a connector block cannot be defaulted into existence.
+    """
+    from osprey_connectors.types import switch_capable
+
+    return switch_capable(control_system)
 
 
 def build_claude_code_context(
@@ -359,20 +461,53 @@ def build_claude_code_context(
         "selected_hooks": selected_hooks,
     }
 
+    # Everything the templates read straight out of config.yml, in the one
+    # spelling the create_project render path shares (see config_derived_context).
+    #
+    # Merged HERE, before the registry resolves servers and agents, because a
+    # `condition=` on a ServerDefinition is a plain truthiness test on a ctx key:
+    # a key that lands after resolution reads as absent, and the server is
+    # silently disabled with no warning. create_project merges the same helper
+    # before its own resolve_servers call, so this is also what keeps the two
+    # paths from forking on any server gated by a config-derived key.
+    ctx.update(config_derived_context(config, project_dir))
+
     # Derive channel finder configuration
     channel_finder = config.get("channel_finder")
     if channel_finder and "channel-finder" in artifacts.get("agents", []):
-        pipeline_mode = channel_finder.get("pipeline_mode", "hierarchical")
+        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+        from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+        # No default paradigm. A project that ships the channel-finder agent was
+        # built against one paradigm's store, and the agent's prompt and tools
+        # differ per paradigm — guessing one here would render an agent that
+        # does not match the data on disk, and the mismatch only shows up at
+        # run time as a tool that is not there.
+        pipeline_mode = channel_finder.get("pipeline_mode")
+        if not pipeline_mode:
+            raise PipelineModeError(
+                "channel_finder.pipeline_mode is required when the channel-finder "
+                "agent is selected. Set it in config.yml to one of: "
+                f"{', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            )
+        if pipeline_mode not in VALID_CHANNEL_FINDER_MODES:
+            raise PipelineModeError(
+                f"Unknown channel_finder.pipeline_mode: {pipeline_mode!r}. "
+                f"Valid modes are: {', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            )
         ctx["channel_finder_pipeline"] = pipeline_mode
         ctx["channel_finder_mode"] = pipeline_mode
         ctx["default_pipeline"] = pipeline_mode
 
         # Per-pipeline tool list — shared with the registry so the agent
-        # frontmatter and the server's permissions.allow stay in lockstep.
-        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-
+        # frontmatter and the server's permissions.allow stay in lockstep. The
+        # mode is already known-good above, so a paradigm with no entry here is
+        # one served by no channel-finder MCP pipeline of its own, and the empty
+        # list is the right answer rather than a swallowed typo.
         ctx["channel_finder_tools"] = list(CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(pipeline_mode, []))
 
+        # Only the hierarchical paradigm embeds extra render context; the other
+        # paradigms need none.
         if pipeline_mode == "hierarchical":
             hierarchy = resolve_hierarchy_context(channel_finder, project_dir)
             if hierarchy is not None:
@@ -391,6 +526,15 @@ def build_claude_code_context(
 
     ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
     ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
+
+    # Build-time index of the Bluesky plan catalog, for the bundled plans skill.
+    #
+    # This lives here rather than in a caller's context because
+    # regenerate_claude_code rebuilds the context from config.yml alone and runs
+    # last: an index passed only through create_project's context would render
+    # empty in the shipped artifact. Both paths come through this function, so
+    # both carry the index.
+    ctx["bluesky_plan_index"] = _build_bluesky_plan_index(config, project_dir, ctx)
 
     # Approval-overlap guard: a facility permissions.remove_ask or
     # permissions.allow entry naming an approval-gated (ask) tool of an enabled
@@ -418,10 +562,6 @@ def build_claude_code_context(
                         _tool,
                         _srv["name"],
                     )
-
-    # Everything the templates read straight out of config.yml, in the one
-    # spelling the create_project render path shares (see config_derived_context).
-    ctx.update(config_derived_context(config, project_dir))
 
     apply_textbooks_root(ctx, project_dir)
 
@@ -520,6 +660,68 @@ def build_claude_code_context(
         ctx["facility_permissions"] = facility_perms
 
     return ctx
+
+
+def _build_bluesky_plan_index(config: dict, project_dir: Path, ctx: dict) -> dict | None:
+    """Index the project's Bluesky plans for the bundled plans skill.
+
+    Runs only when the ``bluesky`` MCP server is enabled: with the server off
+    the agent has no plan tools, the skill renders empty, and there is nothing
+    to describe. A returned dict therefore means the pass ran — a project whose
+    plan directories resolved nothing still gets a dict with no rows, which the
+    skill renders as an honest "no plans were visible at build time" line rather
+    than as an empty table. ``None`` means the pass never ran.
+
+    Never raises: an unreadable plan directory or a malformed plan file is a
+    build warning, not a build failure.
+
+    Args:
+        config: The parsed ``config.yml`` mapping.
+        project_dir: The built project's root, used to resolve a relative
+            ``plan_dir``. Not the CWD — the build does not run from the project
+            root — and not ``project_root_override``, which names a path on the
+            runtime filesystem (a container's project root) that is not here to
+            read.
+        ctx: The context built so far, read for ``enabled_servers``.
+
+    Returns:
+        ``{"rows": [...], "overflow": int, "unreadable_dirs": [...]}``, or
+        ``None`` when the pass did not run.
+    """
+    if "bluesky" not in ctx.get("enabled_servers", set()):
+        return None
+
+    from osprey.cli.templates.plan_index import build_plan_index
+
+    try:
+        index = build_plan_index(config, project_dir)
+    except Exception as exc:  # pragma: no cover - defensive; builder is fail-soft
+        # The builder documents itself as never raising for a bad input. If it
+        # ever does, the build still finishes: the skill simply reports no
+        # build-time listing and points the agent at ``list_plans``.
+        logger.warning("bluesky plan index skipped: %s", exc)
+        return None
+
+    for warning in index.warnings:
+        logger.warning("bluesky plan index: %s", warning)
+    for directory in index.unreadable_dirs:
+        logger.warning(
+            "bluesky plan index: configured plan directory could not be read: %s", directory
+        )
+
+    return {
+        "rows": [
+            {
+                "name": row.name,
+                "description": row.description,
+                "writes": row.writes,
+                "provenance": row.provenance,
+            }
+            for row in index.rows
+        ],
+        "overflow": index.overflow,
+        "unreadable_dirs": list(index.unreadable_dirs),
+    }
 
 
 def compute_regen_summary(ctx: dict) -> dict:
@@ -968,6 +1170,260 @@ def _declared_hook_rule(entry: dict, event: str, name: str) -> dict:
     }
 
 
+#: Built-in Claude Code tools that can write — to the filesystem, or (``Bash``)
+#: to anything the shell reaches. Every generated profile must gate each of
+#: these — either by hard-denying it in ``permissions.deny`` or by matching it
+#: with a ``PreToolUse`` hook rule — so a profile can never ship able to write
+#: with no gate at all.
+#:
+#: ``Bash`` and ``Edit`` are here for the reason :data:`DENY_DEFAULTS` names
+#: them first: they are the unmediated shell-out and unmediated file-patch
+#: escape hatches around every other control the profile installs. Their only
+#: gate in a shipped preset is that :data:`DENY_DEFAULTS` denies them — and
+#: ``claude_code.permissions.remove_deny`` lets a facility take that away, which
+#: before this entry did so with no lint and no warning. Listing them here is
+#: what makes ``remove_deny: ["Bash"]`` a build failure unless something else
+#: actually gates the tool.
+#:
+#: The memory-guard hook's ``Write|MultiEdit|NotebookEdit`` matcher is what
+#: gates the other three in the shipped presets; see
+#: :func:`_lint_write_tools_are_gated`.
+_WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
+    "Bash",
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "NotebookEdit",
+)
+
+
+def _rendered_deny_list(ctx: dict) -> list[str]:
+    """Reproduce the ``permissions.deny`` array ``settings.json.j2`` will render.
+
+    Mirrors the template's own construction exactly: the ``deny_defaults`` floor
+    (the hoisted :data:`DENY_DEFAULTS` constant, minus anything a facility lists
+    under ``permissions.remove_deny``) followed by the facility ``permissions.deny``
+    entries. Reproduced in Python from the same context keys the template reads —
+    never regex-parsed out of the rendered JSON — so the lint and the template
+    share one source and cannot silently drift.
+
+    A context that is missing ``deny_defaults`` yields an empty floor here, which
+    is exactly the silent-empty-deny hazard :func:`_lint_write_tools_are_gated`
+    guards against.
+
+    Args:
+        ctx: The render context, read for ``deny_defaults`` and
+            ``facility_permissions``.
+
+    Returns:
+        The deny entries, in render order.
+    """
+    facility = ctx.get("facility_permissions") or {}
+    remove_deny = facility.get("remove_deny", []) or []
+    deny = [d for d in (ctx.get("deny_defaults") or []) if d not in remove_deny]
+    deny.extend(facility.get("deny", []) or [])
+    return deny
+
+
+#: Provenance tags for the ``PreToolUse`` matchers the lint reads.
+#:
+#: ``framework`` rules come from OSPREY's own wiring — a selected framework hook
+#: (``fw_pre_rules``) or an enabled server's registry ``hooks_pre`` — so the
+#: build knows which script runs and that it emits an explicit
+#: ``permissionDecision``. ``profile`` rules are whatever the profile declared
+#: under ``claude_code.hooks.PreToolUse``: vetted to exist and to be wired
+#: correctly, but never inspected for what they decide.
+_MATCHER_FRAMEWORK = "framework"
+_MATCHER_PROFILE = "profile"
+
+
+def _pretooluse_matchers(ctx: dict, fw_pre_rules: list[dict]) -> list[tuple[str, str]]:
+    """Every ``PreToolUse`` matcher ``settings.json.j2`` will render, with provenance.
+
+    Concatenates the same three sources the template does, in the same spirit:
+    the framework hook rules (``fw_pre_rules``, e.g. the memory-guard hook), each
+    enabled server's ``hooks_pre`` rules, and the profile's declared
+    ``PreToolUse`` wiring. Every rule is a plain dict carrying a ``"matcher"``
+    key, so access is uniform.
+
+    Each matcher is paired with where it came from — :data:`_MATCHER_FRAMEWORK`
+    for the first two sources, :data:`_MATCHER_PROFILE` for the third — because
+    the lint treats the two differently: see
+    :func:`_lint_write_tools_are_gated`.
+
+    Args:
+        ctx: The render context, read for ``servers`` and ``declared_hooks``.
+        fw_pre_rules: The framework PreToolUse rules just computed by
+            :func:`_build_framework_hook_rules`.
+
+    Returns:
+        ``(matcher, provenance)`` pairs, in render order.
+    """
+    matchers: list[tuple[str, str]] = [
+        (rule.get("matcher", ""), _MATCHER_FRAMEWORK) for rule in (fw_pre_rules or [])
+    ]
+    for srv in ctx.get("servers", []) or []:
+        if srv.get("enabled"):
+            matchers.extend(
+                (rule.get("matcher", ""), _MATCHER_FRAMEWORK)
+                for rule in (srv.get("hooks_pre") or [])
+            )
+    declared = ctx.get("declared_hooks") or {}
+    matchers.extend(
+        (rule.get("matcher", ""), _MATCHER_PROFILE) for rule in (declared.get("PreToolUse") or [])
+    )
+    return matchers
+
+
+#: Characters whose presence makes Claude Code read a hook matcher as a regular
+#: expression rather than an exact tool name. Kept as a set so
+#: :func:`_matcher_covers` can decide per matcher which mode applies, the same
+#: way Claude Code does.
+_REGEX_METACHARACTERS = frozenset(r".^$*+?{}[]()|\\")
+
+#: Matcher spellings that gate every tool. Claude Code accepts the literal
+#: ``"*"``, an empty string, and an omitted ``matcher`` key as "all tools";
+#: ``".*"`` reaches the same place through the regex path.
+_MATCH_ALL_MATCHERS = frozenset({"*", ".*", ""})
+
+
+def _matcher_covers(matcher: str | None, tool: str) -> bool:
+    """Whether one ``PreToolUse`` matcher gates ``tool``.
+
+    Mirrors how Claude Code itself resolves a hook matcher, because a lint that
+    read them more narrowly would refuse builds whose hooks genuinely do gate the
+    tool. Recognised, in this order:
+
+    * **Match-all** — the literal ``"*"``, the regex ``".*"``, an empty string,
+      or ``None`` (an omitted ``matcher`` key). All four run the hook on every
+      tool call, so all four cover every tool.
+    * **Regex** — any matcher containing a regex metacharacter
+      (:data:`_REGEX_METACHARACTERS`) is compiled and matched **unanchored**,
+      the way Claude Code matches it. So ``"Write.*"``, ``"^(Write|Edit)$"`` and
+      ``"Write|MultiEdit|NotebookEdit"`` (the memory-guard hook's own matcher)
+      all cover ``Write``, and ``"Edit.*"`` also covers ``NotebookEdit`` —
+      unanchored is what Claude Code does, so it is what this reports.
+    * **Exact alternation** — otherwise, and as the fallback when a matcher
+      containing metacharacters is not a compilable regex, the matcher is split
+      on ``|`` and each alternative compared for equality.
+
+    An author who wants a matcher this lint will read as covering a tool can
+    therefore spell it as the bare tool name, as a ``|`` alternation, or as any
+    regex that matches the name.
+
+    Args:
+        matcher: The matcher string (``None`` for an omitted ``matcher`` key).
+        tool: The tool name to test for.
+
+    Returns:
+        ``True`` when ``tool`` is gated by this matcher.
+    """
+    if matcher is None:
+        return True
+    matcher = matcher.strip()
+    if matcher in _MATCH_ALL_MATCHERS:
+        return True
+    if any(char in _REGEX_METACHARACTERS for char in matcher):
+        try:
+            if re.search(matcher, tool):
+                return True
+        except re.error:
+            pass  # Not a compilable regex; fall through to exact alternation.
+    return tool in [part.strip() for part in matcher.split("|")]
+
+
+def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
+    """Refuse to build a profile that can write with no gate.
+
+    Every write-capable built-in (:data:`_WRITE_CAPABLE_BUILTINS`) must be
+    gated in one of two ways: hard-denied in the rendered ``permissions.deny``
+    floor, OR matched by a ``PreToolUse`` hook rule. Either is accepted, and the
+    distinction is load-bearing: Claude Code resolves permissions ``deny`` > ``ask``
+    > ``allow``, so a hook ``allow`` can never override a ``deny``. Denying
+    ``Write``/``MultiEdit``/``NotebookEdit`` outright would therefore permanently
+    block legitimate memory writes (Write/MultiEdit to the Claude memory files)
+    and artifact notebook edits (NotebookEdit to the agent-data tree). The
+    memory-guard ``PreToolUse`` rule is what legitimately gates them instead —
+    allowing the good paths and denying the rest — so the lint takes a matcher as
+    sufficient. ``Bash`` and ``Edit`` have no such legitimate path and are gated
+    by :data:`DENY_DEFAULTS`; the lint is what makes removing them from that
+    floor via ``claude_code.permissions.remove_deny`` a build failure rather than
+    a silent widening.
+
+    An empty rendered deny floor is itself the hazard this guards against: a
+    context missing ``deny_defaults`` renders an EMPTY ``permissions.deny`` array
+    silently (a settings.json that looks whole but denies nothing). With an empty
+    floor, a write-capable tool passes only if a ``PreToolUse`` rule still gates
+    it; if none does, the build is refused rather than shipping an ungated writer.
+
+    **What a matcher does and does not prove.** The lint checks that a covering
+    rule EXISTS; it cannot check that the hook behind it ever refuses anything.
+    A ``PreToolUse`` hook that exits 0 without emitting a ``permissionDecision``
+    falls through to the normal permission flow — i.e. it allows — and one that
+    exits non-zero (or fails to launch) is a non-blocking error that also lets
+    the call proceed. The framework hooks OSPREY wires emit an explicit
+    ``permissionDecision``, so a :data:`_MATCHER_FRAMEWORK` matcher is a real
+    gate. A matcher the profile itself declares under
+    ``claude_code.hooks.PreToolUse`` is not inspected at all, so it satisfies the
+    lint while proving only that a script runs — which is why a tool gated by
+    nothing but a profile-declared matcher is allowed through with a build-time
+    warning rather than silently. (Refusing outright was considered and rejected:
+    no framework hook matches ``Bash`` or ``Edit``, and ``deny`` outranks
+    ``allow``, so refusing would make a facility-gated shell unbuildable by any
+    means rather than merely loud.)
+
+    Args:
+        ctx: The render context, carrying the rendered deny floor
+            (``deny_defaults`` + ``facility_permissions``) and the PreToolUse
+            sources (``servers``, ``declared_hooks``).
+        fw_pre_rules: The framework PreToolUse rules just computed for this
+            render, before they are written into ``ctx``.
+
+    Raises:
+        BuildProfileError: Naming the first write-capable built-in that is
+            neither hard-denied nor matched by any ``PreToolUse`` rule.
+    """
+    deny = _rendered_deny_list(ctx)
+    matchers = _pretooluse_matchers(ctx, fw_pre_rules)
+    for tool in _WRITE_CAPABLE_BUILTINS:
+        if tool in deny:
+            continue
+        covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
+        if covering:
+            if all(src == _MATCHER_PROFILE for _, src in covering):
+                logger.warning(
+                    "%s is not in permissions.deny and is gated only by a "
+                    "PreToolUse matcher this profile declares itself (%s). The "
+                    "build checks that the rule exists, not that the hook "
+                    "refuses anything — a hook that exits without a "
+                    "permissionDecision allows the call. Verify that hook denies "
+                    "what it is there to deny.",
+                    tool,
+                    ", ".join(repr(m) for m, _ in covering),
+                )
+            continue
+        floor_note = (
+            " The rendered permissions.deny floor is empty, so nothing is denied "
+            "at the permission layer — check that deny_defaults reached the render "
+            "context."
+            if not deny
+            else ""
+        )
+        raise BuildProfileError(
+            f"The generated profile would ship able to run {tool!r} with no gate: "
+            f"{tool!r} is neither in permissions.deny nor matched by any PreToolUse "
+            "hook rule. A profile must not be able to write with no gate. "
+            "Wire the memory-guard hook (its 'Write|MultiEdit|NotebookEdit' matcher "
+            f"gates the three file-writing built-ins), or add {tool!r} to "
+            "permissions.deny — if it is missing because "
+            f"claude_code.permissions.remove_deny lists {tool!r}, drop that entry. "
+            "A PreToolUse matcher satisfies this check by existing; the build "
+            "cannot tell whether the hook behind it refuses anything, so a hook "
+            "used as the gate must emit an explicit permissionDecision of 'deny' "
+            f"(exiting 0 with no output allows the call).{floor_note}"
+        )
+
+
 def create_claude_code_integration(
     template_root: Path,
     jinja_env,
@@ -1014,6 +1470,13 @@ def create_claude_code_integration(
     fw_pre, fw_post = _build_framework_hook_rules(ctx.get("selected_hooks", []))
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post
+
+    # Build-time safety lint: refuse to render a profile in which any
+    # write-capable built-in (Write/MultiEdit/NotebookEdit) is neither hard-denied
+    # nor gated by a PreToolUse hook. Runs on both render paths (create + regen)
+    # because both funnel through here, and before any file is written so a
+    # failing profile never lands a half-rendered .claude/ tree.
+    _lint_write_tools_are_gated(ctx, fw_pre)
 
     files_created = 0
 

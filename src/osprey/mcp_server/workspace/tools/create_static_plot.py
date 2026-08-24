@@ -70,9 +70,11 @@ async def create_static_plot(
             variable before your code runs. Accepts two forms:
             (1) artifact ID (12-char hex), or
             (2) workspace file path.
-            When provided, ``data`` is a **pandas DataFrame** — do NOT
+            When provided, ``data`` is a **pandas DataFrame** for tabular
+            sources (CSV/JSON/Excel/Parquet) or a **numpy ndarray** for
+            ``.npy`` artifacts (channel_read image/waveform data) — do NOT
             re-parse or re-unwrap it; use it directly (e.g. ``data.columns``,
-            ``data['col']``).
+            ``data['col']``, or ``plt.imshow(data)`` for a 2-D array).
 
     Returns:
         JSON with artifact_ids and preview info.

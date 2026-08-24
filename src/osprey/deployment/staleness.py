@@ -27,8 +27,12 @@ Two readings of the same provenance live here, and they differ in severity:
   so starting it as rendered stays a valid, knowing choice.
 
 Both read the *same* fingerprint: ``compute_profile_hash`` over the resolved
-profile document plus the file material it names, and the
-``creation.osprey_version`` stamp. There is deliberately no second hash
+profile document, the file material it names, and the host-variant overlay
+``.env.variant`` selects, plus the ``creation.osprey_version`` stamp. The
+variant is part of it because the overlay is part of what was rendered: without
+it, editing the selected ``profiles/<host>.yml`` — or pointing the setting at a
+different one — would leave ``build/`` reading CLEAN while it holds the render
+of an overlay nobody is using any more. There is deliberately no second hash
 mechanism — the per-key digests :func:`profile_fingerprint` derives are
 diagnostic only, used to *name* what changed, never to decide whether
 anything did.
@@ -352,7 +356,9 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     here answers "did *this* input move" independently.
 
     The enumeration mirrors
-    :func:`~osprey.cli.build_profile_merge._fold_profile_material` and is
+    :func:`~osprey.cli.build_profile_merge._fold_profile_material` — plus the
+    selected host overlay, which the hash folds one level up in
+    :func:`~osprey.cli.build_profile_merge._hash_resolved_profile` — and is
     therefore a second copy of it. That copy is deliberately diagnostic-only:
     nothing decides drift by reading these keys, and :data:`MATERIAL_KEY` —
     computed by the fold itself, not by this function — still covers whatever
@@ -374,6 +380,7 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     from osprey.cli.build_profile_model import BuildProfile
     from osprey.cli.profile_conventions import CONVENTION_SOURCES
     from osprey.cli.profile_root import PERSONA_DIRNAME
+    from osprey.cli.variant_selection import VARIANT_DIRNAME, active_variant_overlay
 
     digests: dict[str, str] = {}
 
@@ -394,6 +401,15 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     triggers = profile_dir / "triggers.yml"
     if triggers.is_file():
         fold("triggers.yml", "triggers", triggers)
+
+    # The host variant this repo builds, keyed by the overlay's own path so a
+    # switch between two variants reads as one key gone and another arrived —
+    # which is what happened. Only the SELECTED overlay is digested, matching
+    # what `compute_profile_hash` folds: an overlay for another host is not an
+    # input to this build and must not be reported as one.
+    overlay = active_variant_overlay(profile_dir)
+    if overlay is not None:
+        fold(f"{VARIANT_DIRNAME}/{overlay.name}", "variant", overlay)
 
     # Per delta rather than per directory: ``personas/`` is flat and each child
     # IS a build input of its own, so naming the one file that moved costs

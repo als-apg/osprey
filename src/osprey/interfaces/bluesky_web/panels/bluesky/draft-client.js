@@ -425,12 +425,20 @@ export function buildDraftReplaceBody({ planName, planArgs, draftArgKeys, client
  * half (`manager_not_configured`, `manager_unreachable`) is a 503: genuinely
  * retryable, so it is classified separately below.
  *
+ * `session_target_mismatch` belongs to this half for the same reason, even
+ * though it is about the session rather than the build: a deployment renders
+ * one plan lane bound to one control target, and while the agent session is
+ * switched to the other one the lane cannot run the session's plans. Retrying
+ * does not help — the session has to move back, or the operator has to add a
+ * second lane — so it reads as a settled property, not as an outage.
+ *
  * @type {ReadonlySet<string>}
  */
 const DEPLOYMENT_CAPABILITY_CODES = new Set([
   'browse_only_connector',
   'unsupported_connector',
   'config_unreadable',
+  'session_target_mismatch',
 ]);
 
 /** @type {ReadonlySet<string>} */
@@ -466,7 +474,8 @@ export function queueRefusalDetail(body) {
  *   | {type: 'stale_draft_revision'}
  *   | {type: 'draft_revision_already_launched'}
  *   | {type: 'not_armed', detail: string, managerState: string|null, itemLeftBehind: boolean}
- *   | {type: 'cannot_execute', reason: string, detail: string}
+ *   | {type: 'cannot_execute', reason: string, detail: string, lane: string|null,
+ *      laneTarget: string|null}
  *   | {type: 'session_plan_not_ready', detail: string, plan: string|null}
  *   | {type: 'queue_rejected', detail: string}
  *   | {type: 'bridge_unreachable'}
@@ -531,7 +540,18 @@ export function classifyQueueAddResponse(status, body) {
     const capability = refusal && refusal.capability;
     const capabilityDetail =
       capability && typeof capability.detail === 'string' ? capability.detail : '';
-    return { type: 'cannot_execute', reason: code, detail: capabilityDetail || sentence };
+    // The lane fields travel with it for the same reason the detail does: the
+    // panel adopts this record as its live capability, and a refusal that
+    // dropped the lane would leave the adopted record claiming less than the
+    // one it replaced.
+    return {
+      type: 'cannot_execute',
+      reason: code,
+      detail: capabilityDetail || sentence,
+      lane: capability && typeof capability.lane === 'string' ? capability.lane : null,
+      laneTarget:
+        capability && typeof capability.lane_target === 'string' ? capability.lane_target : null,
+    };
   }
   if (SESSION_PLAN_CODES.has(code)) {
     return {
@@ -554,6 +574,13 @@ export function classifyQueueAddResponse(status, body) {
  *   not be read.
  * @property {string} detail  The operator-facing sentence, shown VERBATIM —
  *   it carries the flip command for a browse-only deployment.
+ * @property {string|null} lane  Which plan lane answered, by its service key
+ *   (`bluesky`, `bluesky_va`, `bluesky_live`). `null` when the health surface
+ *   itself could not be read — no lane spoke, so naming one would be a guess.
+ * @property {string|null} laneTarget  The control target that lane serves,
+ *   `live` or `va`. A RENDER-TIME fact about the bridge, never the session's
+ *   own target: it does not change when the session switches, so the panel
+ *   must not present it as "what you are pointed at".
  */
 
 /**
@@ -586,12 +613,20 @@ export function classifyCapability(status, body) {
       canExecute: false,
       reason: REASON_BRIDGE_UNREACHABLE,
       detail: 'Could not read the bridge capability, so plans cannot be queued from here yet.',
+      lane: null,
+      laneTarget: null,
     };
   }
   return {
     canExecute: capability.can_execute === true,
     reason: typeof capability.reason === 'string' ? capability.reason : REASON_BRIDGE_UNREACHABLE,
     detail: typeof capability.detail === 'string' ? capability.detail : '',
+    // Carried through, never defaulted to a lane name: an older bridge that
+    // publishes no lane fields is "unknown", and unknown is a different claim
+    // from "the single lane" — the panel would otherwise label a two-lane
+    // deployment's records with a lane nobody reported.
+    lane: typeof capability.lane === 'string' ? capability.lane : null,
+    laneTarget: typeof capability.lane_target === 'string' ? capability.lane_target : null,
   };
 }
 

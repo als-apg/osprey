@@ -147,8 +147,16 @@
       "reason": "Builds the real auth-sidecar image and drives one `osprey up`, then asserts over plain HTTP that the login perimeter refuses and admits; no LLM anywhere, and the image build would cost every matrix cell minutes for no model signal."
     },
     {
+      "path": "tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py",
+      "reason": "Default-posture (auth.method: none) multi-user proof that the terminal app's own gate refuses an uncredentialed mutation and admits the `?token=` cookie, driven over plain HTTP against a real `osprey up`; no LLM anywhere, and its persona image is a real `pip install osprey-framework` that would cost every matrix cell minutes for no model signal."
+    },
+    {
       "path": "tests/e2e/web_terminals/test_loopback_chokepoint.py",
       "reason": "No LLM anywhere: launches `osprey web` with --shell true (PTY runs /usr/bin/true, never spawns an agent) and asserts TCP bind behavior via raw socket connects."
+    },
+    {
+      "path": "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
+      "reason": "Same shape as test_loopback_chokepoint.py and no LLM anywhere: launches `osprey web` with --shell true (the PTY runs /usr/bin/true, never spawning an agent) and asserts the web-auth gate's statuses over raw HTTP/WebSocket plus one real python-executor sandbox call."
     },
     {
       "path": "tests/e2e/web_terminals/test_prefix_routing.py",
@@ -161,6 +169,10 @@
     {
       "path": "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
       "reason": "Runs the claude CLI with a deliberately bogus API key and reads only the pre-model stream-json init record's skills list — no model is ever contacted."
+    },
+    {
+      "path": "tests/e2e/test_target_switch_agentic.py",
+      "reason": "Docker-bound two-container fixture, bespoke pinned init."
     }
   ],
   "baseline_expected_run_min": 15

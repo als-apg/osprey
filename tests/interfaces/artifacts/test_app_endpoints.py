@@ -257,6 +257,115 @@ class TestServeFileEndpoint:
         assert body.count("plotly-3.3.1.min.js") == 1
 
 
+class TestServedPlotThemeBridge:
+    """The theme bridge injected into served Plotly artifacts.
+
+    Regression pins for the dark-locked-artifact bug: the bridge used to carry
+    its own two-entry ``{dark, light}`` hex palette and resolve the theme by
+    reading ``window.parent``'s ``data-theme`` with a hardcoded ``'dark'``
+    fallback -- so a plot opened in its own tab (no parent) always rendered
+    dark, and any theme outside the ``main`` family (``high-contrast-light``,
+    ``retro-light``, ...) fell to the dark palette even inside the gallery.
+    The served page must instead resolve its theme the way every other
+    design-system page does (theme-boot.js pre-paint, theme-manager.js at
+    runtime) and take every color from the ``--chart-*`` tokens.
+    """
+
+    def test_bridge_loads_design_system_instead_of_reading_parent(self, app_client):
+        client, _ = app_client
+        entry = _save_html_artifact(
+            client.app.state.artifact_store,
+            '<html><head></head><body><div class="plotly-graph-div"></div></body></html>',
+        )
+        body = client.get(f"/files/{entry.id}/{entry.filename}").text
+        assert '/design-system/js/theme-boot.js"' in body
+        assert '/design-system/css/tokens.css"' in body
+        assert "/design-system/js/theme-manager.js" in body
+        assert "window.parent" not in body
+
+    def test_snippets_carry_no_hardcoded_palette(self):
+        """No injected snippet may carry a color literal or a baked theme id --
+        the hygiene scanner cannot see HTML/CSS/JS inside Python strings, so
+        this is the guard that keeps the old two-entry hex map from coming
+        back in any of them."""
+        import re
+
+        from osprey.interfaces.artifacts.app import _RESPONSIVE_SNIPPETS
+
+        for artifact_type, snippet in _RESPONSIVE_SNIPPETS.items():
+            literals = re.findall(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", snippet)
+            assert literals == [], f"color literals in the {artifact_type} snippet: {literals}"
+            assert "'dark'" not in snippet and '"dark"' not in snippet
+
+    def test_html_and_table_artifacts_get_design_system_wiring(self, app_client):
+        """table_html / html / dashboard_html pages join the design system too:
+        theme-boot pre-paint, tokens.css, follower role -- an unstyled table
+        must not render as a black-on-white browser-default island."""
+        client, _ = app_client
+        store = client.app.state.artifact_store
+        entry = store.save_file(
+            file_content=b'<table class="artifact-table"><tr><td>1</td></tr></table>',
+            filename="table.html",
+            artifact_type="table_html",
+            title="Table",
+            description="",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        body = client.get(f"/files/{entry.id}/{entry.filename}").text
+        assert '/design-system/js/theme-boot.js"' in body
+        assert '/design-system/css/tokens.css"' in body
+        assert "initTheme({ role: 'follower' })" in body
+        assert "artifact-table" in body  # the DataFrame hook finally has CSS behind it
+
+    def test_gallery_shell_stamps_pinned_web_theme(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "light")
+        client = TestClient(create_app(workspace_root=tmp_path))
+        body = client.get("/").text
+        assert 'data-theme="light"' in body
+
+        monkeypatch.setenv("OSPREY_WEB_THEME", "main")
+        client = TestClient(create_app(workspace_root=tmp_path))
+        body = client.get("/").text
+        assert "data-theme=" not in body.split("<head>")[0]  # the <html> tag carries no pin
+
+    def test_pinned_web_theme_is_server_rendered_on_served_html(self, tmp_path, monkeypatch):
+        """A deployment that pinned ``web.theme`` (a concrete id) gets that id
+        stamped as ``<html data-theme>`` on every served HTML artifact page, so
+        a first visit with nothing in localStorage and no ``?theme=`` paints the
+        configured theme -- the same server rung the web terminal renders."""
+        monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast-light")
+        client = TestClient(create_app(workspace_root=tmp_path))
+        store = client.app.state.artifact_store
+        plot = _save_html_artifact(store, "<html><head></head><body></body></html>")
+        body = client.get(f"/files/{plot.id}/{plot.filename}").text
+        assert 'data-theme="high-contrast-light"' in body
+
+        md = store.save_file(
+            file_content=b"# hi",
+            filename="hi.md",
+            artifact_type="markdown",
+            title="hi",
+            description="",
+            mime_type="text/markdown",
+            tool_source="test",
+        )
+        body = client.get(f"/api/markdown/{md.id}/rendered").text
+        assert 'data-theme="high-contrast-light"' in body
+
+    def test_family_web_theme_is_not_pinned_on_served_html(self, tmp_path, monkeypatch):
+        """A bare family (``main``) states a palette but not a mode: no
+        ``data-theme`` is stamped, so the page follows the viewer's own
+        preference (localStorage / OS) exactly as an unpinned terminal does."""
+        monkeypatch.setenv("OSPREY_WEB_THEME", "main")
+        client = TestClient(create_app(workspace_root=tmp_path))
+        plot = _save_html_artifact(
+            client.app.state.artifact_store, "<html><head></head><body></body></html>"
+        )
+        body = client.get(f"/files/{plot.id}/{plot.filename}").text
+        assert "data-theme=" not in body
+
+
 def test_inject_snippet_without_head_or_body_prepends():
     result = _inject_html_snippet(b"<div>fragment</div>", "<style>s</style>")
     assert result == b"<style>s</style><div>fragment</div>"
@@ -320,3 +429,28 @@ class TestAppLifecycle:
         assert calls["host"] == "127.0.0.1"
         assert calls["port"] == 59999
         assert calls["app"].title == "OSPREY Artifact Gallery"
+
+
+class TestIndexPlotlyVendorMeta:
+    """GET / carries the resolved Plotly URL for timeseries.js's lazy loader.
+
+    Plotly is the one vendor asset loaded lazily from JS rather than from a
+    template tag, so it cannot call the ``vendor_url`` Jinja global itself —
+    index.html hands it the resolved URL in a meta tag instead. Without the
+    tag, online (CDN-mode) deployments request the never-vendored local path,
+    404, and every timeseries preview dies with "Failed to load Plotly".
+    """
+
+    def test_online_mode_carries_the_cdn_url(self, app_client, monkeypatch):
+        from osprey.interfaces.vendor import asset_cdn_url
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        client, _ = app_client
+        html = client.get("/").text
+        assert f'name="osprey-vendor-plotly" content="{asset_cdn_url("Plotly.js")}"' in html
+
+    def test_offline_mode_carries_the_vendored_path(self, app_client, monkeypatch):
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        client, _ = app_client
+        html = client.get("/").text
+        assert 'name="osprey-vendor-plotly" content="/static/js/vendor/plotly-3.3.1.min.js"' in html

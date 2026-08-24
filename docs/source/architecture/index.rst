@@ -16,8 +16,12 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 Safety Chain
 ------------
 
-Every tool invocation passes through a configurable chain of **PreToolUse hooks** before reaching
-the MCP server. The chain for ``channel_write`` — the most safety-critical tool — has three stages:
+Every tool call the agent makes through the harness passes through a configurable chain of
+**PreToolUse hooks** before reaching the MCP server. OSPREY's MCP servers are stdio child
+processes the harness starts --- they expose no network port of their own --- so every tool call
+that reaches one has already passed the hook chain. That guarantee belongs to the harness: a
+process on the host that runs the server command itself is outside it, which is why host access
+is part of the trust boundary. The chain for ``channel_write`` — the most safety-critical tool — has three stages:
 
 .. raw:: html
    :file: ../_diagrams/safety-chain.html

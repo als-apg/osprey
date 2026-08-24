@@ -13,6 +13,7 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.
    - What the Virtual Accelerator is (and is not)
    - The three-state ``control_system.type`` switch
    - Pointing a project at the soft-IOC the stack already deploys
+   - Moving a running session between the soft-IOC and the real machine
    - Switching back to the mock, and why plans go browse-only there
    - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
    - Write limits
@@ -99,6 +100,34 @@ up as it is asked for it — the build **refuses** the profile, and says what to
 do instead: point ``archiver.type`` at a store this deployment writes
 (``mongodb_archiver`` for the store the preset deploys), or stay on ``mock`` for
 an honestly storeless deployment. `The honesty rule`_ below explains why.
+
+Switching a running session
+===========================
+
+The three commands above set which control system the deployment **starts** on.
+They are not the only way to change target, and on a deployment that describes
+both a real machine and a Virtual Accelerator they are not the usual one.
+
+A running session can be moved between the two — rehearse a script against the
+soft-IOC, look at what it did, then run it on the machine — with a single
+approval-gated tool call and no rebuild, no redeploy and no restart:
+
+.. code-block:: text
+
+   > switch to the virtual accelerator
+   > ... run the work, check the results ...
+   > switch to the live machine
+
+The destination is connected and proven reachable before the current one is
+retired, so a switch that cannot reach its target leaves the session working
+exactly where it was. Moving *toward* the real machine additionally requires a
+strict limits posture and an explicit operator acknowledgment; coming back to a
+deployment's own baseline never does. Nothing is remembered: every server start
+returns to the baseline.
+
+See :doc:`switch-control-target` for the whole workflow — what the target roster
+reports, what the switch refuses and why, and how Bluesky plans behave while a
+session is switched.
 
 Switching back to the mock
 ==========================

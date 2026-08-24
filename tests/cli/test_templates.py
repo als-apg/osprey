@@ -7,8 +7,11 @@ registry helper pattern correctly.
 
 import pytest
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
+from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
 
 class TestTemplateManager:
@@ -127,6 +130,83 @@ class TestTemplateManager:
                 data_bundle="control_assistant",
                 context={"channel_finder_mode": "in_context"},
                 tier=2,
+            )
+
+    def test_create_project_graph_derives_tier3(self, tmp_path, monkeypatch):
+        """Omitting ``tier`` with the graph paradigm derives tier 3.
+
+        Graph's store is a seeded graph service rather than a database file, so
+        the derived tier reaches the materializer only to select the benchmark
+        query set — no ``channel_databases/<paradigm>.json`` is flattened. The
+        test stops the render at that boundary, which is the whole of the tier
+        derivation; the rest of the render is exercised by the per-paradigm
+        render tests.
+        """
+        from pathlib import Path
+
+        from osprey.cli.templates import scaffolding
+
+        class _StopAfterMaterialize(Exception):
+            pass
+
+        real_materialize = scaffolding.materialize_tier_artifacts
+        seen: dict = {}
+
+        def _record(project_dir, tier, channel_finder_mode):
+            seen["tier"] = tier
+            seen["project_dir"] = project_dir
+            real_materialize(project_dir, tier, channel_finder_mode)
+            raise _StopAfterMaterialize
+
+        monkeypatch.setattr(scaffolding, "materialize_tier_artifacts", _record)
+
+        manager = TemplateManager()
+        with pytest.raises(_StopAfterMaterialize):
+            manager.create_project(
+                project_name="test-project",
+                output_dir=tmp_path,
+                data_bundle="control_assistant",
+                context={"channel_finder_mode": "graph"},
+            )
+
+        assert seen["tier"] == 3
+
+        project_dir = seen["project_dir"]
+        preset_data = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "osprey"
+            / "templates"
+            / "apps"
+            / "control_assistant"
+            / "data"
+        )
+        # The tier-3 query set landed. Tier 1 ships a different, smaller set,
+        # so this byte-comparison fails if the derivation had resolved tier 1.
+        queries = project_dir / "data" / "benchmarks" / "queries.json"
+        expected = preset_data / "benchmarks" / "cross_paradigm" / "queries" / "tier3_queries.json"
+        assert queries.read_bytes() == expected.read_bytes()
+
+        # No paradigm database was materialized for graph.
+        cdb = project_dir / "data" / "channel_databases"
+        for paradigm in VALID_CHANNEL_FINDER_MODES:
+            assert not (cdb / f"{paradigm}.json").exists()
+        assert not (cdb / "tiers").exists()
+
+    def test_create_project_explicit_tier_with_graph_rejected(self, tmp_path):
+        """An explicit ``tier`` paired with graph is rejected at the creation
+        boundary with the graph rule, not the in_context tier-1 rule."""
+        from osprey.errors import BuildProfileError
+
+        manager = TemplateManager()
+
+        with pytest.raises(BuildProfileError, match="graph has no tiered artifacts; omit tier"):
+            manager.create_project(
+                project_name="test-project",
+                output_dir=tmp_path,
+                data_bundle="control_assistant",
+                context={"channel_finder_mode": "graph"},
+                tier=3,
             )
 
     def test_duplicate_project_raises_error(self, tmp_path):
@@ -271,6 +351,60 @@ class TestBuildClaudeCodeContextHierarchy:
         assert "Call `get_options()` at the first level to discover" not in agent_prompt
 
 
+class TestBuildClaudeCodeContextPipelineMode:
+    """The render path refuses a missing or unknown channel-finder paradigm.
+
+    A project that ships the channel-finder agent is built against one
+    paradigm's store. Guessing a default, or quietly rendering an empty tool
+    list for a name nothing recognises, would produce an agent whose prompt and
+    tools do not match the data on disk — so both cases raise here instead.
+    """
+
+    @staticmethod
+    def _config(**channel_finder):
+        return {"facility_name": "TestFacility", "channel_finder": dict(channel_finder)}
+
+    @pytest.mark.unit
+    def test_missing_pipeline_mode_raises(self, tmp_path):
+        """A channel_finder block with no pipeline_mode is an error, not a default."""
+        manager = TemplateManager()
+        with pytest.raises(PipelineModeError, match="pipeline_mode"):
+            claude_code.build_claude_code_context(
+                manager.template_root,
+                manager.jinja_env,
+                tmp_path,
+                self._config(pipelines={}),
+            )
+
+    @pytest.mark.unit
+    def test_unknown_pipeline_mode_raises_and_names_the_mode(self, tmp_path):
+        """An unrecognised paradigm raises and the message names it."""
+        manager = TemplateManager()
+        with pytest.raises(PipelineModeError, match="bogus"):
+            claude_code.build_claude_code_context(
+                manager.template_root,
+                manager.jinja_env,
+                tmp_path,
+                self._config(pipeline_mode="bogus"),
+            )
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
+    def test_known_modes_render_their_tool_list(self, tmp_path, mode):
+        """Every registered paradigm renders the registry's tool list for it."""
+        manager = TemplateManager()
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root,
+            manager.jinja_env,
+            tmp_path,
+            self._config(pipeline_mode=mode),
+        )
+        assert ctx["channel_finder_pipeline"] == mode
+        assert ctx["channel_finder_mode"] == mode
+        assert ctx["default_pipeline"] == mode
+        assert ctx["channel_finder_tools"] == CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(mode, [])
+
+
 class TestTemplateManifest:
     """Test template manifest loading, resolution, and filtering."""
 
@@ -396,6 +530,7 @@ class TestTemplateManifest:
             "osprey_memory_guard.py",
             "osprey_notebook_update.py",
             "osprey_panels_context.py",
+            "osprey_target_state.py",
             "osprey_workspace_delta.py",
             "osprey_writes_check.py",
         }
@@ -522,7 +657,7 @@ class TestBuiltinPanelRegistryDrift:
             project_name="okf-panel-e2e",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            artifacts={"web_panels": ["okf", "channel-finder"]},
+            artifacts={"hooks": ["memory-guard"], "web_panels": ["okf", "channel-finder"]},
         )
         panels = yaml.safe_load((project_dir / "config.yml").read_text())["web"]["panels"]
 

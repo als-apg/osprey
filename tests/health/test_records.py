@@ -60,6 +60,7 @@ class TestPolicySets:
                 "model_chat",
                 "ariel",
                 "channel_finder",
+                "graphdb",
                 "web_panels",
             }
         )

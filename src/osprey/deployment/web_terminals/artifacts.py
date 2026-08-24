@@ -1,8 +1,9 @@
 """Render-and-write seam for the multi-user web-terminal deployment artifacts.
 
 :func:`osprey.deployment.web_terminals.render.render_web_terminals` produces the
-three artifacts in memory (``docker-compose.web.yml``, ``nginx/nginx.conf``,
-``nginx/landing.html``) as a ``{relative_path: content}`` mapping. This module is
+artifacts in memory (``docker-compose.web.yml``, ``nginx/nginx.conf``,
+``nginx/landing.html``, plus one ``nginx/templates/secret-<user>.conf.template``
+per gated roster user) as a ``{relative_path: content}`` mapping. This module is
 the single place that decides *where on disk* those relative paths land, so every
 consumer agrees on one location:
 
@@ -25,15 +26,25 @@ from pathlib import Path
 from typing import Any
 
 from osprey.deployment.errors import DeploymentError
-from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+from osprey.deployment.web_terminals.auth_credentials import (
+    AUTH_ENV_FILENAME,
+    terminal_secret_var,
+)
 from osprey.deployment.web_terminals.personas import (
+    normalize_users,
+    personas_needing_archiver_password,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_facility_bundle,
+    personas_needing_graphdb_password,
     personas_needing_launch_token,
     personas_not_denying_bash,
 )
-from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.render import (
+    clear_nginx_templates_dir,
+    render_web_terminals,
+)
+from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 from osprey.utils.workspace import BUILD_DIR_NAME
 
 #: Filename of the rendered web-stack compose file, as
@@ -246,14 +257,83 @@ def auth_env_digest(project_root: str | Path) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _terminal_secrets(config: Any, root: Path) -> dict[str, str] | None:
+    """The roster's operator secrets as the deploy ``.env`` currently holds them.
+
+    Read back off disk here rather than threaded down from the mint, because
+    every caller of the write seam re-renders from config alone — the roster
+    verbs and ``force_recreate_auth_sidecar`` never ran the mint themselves —
+    and because :func:`render_web_terminals` reads no filesystem of its own.
+    Same shape as :func:`auth_env_digest` above, and for the same reason: every
+    disk-derived input is resolved at this seam.
+
+    The values are used only to answer *whether* each roster user has a secret;
+    :func:`~osprey.deployment.web_terminals.render._terminal_secret_artifacts`
+    renders the variable NAME and never the value, which is what keeps the
+    secret out of ``build/`` and out of every image layer.
+
+    The empty-versus-``None`` distinction is the whole contract with the render,
+    and it is a statement about *provisioning*, not about the roster:
+
+    * A mapping — even a partial one — means this deployment HAS been
+      provisioned, so the render may hold it to the full roster. A user missing
+      from it (added to the roster since the last ``osprey up``, or blanked by
+      hand) refuses the render with a message naming the user and the variable
+      to set. That is the failure worth having: the alternative is a terminal
+      that 401s every request from behind a healthy-looking proxy.
+    * ``None`` means no roster user has a secret at all, so provisioning has not
+      run here and this render has nothing to speak for. Snippets are skipped
+      rather than refused. This is not an open door: nginx.conf.j2 emits an
+      unconditional ``include`` for each authenticated location, and nginx
+      treats a missing include as a hard startup failure — so such a stack still
+      never serves a terminal. It fails at container start naming a path instead
+      of at render naming a user, which is the worse error but the honest one
+      for a caller that only wants to *see* what config renders to.
+
+    On the deploy path neither degraded case arises: ``osprey up``'s preflight
+    runs ``ensure_terminal_secrets`` for the whole roster and refuses the deploy
+    before reaching here if any secret could not be established.
+
+    Args:
+        config: The parsed deploy config; its ``modules.web_terminals.users``
+            roster decides which variables are looked up.
+        root: The deployment repo root, which holds the deploy ``.env``.
+
+    Returns:
+        ``{username: secret}`` for every roster user with a non-blank value, or
+        ``None`` when that mapping would be empty.
+    """
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    env_path = root / ENV_LOCAL_FILENAME
+    stored = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    secrets = {}
+    for entry in normalize_users(web_terminals.get("users")):
+        name = entry["name"]
+        value = stored.get(terminal_secret_var(name), "").strip()
+        if value:
+            secrets[name] = value
+    return secrets or None
+
+
 def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = None) -> list[Path]:
     """Render the web-terminal artifacts into the repo's ``build/`` zone.
 
     The artifacts' relative paths (``docker-compose.web.yml``,
-    ``nginx/nginx.conf``, ``nginx/landing.html``) are preserved beneath the
-    destination; parent directories (e.g. ``nginx/``) are created as needed. The
-    compose file and its ``nginx/`` subtree must stay co-located, which writing
-    them together under one destination guarantees.
+    ``nginx/nginx.conf``, ``nginx/landing.html``, and one
+    ``nginx/templates/secret-<user>.conf.template`` per gated roster user) are
+    preserved beneath the destination; parent directories (e.g. ``nginx/``) are
+    created as needed. The compose file and its ``nginx/`` subtree must stay
+    co-located, which writing them together under one destination guarantees.
+
+    ``nginx/templates/`` is emptied before anything is written, and this is the
+    only artifact directory treated that way. Every other file is overwritten in
+    place by each render, so a stale one cannot survive; the snippets are keyed
+    by USERNAME, so a decommissioned user's snippet is overwritten by nothing
+    and would otherwise live forever — and nginx's entrypoint envsubsts every
+    file it finds there, so it would go on injecting a header for a user who is
+    no longer on the roster. Clearing also materializes the directory on a first
+    render, which the compose file bind-mounts and would otherwise have the
+    container runtime create root-owned.
 
     Two directories, deliberately, because the two kinds of file have opposite
     lifetimes. The artifacts are render output and land in ``<repo>/build``;
@@ -297,6 +377,10 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
             those refuse earlier still (see
             :func:`check_bash_launch_token_conflict`); this is the backstop that
             makes the property hold for all of them.
+        ValueError: From the render — including, once this deployment has any
+            operator secret provisioned at all, a roster user that has none of
+            its own (see :func:`_terminal_secrets`). Raised before any file is
+            written or cleared.
     """
     from osprey.deployment.compose_generator import (
         resolve_facility_bundle_dir,
@@ -310,8 +394,9 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
     # the .env.auth digest, which personas declare the EVENTS panel and so need
     # the dispatcher's bearer, which configure ARIEL and so need its Postgres
     # password, which both allow writes and run the bluesky server and so may
-    # arm a queue start — each in their own per-user environment block — and
-    # which name a facility-knowledge bundle and so get it bind-mounted.
+    # arm a queue start, which configure a graph store and so need its Neo4j
+    # password — each in their own per-user environment block — and which name a
+    # facility-knowledge bundle and so get it bind-mounted.
     # Fail closed BEFORE the render, so a refused deploy leaves no half-written
     # artifacts behind: a persona holding BLUESKY_LAUNCH_TOKEN whose shipped
     # settings still permit `Bash` can arm a queue start from a shell, with none
@@ -329,6 +414,8 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
         dispatcher_personas=personas_needing_dispatcher_token(config, root),
         ariel_personas=personas_needing_ariel_password(config, root),
         launch_token_personas=launch_token_personas,
+        graphdb_personas=personas_needing_graphdb_password(config, root),
+        archiver_password_personas=personas_needing_archiver_password(config, root),
         facility_bundle_personas=personas_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see
@@ -337,8 +424,18 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
         # None and emits no `group_add` — the honest render, since joining a
         # group that was never established would be a guess.
         facility_bundle_gid=shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
+        # The roster's operator secrets, read back off the deploy .env (see
+        # _terminal_secrets for the None case and why it is not an open door).
+        # Without this the render emits no per-user snippet at all, while
+        # nginx.conf.j2 still emits the `include` that reads one — an nginx that
+        # refuses to start, pointing at a path nothing ever wrote.
+        terminal_secrets=_terminal_secrets(config, root),
     )
     dest = web_artifacts_dir(root)
+    # Before the first write, never after: a render that raised above must not
+    # have removed the snippets the currently-deployed stack is still reading,
+    # and a stale snippet must not survive into the set written below.
+    clear_nginx_templates_dir(dest)
     written: list[Path] = []
     for relative_path, content in artifacts.items():
         target = dest / relative_path

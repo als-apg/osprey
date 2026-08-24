@@ -13,13 +13,35 @@ name: Channel Finder Standalone
 # bundled demo hierarchical database, no Postgres / logbook / benchmark data).
 app_template: channel_finder_standalone
 
+# Which model answers. `osprey set provider=...` / `osprey set model=...` edit
+# these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
+model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+
+# Any custom gateway works too: name it as the provider, describe it under a
+# `config:` section, and put its key in this repo's .env — the variable name
+# derives from the provider name, <NAME>_API_KEY. Worked example:
+#
+# provider: my-gateway
+# config:
+#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
+#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
+#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
+#   # in Anthropic mode), so the local translation proxy is skipped:
+#   api.providers.my-gateway.api_protocol: anthropic
+#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
+#   # fall back to `model:` above, with a build-time warning:
+#   api.providers.my-gateway.models:
+#     haiku: claude-haiku-4-5
+#     sonnet: claude-sonnet-4-6
+#     opus: claude-opus-4-6
 
 # Channel-finder pipeline. The bundle ships a demo hierarchical database, so
 # hierarchical is the out-of-the-box default. Override for your data via
 # `--set channel_finder_mode=in_context|middle_layer` or a profile that
-# extends this preset.
+# extends this preset. The fourth paradigm, `graph`, answers from a knowledge
+# graph store instead of a database file; this bundle configures no such store,
+# so the build rejects it here.
 channel_finder_mode: hierarchical
 
 # Selects the channel-finder persona — "channel/PV address finder" instead of
@@ -32,11 +54,12 @@ claude_md_template: CLAUDE.channel-finder.md.j2
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Enforce config.yml approval policy (fail-closed default for any write tool)
   - error-guidance    # Post-error hook that surfaces remediation hints
   - notebook-update   # Sync CLAUDE.md notebook after each session
-  - memory-guard      # Warn when context window approaches threshold
+  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt

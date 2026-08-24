@@ -285,7 +285,13 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     that can't authenticate upstream is a hard failure — the terminal would
     launch straight into an auth error. Direct Anthropic (subscription/OAuth)
     has no such requirement, so a missing ``ANTHROPIC_API_KEY`` there is only
-    a warning, not an abort.
+    a warning, not an abort. Nor is a key required by every proxy provider:
+    when the models adapter registry knows the provider and its adapter
+    declares ``requires_api_key = False`` (ollama, vllm, ds4 — local servers
+    with no auth), a missing secret is likewise only a warning, worded with
+    the adapter's own ``api_key_note``. Providers the registry does not know
+    keep the strict behavior — an unknown custom proxy without a secret is
+    still an abort.
 
     The two directories are genuinely different files: the provider is declared
     in the render (``build/config.yml``), while the secret it needs lives in
@@ -352,6 +358,14 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
 
     preamble = f"auth secret ${spec.auth_secret_env} not found in environment or .env "
     if spec.needs_proxy:
+        # Imported only on this failure path: resolving an adapter class pulls
+        # in the LiteLLM stack, which the healthy launch never needs to load.
+        from osprey.models.provider_registry import get_provider_registry
+
+        adapter = get_provider_registry().get_provider(spec.provider)
+        if adapter is not None and adapter.requires_api_key is False:
+            note = f": {adapter.api_key_note}" if adapter.api_key_note else ""
+            return [], [f"{preamble}(provider {spec.provider} does not require one{note})"]
         return [f"{preamble}(provider {spec.provider} requires it)"], []
     return (
         [],
@@ -445,6 +459,63 @@ def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: floa
     return False
 
 
+def _mint_operator_url(host: str, port: int) -> tuple[str, bool]:
+    """Settle this launcher's operator secret and return its login URL.
+
+    Runs in the CLI PARENT — the process that is about to *become* the server
+    (foreground), spawn the ``--reload`` worker, or spawn the ``--detach``
+    child — never inside an already-serving process. Calling
+    :func:`osprey.interfaces.web_auth.mint_and_announce` here mints the operator
+    secret into the process-wide holder and, crucially, re-publishes it in
+    ``os.environ[OSPREY_TERMINAL_SECRET]`` so whatever this launcher spawns or
+    becomes inherits the SAME value. The reload worker re-imports the app
+    factory in a fresh process, so the secret must be in the environment BEFORE
+    that spawn — minting in the parent, not in the factory, is what makes the
+    worker inherit it.
+
+    The carrier this opens is closed again at app construction, wherever that
+    construction happens: in a spawned worker or detached child by that
+    process's own ``_populate`` pop, and on the direct-serve path — where this
+    launcher becomes the server and no second population runs — by
+    :func:`osprey.interfaces.web_auth.close_env_carriers`. Without that second
+    mechanism the default ``osprey web`` would serve for its whole life with the
+    operator secret sitting in the environment every SDK-spawned agent
+    inherits.
+
+    Returns:
+        ``(login_url, announce)``. ``login_url`` carries the secret as its
+        ``?token=`` and is the operator's only way in. ``announce`` is False
+        when the secret was ALREADY in the environment before this call —
+        supplied by an ancestor launcher (a ``--detach`` parent) or by a
+        multi-user deployment — meaning the URL was already printed once
+        upstream and this process must stay silent, so the token never lands in,
+        e.g., the detached server's log file. It is True only when this process
+        minted the secret itself and therefore owns announcing it.
+
+    The environment read that decides ``announce`` happens BEFORE
+    ``mint_and_announce`` re-sets the carrier, so a freshly minted secret reads
+    as absent-then-present (announce) while an inherited one reads as
+    already-present (stay silent).
+
+    Raises:
+        click.ClickException: when the credential holder refuses to settle —
+            the container shape, where a bind host is declared but the
+            deployment supplied no secret. The holder raises ``RuntimeError``
+            there rather than minting a value nginx would never forward; this
+            call site is outside ``web()``'s ``try`` (which handles only
+            ``KeyboardInterrupt``), so without the translation the operator
+            gets a traceback instead of the message that names the fix.
+    """
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
+
+    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
+    try:
+        login_url = mint_and_announce(host, port)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return login_url, announce
+
+
 def _notice_declared_override(env_var: str, flag_name: str, flag_value: object, what: str) -> None:
     """Print the NOTICE when a declared env var overrides a conflicting CLI flag.
 
@@ -533,6 +604,14 @@ def web(
     profile.yml above it, or --repo — and what it serves is that repo's build/
     as it was last rendered. A repo with no build/ is refused rather than
     served as an empty terminal.
+
+    On launch it mints a single-user operator secret and prints an ``Open:``
+    login URL carrying it as a ``?token=``; that URL is the only way into the
+    terminal, which now refuses an unauthenticated request. The secret is minted
+    in this parent process on every launch shape (foreground, ``--reload``,
+    ``--detach``) so the serving worker or child inherits it through the
+    environment — it is never written to disk, and under ``--detach`` the parent
+    prints the URL once while the child stays silent so no token reaches the log.
 
     Example:
 
@@ -639,7 +718,42 @@ def web(
     # reporting success while the real terminal never hears the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)
 
+    # Mint the operator secret in THIS (parent) process, after the port has
+    # settled so the announced URL names the socket that will actually listen.
+    # In direct-serve this same process's create_app closes the carrier again
+    # (configure_interface_app -> web_auth.close_env_carriers), so the secret
+    # this line publishes does not survive into the environment the serving
+    # process hands its agents; under --reload the ChangeReload worker uvicorn
+    # spawns re-imports the factory and pops the value it inherited through the
+    # environment set here — which is why the mint must precede the spawn and
+    # live in the launcher, not the factory.
+    login_url, announce = _mint_operator_url(host, port)
+
     output.report(f"Starting OSPREY Web Terminal on http://{host}:{port}")
+    if announce:
+        # The one line that carries the secret. Printed only when this process
+        # minted it; a secret inherited from upstream was already announced
+        # there, so re-printing would be the only place the token could leak.
+        output.report(f"Open: {login_url}")
+    elif not os.environ.get(DECLARED_BIND_ENV):
+        # Silence needs an explanation on the host side. The gate above is a
+        # bare presence check on OSPREY_TERMINAL_SECRET, so an operator who
+        # exported that variable in their own shell gets no login URL and, until
+        # this line, no hint why. Never echo the value — say where the URL is
+        # and how to get a fresh one. Suppressed when a bind host is declared:
+        # that is the multi-user container, where nginx owns the way in and
+        # there is no login URL to be missing.
+        from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
+        output.note(
+            f"Using the {OPERATOR_SECRET_ENV} already set in this environment, "
+            "so no login URL is printed here."
+        )
+        output.note(
+            "Open the URL printed where that secret was minted, or unset "
+            f"{OPERATOR_SECRET_ENV} and start again to have this launch mint "
+            "and print its own."
+        )
     output.note(f"Shell: {' '.join(shell_command)}")
     output.note("Press Ctrl+C to stop")
     output.report("")
@@ -650,11 +764,18 @@ def web(
 
             from osprey.interfaces.web_terminal.app import _open_browser_when_ready
 
-            _open_browser_when_ready(f"http://{host}:{port}")
+            # Open the token URL, not the bare one: the bare URL sets no cookie,
+            # so an auto-opened tab would land on the login-required page. The
+            # ?token= exchange sets the session cookie and 303s to the clean URL.
+            _open_browser_when_ready(login_url)
 
             # The reload worker re-imports create_app() with no arguments; it
             # finds the render via the OSPREY_CONFIG publication made in
-            # _resolve_render().
+            # _resolve_render(), and pops OSPREY_TERMINAL_SECRET — set by the
+            # mint above, before this spawn — to recognise that same token. That
+            # worker is a fresh process, so its own _populate does the pop;
+            # close_env_carriers then keeps the carrier shut on every later app
+            # the worker builds.
             uvicorn.run(
                 "osprey.interfaces.web_terminal.app:create_app",
                 factory=True,
@@ -666,12 +787,16 @@ def web(
         else:
             from osprey.interfaces.web_terminal import run_web
 
+            # Hand run_web the TOKEN url so its auto-open exchanges the token for
+            # a session cookie, matching the --reload branch. Without this it
+            # opens the bare URL and the tab lands on the login-required page.
             run_web(
                 host=host,
                 port=port,
                 shell_command=shell_command,
                 config_path=str(project_config),
                 project_dir=str(build_dir),
+                browser_url=login_url,
             )
     except KeyboardInterrupt:
         output.report("")
@@ -697,6 +822,16 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
         output.report(f"Web terminal already running (PID {existing}).")
         output.note("Stop it with: osprey web stop")
         return
+
+    # Mint the operator secret in THIS (parent) process, BEFORE spawning the
+    # child, so the child inherits OSPREY_TERMINAL_SECRET through the
+    # environment (subprocess.Popen inherits os.environ) and pops it at its own
+    # create_app. The token rides in the environment and this parent's memory
+    # only — never in the child argv and never on disk. The child re-enters the
+    # foreground path and finds the secret already set, so it stays silent and
+    # nothing carrying the token is written to the server's log; the parent here
+    # is the one that prints the login URL, exactly once.
+    login_url, announce = _mint_operator_url(host, port)
 
     # Build the child command (no --detach to avoid recursion). --skip-preflight
     # is always appended: the parent already ran the pre-flight in the foreground
@@ -740,6 +875,12 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
             "",
             {"URL": f"http://{host}:{port}", "Log": log_path, "Stop": "osprey web stop"},
         )
+        if announce:
+            # The operator's way in. The clean URL above answers only with a
+            # cookie the browser doesn't have yet; this one carries the token
+            # that mints the session. Printed here in the parent — never by the
+            # detached child, whose stdout is the log file.
+            output.report(f"Open: {login_url}")
     else:
         exit_code = proc.poll()
         if exit_code is not None:

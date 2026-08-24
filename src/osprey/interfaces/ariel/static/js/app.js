@@ -6,7 +6,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded } from '/design-system/js/frame-params.js';
+import { applyEmbedded, onModeChange } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { capabilitiesApi } from './api.js';
 import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
@@ -14,35 +14,34 @@ import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showIm
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
 import '/design-system/js/components/osprey-drawer.js';
-import '/design-system/js/components/osprey-theme-switcher.js';
+import '/design-system/js/components/osprey-display-menu.js';
 import { initSettings } from './settings.js';
 
-// Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
-// and follow live changes. theme-boot.js already applied data-theme
-// pre-paint; this call attaches the follower's postMessage listener.
-initTheme({ role: 'follower' });
+// Embedded mode — drops the panel's own header entirely (the host tile bar is
+// the one header) when loaded inside the web terminal iframe. Applied before
+// initTheme() below, which needs to know which surface this is.
+applyEmbedded();
 
-// Live Expert<->Simple switch broadcast by the hub's header toggle. The
-// pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this is
-// the runtime flip. Coerce anything non-"simple" to "expert", re-stamp the
-// attribute (CSS deltas key off it), then repaint the current results so plain
-// cards <-> scored cards swap without re-running the query. Mirrors the
-// artifacts panel's gallery.js listener.
-window.addEventListener('message', (e) => {
-  if (e.origin !== window.location.origin) return;
-  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
-    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    onUiModeChange();
-  }
-});
+// Standalone ARIEL owns theming: the display menu is the operator's control
+// and its pick must persist (hub role). Embedded, the hub is that control and
+// this panel only follows its broadcasts. theme-boot.js already applied
+// data-theme pre-paint either way.
+initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
+
+// Live Expert<->Simple switch — broadcast by the hub's header toggle when
+// embedded, posted by the display menu's View row when standalone. The shared
+// receive-side helper stamps data-ui-mode (CSS deltas key off it); the
+// callback repaints the current results so plain cards <-> scored cards swap
+// without re-running the query. Mirrors the artifacts panel's gallery.js.
+onModeChange(() => onUiModeChange());
 
 // Current view
 let currentView = 'search';
 
 /**
  * Whether the app runs embedded in the web terminal iframe.
- * Reads the `embedded` body class set by applyEmbedded() in init().
+ * Reads the `embedded` body class set by the applyEmbedded() call at module
+ * scope above — which is why the theme role can already read it there.
  * @returns {boolean}
  */
 function isEmbedded() {
@@ -89,10 +88,6 @@ function publishHeaderContribution() {
  * Initialize the application.
  */
 async function init() {
-  // Embedded mode — drops the panel's own header entirely (the host tile bar
-  // is the one header) when loaded inside the web terminal iframe
-  applyEmbedded();
-
   // Initialize modules — wrapped in try/catch so navigation always works
   // even if the backend is unavailable (degraded mode).
   try {
@@ -103,7 +98,9 @@ async function init() {
       console.warn('Failed to fetch capabilities, using fallback:', e);
     }
 
-    initSearch();
+    // Search first, and with the payload: a degraded-configuration banner has
+    // to be on screen before anything else renders.
+    initSearch(capabilities);
     initEntries();
     initDashboard();
     initAdvancedOptions(capabilities);
@@ -115,6 +112,7 @@ async function init() {
   // Navigation and routing must always run
   setupNavigation();
   setupModals();
+  setupCreateFormReset();
 
   const hash = window.location.hash.slice(1) || defaultView();
   navigateTo(hash);
@@ -157,6 +155,22 @@ function setupNavigation() {
   // clicked entry's id back here and navigateTo re-publishes the active state.
   onHeaderAction((id, value) => {
     if (id === 'view' && value) navigateTo(value);
+  });
+}
+
+/**
+ * Wire the New Entry form's Cancel button: clear the fields and the staged
+ * file thumbnails (a native form reset leaves the previews behind, since it
+ * fires no change event for handleFilePreview to see).
+ */
+function setupCreateFormReset() {
+  const cancelBtn = document.getElementById('create-cancel-btn');
+  cancelBtn?.addEventListener('click', () => {
+    /** @type {HTMLFormElement|null} */ (
+      document.getElementById('create-entry-form')
+    )?.reset();
+    const preview = document.getElementById('file-preview');
+    if (preview) preview.innerHTML = '';
   });
 }
 

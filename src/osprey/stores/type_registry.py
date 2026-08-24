@@ -65,6 +65,9 @@ CATEGORIES: dict[str, TypeDef] = {
     "user_artifact": TypeDef("user_artifact", "User Artifact", "#94a3b8"),
     "diagnostic_report": TypeDef("diagnostic_report", "Diagnostic Report", "#ef4444"),
     "lattice_analysis": TypeDef("lattice_analysis", "Lattice Analysis", "#0ea5e9"),
+    # The facility-knowledge agent has always been instructed to submit with
+    # this type; register it so submit_response accepts the instruction.
+    "facility_knowledge": TypeDef("facility_knowledge", "Facility Knowledge", "#84cc16"),
 }
 
 # Tool types
@@ -78,7 +81,7 @@ TOOL_TYPES: dict[str, TypeDef] = {
     "ariel_search": TypeDef("ariel_search", "ARIEL Search", "#e879f9"),
     "screenshot_capture": TypeDef("screenshot_capture", "Screenshot Capture", "#a78bfa"),
     "facility_description": TypeDef("facility_description", "Facility Description", "#fbbf24"),
-    "artifact_save": TypeDef("artifact_save", "Artifact Save", "#94a3b8"),
+    "artifact_register": TypeDef("artifact_register", "Artifact Register", "#94a3b8"),
     "artifact_delete": TypeDef("artifact_delete", "Artifact Delete", "#94a3b8"),
     "artifact_export": TypeDef("artifact_export", "Artifact Export", "#94a3b8"),
     "artifact_focus": TypeDef("artifact_focus", "Artifact Focus", "#60a5fa"),

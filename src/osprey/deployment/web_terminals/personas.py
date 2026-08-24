@@ -19,6 +19,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -161,6 +163,114 @@ def config_needs_launch_token(config: Any) -> bool:
     return as_dict(servers.get("bluesky")).get("enabled", True) is not False
 
 
+def config_needs_graphdb_password(config: Any) -> bool:
+    """True if ``config`` configures a graph store and runs the ``graph`` MCP server.
+
+    ``GRAPHDB_PASSWORD`` is the store's *single* credential: Neo4j has one
+    account, ``neo4j``, and it is write-capable. There is no read-only account
+    to hand out instead, so a persona that may query the graph at all holds the
+    password that could also rewrite it — and, because the credential arrives as
+    an environment variable in the container the agent runs in, the agent can
+    read it. Granting it is therefore a deliberate decision, not a default.
+
+    The read-only tier receives it too, and that is intended rather than an
+    oversight. Read-only-ness for the graph is enforced by the ``graph`` MCP
+    server, which runs every query through ``Session.execute_read`` — the
+    transaction never opens in write mode, whatever the credential would permit.
+    That is the same posture ``ARIEL_DB_PASSWORD`` already has: one Postgres
+    password shared by every ARIEL consumer, with the read-only guarantee living
+    in what the consumer does rather than in which password it holds. The
+    contrast is :func:`config_needs_launch_token`, which *is* gated on
+    ``control_system.writes_enabled``, because there the credential itself is
+    the capability — nothing downstream of holding it stops a queue start.
+
+    The blast radius bounds the decision: the store holds a disposable mirror of
+    a Turtle corpus, re-seedable from it with ``osprey knowledge seed-graph``, so
+    the worst case is corpus integrity rather than facility data or hardware.
+    This predicate is consequently **never** gated on ``writes_enabled`` — doing
+    so would leave the read-only operator terminal, the very tier the graph
+    search is meant to serve, unable to reach the store at all.
+
+    Two conditions, read the way each key's own default reads:
+
+    * ``services.graphdb`` must resolve to a block (see
+      :func:`osprey.deployment.graphdb_service.resolve_graphdb_service_config`).
+      That block IS the entitlement, for the reason
+      :func:`config_needs_ariel_password` gives about the ``ariel:`` section: it
+      is what
+      :func:`osprey.deployment.graphdb_service.resolve_graphdb_connection` reads
+      to decide what to dial, on the local-port path and the external-``uri:``
+      path alike, and both then read this same variable for the password. A
+      fully-defaulted ``graphdb: {}`` therefore entitles, while a bare
+      ``graphdb:`` (which YAML parses as ``None``) configures no store and does
+      not. A malformed block — a port that is not a port, a heap size the JVM
+      would reject — entitles nothing either: it configures no store this
+      deployment could reach, and refusing here would turn a typo in one
+      persona's ``config.yml`` into a failed render of the whole roster.
+    * ``claude_code.servers.graph.enabled`` must merely be **not** ``False``,
+      because that key is an *override* over the server's built-in default (see
+      :func:`osprey.registry.mcp.resolve_servers`, which likewise disables only
+      on a literal ``enabled: false``). An absent key leaves the server enabled,
+      so reading absence as "disabled" would deny the password to every
+      correctly-configured project that simply never wrote the override.
+    """
+    root = as_dict(config)
+    try:
+        if resolve_graphdb_service_config(root) is None:
+            return False
+    except ValueError:
+        return False
+    servers = as_dict(as_dict(root.get("claude_code")).get("servers"))
+    return as_dict(servers.get("graph")).get("enabled", True) is not False
+
+
+#: What a ``password_env`` name must look like to be emitted into a compose
+#: ``environment:`` line verbatim. Anything else is refused rather than rendered.
+_ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def config_archiver_password_env(config: Any) -> str | None:
+    """The variable ``config``'s archiver connector authenticates with, or ``None``.
+
+    The archiver connector reads its password from the environment variable its
+    own block names — ``archiver.<type>.password_env`` — and raises on every
+    read when that variable is unset. For a store the project deploys itself,
+    ``osprey up`` mints the value into the deploy ``.env`` under that name; for
+    a facility-run store the operator puts it there. Either way the web
+    terminal's agent can only authenticate if its container is handed *that*
+    variable, which is why this returns the configured NAME rather than a
+    boolean: the grant carries it, so a project reading a store under any
+    spelling is served.
+
+    Only the SELECTED connector's block counts. The shipped ``config.yml``
+    carries a filled-in ``mongodb_archiver:`` block under ``type:
+    mock_archiver``; a block the selected type never reads entitles nothing,
+    for the reason :func:`config_needs_ariel_password` gives — a credential is
+    gated on what its consumer actually reads.
+
+    Raises:
+        ValueError: when the configured name is not a plain identifier. The
+            name is emitted into a compose ``environment:`` line verbatim, so
+            a value compose would mangle (a space, an ``=``, a ``${``) is
+            refused at the deploy gate rather than rendered broken.
+    """
+    archiver = as_dict(as_dict(config).get("archiver"))
+    connector = archiver.get("type")
+    if not isinstance(connector, str) or not connector:
+        return None
+    password_env = as_dict(archiver.get(connector)).get("password_env")
+    if not isinstance(password_env, str) or not password_env.strip():
+        return None
+    password_env = password_env.strip()
+    if not _ENV_VAR_NAME_RE.match(password_env):
+        raise ValueError(
+            f"archiver.{connector}.password_env must name an environment variable "
+            f"(letters, digits and underscores, not starting with a digit), got "
+            f"{password_env!r}"
+        )
+    return password_env
+
+
 def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
     """The persona catalog and the names some roster entry actually resolves to.
 
@@ -195,11 +305,24 @@ def _personas_whose_config(config: Any, project_root: Any, predicate) -> set[str
     a persona whose ``project_path`` is unset, unrendered, or unreadable
     contributes nothing, because a credential is never granted on a guess.
     """
+    return {
+        persona_name
+        for persona_name, persona_config in _persona_configs(config, project_root)
+        if predicate(persona_config)
+    }
+
+
+def _persona_configs(config: Any, project_root: Any) -> Iterable[tuple[str, Any]]:
+    """Yield ``(persona_name, parsed config.yml)`` for every readable referenced persona.
+
+    The one disk walk behind :func:`_personas_whose_config` and
+    :func:`personas_needing_archiver_password`; see the former for why a
+    persona that cannot be read is skipped rather than guessed at.
+    """
     import yaml
 
     catalog, referenced = _referenced_personas(config)
 
-    matching: set[str] = set()
     for persona_name in sorted(referenced):
         entry = as_dict(catalog.get(persona_name))
         project_path = entry.get("project_path")
@@ -213,9 +336,7 @@ def _personas_whose_config(config: Any, project_root: Any, predicate) -> set[str
                 persona_config = yaml.safe_load(fh)
         except (OSError, yaml.YAMLError):
             continue
-        if predicate(persona_config):
-            matching.add(persona_name)
-    return matching
+        yield persona_name, persona_config
 
 
 def personas_needing_dispatcher_token(config: Any, project_root: Any) -> set[str]:
@@ -278,6 +399,51 @@ def personas_needing_launch_token(config: Any, project_root: Any) -> set[str]:
         ``BLUESKY_LAUNCH_TOKEN`` (see :func:`config_needs_launch_token`).
     """
     return _personas_whose_config(config, project_root, config_needs_launch_token)
+
+
+def personas_needing_graphdb_password(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project queries the graph store.
+
+    Unlike :func:`personas_needing_launch_token`, this set deliberately spans
+    both tiers: a read-only persona that configures a graph store belongs in it,
+    because the store has exactly one account and the read-only guarantee lives
+    in the ``graph`` MCP server's read transactions rather than in the
+    credential. See :func:`config_needs_graphdb_password` for that reasoning and
+    for the blast radius that bounds it.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names entitled to
+        ``GRAPHDB_PASSWORD`` (see :func:`config_needs_graphdb_password`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_graphdb_password)
+
+
+def personas_needing_archiver_password(config: Any, project_root: Any) -> dict[str, str]:
+    """Map each catalog persona whose archiver reads a password to the variable it reads.
+
+    A map rather than a set because the grant carries the variable NAME (see
+    :func:`config_archiver_password_env`): two personas reading two stores each
+    get their own line, and the render emits exactly the name the connector
+    will look up. Walks the same per-persona ``config.yml`` files the other
+    grants walk, so this cannot disagree with them about which personas a
+    roster deploys.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: ``{persona_name: env_var_name}`` for the referenced personas whose
+        selected archiver connector names a ``password_env``.
+    :raises ValueError: when a persona names a variable compose cannot carry
+        (see :func:`config_archiver_password_env`).
+    """
+    grants: dict[str, str] = {}
+    for persona_name, persona_config in _persona_configs(config, project_root):
+        password_env = config_archiver_password_env(persona_config)
+        if password_env is not None:
+            grants[persona_name] = password_env
+    return grants
 
 
 def normalize_users(users_raw: Any) -> list[dict[str, Any]]:

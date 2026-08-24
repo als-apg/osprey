@@ -2,9 +2,10 @@
 
 The ``execute`` tool description must never name a fixed set of packages
 (``numpy``, ``pandas``, ``scipy``, ``at``, ``matplotlib``, ``plotly``): a fixed
-list makes the agent reason about an import set that may not exist — a package
-present on the host but missing inside the deployed container would be
-described as available either way.
+list makes the agent reason about an import set that may not exist — the
+environment agent code runs in need not be the environment the OSPREY server
+itself runs in, so what is installed alongside the server does not reliably
+describe what agent code can import.
 
 This module enumerates the environment that
 :func:`~osprey.mcp_server.python_executor.executor.resolve_agent_interpreter`
@@ -32,6 +33,10 @@ logger = logging.getLogger("osprey.mcp_server.python_executor.package_inventory"
 
 #: Token that :func:`with_live_packages` replaces in a tool docstring.
 PACKAGES_PLACEHOLDER = "<<AVAILABLE_PACKAGES>>"
+
+#: Leading text of the rendered package line, shared with tests that need to
+#: filter it out of a tool description without duplicating the literal.
+PACKAGE_LINE_PREFIX = "Packages importable in the execution environment include:"
 
 #: Used whenever the environment cannot be enumerated.  It must never name a
 #: package: a stale list is the exact failure this module removes.
@@ -68,13 +73,21 @@ _ENUMERATION_TIMEOUT_SECONDS = 20.0
 
 # Reports top-level *import* names rather than distribution names: the agent
 # writes `import at`, not `import accelerator_toolbox`.  Non-identifiers and
-# private names are dropped — compiled shims such as `<hash>__mypyc` are listed
-# as top-level modules but cannot be imported by name.
+# private names are dropped, and so are the compiled `<hash>__mypyc` shims that
+# mypyc-built distributions install alongside their real package.  Those shims
+# ARE importable by name — `import ada92cb5d92a588d1b93__mypyc` resolves to the
+# `.so` — which is exactly why the `__mypyc` suffix has to be matched here: a
+# hash that happens to start with a letter passes `isidentifier()`, and only a
+# digit-leading one falls out by accident.  They are build artifacts of another
+# distribution, so naming them in a list whose whole purpose is to tell the
+# agent what it can usefully import is noise.
 _ENUMERATION_SNIPPET = (
     "import json, sys\n"
     "from importlib.metadata import packages_distributions\n"
     "names = sorted(\n"
-    "    n for n in packages_distributions() if n.isidentifier() and not n.startswith('_')\n"
+    "    n\n"
+    "    for n in packages_distributions()\n"
+    "    if n.isidentifier() and not n.startswith('_') and not n.endswith('__mypyc')\n"
     ")\n"
     "json.dump(names, sys.stdout)\n"
 )
@@ -137,7 +150,7 @@ def render_package_line(names: Sequence[str]) -> str:
     line = ", ".join(listed)
     if hidden > 0:
         line += f", +{hidden} more"
-    return f"Packages importable in the execution environment include: {line}."
+    return f"{PACKAGE_LINE_PREFIX} {line}."
 
 
 @lru_cache(maxsize=1)

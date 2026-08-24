@@ -10,8 +10,8 @@ Two halves share one deployment-build path:
   ``execution_mode="readonly"`` for the in-memory simulation).
 
 - **Grounding** (:func:`test_pyat_specialist_grounding`): reads the exact
-  floats the subagent saved to its results JSON artifact and checks them
-  against ground truth computed in-test from ``build_ring()`` with the
+  floats the subagent handed in as ``submit_response(data=...)`` — filed by
+  the tool as its results JSON artifact — and checks them against ground truth computed in-test from ``build_ring()`` with the
   *identical* 4D recipe (no pinned numeric literals). An LLM judge confirms
   provenance and simulation-derived labeling in the prose only — numbers are
   never parsed out of prose.
@@ -250,8 +250,8 @@ def _leaves(obj, prefix: str = ""):
 def _coerce_float(value, label: str) -> float:
     """Coerce a saved value to float, failing loudly on a numpy display-repr string.
 
-    The template requires native ``float()`` coercion before ``save_artifact``;
-    a value like ``'np.float64(0.22)'`` means that step was skipped. Surface it
+    The template requires native Python values in ``submit_response(data=...)``;
+    a value like ``'np.float64(0.22)'`` means a numpy repr was handed in instead. Surface it
     as a clear, actionable error rather than an opaque ``ValueError``.
     """
     if isinstance(value, bool):  # bool is an int subclass — never a physics scalar
@@ -261,18 +261,30 @@ def _coerce_float(value, label: str) -> float:
     except (TypeError, ValueError) as exc:
         raise AssertionError(
             f"{label}: expected a numeric value but got {value!r} — likely an "
-            "un-coerced numpy display-repr string. The subagent must convert to "
-            "native float()/int() before save_artifact (per the template's "
-            "'Returning Results' recipe)."
+            "un-coerced numpy display-repr string. The subagent must hand in "
+            "native float()/int() values in submit_response(data=...) (per the "
+            "template's 'Returning Results' recipe)."
         ) from exc
+
+
+# Quantity stems that legitimately fuse with a bare plane letter (``betax``,
+# ``nux``, ``tuney``, ``qx``). The bare-suffix clause in ``_has_token`` fires
+# only after one of these — never on an ordinary word that happens to end in a
+# plane letter (``index`` ends with ``x``, ``energy`` ends with ``y``).
+_PLANE_STEMS = ("beta", "tune", "nu", "q", "b")
 
 
 def _has_token(path: str, tokens) -> bool:
     """True if *path* carries a plane token as a delimited segment (avoids
     matching an incidental character inside a longer word)."""
-    return any(
-        f".{t}" in path or f"_{t}" in path or path.endswith(t) or f"[{t}]" in path for t in tokens
-    )
+    for t in tokens:
+        if f".{t}" in path or f"_{t}" in path or f"[{t}]" in path:
+            return True
+        if path.endswith(t):
+            head = path[: -len(t)].split(".")[-1].split("_")[-1].rstrip("]").split("[")[-1]
+            if head in _PLANE_STEMS:
+                return True
+    return False
 
 
 def _resolve_two_plane(cands: list, label: str) -> tuple[float, float]:
@@ -295,6 +307,25 @@ def _resolve_two_plane(cands: list, label: str) -> tuple[float, float]:
     raise AssertionError(f"could not resolve horizontal/vertical {label} from saved keys: {cands}")
 
 
+def test_resolve_two_plane_ignores_metadata_keys() -> None:
+    """Regression: a sibling metadata key ending in a plane letter must not win.
+
+    In CI the subagent saved BPM01's lattice element index (7) alongside the
+    correct betas; ``.beta.bpm01.index`` ends with ``x``, so the resolver read
+    the index as the horizontal beta and failed a numerically correct artifact
+    (``got 7.0, truth 14.93``). Suffix matching must stay limited to compact
+    plane spellings (``betax``, ``nux``) and never fire on ordinary words.
+    """
+    data = {"beta": {"bpm01": {"index": 7, "s_m": 4.8, "beta_x": 14.93, "beta_y": 6.05}}}
+    cands = [(p, v) for p, v in _leaves(data) if "beta" in p and "bpm01" in p]
+    assert _resolve_two_plane(cands, "beta at BPM01") == (14.93, 6.05)
+
+    # Compact spellings without a delimiter keep resolving via the suffix path.
+    compact = {"bpm01": {"betax": 14.93, "betay": 6.05}}
+    cands = [(p, v) for p, v in _leaves(compact) if "bpm01" in p]
+    assert _resolve_two_plane(cands, "beta at BPM01") == (14.93, 6.05)
+
+
 def _load_results_artifacts(repo: Path) -> list[tuple[dict, dict]]:
     """Return ``[(index_entry, parsed_json)]`` for the subagent's results artifacts.
 
@@ -302,15 +333,14 @@ def _load_results_artifacts(repo: Path) -> list[tuple[dict, dict]]:
     so the shared root ``<repo>/var/agent_data/artifacts/`` holds every
     artifact this run produced. Filter to ``artifact_type == 'json'`` AND
     ``category != 'code_output'`` — the latter drops the executor's auto-saved
-    code+stdout wrapper (also stored as json), leaving the ``save_artifact``
-    results dicts.
+    code+stdout wrapper (also stored as json), leaving the results dicts filed
+    by ``submit_response(data=...)`` (or by ``save_artifact`` for large arrays).
     """
     index_path = agent_data_dir(repo) / "artifacts" / "artifacts.json"
     assert index_path.exists(), (
         "No artifact index at "
-        f"{index_path} — the pyat-specialist never saved a results artifact. "
-        "save_artifact failures are swallowed upstream (non-fatal), so a missing "
-        "index means the subagent's compute/save pipeline did not complete."
+        f"{index_path} — the pyat-specialist never produced a results artifact: "
+        "its submit_response(data=...) hand-in did not complete."
     )
     index = json.loads(index_path.read_text(encoding="utf-8"))
     artifacts_dir = index_path.parent
@@ -348,6 +378,10 @@ def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowRe
 
 
 @pytest.mark.asyncio
+# The retries absorb the LLM's turn-to-turn variance and nothing else. The
+# results-artifact assertion below is a contract: when it fails on every
+# attempt, the subagent's save path has regressed — widen neither the retries
+# nor the match.
 @pytest.mark.flaky(reruns=2)
 async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     """The subagent's saved numbers match ground truth; prose carries provenance.
@@ -382,13 +416,13 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     results = _load_results_artifacts(repo)
     assert results, (
         "No results JSON artifact found (artifact_type=='json' and "
-        "category!='code_output'). The subagent must save its computed "
-        "quantities via save_artifact(dict, ...). Index entries seen: "
+        "category!='code_output'). The subagent must hand its computed "
+        "quantities in as submit_response(data={...}). Index entries seen: "
         f"{[(e.get('artifact_type'), e.get('category')) for e, _ in _all_index_entries(repo)]}"
     )
 
     # Union the leaves across every results artifact so the check is robust to a
-    # subagent that split its output across more than one save_artifact call.
+    # subagent that split its output across more than one results artifact.
     leaves: list[tuple[str, object]] = []
     for _entry, data in results:
         leaves.extend(_leaves(data))

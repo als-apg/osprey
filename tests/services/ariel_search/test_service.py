@@ -221,13 +221,19 @@ class TestARIELSearchService:
 class TestServiceRouting:
     """Tests for service mode routing."""
 
-    def _create_mock_service(self, search_modules: dict | None = None) -> ARIELSearchService:
+    def _create_mock_service(
+        self,
+        search_modules: dict | None = None,
+        default_search_mode: str | None = None,
+    ) -> ARIELSearchService:
         """Create a mock service for testing."""
-        config_dict = {
+        config_dict: dict = {
             "database": {"uri": "postgresql://localhost:5432/test"},
         }
         if search_modules:
             config_dict["search_modules"] = search_modules
+        if default_search_mode:
+            config_dict["default_search_mode"] = default_search_mode
 
         config = ARIELConfig.from_dict(config_dict)
         mock_pool = MagicMock()
@@ -284,6 +290,56 @@ class TestServiceRouting:
             new=AsyncMock(return_value=[]),
         ) as keyword_search:
             result = await service.search("test query")
+
+        keyword_search.assert_called_once()
+        assert result.search_modes_used == ("keyword",)
+
+    @pytest.mark.asyncio
+    async def test_search_defaults_to_hybrid_when_enabled(self):
+        """With no configured default, an enabled hybrid module answers."""
+        service = self._create_mock_service(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}}
+        )
+
+        with patch(
+            "osprey.services.ariel_search.search.qmd.hybrid_search",
+            new=AsyncMock(return_value=[]),
+        ) as hybrid_search:
+            result = await service.search("test query")
+
+        hybrid_search.assert_called_once()
+        assert result.search_modes_used == ("hybrid",)
+
+    @pytest.mark.asyncio
+    async def test_configured_default_search_mode_wins(self):
+        """An explicit default_search_mode outranks the implicit preference."""
+        service = self._create_mock_service(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}},
+            default_search_mode="keyword",
+        )
+
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ) as keyword_search:
+            result = await service.search("test query")
+
+        keyword_search.assert_called_once()
+        assert result.search_modes_used == ("keyword",)
+
+    @pytest.mark.asyncio
+    async def test_explicit_mode_outranks_the_default(self):
+        """Naming a mode still wins over the deployment's default."""
+        service = self._create_mock_service(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}},
+            default_search_mode="hybrid",
+        )
+
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ) as keyword_search:
+            result = await service.search("test query", mode="keyword")
 
         keyword_search.assert_called_once()
         assert result.search_modes_used == ("keyword",)
@@ -811,6 +867,7 @@ class TestAdvancedParamsWiring:
             "max_results",
             "start_date",
             "end_date",
+            "parsed",
         }
 
 

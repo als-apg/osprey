@@ -29,8 +29,13 @@ so equality is a real contract rather than a fixture artifact:
 
 Deliberately **not** nested: ``health``'s ``results[]`` rows, whose ``value`` /
 ``latency_ms`` / ``details`` keys are emitted only when truthy, so the row key
-set varies per check and per run; and ``query``'s ``mcp_servers``, whose keys
-are server *names* from the deployment rather than a schema.
+set varies per check and per run — equality against one golden would pin
+whichever shapes the fixture happened to produce. That row contract is pinned
+instead by :func:`test_health_row_keys_are_required_plus_optional`, which drives
+a report carrying every shape and asserts the four required keys are always
+present and the three optional ones are the only permitted additions. Also not
+nested: ``query``'s ``mcp_servers``, whose keys are server *names* from the
+deployment rather than a schema.
 
 **Capture seams.** Every verb is driven end-to-end through ``CliRunner`` with
 only its outermost I/O boundary faked, so the payload is assembled by the real
@@ -191,6 +196,13 @@ def _audit_cmd():
 # osprey health --json
 # --------------------------------------------------------------------------- #
 
+# Row keys of ``results[]``. ``CheckResult.to_dict`` always writes the first
+# four and adds each of the second three only when populated (``latency_ms``
+# when greater than zero), as documented in
+# ``docs/source/how-to/health-json-contract.rst``.
+_HEALTH_ROW_REQUIRED = frozenset({"name", "category", "status", "message"})
+_HEALTH_ROW_OPTIONAL = frozenset({"value", "latency_ms", "details"})
+
 
 @pytest.fixture
 def health_project(tmp_path: Path) -> Path:
@@ -226,6 +238,62 @@ def test_health_json_keyset(runner: CliRunner, health_project: Path) -> None:
 
     assert result.exit_code == 0, result.output
     _assert_matches_golden(json.loads(result.stdout), "health")
+
+
+def test_health_row_keys_are_required_plus_optional(
+    runner: CliRunner, health_project: Path
+) -> None:
+    """Every ``results[]`` row carries the required keys and only the optional ones.
+
+    The golden pins the envelope; the row shape varies per check, so it is
+    pinned here instead over a report that carries all three shapes: a row with
+    nothing measured, one carrying ``value`` and ``latency_ms``, and one
+    carrying ``details``. A row shows the optional keys are genuinely omitted
+    when unpopulated, the other two show each is still emitted when it is.
+    """
+    report = CheckReport(
+        results=[
+            CheckResult(
+                name="bare",
+                category="demo",
+                status=Status.OK,
+                message="nothing measured",
+            ),
+            CheckResult(
+                name="measured",
+                category="demo",
+                status=Status.OK,
+                message="probe returned",
+                value="401.2 mA",
+                latency_ms=12.34,
+            ),
+            CheckResult(
+                name="diagnosed",
+                category="demo",
+                status=Status.WARNING,
+                message="probe degraded",
+                details="partial frame from the archiver",
+            ),
+        ],
+        elapsed_ms=2.5,
+        deadline_hit=False,
+    )
+    with patch("osprey.cli.health_cmd._run_suite", AsyncMock(return_value=report)):
+        result = runner.invoke(health, ["--project", str(health_project), "--json"])
+
+    assert result.exit_code == 1, result.output
+    rows = json.loads(result.stdout)["results"]
+    for row in rows:
+        keys = set(row)
+        assert _HEALTH_ROW_REQUIRED <= keys, f"{row['name']}: missing a required row key"
+        assert keys <= _HEALTH_ROW_REQUIRED | _HEALTH_ROW_OPTIONAL, (
+            f"{row['name']}: emits a row key outside the documented contract"
+        )
+
+    shapes = {row["name"]: set(row) for row in rows}
+    assert shapes["bare"] == _HEALTH_ROW_REQUIRED
+    assert shapes["measured"] == _HEALTH_ROW_REQUIRED | {"value", "latency_ms"}
+    assert shapes["diagnosed"] == _HEALTH_ROW_REQUIRED | {"details"}
 
 
 # --------------------------------------------------------------------------- #

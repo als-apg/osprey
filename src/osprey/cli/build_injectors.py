@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import anchored_append, anchored_put
 from osprey.utils.logger import get_logger
+from osprey_connectors import types as connector_types
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile import (
@@ -143,6 +145,72 @@ def _copy_shared_service_partials(dest_services_root: Path) -> int:
     for partial in partials:
         shutil.copy2(partial, dest_services_root / partial.name)
     return len(partials)
+
+
+#: The one key on a `services.<name>` block that belongs to the AUTHOR rather
+#: than to the injector that writes the block. Everything else an injector puts
+#: there it derives from its own profile block (a port, a trigger, a path), so
+#: replacing the block wholesale is right; `env:` is the exception, because it
+#: is written by hand and by nothing else.
+_AUTHORED_SERVICE_KEYS = ("env",)
+
+
+def _carry_authored_keys(services: Any, name: str, block: dict[str, Any]) -> dict[str, Any]:
+    """Carry an author-written key across an injector's whole-block replacement.
+
+    Every dedicated injector installs its ``services.<name>`` block with
+    :func:`~osprey.utils.config_writer.anchored_put`, which is a whole-VALUE
+    assignment: whatever stood at that key is gone. That is deliberate for the
+    keys the injector derives (the block is regenerated from the profile on
+    every build, and a stale port left behind would be worse than none), but the
+    env-passthrough axis is not derived from anything — ``services.<name>.env``
+    is a list of host variable NAMES the author wrote, in one of two spellings,
+    and both of them land in this same block *before* the injectors run:
+
+    * nested — ``services.<name>.config.env``, written by
+      :func:`_inject_profile_services`;
+    * dotted — ``config: {"services.<name>.env": [...]}``, merged by
+      ``build_cmd._apply_config_overrides``.
+
+    So without this the seven services that have a dedicated injector accept the
+    declaration at validation, write it to ``config.yml``, and then silently drop
+    it a few steps later — the author sees no error and no passthrough, which is
+    the failure the dispatch-pair rejection exists to prevent, one layer wider.
+    The macro that renders the axis (``templates/services/_env_axis.j2``) reads
+    exactly this key, so carrying it forward is all that is needed for the seven
+    to behave like the services with no injector at all.
+
+    Copied by reference and only when present, so a service that declares
+    nothing renders byte-for-byte what it rendered before: no empty ``env: []``
+    appears in any config.yml that did not already carry one.
+
+    A key the new block already carries is left alone, which is what keeps this
+    usable from :func:`_inject_profile_services` too. That injector builds its
+    block from ``svc_def.config`` — the nested spelling — while the dotted one
+    is already sitting in the block being replaced, so a rule of "carry
+    unconditionally" would silently promote the dotted spelling over the nested
+    one for every profile service. Filling only the gap leaves the existing
+    precedence exactly where it was and fixes only the case where the value
+    would otherwise be lost.
+
+    Args:
+        services: The ``services`` mapping being written into (a ruamel
+            ``CommentedMap`` in practice), holding whatever earlier steps wrote.
+        name: The service key about to be replaced.
+        block: The freshly built block. Mutated in place and returned, so this
+            wraps an ``anchored_put`` argument without restructuring the caller.
+
+    Returns:
+        ``block``, with any authored key the previous block carried and the new
+        one does not.
+    """
+    previous = services.get(name) if hasattr(services, "get") else None
+    if not isinstance(previous, Mapping):
+        return block
+    for key in _AUTHORED_SERVICE_KEYS:
+        if key in previous and key not in block:
+            block[key] = previous[key]
+    return block
 
 
 def _copy_service_templates(project_path: Path) -> int:
@@ -310,7 +378,9 @@ def _inject_profile_services(
             config["services"] = {}
         svc_config = {"path": f"./services/{name}"}
         svc_config.update(svc_def.config)
-        anchored_put(config["services"], name, svc_config)
+        anchored_put(
+            config["services"], name, _carry_authored_keys(config["services"], name, svc_config)
+        )
 
         # Add to deployed_services
         deployed = config.get("deployed_services", [])
@@ -538,24 +608,161 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     )
 
 
-def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
+#: The two control-system targets a bluesky plan lane can serve, keyed by the
+#: ``control_system.type`` each is spelled with in a rendered config.yml — taken
+#: from the connector package's constants rather than respelled here, so a
+#: renamed type cannot leave this mapping silently matching nothing.
+#: ``MOCK`` and ``DOOCS`` are deliberately absent: they are not switch targets,
+#: so a deployment on one of them has no second lane to render.
+_LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
+    connector_types.EPICS: "live",
+    connector_types.VIRTUAL_ACCELERATOR: "va",
+}
+
+#: Lane 1 always keeps the historical service key. Lane 2 is named for the
+#: TARGET it serves, never for its index — a lane's identity is fixed at render
+#: time, and ``bluesky_2`` would leave every reader (compose, host-port map,
+#: approval prompt) to look up which machine it talks to.
+_SECOND_LANE_SERVICE_KEY = {"live": "bluesky_live", "va": "bluesky_va"}
+
+#: Address of the live lane's control-system gateway, as a REQUIRED compose
+#: variable rather than a bare ``${EPICS_CA_NAME_SERVERS}`` passthrough.
+#:
+#: The distinction is the whole point: compose interpolates an unset bare
+#: reference to the empty string, so the lane would come up looking healthy and
+#: quietly search for PVs at nowhere — a live lane that silently talks to
+#: nothing is the failure this string exists to prevent. ``:?`` makes compose
+#: refuse to start the deployment and say which variable is missing. Same
+#: judgement, and the same spelling, as the archiver recorder's external-IOC
+#: branch (``templates/services/archiver_recorder/docker-compose.yml.j2``).
+#:
+#: The VA lane has no counterpart: its gateway is the co-deployed
+#: ``virtual-accelerator`` service at a port the build already knows, so there
+#: is nothing for an operator to supply and nothing to refuse over.
+_LIVE_LANE_CA_NAME_SERVERS = (
+    "${EPICS_CA_NAME_SERVERS:?set EPICS_CA_NAME_SERVERS to <host>:<port> of the live "
+    "control-system gateway the bluesky live lane queues plans against}"
+)
+
+
+def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> str:
+    """Resolve which target the deployment baseline lane serves.
+
+    Read from the rendered ``control_system.type`` rather than from the profile,
+    because that is the value every other holder resolves the deployment
+    baseline from — injectors run after ``_apply_config_overrides``, so the key
+    is already final by the time this is called.
+
+    The VA service is checked here too, because the two questions have one
+    answer: on a LIVE baseline the second lane is the VA lane, and a VA lane
+    addresses a soft-IOC that has to actually be part of the deployment. There
+    is no mirror check on a VA baseline — the second lane is then the LIVE lane,
+    whose gateway is a facility address no build can verify, which is exactly
+    why its addressing is the ``${EPICS_CA_NAME_SERVERS:?}`` requirement that
+    fails loudly at ``osprey up`` instead (see
+    :data:`_LIVE_LANE_CA_NAME_SERVERS`).
+
+    Args:
+        config: The loaded config.yml mapping.
+        virtual_accelerator: The profile's ``virtual_accelerator:`` block, or
+            ``None`` when the profile deploys no VA service.
+
+    Returns:
+        ``"live"`` or ``"va"``.
+
+    Raises:
+        BuildProfileError: If the baseline is a control-system type that is not
+            a switch target, or if a live baseline's VA lane would have no VA
+            service to address.
+    """
+    control_system = config.get("control_system") or {}
+    cs_type = (
+        str(control_system.get("type") or "mock") if hasattr(control_system, "get") else "mock"
+    )
+    target = _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE.get(cs_type)
+    if target is None:
+        raise BuildProfileError(
+            f"bluesky.second_lane needs a switchable deployment baseline: the lane "
+            f"pair is {'/'.join(sorted(_SECOND_LANE_SERVICE_KEY))}, and "
+            f"control_system.type is {cs_type!r}. Set it to one of "
+            f"{', '.join(repr(t) for t in sorted(_LANE_TARGET_BY_CONTROL_SYSTEM_TYPE))}, "
+            f"or drop bluesky.second_lane and deploy the single lane."
+        )
+    if target == "live" and virtual_accelerator is None:
+        raise BuildProfileError(
+            f"bluesky.second_lane on a {cs_type!r} baseline renders a "
+            f"{_SECOND_LANE_SERVICE_KEY['va']} lane that queues plans against the "
+            f"co-deployed virtual accelerator, and this profile deploys none. Add a "
+            f"'virtual_accelerator:' block to the profile, or drop "
+            f"bluesky.second_lane and deploy the single live lane."
+        )
+    return target
+
+
+def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
+    """The facility plan keys every lane's service block carries.
+
+    Each is written ONLY when configured, and the absence is what the compose
+    template's ``{% if %}`` guards read: an unset ``plan_dir`` means no mount
+    and no ``BLUESKY_PLAN_DIRS`` env var at all, and empty ``excluded_plans``
+    means no ``BLUESKY_EXCLUDED_PLANS``. The ``os.pathsep`` join is done
+    Python-side because the Jinja render context has no ``os`` module.
+
+    Shared by both lanes, because plans are a property of the facility rather
+    than of a target — a per-lane restatement is how the two lanes would end up
+    loading different plans from one profile.
+    """
+    keys: dict[str, Any] = {}
+    if bluesky.plan_dir:
+        keys["plan_dir"] = bluesky.plan_dir
+    if bluesky.excluded_plans:
+        keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+    return keys
+
+
+def _inject_bluesky(
+    bluesky: BlueskyConfig,
+    project_path: Path,
+    virtual_accelerator: VAConfig | None = None,
+) -> None:
     """Wire the Bluesky bridge feature into a built project.
 
     1. Copy the bundled ``templates/services/bluesky/`` compose template into
        ``<project>/services/bluesky/``.
-    2. Write ``services.bluesky`` config + register it in ``deployed_services``
-       (so ``find_service_config`` resolves it, mirroring ``_inject_dispatch``).
+    2. Write one ``services.<lane>`` config block per PLAN LANE + register each
+       in ``deployed_services`` (so ``find_service_config`` resolves them,
+       mirroring ``_inject_dispatch``).
     3. Print a post-build hint (launch-token env var + image prerequisite).
 
-    Simpler than ``_inject_dispatch``: no triggers file to resolve and no
-    multi-instance worker loop — a project deploys exactly one bluesky-bridge
-    process. The ``bluesky`` MCP server itself is a separate, always-available
-    framework server (see ``osprey.mcp_server.bluesky``); this step only wires
-    the *deploy-time* container that server talks to over HTTP.
+    A project deploys ONE lane — one bluesky-bridge process — unless the profile
+    sets ``bluesky.second_lane``, in which case it deploys two: one per
+    control-system target, so a session switched away from the deployment
+    baseline still has a lane to queue plans on. Lane 1 keeps the ``bluesky``
+    service key and serves the baseline target; lane 2 is a sibling block named
+    for the target it serves (``bluesky_live`` / ``bluesky_va``), on its own
+    derived port. Tiled is the one shared component and stays on lane 1.
+
+    Still simpler than ``_inject_dispatch``: no triggers file to resolve, and
+    the lane count is a fixed one-or-two rather than a worker loop. The
+    ``bluesky`` MCP server itself is a separate, always-available framework
+    server (see ``osprey.mcp_server.bluesky``); this step only wires the
+    *deploy-time* containers that server talks to over HTTP.
 
     Args:
         bluesky: Validated bluesky configuration from the build profile.
         project_path: Root of the built project.
+        virtual_accelerator: The profile's ``virtual_accelerator:`` block, read
+            ONLY to check that a live baseline's VA lane has a soft-IOC to
+            address. Passed rather than read back from ``config.yml`` because
+            ``_inject_va`` writes that block AFTER this injector runs, so the
+            rendered config cannot answer the question yet. Defaults to
+            ``None`` — the right answer for every single-lane caller, which
+            never reaches the check.
+
+    Raises:
+        BuildProfileError: If ``second_lane`` is set on a deployment whose
+            baseline control-system type is not a switch target, or on a live
+            baseline that deploys no virtual accelerator.
     """
     from ruamel.yaml import YAML
 
@@ -570,6 +777,9 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
+    # ONE template directory serves every lane: the lanes differ in their config
+    # block (port, target, addressing), not in their compose source, and a second
+    # copied directory would be a second thing to keep in step with the first.
     dest_dir = dest_services_root / "bluesky"
     _refresh_service_dir(src_dir, dest_dir, "bluesky", _user_owned_services(project_path))
 
@@ -594,23 +804,41 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         "tiled_enabled": bluesky.tiled_enabled,
         "tiled_port": bluesky.tiled_port,
     }
-    if bluesky.plan_dir:
-        # Only written when configured — its absence is what keeps a
-        # bridge-only deploy (no facility plan directory) free of the mount:
-        # the compose template's {% if %} guard reads this same key, so an
-        # unset plan_dir means no mount and no BLUESKY_PLAN_DIRS env var at all.
-        svc_config["plan_dir"] = bluesky.plan_dir
-    if bluesky.excluded_plans:
-        # Only written when non-empty — its absence keeps a deploy with no
-        # exclusions free of the variable: the compose template's
-        # {% if %} guard reads this same key, so an empty list means no
-        # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
-        # Python-side because the Jinja render context has no `os` module.
-        svc_config["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
-    anchored_put(config["services"], "bluesky", svc_config)
+    svc_config.update(_facility_plan_keys(bluesky))
+
+    lanes: list[tuple[str, dict[str, Any]]] = [("bluesky", svc_config)]
+    if bluesky.second_lane:
+        # Two lanes: lane 1 serves the deployment baseline, lane 2 the other
+        # target. Both carry `target` — a lane's identity is fixed here, at
+        # render time, and the bridge reads it rather than inferring a session
+        # target it is never told about. The keys below are written ONLY on a
+        # two-lane deploy, which is what keeps a single-lane block byte-for-byte
+        # what it has always been.
+        baseline = _baseline_lane_target(config, virtual_accelerator)
+        second = "va" if baseline == "live" else "live"
+        second_config: dict[str, Any] = {
+            "path": "./services/bluesky",
+            "port": bluesky.second_lane_port(),
+        }
+        # Plans are a property of the facility, not of a target: both lanes
+        # load the same plan directory and hide the same exclusions.
+        second_config.update(_facility_plan_keys(bluesky))
+        # No tiled keys: tiled is shared, and lane 1 is where it lives.
+        for lane_config, lane_target in ((svc_config, baseline), (second_config, second)):
+            lane_config["target"] = lane_target
+            if lane_target == "live":
+                lane_config["ca_name_servers"] = _LIVE_LANE_CA_NAME_SERVERS
+        lanes.append((_SECOND_LANE_SERVICE_KEY[second], second_config))
+
     deployed = config.get("deployed_services", []) or []
-    if "bluesky" not in [str(s) for s in deployed]:
-        anchored_append(deployed, "bluesky")
+    for lane_key, lane_config in lanes:
+        anchored_put(
+            config["services"],
+            lane_key,
+            _carry_authored_keys(config["services"], lane_key, lane_config),
+        )
+        if lane_key not in [str(s) for s in deployed]:
+            anchored_append(deployed, lane_key)
     config["deployed_services"] = deployed
 
     with open(config_path, "w") as fh:
@@ -618,6 +846,20 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
 
     # 3. Post-build hint.
     logger.debug("  ✓ Injected Bluesky bridge (port %d)", bluesky.port)
+    if len(lanes) > 1:
+        second_key, second_block = lanes[1]
+        logger.debug(
+            "    Lanes:      bluesky serves the %s target, %s serves %s (port %d)",
+            svc_config["target"],
+            second_key,
+            second_block["target"],
+            second_block["port"],
+        )
+        if any("ca_name_servers" in block for _, block in lanes):
+            logger.debug(
+                "    Live lane:  set EPICS_CA_NAME_SERVERS to <host>:<port> of the "
+                "live control-system gateway; `osprey up` refuses without it."
+            )
     logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
@@ -639,6 +881,87 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         )
 
 
+#: One gateway row of the VA connector table the injector installs: localhost
+#: over CA name-server (TCP) mode — the one host<->container CA configuration
+#: that works across container runtimes. Deliberately NO ``port``: with it unset
+#: the connector follows ``services.virtual_accelerator.port``, so the deployed
+#: soft-IOC's port is stated once and the two cannot drift (Ledger 56).
+_VA_GATEWAY_ROW: dict[str, Any] = {"address": "localhost", "use_name_server": True}
+
+#: Path of the block the VA gateways live under, in the nested spelling a
+#: rendered ``config.yml`` is read in. Its last element is also the connector
+#: type, which is what makes it the block the factory reads.
+_VA_CONNECTOR_PATH = ("control_system", "connector", connector_types.VIRTUAL_ACCELERATOR)
+
+
+def _ensure_va_connector_gateways(config: Any) -> bool:
+    """Give a config that has no VA gateway table the canonical one.
+
+    A session can only be switched to a target the rendered config already
+    describes — the switch never edits ``config.yml`` — so a project that
+    deploys the VA service but carries no ``control_system.connector.
+    virtual_accelerator.gateways`` has a service running and nothing able to
+    point at it. Projects built from the current generic template render that
+    block themselves; this covers the configs that predate it, and attached
+    projects whose ``config.yml`` was written by hand.
+
+    Never clobbers. A ``gateways`` key that is already there belongs to whoever
+    wrote it and is left exactly as written — including a table missing one of
+    the two roles, because the presence of the key means the author owns the
+    table and "filling in" the role they left out is an edit they did not ask
+    for. Only the levels that do not exist are created, in one
+    :func:`~osprey.utils.config_writer.anchored_put` so a section comment
+    trailing the last entry stays anchored where it was.
+
+    ``probe_channel`` is deliberately NOT written. The channel a VA serves comes
+    from that project's own machine model, so no value could be derived here,
+    and a placeholder would make the target look eligible while naming a channel
+    nothing serves. Eligibility reports the missing probe_channel as the reason
+    the target is not switchable yet, which is the honest thing for it to say.
+
+    Args:
+        config: The round-trip-loaded ``config.yml`` document, mutated in place.
+
+    Returns:
+        Whether anything was written.
+    """
+    if not isinstance(config, Mapping):
+        return False
+
+    node: Any = config
+    for depth, key in enumerate(_VA_CONNECTOR_PATH):
+        if key not in node:
+            # Missing from here down: the remaining path and the table are one
+            # value, so one write installs them and one comment re-anchors.
+            value: dict[str, Any] = {"gateways": _va_gateways()}
+            for parent in reversed(_VA_CONNECTOR_PATH[depth + 1 :]):
+                value = {parent: value}
+            anchored_put(node, key, value)
+            return True
+        child = node[key]
+        if not isinstance(child, Mapping):
+            # Something is there that is not a section. Writing through it would
+            # replace whatever the author meant by it, which is the one thing
+            # this step must never do.
+            logger.warning(
+                "'%s' in config.yml is not a mapping; leaving the "
+                "virtual_accelerator gateways to whoever wrote it.",
+                ".".join(_VA_CONNECTOR_PATH[: depth + 1]),
+            )
+            return False
+        node = child
+
+    if "gateways" in node:
+        return False
+    anchored_put(node, "gateways", _va_gateways())
+    return True
+
+
+def _va_gateways() -> dict[str, Any]:
+    """A fresh copy of the two-role gateway table, safe to hand to ruamel."""
+    return {"read_only": dict(_VA_GATEWAY_ROW), "write_access": dict(_VA_GATEWAY_ROW)}
+
+
 def _inject_va(va: VAConfig, project_path: Path) -> None:
     """Wire the Virtual Accelerator soft-IOC into a built project.
 
@@ -647,7 +970,11 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     2. Write ``services.virtual_accelerator`` config + register it in
        ``deployed_services`` (so ``find_service_config`` resolves it,
        mirroring ``_inject_bluesky``).
-    3. Print a post-build hint (data/simulation prerequisite + image note).
+    3. Make sure the deployed soft-IOC has a target block pointing at it —
+       ``control_system.connector.virtual_accelerator.gateways`` — when the
+       config carries none (see :func:`_ensure_va_connector_gateways`, which
+       never touches an existing one).
+    4. Print a post-build hint (data/simulation prerequisite + image note).
 
     Thin mirror of :func:`_inject_bluesky`: one soft-IOC container, one
     config block — no source-tree staging, no registry logic.
@@ -702,21 +1029,37 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     anchored_put(
         config["services"],
         "virtual_accelerator",
-        {
-            "path": "./services/virtual_accelerator",
-            "port": va.port,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "virtual_accelerator",
+            {
+                "path": "./services/virtual_accelerator",
+                "port": va.port,
+            },
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     if "virtual_accelerator" not in [str(s) for s in deployed]:
         anchored_append(deployed, "virtual_accelerator")
     config["deployed_services"] = deployed
 
+    # 3. Give the deployed soft-IOC a target block to be reached through, unless
+    # the config already has one — deploying the service and leaving nothing
+    # able to point at it is what would otherwise need a hand edit.
+    wrote_gateways = _ensure_va_connector_gateways(config)
+
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
 
-    # 3. Post-build hint.
+    # 4. Post-build hint.
     logger.debug("  ✓ Injected Virtual Accelerator soft-IOC (CA port %d)", va.port)
+    if wrote_gateways:
+        logger.debug(
+            "    Target:     wrote control_system.connector.virtual_accelerator."
+            "gateways (localhost, name-server mode; port follows "
+            "services.virtual_accelerator.port). Set that block's `probe_channel` "
+            "to a channel your machine model serves to make the target switchable."
+        )
     logger.debug(
         "    Data:       requires <project>/data/simulation/machine.json "
         "(the simulation preset provisions this; without it the IOC SystemExits)."
@@ -803,10 +1146,14 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
     anchored_put(
         config["services"],
         "bluesky_web",
-        {
-            "path": "./services/bluesky_web",
-            "port": bluesky_web.port,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "bluesky_web",
+            {
+                "path": "./services/bluesky_web",
+                "port": bluesky_web.port,
+            },
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     if "bluesky_web" not in [str(s) for s in deployed]:
@@ -920,10 +1267,14 @@ def _inject_nextcloud_bridge(
     anchored_put(
         config["services"],
         "nextcloud_bridge",
-        {
-            "path": "./services/nextcloud_bridge",
-            "trigger": nextcloud_bridge.trigger,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "nextcloud_bridge",
+            {
+                "path": "./services/nextcloud_bridge",
+                "trigger": nextcloud_bridge.trigger,
+            },
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     if "nextcloud_bridge" not in [str(s) for s in deployed]:
@@ -1016,10 +1367,14 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     # OSPREY_GCHAT_BRIDGE_IMAGE, or set ``services.gchat_bridge.image`` here, to
     # use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["gchat_bridge"] = {
-        "path": "./services/gchat_bridge",
-        "trigger": gchat_bridge.trigger,
-    }
+    config["services"]["gchat_bridge"] = _carry_authored_keys(
+        config["services"],
+        "gchat_bridge",
+        {
+            "path": "./services/gchat_bridge",
+            "trigger": gchat_bridge.trigger,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "gchat_bridge" not in [str(s) for s in deployed]:
         deployed.append("gchat_bridge")
@@ -1129,17 +1484,25 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
     anchored_put(
         config["services"],
         "mongodb",
-        {
-            "path": "./services/mongodb",
-            "port_host": va_archiver.port_host,
-            "username": va_archiver.username,
-            "compression": va_archiver.compression,
-        },
+        _carry_authored_keys(
+            config["services"],
+            "mongodb",
+            {
+                "path": "./services/mongodb",
+                "port_host": va_archiver.port_host,
+                "username": va_archiver.username,
+                "compression": va_archiver.compression,
+            },
+        ),
     )
     anchored_put(
         config["services"],
         "archiver_recorder",
-        {"path": "./services/archiver_recorder"},
+        _carry_authored_keys(
+            config["services"],
+            "archiver_recorder",
+            {"path": "./services/archiver_recorder"},
+        ),
     )
     deployed = config.get("deployed_services", []) or []
     for name in ("mongodb", "archiver_recorder"):

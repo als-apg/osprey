@@ -48,6 +48,8 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> StringIO:
     console = Console(
         file=buffer,
         force_terminal=True,
+        color_system="standard",
+        no_color=False,
         width=100,
         theme=styles.osprey_theme,
         legacy_windows=False,

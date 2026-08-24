@@ -1,8 +1,15 @@
 """Agent-activity emit sites for backend-direct tools.
 
 Verifies that the mutating backend tools report agent activity via
-``notify_agent_activity_async`` — and, just as important, that refusal paths
-emit NOTHING and that tool results are unchanged when the web terminal is down.
+``notify_agent_activity_async`` — and, just as important, that a path which did
+not act emits NOTHING and that tool results are unchanged when the web terminal
+is down.
+
+"Did not act" is the test, not "was refused": a control-system write refused in
+a readonly run *is* reported, because the operator needs to see that one was
+attempted. That emit comes from the shared gate module rather than from either
+executor tool, so it has its own patch seam (``_GATES_MOD``) and the two are
+asserted separately.
 
 Layout: one ``# ── <tool family> ──`` section per tool family, each owning its
 own helpers and fixtures, followed by a trailing cross-cutting "terminal down"
@@ -325,9 +332,9 @@ async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, monkeyp
 
 
 async def _save_artifact(title="Test Artifact"):
-    from osprey.mcp_server.workspace.tools.artifact_save import artifact_save
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
 
-    save_fn = get_tool_fn(artifact_save)
+    save_fn = get_tool_fn(artifact_register)
     save_result = await save_fn(title=title, content="# Hello", content_type="markdown")
     return extract_response_dict(save_result)["artifact_id"]
 
@@ -771,6 +778,33 @@ _EXECUTE_WRITE_CODE = "epics.caput('SR:CORR:SP', 1.0)\n"
 _EXECUTE_DETAIL = "ran a script with control-system writes"
 _EXECUTE_TOOLS = ["execute", "execute_file"]
 
+#: Second patch seam for this family. A refused write is reported by the shared
+#: gate module rather than by either tool, so ``{tool_mod}.notify_agent_activity_async``
+#: does not see it — which is what lets a test assert "the run emitted nothing"
+#: and "the refusal was reported" independently of each other.
+_GATES_MOD = "osprey.mcp_server.python_executor.tools._execution_gates"
+
+
+@contextlib.contextmanager
+def _audit_to(root):
+    """Point the refusal audit log at *root* instead of the real state zone."""
+    from osprey.services.python_executor import refusal_audit
+
+    with patch.object(refusal_audit, "audit_dir", lambda: root / "var" / "audit"):
+        yield
+
+
+def _audit_records(root):
+    """Every refusal recorded under *root*, or ``[]`` when none were."""
+    import json
+
+    from osprey.services.python_executor.refusal_audit import REFUSAL_LOG_FILENAME
+
+    path = root / "var" / "audit" / REFUSAL_LOG_FILENAME
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
 
 def _execute_patterns(has_writes: bool) -> dict:
     """Canned ``detect_control_system_operations()`` return value."""
@@ -914,17 +948,134 @@ async def test_execute_launch_failure_no_emit(tool_name, tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_readonly_gate_refusal_no_emit(tool_name, tmp_path, monkeypatch):
-    """Write patterns in readonly mode are refused before launch — emit nothing."""
+async def test_execute_readonly_gate_refusal_alerts_the_operator(tool_name, tmp_path, monkeypatch):
+    """A refused write is an operator-visible event, not just an error to the agent.
+
+    The refusal emit comes from the shared gate module, not the tool module, so
+    the two seams are asserted separately: the tool's own "ran a script with
+    control-system writes" emit must stay silent (nothing ran), while the gate
+    reports that a write was attempted and blocked.
+    """
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
     with _execute_env(mod, tmp_path) as (notify, exec_code):
-        with assert_raises_error(error_type="safety_error"):
-            await call(execution_mode="readonly")
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+            with assert_raises_error(error_type="safety_error"):
+                await call(execution_mode="readonly")
 
     exec_code.assert_not_called()
     notify.assert_not_called()
+    blocked.assert_called_once()
+    emitted_tool, kind = blocked.call_args.args
+    assert (emitted_tool, kind) == (tool_name, "channel")
+    assert "BLOCKED" in blocked.call_args.kwargs["detail"]
+
+
+@pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
+async def test_execute_readonly_gate_refusal_is_audited(tool_name, tmp_path, monkeypatch):
+    """...and leaves a durable record naming the source that was refused."""
+    monkeypatch.chdir(tmp_path)
+    mod, call = _execute_tool_call(tool_name, tmp_path)
+
+    with _execute_env(mod, tmp_path) as (_, exec_code):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async"), _audit_to(tmp_path):
+            with assert_raises_error(error_type="safety_error"):
+                await call(execution_mode="readonly")
+
+    (record,) = _audit_records(tmp_path)
+    assert record["layer"] == "pattern_detection"
+    assert record["mode"] == "readonly"
+    assert record["tool"] == tool_name
+    assert _EXECUTE_WRITE_CODE.strip() in record["source"]
+
+
+@pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
+async def test_execute_runtime_refusal_alerts_and_audits(tool_name, tmp_path, monkeypatch):
+    """The guard refused mid-run: the tool recognises it in stderr and reports.
+
+    This is the layer that catches the spellings no static check sees, so it is
+    the one that most needs to reach the operator. Nothing but the subprocess's
+    stderr carries the news back.
+    """
+    from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL
+
+    monkeypatch.chdir(tmp_path)
+    mod, call = _execute_tool_call(tool_name, tmp_path)
+    refused = _execute_result(
+        success=False,
+        launched=True,
+        stderr=f"Traceback...\nRuntimeError: {READONLY_REFUSAL}",
+        error_message=f"RuntimeError: {READONLY_REFUSAL}",
+    )
+
+    with _execute_env(mod, tmp_path, exec_result=refused, has_writes=False) as (notify, _):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+            with assert_raises_error(error_type="execution_error"):
+                await call(execution_mode="readonly")
+
+    notify.assert_not_called()
+    blocked.assert_called_once()
+    (record,) = _audit_records(tmp_path)
+    assert record["layer"] == "runtime_guard"
+    assert record["tool"] == tool_name
+
+
+@pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
+async def test_execute_connector_refusal_is_reported_too(tool_name, tmp_path, monkeypatch):
+    """A write refused by the connector — the *approved* path in the wrong mode.
+
+    Its message is not the guard's, so this pins that the tool matches on what
+    the two share, and that the audit record keeps the channel name the
+    connector's message carries rather than a generic marker.
+    """
+    monkeypatch.chdir(tmp_path)
+    mod, call = _execute_tool_call(tool_name, tmp_path)
+    connector_message = (
+        "Write to 'SR:CORR:SP' blocked: this script is running in readonly "
+        "execution mode. Resubmit it with execution_mode='readwrite' "
+        "(human approval required) if the write is intended."
+    )
+    refused = _execute_result(
+        success=False,
+        launched=True,
+        stderr=f"Traceback...\nChannelWriteBlockedError: {connector_message}",
+        error_message=f"ChannelWriteBlockedError: {connector_message}",
+    )
+
+    with _execute_env(mod, tmp_path, exec_result=refused, has_writes=False) as (_, _exec):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+            with assert_raises_error(error_type="execution_error"):
+                await call(execution_mode="readonly")
+
+    blocked.assert_called_once()
+    (record,) = _audit_records(tmp_path)
+    assert record["layer"] == "runtime_guard"
+    assert any("SR:CORR:SP" in line for line in record["trigger"])
+
+
+@pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
+async def test_execute_ordinary_failure_is_not_reported_as_a_refusal(
+    tool_name, tmp_path, monkeypatch
+):
+    """A script that merely crashed must not land in the refusal audit log."""
+    monkeypatch.chdir(tmp_path)
+    mod, call = _execute_tool_call(tool_name, tmp_path)
+    crashed = _execute_result(
+        success=False,
+        launched=True,
+        stderr="Traceback...\nZeroDivisionError: division by zero",
+        error_message="ZeroDivisionError: division by zero",
+    )
+
+    with _execute_env(mod, tmp_path, exec_result=crashed, has_writes=False) as (notify, _):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+            with assert_raises_error(error_type="execution_error"):
+                await call(execution_mode="readonly")
+
+    notify.assert_not_called()
+    blocked.assert_not_called()
+    assert _audit_records(tmp_path) == []
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)

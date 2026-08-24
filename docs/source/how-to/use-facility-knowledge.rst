@@ -25,6 +25,11 @@ It uses a two-altitude model, split by *when* the agent needs the content:
   procedures, physics notes — and stays out of context until the agent (or you)
   retrieves it via ``list_concepts``, ``read_concept``, and ``search``.
 
+Both tiers hold knowledge as prose. A facility's *structure* — its devices,
+sections, device classes, and the control system addresses bound to them — is
+held instead as a queryable graph, documented separately in
+:doc:`use-facility-graph`.
+
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book

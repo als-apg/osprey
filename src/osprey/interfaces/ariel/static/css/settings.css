@@ -2,32 +2,44 @@
  * Settings drawer styles
  *
  * Config form, raw YAML editor, save bar, confirmation overlay.
+ *
+ * Geometry, state and motion follow the same ladder as components.css (chips
+ * at --radius-sm on the shared hover/active model, surfaces at --radius-md,
+ * dialogs at --radius-2xl, interactions at --duration-instant). The config
+ * surface keeps its own accent-secondary hue — that is how ARIEL separates
+ * "configuration" from "search", and it survives the geometry change.
  */
 
 /* === Mode bar (Form/Raw) === */
 .settings-mode-bar {
   display: flex;
-  gap: var(--ariel-space-1);
-  padding: var(--ariel-space-2) var(--ariel-space-5);
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--neutral-tint-10);
   flex-shrink: 0;
 }
 
 .settings-mode-btn {
-  padding: var(--ariel-space-1) var(--ariel-space-3);
-  font-size: var(--ariel-text-xs);
-  font-weight: 500;
+  min-height: 22px;
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--ariel-radius-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: color var(--duration-instant) ease,
+    background-color var(--duration-instant) ease,
+    border-color var(--duration-instant) ease;
 }
 
 .settings-mode-btn:hover {
-  color: var(--text-secondary);
-  background: var(--surface-hover);
+  color: var(--color-accent-secondary-light);
+  border-color: var(--color-accent-secondary);
 }
 
 .settings-mode-btn.active {
@@ -40,47 +52,47 @@
 .settings-form {
   display: flex;
   flex-direction: column;
-  gap: var(--ariel-space-4);
+  gap: var(--space-4);
 }
 
 .settings-section {
   background: var(--bg-primary);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--ariel-radius-md);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
 .settings-section-header {
-  padding: var(--ariel-space-2) var(--ariel-space-3);
+  padding: var(--space-2) var(--space-3);
   background: var(--accent-secondary-tint-08);
   border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .settings-section-header .section-title {
-  font-size: var(--ariel-text-xs);
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   color: var(--color-accent-secondary-light);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
 
 .settings-section-body {
-  padding: var(--ariel-space-3);
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--ariel-space-3);
+  gap: var(--space-3);
 }
 
 .settings-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--ariel-space-3);
+  gap: var(--space-3);
 }
 
 .settings-field-label {
-  font-size: var(--ariel-text-sm);
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -90,31 +102,30 @@
   max-width: 240px;
 }
 
-.settings-field-input .input {
-  padding: var(--ariel-space-2) var(--ariel-space-3);
-  font-size: var(--ariel-text-sm);
-}
+/* No `.settings-field-input .input` override: a field in the drawer is the
+   same control as a field on the page, so it takes components.css's .input
+   verbatim rather than re-stating a padding and a larger type step. */
 
 /* === Raw YAML editor === */
 .settings-raw-editor {
   width: 100%;
   min-height: 400px;
-  padding: var(--ariel-space-4);
+  padding: var(--space-4);
   font-family: var(--font-mono);
-  font-size: var(--ariel-text-sm);
-  line-height: var(--ariel-leading-relaxed);
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: var(--ariel-radius-md);
+  border-radius: var(--radius-sm);
+  outline: none;
   resize: vertical;
   tab-size: 2;
+  transition: border-color var(--duration-instant) ease;
 }
 
 .settings-raw-editor:focus {
-  outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--accent-tint-30);
 }
 
 /* === Save bar === */
@@ -122,14 +133,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--ariel-space-3) var(--ariel-space-5);
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--neutral-tint-10);
   background: var(--bg-elevated);
   flex-shrink: 0;
 }
 
 .settings-status {
-  font-size: var(--ariel-text-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
   color: var(--text-muted);
 }
 
@@ -146,24 +160,31 @@
 }
 
 .settings-apply-btn {
-  padding: var(--ariel-space-2) var(--ariel-space-4);
-  font-size: var(--ariel-text-sm);
-  font-weight: 500;
-  color: var(--bg-primary);
+  /* 22px = the .btn-sm ladder step, and the natural height of the terminal's
+     own apply button (--text-sm line box + 5px vertical padding). */
+  min-height: 22px;
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-on-accent);
   background: var(--color-accent);
   border: 1px solid var(--color-accent);
-  border-radius: var(--ariel-radius-md);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--duration-instant) ease,
+    border-color var(--duration-instant) ease;
 }
 
 .settings-apply-btn:hover:not(:disabled) {
   background: var(--color-accent-light);
-  box-shadow: var(--shadow-glow-accent);
+  border-color: var(--color-accent-light);
 }
 
 .settings-apply-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -171,7 +192,7 @@
 .settings-confirm-overlay {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--bg-terminal) 70%, transparent);
+  background: var(--overlay-black-70);
   display: none;
   align-items: center;
   justify-content: center;
@@ -185,30 +206,31 @@
 .settings-confirm-dialog {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--ariel-radius-lg);
-  padding: var(--ariel-space-6);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-dialog);
+  padding: var(--space-5);
   max-width: 400px;
   width: 90%;
   text-align: center;
 }
 
 .settings-confirm-title {
-  font-size: var(--ariel-text-lg);
-  font-weight: 600;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
-  margin-bottom: var(--ariel-space-2);
+  margin-bottom: var(--space-2);
 }
 
 .settings-confirm-text {
-  font-size: var(--ariel-text-sm);
+  font-size: var(--text-md);
   color: var(--text-secondary);
-  margin-bottom: var(--ariel-space-5);
-  line-height: var(--ariel-leading-relaxed);
+  margin-bottom: var(--space-5);
+  line-height: var(--leading-relaxed);
 }
 
 .settings-confirm-actions {
   display: flex;
-  gap: var(--ariel-space-3);
+  gap: var(--space-2);
   justify-content: center;
 }
 
@@ -219,8 +241,8 @@
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-size: var(--ariel-text-sm);
-  gap: var(--ariel-space-2);
+  font-size: var(--text-md);
+  gap: var(--space-2);
 }
 
 .settings-empty svg {

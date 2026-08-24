@@ -65,12 +65,30 @@ def _ssl_context(insecure: bool) -> ssl.SSLContext:
     against a SHA256 in the manifest — TLS adds confidentiality, not
     integrity, and the assets are public CDN files. Useful for corporate
     proxies (e.g. Squid) that intercept TLS with a self-signed CA.
+
+    The verified route for those proxies is ``OSPREY_CA_BUNDLE``: a path to
+    the CA bundle the proxy re-signs with, loaded as the context's ``cafile``.
+    It exists as OSPREY's own knob so one spelling works wherever OSPREY
+    builds an SSL context; unset, the default context still honors Python's
+    ``SSL_CERT_FILE``, so either variable does the job here.
     """
     if insecure:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
+    cafile = os.environ.get("OSPREY_CA_BUNDLE")
+    if cafile:
+        try:
+            return ssl.create_default_context(cafile=cafile)
+        except (OSError, ssl.SSLError) as exc:
+            raise RuntimeError(
+                f"OSPREY_CA_BUNDLE points at an unusable CA bundle: {cafile}\n"
+                f"  ({exc})\n"
+                "  It must be a readable PEM file, e.g. the system bundle at\n"
+                "  /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem (RHEL-family)\n"
+                "  or /etc/ssl/certs/ca-certificates.crt (Debian-family)."
+            ) from exc
     return ssl.create_default_context()
 
 
@@ -117,7 +135,8 @@ def _fetch_one(
                     "intercepting TLS.\n"
                     "  Fix:\n"
                     "    - Point at your CA bundle:\n"
-                    "        SSL_CERT_FILE=/path/to/ca-bundle.pem osprey vendor fetch\n"
+                    "        OSPREY_CA_BUNDLE=/path/to/ca-bundle.pem osprey vendor fetch\n"
+                    "      (SSL_CERT_FILE works too; OSPREY_CA_BUNDLE wins if both are set)\n"
                     "    - Or skip verification (safe — SHA256 is still checked):\n"
                     "        osprey vendor fetch --insecure   "
                     "(or OSPREY_VENDOR_INSECURE=1)"

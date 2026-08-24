@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,10 @@ from osprey.build.build_tiers import (
     VALID_CHANNEL_FINDER_MODES,
     default_tier_for_mode,
     tier_mode_conflict,
+)
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_SERVICE_NAME,
+    resolve_graphdb_service_config,
 )
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
@@ -46,6 +51,7 @@ from .build_profile_schema import (
     ProfileProvenance,
     ServiceDef,
     VAConfig,
+    env_names_errors,
     network_mode_errors,
 )
 from .profile_conventions import validate_convention_sources
@@ -54,6 +60,96 @@ DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
 """The two services the ``dispatch:`` block deploys as one unit. They share a
 network by construction, so ``dispatch.network:`` is their only network knob
 and a per-half ``network:`` is rejected rather than honored."""
+
+_GRAPH_MODE = "graph"
+"""The one channel-finder paradigm that answers from a graph store rather than a
+channel-database file, and so the one with a service prerequisite. A member name
+of :data:`VALID_CHANNEL_FINDER_MODES`, not a second enumeration — the rule below
+is about this paradigm alone, exactly as ``tier_mode_conflict`` is."""
+
+_APP_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "templates" / "apps"
+"""Where the bundled app templates live; ``app_template:`` names one by directory."""
+
+_GRAPHDB_CONFIG_PREFIX = f"services.{GRAPHDB_SERVICE_NAME}"
+"""Dotted-key spelling of the graph-store block on a profile's ``config:`` surface."""
+
+_CHANNEL_FINDER_SERVER_ENABLED_KEY = "claude_code.servers.channel-finder.enabled"
+"""The switch a persona flips to take the channel finder out of its render."""
+
+_MISSING = object()
+"""Sentinel for "this profile says nothing about that key"."""
+
+
+def _config_lookup(config: Any, dotted_key: str) -> Any:
+    """Read *dotted_key* off a profile's ``config:`` overlay, or ``_MISSING``.
+
+    The overlay is authored in dotted keys and that is the only spelling the
+    renderer applies, but a hand-written profile can nest the same path — and
+    can nest part of it (``claude_code.servers:`` holding a ``channel-finder:``
+    mapping). Longest match at each step, so a key that IS spelled dotted is
+    found before the walk tries to descend into it.
+
+    Args:
+        config: A profile's ``config:`` block, whatever shape it parsed as.
+        dotted_key: The full path, in the dotted spelling.
+
+    Returns:
+        The value, or :data:`_MISSING` when no spelling of that path is set.
+    """
+    node: Any = config
+    parts = dotted_key.split(".")
+    index = 0
+    while index < len(parts):
+        if not isinstance(node, dict):
+            return _MISSING
+        for end in range(len(parts), index, -1):
+            candidate = ".".join(parts[index:end])
+            if candidate in node:
+                node = node[candidate]
+                index = end
+                break
+        else:
+            return _MISSING
+    return node
+
+
+def _app_template_declares_graphdb(data_bundle: str) -> bool:
+    """Whether app template *data_bundle* renders a ``services.graphdb`` block.
+
+    Read off the template source rather than off a render: this validator runs
+    before anything reaches disk, and the block is a fixed part of the app
+    template — what varies per profile is the ``config:`` overlay applied after
+    the render, which :meth:`BuildProfile._renders_graphdb_block` reads itself.
+
+    Args:
+        data_bundle: App template directory name (the ``app_template:`` key).
+
+    Returns:
+        Whether that template's ``services:`` section carries a ``graphdb``
+        key. False for a bundle that ships no ``config.yml.j2``, which is also
+        how an unknown bundle name reads here — the build names that fault
+        itself, and reporting it twice would not help.
+    """
+    template = _APP_TEMPLATE_ROOT / data_bundle / "config.yml.j2"
+    try:
+        text = template.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    # Which top-level section each indented key belongs to is all this needs,
+    # so the file is walked by indentation rather than parsed: it is a Jinja
+    # template, not YAML, until it is rendered.
+    section: str | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", "{%", "{{")):
+            continue
+        if not line[0].isspace():
+            section = stripped.split(":", 1)[0]
+            continue
+        if section == "services" and stripped.split(":", 1)[0] == GRAPHDB_SERVICE_NAME:
+            return True
+    return False
+
 
 # VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
 # imported from the build-time kernel (osprey.build.build_tiers) so the
@@ -382,15 +478,71 @@ class BuildProfile:
 
         return errors
 
+    def _validate_service_key_shapes(self) -> list[str]:
+        """Return the errors for service/config keys that are not strings.
+
+        A bare ``on:``/``no:`` used as a service name or a ``config:`` key is
+        read on the YAML 1.1 resolver as a boolean, which would reach the
+        dotted-key formatting in the per-service axis scans as a non-string.
+        Reported here, once for the whole profile, rather than inside each
+        scan, so one malformed key is one message however many axes walk it.
+
+        Returns:
+            Human-readable error messages; empty when every key is a string.
+        """
+        errors: list[str] = []
+        for name in self.services:
+            if not isinstance(name, str):
+                errors.append(
+                    f"services keys must be strings (got {name!r}); a bare "
+                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
+                )
+        if isinstance(self.config, dict):
+            for key in self.config:
+                if not isinstance(key, str):
+                    errors.append(
+                        f"config keys must be strings (got {key!r}); a bare "
+                        "yes/no/on/off in YAML parses as a boolean — quote the key"
+                    )
+        return errors
+
+    def _service_axis_declarations(self, axis: str) -> Iterator[tuple[str, Any, str]]:
+        """Yield ``(service, value, key)`` for every declaration of one axis.
+
+        Walks BOTH authoring surfaces — the ``services:`` block and the dotted
+        ``config:`` overrides — because either spelling reaches the same key in
+        the rendered ``config.yml``, so a rule reading only one of them would be
+        trivially bypassable. Non-string keys are skipped; they are reported by
+        :meth:`_validate_service_key_shapes`.
+
+        Args:
+            axis: The per-service key to collect (e.g. ``"network"``).
+
+        Yields:
+            The service name, the declared value, and the dotted path to quote
+            back at the author.
+        """
+        for name, svc in self.services.items():
+            if not isinstance(name, str):
+                continue
+            if isinstance(svc.config, dict) and axis in svc.config:
+                yield name, svc.config[axis], f"services.{name}.{axis}"
+
+        if isinstance(self.config, dict):
+            for key, value in self.config.items():
+                if not isinstance(key, str):
+                    continue
+                parts = key.split(".")
+                if len(parts) == 3 and parts[0] == "services" and parts[2] == axis:
+                    yield parts[1], value, key
+
     def _validate_network_axis(self) -> list[str]:
         """Return validation errors for every ``network:`` declaration.
 
         Runs on the profile as authored, BEFORE the build injects anything, so
         a ``network:`` on a dispatch-pair half is caught as something a person
         wrote rather than as the value the build is about to write there
-        itself. Both authoring surfaces are checked — the ``services:`` block
-        and the dotted ``config:`` overrides — because either spelling reaches
-        the same key in the rendered ``config.yml``.
+        itself.
 
         Returns:
             Human-readable error messages; empty when every declaration names a
@@ -399,11 +551,13 @@ class BuildProfile:
         errors: list[str] = []
         pair_reported: set[str] = set()
 
-        def check(name: str, value: Any, key: str) -> None:
-            """Record the problem with one service's declared mode, if any."""
+        if self.dispatch is not None:
+            errors.extend(network_mode_errors(self.dispatch.network, "dispatch.network"))
+
+        for name, value, key in self._service_axis_declarations("network"):
             if name in DISPATCH_PAIR_SERVICES:
                 if name in pair_reported:
-                    return
+                    continue
                 pair_reported.add(name)
                 errors.append(
                     f"{key} is not a per-service knob: the event dispatcher and its "
@@ -413,35 +567,112 @@ class BuildProfile:
             else:
                 errors.extend(network_mode_errors(value, key))
 
-        if self.dispatch is not None:
-            errors.extend(network_mode_errors(self.dispatch.network, "dispatch.network"))
+        return errors
 
-        for name, svc in self.services.items():
-            # A bare `on:`/`no:` service name is read on the YAML 1.1 resolver
-            # as a boolean, which would reach the dotted-key formatting below as
-            # a non-string. Report the resolver rather than crash on it.
-            if not isinstance(name, str):
-                errors.append(
-                    f"services keys must be strings (got {name!r}); a bare "
-                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
-                )
-                continue
-            if isinstance(svc.config, dict) and "network" in svc.config:
-                check(name, svc.config["network"], f"services.{name}.network")
+    def _validate_env_axis(self) -> list[str]:
+        """Return validation errors for every ``env:`` name-list declaration.
 
-        if isinstance(self.config, dict):
-            for key, value in self.config.items():
-                if not isinstance(key, str):
-                    errors.append(
-                        f"config keys must be strings (got {key!r}); a bare "
-                        "yes/no/on/off in YAML parses as a boolean — quote the key"
-                    )
+        Same two authoring surfaces and the same as-authored timing as the
+        network axis. The dispatch pair is excluded for a different reason than
+        it is there: the two halves need no shared value, but the dispatch
+        injection rewrites both service config blocks wholesale, so an ``env:``
+        authored on a half would be dropped before it could reach a container.
+        Refused rather than honored-looking, and pointed at the env chain both
+        halves already read.
+
+        Returns:
+            Human-readable error messages; empty when every declaration lists
+            valid environment variable names on a service the build leaves alone.
+        """
+        errors: list[str] = []
+        pair_reported: set[str] = set()
+
+        for name, value, key in self._service_axis_declarations("env"):
+            if name in DISPATCH_PAIR_SERVICES:
+                if name in pair_reported:
                     continue
-                parts = key.split(".")
-                if len(parts) == 3 and parts[0] == "services" and parts[2] == "network":
-                    check(parts[1], value, key)
+                pair_reported.add(name)
+                errors.append(
+                    f"{key} is not a per-service knob: the dispatch: block rewrites the "
+                    f"event dispatcher's and the workers' service config, so {key} would "
+                    f"be dropped before it reached a container (got {value!r}). Both "
+                    f"halves already read the project's env chain — put the variable in "
+                    f".env and declare it under env.required instead."
+                )
+            else:
+                errors.extend(env_names_errors(value, key))
 
         return errors
+
+    def _runs_the_channel_finder(self) -> bool:
+        """Whether this profile keeps the channel-finder MCP server switched on.
+
+        A persona narrows the deployment it is rendered from by switching
+        servers off in its ``config:`` overlay, and one of them takes the whole
+        channel finder — server, tools and subagent — out of that render. Such a
+        persona still inherits ``channel_finder_mode`` from the profile it
+        extends, because the mode belongs to the deployment rather than to the
+        login; it simply has no channel finder for the mode to configure.
+
+        Only an explicit ``false`` counts. The key is absent from every profile
+        that keeps the server, so absence reads as on.
+
+        Returns:
+            Whether the rendered project has a channel finder at all.
+        """
+        return _config_lookup(self.config, _CHANNEL_FINDER_SERVER_ENABLED_KEY) is not False
+
+    def _renders_graphdb_block(self) -> bool:
+        """Whether this profile's build renders a ``services.graphdb`` block.
+
+        Assembled from the two surfaces that decide it. The app template carries
+        the block for a deployment that runs its own store; the profile's
+        ``config:`` overlay, applied after the render, is how a store the
+        facility already runs is named instead (``services.graphdb.uri``) and
+        how a template's block is dropped. Whether what those produce counts as
+        a store is
+        :func:`~osprey.deployment.graphdb_service.resolve_graphdb_service_config`'s
+        own decision, borrowed rather than re-implemented so this validator and
+        the render-time ``graphdb_configured`` gate that ships the graph MCP
+        server cannot disagree about whether one exists.
+
+        Returns:
+            Whether the rendered ``config.yml`` will carry a graph store to dial.
+        """
+        overrides = self.config if isinstance(self.config, dict) else {}
+        sub_keys = [
+            key
+            for key in overrides
+            if isinstance(key, str) and key.startswith(f"{_GRAPHDB_CONFIG_PREFIX}.")
+        ]
+        if sub_keys:
+            # `services.graphdb.uri:` and its siblings write into the block,
+            # creating it when the app template carries none.
+            block: Any = {key.split(".", 2)[2]: overrides[key] for key in sub_keys}
+        elif _GRAPHDB_CONFIG_PREFIX in overrides:
+            # A whole-block override replaces what the template rendered —
+            # including the bare `services.graphdb:` that removes it.
+            block = overrides[_GRAPHDB_CONFIG_PREFIX]
+        elif not self.deploy_services:
+            # An attached project renders `services: {}` whatever its app
+            # template says: it scaffolds nothing and reaches a shared stack
+            # through client config, so its store has to be named above.
+            return False
+        else:
+            return GRAPHDB_SERVICE_NAME in self.services or _app_template_declares_graphdb(
+                self.data_bundle
+            )
+
+        try:
+            resolved = resolve_graphdb_service_config({"services": {GRAPHDB_SERVICE_NAME: block}})
+        except ValueError:
+            # A malformed key (a port out of range, a heap size the JVM would
+            # not parse) still names a store this profile means to dial. The
+            # resolver raises about it where it can be acted on — the deploy
+            # preflight — and answering "no block" here would report the wrong
+            # fault.
+            return True
+        return resolved is not None
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -487,6 +718,35 @@ class BuildProfile:
                 f"(got {self.channel_finder_mode!r})"
             )
 
+        # `graph` is the one paradigm whose store is a service rather than a
+        # database file, so it is the one paradigm with a prerequisite outside
+        # the profile's own artifacts. Without a `services.graphdb` block the
+        # build would render a channel finder with nothing behind it, and the
+        # same `graphdb_configured` gate the registry applies would leave the
+        # graph MCP server out without a word — an agent holding the mode and
+        # none of its tools. Named here instead, on every configuration path.
+        #
+        # Skipped for a profile that switches the channel-finder server off — a
+        # persona rendered as a logbook terminal, say. It inherits the mode from
+        # the deployment it narrows, because the mode is the deployment's, but
+        # it ships no channel finder for the mode to leave toolless. Requiring a
+        # store there would make every graph deployment configure one for a
+        # login that cannot query it.
+        if (
+            self.channel_finder_mode == _GRAPH_MODE
+            and self._runs_the_channel_finder()
+            and not self._renders_graphdb_block()
+        ):
+            attached = "" if self.deploy_services else ", deploy_services: false"
+            errors.append(
+                f"channel_finder_mode: {_GRAPH_MODE} needs a "
+                f"services.{GRAPHDB_SERVICE_NAME} block and this build renders none "
+                f"(app_template: {self.data_bundle}{attached}). Build on an app "
+                f"template that deploys a graph store, or name one the facility "
+                f"already runs with `config: services.{GRAPHDB_SERVICE_NAME}.uri: "
+                f"bolt://host:7687` plus GRAPHDB_PASSWORD in the project .env."
+            )
+
         # The data tree may legitimately sit above the profile dir (persona
         # profiles share their parent's tree via ``data: ../data``), so only
         # existence and shape are checked, never containment.
@@ -529,8 +789,11 @@ class BuildProfile:
                 elif not (tmpl_path / "docker-compose.yml.j2").exists():
                     errors.append(f"Service '{name}' template dir missing docker-compose.yml.j2")
 
-        # Validate the network axis across both authoring surfaces
+        # Validate the per-service axes across both authoring surfaces, after
+        # reporting any key the YAML resolver handed back as a non-string.
+        errors.extend(self._validate_service_key_shapes())
         errors.extend(self._validate_network_axis())
+        errors.extend(self._validate_env_axis())
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):
@@ -556,6 +819,19 @@ class BuildProfile:
         for var in self.env.required:
             if not _ENV_VAR_RE.match(var):
                 errors.append(f"Invalid env var name: {var}")
+
+        # `pinned` names the same kind of thing as `required` and is held to the
+        # same pattern. It is checked harder on shape because a deploy-side probe
+        # reads it back: a scalar written where a list belongs would iterate as
+        # characters, and a misspelled name would pin nothing while reading as
+        # though it had.
+        if not isinstance(self.env.pinned, list):
+            spelled = type(self.env.pinned).__name__
+            errors.append(f"env.pinned must be a list of env var names (got {spelled})")
+        else:
+            for var in self.env.pinned:
+                if not isinstance(var, str) or not _ENV_VAR_RE.match(var):
+                    errors.append(f"Invalid env.pinned var name: {var!r}")
 
         # Validate env file path
         if self.env.file:

@@ -2,7 +2,7 @@
 <!-- data-browse-orient: axis of the browse split (row = browser left /
      artifact right, column = stacked band). "row" is the shipped default;
      browse-layout.js re-applies a persisted "column" choice at module load. -->
-<html lang="en" data-browse-orient="row">
+<html lang="en" data-browse-orient="row"{% if web_theme_pin %} data-theme="{{ web_theme_pin }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -40,6 +40,11 @@
   <!-- KaTeX (math/equation rendering for markdown artifacts) -->
   <link rel="stylesheet" href="{{ vendor_url('KaTeX CSS', '/static/css/vendor/katex.min.css') }}">
   <script defer src="{{ vendor_url('KaTeX JS', '/static/js/vendor/katex.min.js') }}"></script>
+
+  <!-- Plotly (timeseries charts) is lazy-loaded from JS (timeseries.js), which
+       cannot call the vendor_url() template global — the resolved URL rides
+       along here instead. -->
+  <meta name="osprey-vendor-plotly" content="{{ vendor_url('Plotly.js', '/static/js/vendor/plotly-3.3.1.min.js') }}">
 
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/static/css/gallery.css">

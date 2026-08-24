@@ -62,7 +62,7 @@ def run_sql(sql: str) -> str:
                 "not_configured",
                 "DuckDB database is not configured for the channel finder.",
                 [
-                    "Ensure channel_finder.pipelines.middle_layer.database.duckdb_path is set in config.yml."
+                    "Set channel_finder.pipelines.middle_layer.database.duckdb_path in the build profile (profile.yml on the host), then rebuild and redeploy."
                 ],
             )
 

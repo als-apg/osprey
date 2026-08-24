@@ -58,6 +58,9 @@ def build_data_reader(data_source: str) -> str:
     automatic format detection and unwrapping:
 
     - CSV/Excel/Parquet → ``data`` is a pandas DataFrame
+    - ``.npy`` (a channel_read image/waveform artifact) → ``data`` is the raw
+      ``numpy.ndarray``, not a DataFrame, so 2-D frames plot directly with
+      ``imshow`` and higher-rank stacks keep their shape
     - JSON with legacy OSPREY metadata envelope → unwrapped, then converted to DataFrame
     - JSON with the archiver ``series`` envelope (``{query: ..., series:
       {channel: {timestamps, values}}}``) → pivoted to a wide DataFrame: one
@@ -68,7 +71,8 @@ def build_data_reader(data_source: str) -> str:
       converted to DataFrame.
 
     After this code runs, **``data`` is always a pandas DataFrame** (for
-    tabular sources) or a raw string (for unrecognized formats).
+    tabular sources), a ``numpy.ndarray`` (for ``.npy`` sources) or a raw
+    string (for unrecognized formats).
 
     Note: the generated code runs inside the visualization sandbox, whose
     import whitelist excludes ``osprey`` itself, so the ``series`` branch is a
@@ -134,6 +138,14 @@ elif _data_path.endswith(('.xls', '.xlsx')):
     data = pd.read_excel(_data_path)
 elif _data_path.endswith('.parquet'):
     data = pd.read_parquet(_data_path)
+elif _data_path.endswith('.npy'):
+    # Channel artifact: the raw ndarray half of a channel_read image/waveform
+    # save. numpy only -- 'osprey' is not importable in the viz sandbox. Left
+    # as an ndarray instead of being coerced to a DataFrame so 2-D frames stay
+    # usable with imshow() and higher-rank stacks survive at all. allow_pickle
+    # stays off: these artifacts are plain numeric buffers, never objects.
+    import numpy as _np
+    data = _np.load(_data_path, allow_pickle=False)
 else:
     # Try CSV as default
     try:
@@ -142,7 +154,9 @@ else:
         with open(_data_path) as _f:
             data = _f.read()
 if hasattr(data, 'shape'):
-    print(f"data_source loaded: {type(data).__name__} with shape {data.shape}, columns: {list(data.columns)}")
+    # ndarray sources have a shape but no columns
+    _detail = f"columns: {list(data.columns)}" if hasattr(data, 'columns') else f"dtype: {data.dtype}"
+    print(f"data_source loaded: {type(data).__name__} with shape {data.shape}, {_detail}")
 """
     )
 
@@ -159,9 +173,10 @@ def collect_and_register_artifacts(
 ) -> list[str]:
     """Save exec_result.artifacts to the artifact store, return artifact IDs.
 
-    When ``category`` is provided, each artifact is tagged with it and
-    visualization metadata (code, stdout, data_source) is embedded in the
-    artifact's ``metadata`` dict — no separate JSON blob is created.
+    Each artifact is tagged with the category its ``save_artifact()`` call
+    named, or with ``category`` when it named none, and visualization metadata
+    (code, stdout, data_source) is embedded in the artifact's ``metadata``
+    dict — no separate JSON blob is created.
     """
     from osprey.stores.artifact_store import get_artifact_store
 
@@ -178,6 +193,9 @@ def collect_and_register_artifacts(
             if data_source:
                 viz_metadata["data_source"] = data_source
 
+            # A category the code passed to save_artifact() wins; the tool's
+            # own category is the fallback for artifacts saved without one.
+            art_category = art.get("category") or category
             art_entry = store.save_file(
                 file_content=art["path"].read_bytes(),
                 filename=art["path"].name,
@@ -187,12 +205,11 @@ def collect_and_register_artifacts(
                 mime_type=art["mime_type"],
                 tool_source=tool_source,
                 metadata=viz_metadata or None,
+                category=art_category,
             )
 
-            if category:
-                store.update_entry_metadata(
-                    art_entry.id, category=category, source_agent="data-visualizer"
-                )
+            if art_category:
+                store.update_entry_metadata(art_entry.id, source_agent="data-visualizer")
 
             artifact_ids.append(art_entry.id)
         except Exception:

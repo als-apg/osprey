@@ -54,14 +54,11 @@ def _guard_os_exit(monkeypatch: pytest.MonkeyPatch) -> None:
 def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip color-forcing variables from the environment CLI tests run under.
 
-    Leak guarded: Rich and Click honor ``FORCE_COLOR``/``CLICOLOR_FORCE`` as a
-    documented opt-in, so a developer whose terminal exports either gets ANSI
-    escapes inside ``CliRunner``'s captured output — and a false-red lane on
-    pristine main (seven tests: exact-output asserts, plus two whose captured
-    YAML stops parsing on ``\\x1b``). CI is green only because its runners
-    never export them; this makes the suite hermetic instead of lucky.
-    ``NO_COLOR`` is left alone: unset it is the same default CI runs under,
-    and pinning it would hide a command that fails to honor the opt-out.
+    Rich and Click honor ``FORCE_COLOR``/``CLICOLOR_FORCE`` as documented
+    opt-ins, so a developer exporting either gets ANSI escapes inside
+    ``CliRunner`` captures. ``NO_COLOR`` is left alone so command-level tests
+    still catch code that fails to honor the opt-out; test consoles that
+    specifically assert terminal styling override it locally.
     """
     monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
@@ -299,6 +296,7 @@ def terminal_probe(
         width=100,
         force_terminal=True,
         color_system="truecolor",
+        no_color=False,
         legacy_windows=False,
         theme=osprey_theme,
     )

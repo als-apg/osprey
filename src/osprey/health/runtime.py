@@ -37,11 +37,23 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
 from osprey.connectors.control_system.base import ControlSystemConnector
+from osprey.health.models import CheckResult, Status
 
 if TYPE_CHECKING:
     from osprey.connectors.archiver.base import ArchiverConnector
 
 logger = logging.getLogger("osprey.health.runtime")
+
+#: The subject the health runtime speaks under in the shared baseline-pinned
+#: wording. Spelled once here so the row and any future health refusal cannot
+#: drift apart.
+HEALTH_SUBJECT = "HealthRuntime"
+
+#: Name and category of the informational row. ``control_system`` is not a
+#: health *category* anyone can run — no probe lives there — which is the point:
+#: the row is a banner about the whole report, not a check that passed or failed.
+BASELINE_ROW_NAME = "control_system.target"
+BASELINE_ROW_CATEGORY = "control_system"
 
 
 class HealthRuntime:
@@ -178,6 +190,44 @@ class HealthRuntime:
                 type(self._archiver).__name__,
             )
         return self._archiver
+
+    @staticmethod
+    def baseline_pinned_row() -> CheckResult | None:
+        """The informational row naming both targets, or ``None`` on the baseline.
+
+        The health suite reports on the deployment *as configured*: its
+        connectors are built from the config section fixed at construction, and
+        a session-level control-system target switch does not move them. That is
+        the never-swap ruling, and this row does not change it — it makes it
+        visible. While a session is switched away, a reader would otherwise take
+        an ``ok`` row about the baseline target as an ``ok`` row about the target
+        they are working on.
+
+        The sentence comes from
+        :func:`osprey.mcp_server.control_system.target_banner.baseline_pinned_line`,
+        the same helper the Phoebus tools render their label from, so the two
+        pinned holders cannot word the same fact two ways. ``None`` on the
+        baseline keeps an unswitched report byte-identical to what it was before
+        this row existed.
+
+        Emitted as :data:`~osprey.health.models.Status.SKIP`: it is not a check,
+        so it must not count as one that passed, and skip is the one status that
+        leaves :attr:`~osprey.health.models.CheckReport.exit_code` alone.
+
+        Returns:
+            The row while the session is switched, otherwise ``None``. Never
+            raises — a banner that failed to render must not fail a health run.
+        """
+        try:
+            from osprey.mcp_server.control_system.target_banner import baseline_pinned_line
+
+            line = baseline_pinned_line(HEALTH_SUBJECT)
+        except Exception:  # noqa: BLE001 - a label can never cost a health run
+            logger.debug("Could not resolve the baseline-pinned row (ignored)", exc_info=True)
+            return None
+        if line is None:
+            return None
+        return CheckResult(BASELINE_ROW_NAME, BASELINE_ROW_CATEGORY, Status.SKIP, line)
 
     async def shutdown(self) -> None:
         """Disconnect both connectors exactly once, iff each was constructed.

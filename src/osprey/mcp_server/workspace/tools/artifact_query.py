@@ -7,7 +7,7 @@ Everything the workspace server stores — plots, documents, screenshots,
 archiver datasets, run results — is one record type in one store, the
 ``ArtifactStore``. Datasets are not a separate namespace; they are artifacts
 with a ``category``, so ``category=`` is how a caller narrows to them.
-Mutations live in ``artifact_save`` (``artifact_save`` / ``artifact_delete`` /
+Mutations live in ``artifact_register`` (``artifact_register`` / ``artifact_delete`` /
 ``artifact_delete_all``).
 """
 

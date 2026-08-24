@@ -8,6 +8,7 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 import functools
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -33,6 +34,20 @@ class ChannelMetadata:
     and are the bounds OSPREY refuses to write past. Only the latter is enforced —
     a value inside the display range can still be refused, and a connector that
     reports no display range constrains nothing.
+
+    ``enum_labels`` / ``enum_label`` are present only for enum-typed records
+    (EPICS ``mbbi``/``mbbo``/``bi``/``bo``, PVAccess ``NTEnum``, and their
+    equivalents elsewhere) and are ``None`` on every other channel. They are the
+    *readable* half of an enum reading: ``ChannelValue.value`` stays the integer
+    index — one machine-readable type across every protocol — and the label for
+    that index rides here, resolved at read time. Either may be ``None`` even on
+    an enum channel: a control system reports the label list only when it has
+    one, and an index outside it resolves to nothing.
+
+    ``enum_labels`` is a ``list`` rather than a tuple because that is what
+    survives the connector-host IPC seam: :mod:`osprey_connectors.ipc.frames`
+    encodes sequences as JSON arrays and decodes them as lists, so a tuple set
+    here would compare unequal to the same field read through a proxy.
     """
 
     units: str = ""
@@ -42,6 +57,10 @@ class ChannelMetadata:
     description: str | None = None
     display_low: float | None = None
     display_high: float | None = None
+    #: Every state this enum-typed channel can report, in index order; None off enums.
+    enum_labels: list[str] | None = None
+    #: The label for the value of THIS reading; None off enums and when unresolvable.
+    enum_label: str | None = None
     raw_metadata: dict[str, Any] | None = field(default_factory=dict)
 
     def __post_init__(self):
@@ -68,6 +87,18 @@ class WriteVerification:
     - "none": No verification performed (fast write)
     - "callback": Control system confirmed request processing (e.g., EPICS IOC callback)
     - "readback": Full verification with readback comparison
+
+    The alarm and ``failure_kind`` fields are the *machine-readable* half of the
+    result: consumers classify a write from them, never by parsing ``notes``,
+    which stays display-only. All three are optional and default to ``None``,
+    so a connector that cannot report them — and every existing construction —
+    stays valid. ``None`` means "not reported", which is deliberately distinct
+    from a reported healthy value (``readback_alarm_severity=0``).
+
+    Alarm state is carried protocol-agnostically: the *name* as a string and the
+    severity as an int. Mapping a protocol's raw codes to those names is the
+    connector's job (EPICS does it in ``epics_connector.py``), so this shared
+    module imports no control-system constants.
     """
 
     level: str  # "none", "callback", "readback"
@@ -75,6 +106,13 @@ class WriteVerification:
     readback_value: float | None = None  # Actual value read back (for "readback" level)
     tolerance_used: float | None = None  # Tolerance used for comparison (for "readback" level)
     notes: str | None = None  # Additional verification details
+    # Alarm name reported for the readback, e.g. "NO_ALARM"/"HIHI"; None if not reported
+    readback_alarm_status: str | None = None
+    # Alarm severity for the readback: 0 healthy, higher is worse; None if not reported
+    readback_alarm_severity: int | None = None
+    # Structured failure classification, e.g. "readback_failed" when the readback
+    # read itself raised. A plain value mismatch leaves this None.
+    failure_kind: str | None = None
 
 
 @dataclass
@@ -85,11 +123,12 @@ class ChannelWriteResult:
     This is the control-system-agnostic result type returned by all connectors.
     Provides detailed information about write success and verification status.
 
-    The ``blocked`` / ``refusal_reason`` fields mark a *refusal*: the monitor
-    declined this write on policy grounds (writes disabled, limits, or
-    validation) and the control system was never asked to write. This is
-    distinct from an I/O failure — where the write was attempted but failed —
-    which leaves ``blocked=False``.
+    The ``blocked`` / ``refusal_reason`` fields mark a *refusal*: no value was
+    written. Usually the monitor declined on policy grounds (writes disabled,
+    limits, or validation) and the control system was never asked. Under
+    ``CONTROL_SYSTEM_REFUSED`` it was asked and denied the write itself. Either
+    way this is distinct from an I/O failure — where the write was attempted and
+    its outcome is unknown or bad — which leaves ``blocked=False``.
     """
 
     channel_address: str  # Channel that was written
@@ -97,21 +136,48 @@ class ChannelWriteResult:
     success: bool  # Whether the write command succeeded
     verification: WriteVerification | None = None  # Verification details (if performed)
     error_message: str | None = None  # Error message if write failed
-    blocked: bool = False  # True iff the monitor refused this write (policy/limits/validation)
-    # "WRITES_DISABLED" | "LIMITS" | "VALIDATION_ERROR" when blocked, else None
+    blocked: bool = False  # True iff this write was refused and no value was written
+    # "WRITES_DISABLED" | "LIMITS" | "VALIDATION_ERROR" | "CONTROL_SYSTEM_REFUSED"
+    # when blocked, else None
     refusal_reason: str | None = None
 
 
+def is_readonly_run() -> bool:
+    """True inside a python-executor sandbox launched with ``execution_mode="readonly"``.
+
+    The executor exports ``OSPREY_EXECUTION_MODE`` into its subprocess so the
+    per-run claim is enforceable at runtime, independent of the pre-execution
+    pattern scan. Outside the sandbox the variable is unset and only the
+    deployment posture (``control_system.writes_enabled``) applies.
+    """
+    return os.environ.get("OSPREY_EXECUTION_MODE") == "readonly"
+
+
 def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteResult:
-    """Build the refusal result returned when writes are disabled at launch time."""
+    """Build the refusal result for a write the monitor never attempted.
+
+    Two reasons share this shape: the deployment has writes off, or this
+    particular script was submitted readonly. The message names the right one
+    so the operator is not sent to flip ``writes_enabled`` when the deployment
+    already allows writes and the run simply was not declared readwrite.
+    """
+    if is_readonly_run():
+        message = (
+            f"Write to '{channel_address}' blocked: this script is running in "
+            "readonly execution mode. Resubmit it with execution_mode='readwrite' "
+            "(human approval required) if the write is intended."
+        )
+    else:
+        message = (
+            f"Write to '{channel_address}' blocked: writes are disabled. "
+            "Set control_system.writes_enabled: true in the build profile "
+            "(profile.yml on the host), then rebuild and redeploy."
+        )
     return ChannelWriteResult(
         channel_address=channel_address,
         value_written=value,
         success=False,
-        error_message=(
-            f"Write to '{channel_address}' blocked: writes are disabled. "
-            "Set control_system.writes_enabled: true in config.yml"
-        ),
+        error_message=message,
         blocked=True,
         refusal_reason="WRITES_DISABLED",
     )
@@ -134,8 +200,10 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
         for).
 
     Raises:
-        ChannelWriteBlockedError: The monitor refused the write on policy,
-            limits, or validation grounds — it was never attempted.
+        ChannelWriteBlockedError: The write was refused and no value was
+            written — either by the monitor on policy, limits, or validation
+            grounds (never attempted), or by the control system itself
+            (``CONTROL_SYSTEM_REFUSED``).
         ChannelWriteFailedError: The write was attempted but failed
             (``WRITE_FAILED``), or came back unverified (``READBACK_UNVERIFIED``)
             because the readback disagreed with the setpoint or could not be read.
@@ -191,7 +259,9 @@ def _warn_once_if_fail_on_mismatch_set(verification: Any) -> None:
     logger.warning(
         "config.yml sets control_system.write_verification.fail_on_mismatch: true, "
         "but that key has no reader and never had one — a failed verification does "
-        "not block or roll back a write on this path. Remove it. The path that does "
+        "not block or roll back a write on this path. Remove it from the build "
+        "profile (profile.yml on the host) and rebuild — config.yml is regenerated "
+        "on every build, so editing it directly does not stick. The path that does "
         "enforce verification is write_channel_checked(), which raises when a write "
         "is refused, fails, or comes back unverified; scan plans write through it."
     )
@@ -228,7 +298,12 @@ class ControlSystemConnector(ABC):
         ``permissions.deny`` on the write tool, followed by regenerating and
         relaunching the agent. In-flight control of an active scan is the
         RunEngine's own ``abort`` / ``pause`` — never a config flag.
+
+        A readonly sandbox run (see :func:`is_readonly_run`) is refused
+        regardless of the deployment posture.
         """
+        if is_readonly_run():
+            return False
         try:
             from osprey_connectors.config import get_config_value
 
@@ -277,10 +352,11 @@ class ControlSystemConnector(ABC):
     ) -> tuple[str, float | None]:
         """Get verification level and tolerance for a channel write.
 
-        Priority:
-        1. Per-channel config from limits database
-        2. Global config from config.yml
-        3. Fallback: callback with no tolerance
+        Priority (the four layers documented on :meth:`write_channel`):
+        1. The channel's own ``verification`` entry in the limits database
+        2. The limits database ``defaults.verification`` block
+        3. Global config from config.yml (``control_system.write_verification``)
+        4. Fallback: callback with no tolerance
 
         Args:
             channel_address: Channel being written
@@ -371,7 +447,7 @@ class ControlSystemConnector(ABC):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str = "callback",
+        verification_level: str | None = None,
         tolerance: float | None = None,
     ) -> ChannelWriteResult:
         """
@@ -381,8 +457,11 @@ class ControlSystemConnector(ABC):
             channel_address: Address/name of the channel
             value: Value to write
             timeout: Optional timeout in seconds
-            verification_level: Verification strategy ("none", "callback", "readback")
-            tolerance: Absolute tolerance for readback verification (only used if verification_level="readback")
+            verification_level: Verification strategy ("none", "callback", "readback"),
+                or ``None`` to let the connector resolve the level for this channel
+            tolerance: Absolute tolerance for readback verification (only used if
+                verification_level resolves to "readback"); ``None`` lets the
+                connector resolve the tolerance for this channel
 
         Returns:
             ChannelWriteResult with write status and verification details
@@ -401,6 +480,32 @@ class ControlSystemConnector(ABC):
 
             Different control systems may interpret these levels differently based on
             their native capabilities.
+
+        Omission sentinel:
+            ``verification_level=None`` means "not specified" — it is NOT a fourth
+            level, and it is not the same as ``"none"``. Callers that have no opinion
+            leave the keyword off entirely; the connector then resolves the level for
+            this specific channel. ``tolerance=None`` works the same way.
+
+        Resolution order (four layers, level and tolerance alike):
+            1. The channel's own ``verification`` entry in the limits database.
+            2. The limits database ``defaults.verification`` block.
+            3. Global connector config: ``control_system.write_verification``
+               (``default_level``, ``default_tolerance_percent``).
+            4. Hard-coded fallback: ``"callback"``, no tolerance.
+
+            The first layer that supplies a value wins, so a facility can set a
+            house default in the limits database and override it per channel.
+            :meth:`_get_verification_config` implements layers 1-4 for the built-in
+            connectors.
+
+            An explicit ``verification_level`` overrides all four layers for the
+            level only. Tolerance still resolves through them, so asking for
+            ``"readback"`` on a channel whose limits entry declares
+            ``level: readback`` with ``tolerance_percent: 1.0`` verifies at 1%,
+            not at some hard-coded default -- the layers supply a tolerance only
+            when the level they resolve to is ``"readback"``. Pass ``tolerance``
+            explicitly to override that too.
 
         Two-layer safety model:
             **Per-write mechanical safety** lives INSIDE the connector and is applied
@@ -472,7 +577,7 @@ class ControlSystemConnector(ABC):
         self,
         operations: list[tuple[str, Any]],
         timeout: float | None = None,
-        verification_level: str = "callback",
+        verification_level: str | None = None,
         tolerance: float | None = None,
     ) -> list[ChannelWriteResult]:
         """
@@ -485,21 +590,36 @@ class ControlSystemConnector(ABC):
         Args:
             operations: List of (channel_address, value) tuples
             timeout: Optional timeout in seconds
-            verification_level: Verification strategy ("none", "callback", "readback")
-            tolerance: Absolute tolerance for readback verification
+            verification_level: Verification strategy ("none", "callback", "readback"),
+                or ``None`` to let each channel resolve its own level
+            tolerance: Absolute tolerance for readback verification, or ``None`` to
+                let each channel resolve its own tolerance
 
         Returns:
             List of ChannelWriteResult in the same order as operations
+
+        Note:
+            A batch carries one scalar level for every channel in it, so an
+            omitted ``verification_level`` is *not* resolved here — the keyword is
+            simply left off each per-channel ``write_channel()`` call. Each channel
+            then resolves its own level and tolerance through the four layers
+            documented on :meth:`write_channel`, which is what makes batch writes
+            behave like single writes. A connector that declares a concrete default
+            of its own (``verification_level: str = "callback"``) keeps that default,
+            because the keyword never reaches it.
+
+            An explicit level, by contrast, is forwarded unchanged to every channel.
         """
         results = []
         for address, value in operations:
-            result = await self.write_channel(
-                address,
-                value,
-                timeout=timeout,
-                verification_level=verification_level,
-                tolerance=tolerance,
-            )
+            kwargs: dict[str, Any] = {"timeout": timeout, "tolerance": tolerance}
+            # Omission is a sentinel, not a value: forwarding None would override a
+            # legacy connector's own default. Leave the keyword off instead. Only
+            # verification_level has a non-None legacy default in practice --
+            # tolerance and timeout are always forwarded above.
+            if verification_level is not None:
+                kwargs["verification_level"] = verification_level
+            result = await self.write_channel(address, value, **kwargs)
             results.append(result)
         return results
 

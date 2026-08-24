@@ -592,6 +592,156 @@ async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):
     assert kwargs["precision_ms"] == 60_000
 
 
+# ---------------------------------------------------------------------------
+# Default bin: chosen from the span, never a fixed second (issue #117)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("span", "expected_seconds"),
+    [
+        (timedelta(hours=1), 1),  # anything up to the budget stays at 1 s
+        (timedelta(seconds=10_000), 1),  # exactly the budget: still 1 s
+        (timedelta(seconds=10_001), 2),  # one over: rounds UP, never under
+        (timedelta(days=1), 9),
+        (timedelta(days=7), 61),
+        (timedelta(days=365), 3154),  # ~53 min
+        (timedelta(0), 1),  # degenerate window: the smallest legal bin
+        (timedelta(hours=-1), 1),  # end before start: same, not an exception
+    ],
+)
+def test_auto_bin_seconds_scales_with_span(span, expected_seconds):
+    from osprey.mcp_server.control_system.tools.archiver_read import auto_bin_seconds
+
+    assert auto_bin_seconds(span, 10_000) == expected_seconds
+
+
+@pytest.mark.unit
+async def test_default_bin_widens_for_a_long_span(archiver_read_tool):
+    """A one-year read with no bin_size asks for ~53-minute bins, and says so."""
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+
+    # 2023 is not a leap year: 365 days -> ceil(31_536_000 / 10_000) = 3154 s.
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2023-01-01T00:00:00",
+        end_time="2024-01-01T00:00:00",
+    )
+
+    assert connector.get_data.call_args.kwargs["precision_ms"] == 3154 * 1000
+    summary = extract_response_dict(result)["summary"]
+    assert summary["bin_size"] == 3154
+    assert summary["bin_size_source"] == "auto"
+
+
+@pytest.mark.unit
+async def test_default_bin_stays_one_second_for_a_short_span(archiver_read_tool):
+    """Short reads keep the 1-second default they always had."""
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+        end_time="2024-01-15T11:00:00",
+    )
+
+    assert connector.get_data.call_args.kwargs["precision_ms"] == 1000
+    summary = extract_response_dict(result)["summary"]
+    assert summary["bin_size"] == 1
+    assert summary["bin_size_source"] == "auto"
+
+
+@pytest.mark.unit
+async def test_explicit_bin_size_is_reported_as_requested(tmp_path, archiver_read_tool):
+    """An explicit bin_size is used verbatim, and the echo says it was the caller's."""
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-01T00:00:00",
+        end_time="2025-01-01T00:00:00",
+        bin_size=60,
+    )
+
+    data = extract_response_dict(result)
+    assert connector.get_data.call_args.kwargs["precision_ms"] == 60_000
+    assert data["summary"]["bin_size"] == 60
+    assert data["summary"]["bin_size_source"] == "requested"
+    # The artifact's query block records the bin that was USED, not the
+    # ``None`` the agent may have passed.
+    query = json.loads((tmp_path / data["data_file"]).read_text())["query"]
+    assert query["bin_size"] == 60
+    assert query["bin_size_source"] == "requested"
+
+
+@pytest.mark.unit
+async def test_full_resolution_is_reported_as_requested_zero(archiver_read_tool):
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+        end_time="2024-01-15T11:00:00",
+        bin_size=0,
+    )
+
+    summary = extract_response_dict(result)["summary"]
+    assert summary["bin_size"] == 0
+    assert summary["bin_size_source"] == "requested"
+
+
+@pytest.mark.unit
+async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
+    """``archiver.auto_bin_points`` sets how many points the default bin aims for."""
+    from osprey.connectors.archiver.base import ArchiverMetadata
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        "archiver:\n  type: mock_archiver\n  auto_bin_points: 100\n"
+    )
+    initialize_server_context()
+
+    connector = AsyncMock()
+    connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
+    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        result = await _get_archiver_read()(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00",
+            end_time="2024-01-15T11:00:00",
+        )
+
+    # 3600 s / 100 points -> 36 s bins
+    assert connector.get_data.call_args.kwargs["precision_ms"] == 36_000
+    assert extract_response_dict(result)["summary"]["bin_size"] == 36
+
+
+@pytest.mark.unit
+async def test_invalid_auto_bin_budget_is_refused_not_guessed(tmp_path, monkeypatch):
+    """A budget that is not a positive integer is a config error, not a silent default."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n  auto_bin_points: 0\n")
+    initialize_server_context()
+
+    with assert_raises_error(error_type="configuration_error") as ctx:
+        await _get_archiver_read()(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00",
+            end_time="2024-01-15T11:00:00",
+        )
+    assert "auto_bin_points" in ctx["envelope"]["error_message"]
+
+
 @pytest.mark.unit
 async def test_archiver_read_rejects_unknown_processing(archiver_project):
     """An unsupported mode errors with the valid set, rather than silently downgrading."""

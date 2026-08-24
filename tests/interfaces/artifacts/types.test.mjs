@@ -26,6 +26,7 @@ import {
   typeColor,
   thumbnailHtml,
   escapeHtml,
+  withTheme,
   formatSize,
   formatTime,
   formatFullTime,
@@ -303,6 +304,41 @@ describe('openUrl', () => {
 
   test('notebook branch is byte-identical for a real 12-hex artifact id', () => {
     expect(openUrl({ id: '0123456789ab', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe('/api/notebooks/0123456789ab/rendered');
+  });
+
+  // A page opened in its own tab has no hub parent to follow: the link
+  // carries the theme the operator is looking at, which theme-boot.js honors
+  // ahead of storage and the OS preference on that page.
+  test('a theme id is carried as ?theme= on every branch', () => {
+    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, 'retro-light'))
+      .toBe('/files/a3/p.html?theme=retro-light');
+    expect(openUrl({ id: 'a1', artifact_type: 'markdown', filename: 'x.md' }, 'high-contrast-dark'))
+      .toBe('/api/markdown/a1/rendered?theme=high-contrast-dark');
+    expect(openUrl({ id: 'a2', artifact_type: 'notebook', filename: 'x.ipynb' }, 'light'))
+      .toBe('/api/notebooks/a2/rendered?theme=light');
+  });
+
+  test('a missing theme (theme-manager not initialised) leaves the URL bare', () => {
+    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, null)).toBe('/files/a3/p.html');
+    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, undefined)).toBe('/files/a3/p.html');
+  });
+
+  test('the theme id is percent-encoded, so a hostile value cannot smuggle extra query parameters', () => {
+    const url = openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, 'x&y=1');
+    expect(url).toBe('/files/a3/p.html?theme=x%26y%3D1');
+  });
+});
+
+describe('withTheme', () => {
+  test('appends ?theme= to a bare URL and &theme= after an existing query', () => {
+    expect(withTheme('/files/a1/p.html', 'light')).toBe('/files/a1/p.html?theme=light');
+    expect(withTheme('/files/a1/p.html?v=2', 'light')).toBe('/files/a1/p.html?v=2&theme=light');
+  });
+
+  test('a missing theme leaves the URL untouched', () => {
+    expect(withTheme('/files/a1/p.html', null)).toBe('/files/a1/p.html');
+    expect(withTheme('/files/a1/p.html', undefined)).toBe('/files/a1/p.html');
+    expect(withTheme('/files/a1/p.html', '')).toBe('/files/a1/p.html');
   });
 });
 

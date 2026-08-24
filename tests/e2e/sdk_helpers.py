@@ -21,6 +21,7 @@ carries one handle. A repo has three zones the helpers resolve internally:
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import shutil
@@ -32,6 +33,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from tests import ci_diagnostics
 
 # SDK imports — skip entire module if not installed
 try:
@@ -274,14 +277,19 @@ def init_project(
     nothing lies. Tests that want recorded history deploy a store of their own.
 
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
-    ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
-    ``None`` and a ``channel_finder_mode`` is given, the tier is derived from it
-    (in_context → 1, else → 3); when neither is given, ``tier`` is left out of
-    the profile and the build derives it from the preset's own paradigm. An
-    explicit ``tier`` kwarg is always honored. Consequence:
-    hierarchical/middle_layer callers score the full tier-3 (2908-channel)
-    surface, not a tier-1 subset. The tier is a profile field, so it is set the
-    same way as every other one: ``--set tier=N`` on ``init``.
+    every other paradigm requires tier 3. When ``tier`` is left ``None`` and a
+    ``channel_finder_mode`` is given, the tier is derived from it (in_context
+    → 1, else → 3); when neither is given, ``tier`` is left out of the profile
+    and the build derives it from the preset's own paradigm. An explicit
+    ``tier`` kwarg is always honored. Consequence: hierarchical/middle_layer
+    callers score the full tier-3 (2908-channel) surface, not a tier-1 subset.
+    The tier is a profile field, so it is set the same way as every other one:
+    ``--set tier=N`` on ``init``.
+
+    A paradigm whose store is a service rather than tiered database files
+    (``graph``) has no tier to select, so the derived tier is dropped for it
+    and the profile is written without a ``tier`` field. The rule is read from
+    ``tier_mode_conflict`` rather than restated here.
 
     ``provider`` is required (keyword-only) — every test callsite must name
     it explicitly. Each provider gates on different credentials (CBORG needs
@@ -307,12 +315,19 @@ def init_project(
     ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
     collapses all tiers onto a single model id.
     """
-    from osprey.build.build_tiers import default_tier_for_mode
+    from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
 
     provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
     effective_tier = tier
     if effective_tier is None and channel_finder_mode is not None:
-        effective_tier = default_tier_for_mode(channel_finder_mode)
+        derived = default_tier_for_mode(channel_finder_mode)
+        # Pin the derived tier only where the paradigm accepts one. A paradigm
+        # backed by a service rather than tiered database files has no tier to
+        # select, and ``tier_mode_conflict`` is the registry's own statement of
+        # which pairings hold — asking it keeps the rule in one place instead of
+        # re-listing paradigms here.
+        if tier_mode_conflict(derived, channel_finder_mode) is None:
+            effective_tier = derived
     repo = tmp_path / name
     init_args = [
         str(repo),
@@ -653,7 +668,7 @@ def find_html_files(root: Path) -> list[Path]:
 
 
 def read_audit_events(repo: Path) -> list[dict]:
-    """Read OSPREY tool-call events from Claude Code native transcripts.
+    """Read MCP tool-call events from Claude Code native transcripts.
 
     Takes the REPO ROOT. Claude Code keys its transcript directory on the
     session's working directory, which is the RENDER, so that is what the reader
@@ -926,6 +941,11 @@ class HookEvent:
     tool_input: dict
     decision: str  # "allow" or "deny"
     reason: str | None = None
+    # The hook's own ``permissionDecisionReason``, as the SDK reports it on the
+    # permission context. ``reason`` above records what the *test policy* did;
+    # this records what the *hook* said, which is what a test asserting on hook
+    # wording needs.
+    decision_reason: str | None = None
 
 
 @dataclass
@@ -935,11 +955,59 @@ class HookObservedResult(SDKWorkflowResult):
     hook_events: list[HookEvent] = field(default_factory=list)
 
 
+def _bind_approval_policy(
+    policy: Callable[..., bool],
+) -> Callable[[str, dict[str, Any], Any], bool]:
+    """Normalise a custom approval policy to one uniform three-argument shape.
+
+    A policy may be written either as ``(tool_name, tool_input) -> bool`` or as
+    ``(tool_name, tool_input, context) -> bool``. Which one it is, is decided
+    here by explicit signature inspection, once, before any tool call — never by
+    catching ``TypeError`` from a call, which would silently swallow a
+    ``TypeError`` raised *inside* a three-argument policy and turn a real bug
+    into a mysterious approval.
+
+    A policy whose signature cannot be inspected (a C-level callable, say) is
+    treated as the two-argument form, which is the shape every policy predating
+    the context argument has. A third positional parameter counts as the
+    context slot even when it carries a default.
+    """
+    try:
+        parameters = list(inspect.signature(policy).parameters.values())
+    except (TypeError, ValueError):
+        parameters = []
+
+    takes_context = any(
+        parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters
+    ) or (
+        len(
+            [
+                parameter
+                for parameter in parameters
+                if parameter.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+        )
+        >= 3
+    )
+
+    if takes_context:
+        return policy
+
+    def _call_without_context(tool_name: str, tool_input: dict[str, Any], context: Any) -> bool:
+        return policy(tool_name, tool_input)
+
+    return _call_without_context
+
+
 async def run_sdk_query_with_hooks(
     repo: Path,
     prompt: str,
     *,
-    approval_policy: Callable[[str, dict[str, Any]], bool] | str = "auto_approve",
+    approval_policy: Callable[..., bool] | str = "auto_approve",
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
     model: str | None = None,
@@ -955,9 +1023,14 @@ async def run_sdk_query_with_hooks(
     The ``approval_policy`` controls what happens when a hook returns "ask":
     - ``"auto_approve"`` — always approve (hooks still run, but "ask" → allow)
     - ``"auto_deny"`` — always deny (test that denial propagates correctly)
-    - callable — custom ``(tool_name, tool_input) -> bool`` for fine-grained control
+    - callable — custom fine-grained control, written either as
+      ``(tool_name, tool_input) -> bool`` or, when it needs to see why the hook
+      asked, as ``(tool_name, tool_input, context) -> bool``. Which form a
+      policy has is decided from its signature, so both work unchanged.
 
-    Every callback invocation is recorded in ``hook_events`` for observability.
+    Every callback invocation is recorded in ``hook_events`` for observability,
+    including the hook's own ``permissionDecisionReason`` as
+    ``HookEvent.decision_reason``.
 
     Args:
         repo: Deployment repo root (what :func:`init_project` returns). The
@@ -981,6 +1054,8 @@ async def run_sdk_query_with_hooks(
     """
     hook_events: list[HookEvent] = []
     stderr_lines: list[str] = []
+    # Inspect the policy's arity once, here, rather than on every tool call.
+    policy_call = _bind_approval_policy(approval_policy) if callable(approval_policy) else None
 
     async def _can_use_tool(
         tool_name: str,
@@ -992,8 +1067,8 @@ async def run_sdk_query_with_hooks(
             should_allow = True
         elif approval_policy == "auto_deny":
             should_allow = False
-        elif callable(approval_policy):
-            should_allow = approval_policy(tool_name, tool_input)
+        elif policy_call is not None:
+            should_allow = policy_call(tool_name, tool_input, context)
         else:
             raise ValueError(f"Invalid approval_policy: {approval_policy!r}")
 
@@ -1005,6 +1080,7 @@ async def run_sdk_query_with_hooks(
             reason=f"approval_policy={approval_policy!r}"
             if isinstance(approval_policy, str)
             else "custom_policy",
+            decision_reason=context.decision_reason,
         )
         hook_events.append(event)
 
@@ -1079,3 +1155,87 @@ async def run_sdk_query_with_hooks(
     workflow.hook_events = hook_events
     _persist_mcp_sidecar(workflow, repo)
     return workflow
+
+
+# ---------------------------------------------------------------------------
+# Agent transcripts as CI artifacts
+# ---------------------------------------------------------------------------
+
+
+#: Sub-directory of ``OSPREY_CI_DIAG_DIR`` that transcripts are written to.
+#: Separate from the records :mod:`tests.ci_diagnostics` keeps in the same
+#: directory, so a per-worker event log and a per-test transcript can never
+#: collide on a name.
+TRANSCRIPT_SUBDIR = "agent"
+
+
+def _transcript_payload(name: str, result: SDKWorkflowResult) -> dict[str, Any]:
+    """The serialisable form of one agent run — deliberately UNTRUNCATED.
+
+    Truncation is the whole reason this exists. ``_to_workflow_result``
+    previews every tool result at 300 characters before the judge ever sees
+    it, and a ``get_run_data`` payload spends its first 300 characters on
+    ``run_uid`` and ``columns``, so not one measured value survives into the
+    judge's view. When the judge then reports that a response's numbers
+    "cannot be verified from the execution trace", nothing anywhere records
+    what the tools actually returned, and the verdict text is left as the only
+    account of a response nobody can re-read.
+
+    ``mcp_server_status`` is included because it is the infra-vs-model
+    discriminator: a tool the agent never called means one thing if the
+    handshake offered it and quite another if it never registered.
+    """
+    return {
+        "name": name,
+        # Every turn's prose, joined the way the judge is given it, but whole.
+        "response": "\n".join(result.text_blocks).strip(),
+        "text_blocks": list(result.text_blocks),
+        "tool_traces": [
+            {
+                "name": t.name,
+                "input": t.input,
+                "result": t.result,
+                "is_error": t.is_error,
+                "tool_use_id": t.tool_use_id,
+                "parent_tool_use_id": t.parent_tool_use_id,
+            }
+            for t in result.tool_traces
+        ],
+        "mcp_server_status": result.mcp_server_status,
+        "registered_tools": result.registered_tools,
+    }
+
+
+def dump_agent_transcript(name: str, result: SDKWorkflowResult) -> Path | None:
+    """Persist one agent run's full response and tool traces as a CI artifact.
+
+    Gated on ``OSPREY_CI_DIAG_DIR`` exactly like :mod:`tests.ci_diagnostics`:
+    unset — which is every local run — writes nothing and returns ``None``.
+    The lanes that set it already upload that directory, and
+    ``capture-ci-diagnostics`` creates its own subdirectory rather than
+    clearing the tree, so what is written here survives into the artifact.
+
+    Call this BEFORE the assertions, never after. The runs worth reading are
+    the ones that fail, and a dump placed below a judge assertion never
+    executes on exactly those.
+
+    Never raises. A diagnostic that can fail the test it was only meant to
+    observe would mask the very failure it exists to explain — the same reason
+    every probe in the capture action ends in ``|| true``.
+    """
+    directory = os.environ.get(ci_diagnostics.ENV_DIR)
+    if not directory:
+        return None
+    try:
+        target_dir = Path(directory) / TRANSCRIPT_SUBDIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+        # Test ids carry ``[]`` from parametrisation and ``/`` from paths.
+        safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "transcript"
+        target = target_dir / f"{safe}.json"
+        target.write_text(
+            json.dumps(_transcript_payload(name, result), indent=2, default=str),
+            encoding="utf-8",
+        )
+        return target
+    except Exception:
+        return None

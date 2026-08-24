@@ -185,11 +185,74 @@ services:
                     # Raise it on a large corpus, where a no-op sweep is not
                     # free (~12.5 s at 135,000 entries).
 
+  # Graph store — a Neo4j container holding a DISPOSABLE mirror of an
+  # RDF/Turtle corpus. The TTL on disk stays the source of truth and
+  # `osprey knowledge seed-graph` rebuilds the graph from it, so losing this
+  # container's volume costs a re-seed, not data. It answers the multi-hop
+  # relationship questions keyword and semantic search cannot: what a channel
+  # belongs to, what a subsystem contains, what depends on what.
+  #
+  # Deployed by default, and this block is what makes that legal: a `graphdb`
+  # entry in `deployed_services` without it is refused before compose runs —
+  # nothing else says which ports to publish. Comment out both or neither.
+  #
+  # No password key here, deliberately. The container reads GRAPHDB_PASSWORD
+  # from the project .env, which `osprey up` mints when it is unset; a password
+  # written into this file would be read by nobody and would silently lose to
+  # the minted value. Same convention as `postgresql:` above.
+  #
+  # EXTERNAL STORE: to talk to a graph store this deployment does not run, add
+  # an explicit `uri:` (e.g. bolt://graph.example.org:7687) plus an optional
+  # `username:` (default neo4j) here, and leave `graphdb` OUT of
+  # `deployed_services`. Nothing is minted on that path — set GRAPHDB_PASSWORD
+  # in the project .env yourself, or the store refuses the connection.
+  graphdb:
+    path: ./services/graphdb
+    image: neo4j:5.20-community  # Pinned to 5.20: neosemantics (n10s), the
+                                 # plugin that imports the RDF, publishes no
+                                 # build for 5.23+. Repoint it at a mirror or a
+                                 # pre-baked image on an air-gapped host.
+    port_host: 7687       # Bolt — the only protocol the neo4j driver speaks,
+                          # so this is what the seeder and the agent dial.
+    http_port_host: 7474  # HTTP — the Neo4j Browser an operator opens, and the
+                          # endpoint the container healthcheck probes.
+                          # `osprey health` does NOT use this port: it dials the
+                          # store over bolt on port_host (or an explicit `uri`),
+                          # which is what its remedies name. Both ports publish
+                          # on the project-wide `deployment.bind_address`
+                          # (default 127.0.0.1); no per-service bind_address.
+    ttl_path: ./services/graphdb/als_gtb.ttl
+                          # Corpus to seed the store from, resolved against this
+                          # file's directory (the same rule as
+                          # `facility_knowledge.bundle_path`). Ships with the
+                          # example graph; point it at your own TTL. Comment it
+                          # out to bring the store up bootstrapped but empty.
+    # JVM memory. Neo4j sizes nothing automatically inside a container — left
+    # unset it reads the HOST's memory and picks numbers the container's own
+    # limit will not honour — so all three are spelled out. Budget roughly
+    # heap_max_size + pagecache_size + ~0.5G of JVM overhead. These values run
+    # the shipped corpus comfortably; a substantially larger graph wants more.
+    heap_initial_size: 512m   # Heap the server starts with
+    heap_max_size: 1G         # Ceiling the heap may grow to
+    pagecache_size: 512m      # Off-heap cache for graph data and indexes,
+                              # separate from the heap and NOT taken out of it
+    # Query bounds, read by the agent's `read_cypher` tool. Both cap a SINGLE
+    # question rather than the store: the timeout is handed to the server,
+    # which cancels the transaction itself, and the row cap decides how much of
+    # a broad match comes back. Raising them spends the agent's context window,
+    # not the store's memory — a few thousand rows crowd out the conversation
+    # long before they trouble Neo4j.
+    query_timeout_s: 15   # Server-side transaction timeout for one agent
+                          # query, in seconds.
+    query_max_rows: 200   # Rows returned per query before truncation; the tool
+                          # says when it cut.
+
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
   - qmd             # Comment out together with the `qmd:` block above.
+  - graphdb         # Comment out together with the `graphdb:` block above.
 {% else %}
 # Attached project (deploy_services: false): connects to a services stack
 # another OSPREY project deployed on the same host, so it scaffolds nothing.
@@ -272,12 +335,90 @@ ariel:
     adapter: generic_json
     source_url: data/logbook_seed/demo_logbook.json
 
+  # Which module answers a search that names no mode — the web interface's
+  # opening tab, `osprey ariel search` without `--mode`, and the service API.
+  # Naming a module that is not enabled below is refused at startup rather
+  # than quietly answered by a different one. Unset, this resolves to `hybrid`
+  # where that module is enabled and `keyword` everywhere else.
+  default_search_mode: hybrid
+
+  # Facility vocabulary: the shorthand operators type ("t/s the bpm offset"),
+  # mapped to the words the logbook prose actually contains ("troubleshoot",
+  # "beam position monitor"). Stemming cannot bridge those two spellings, so
+  # without it a search typed in control-room shorthand misses the entries that
+  # describe exactly what it asked about. Expansion is plain dictionary
+  # matching — no model, no network call — and every rewrite comes back as
+  # `expanded_terms`, so a surprising hit arrives with its reason.
+  #
+  # OFF here, because a vocabulary is facility content and this template ships
+  # none: shorthand is only worth expanding when it is YOUR control room's.
+  # Write a `vocabulary.yml` (the `control-assistant` app template ships a
+  # twenty-concept example and a format walkthrough under `data/ariel/`),
+  # uncomment the path below and flip `enabled` to true.
+  #
+  # The file is read ONCE, when this config is parsed — not lazily on the first
+  # search — so a broken file fails loudly at startup rather than quietly
+  # halving your recall: the ARIEL panel comes up in CONFIGURATION INVALID mode
+  # with the errors and the fix on screen, search returns 503 naming
+  # `ariel.vocabulary.path`, and the MCP server refuses to start. Validate
+  # before you deploy with `osprey ariel vocab-check <file>`; the recovery is to
+  # set `enabled: false` or repoint `path`, then restart.
+  vocabulary:
+    enabled: false
+
+    # Resolved against the directory holding this file, like every other
+    # config-relative path here (`qmd_export.mirror_path` below follows the
+    # same rule).
+    # path: data/ariel/vocabulary.yml
+
+    # Whether a search that expresses no preference gets expansion. The
+    # per-request `expand_query` argument overrides it in both directions.
+    expand_by_default: true
+
+    # The two direction gates, deliberately asymmetric. Matching a form and
+    # adding its canonical is always on (`bpm` finds "beam position monitor").
+    # These control the REVERSE: spelling a canonical out and also searching
+    # the short form. For an acronym that is free recall — an initialism means
+    # one thing. For ordinary words it is not: expanding "calibration" into
+    # "cal" drags in far more noise than it recovers.
+    canonical_to_acronym: true
+    canonical_to_shorthand: false
+
+    # No `expand_modes` key: unset means every enabled search module expands,
+    # which is what a facility wants until proven otherwise, and a shipped list
+    # would rot the moment a module is toggled. The key exists as one specific
+    # knob — hybrid search feeds the expanded query to the qmd sidecar's LLM
+    # reranker, so a facility whose reranked ordering degrades under expansion
+    # sets `expand_modes: [keyword, semantic]` here to drop `hybrid` alone
+    # without giving up expansion everywhere else.
+
   # Search modules (leaf-level search functions)
   # Both keyword and semantic are enabled out of the box.
   # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
   search_modules:
     keyword:
       enabled: true
+      # These knobs MUST stay under `settings:`. The search-config loader keeps
+      # only `enabled`, `provider`, `model` and `settings` and drops every
+      # other key without a word, so a knob written as a sibling of `enabled`
+      # is silently inert — no error, just the defaults forever.
+      settings:
+        # Pattern tokens in a keyword query: `*` globs (`SR01C___BPM*`, with
+        # `?` as a single-character wildcard inside a glob) and explicit
+        # `/regex/` tokens, run as case-insensitive matches against the entry
+        # text — a glob is additionally anchored to word boundaries, an
+        # explicit `/regex/` is matched exactly as written. Both need at
+        # least 3 consecutive literal characters to be indexable; below that
+        # the token is searched as ordinary text and the search says so in
+        # its diagnostics. Set false to make `*` and `/…/` plain words again.
+        patterns_enabled: true
+        # The wall-clock envelope a pattern search runs under. Applied only to
+        # a query that actually emitted a pattern predicate, so an ordinary
+        # keyword search is untouched by it. A pattern that cannot use the
+        # index scans the whole logbook; this returns a timeout diagnostic
+        # instead of holding the caller open, so a slow query is
+        # distinguishable from an empty one.
+        pattern_timeout_seconds: 10.0
     semantic:
       enabled: true      # Degrades gracefully if Ollama/pgvector unavailable
       provider: ollama   # References api.providers.ollama
@@ -438,14 +579,18 @@ claude_code:
     # (Hardcoding localhost would make the in-container dispatch worker emit to
     # its own loopback and silently drop everything.)
     #
-    # OpenObserve auth + org routing. user/password read the OpenObserve root
-    # credentials from the project .env — the SAME values the openobserve service
-    # reads — so container and agent auth stay in sync (single source of truth).
-    # `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env; the
-    # ${VAR:-default} fallbacks keep the agent launchable before the first deploy.
+    # OpenObserve auth + org routing. These are the store's dedicated INGEST
+    # account, not its root credentials: `osprey up` creates a service account
+    # named ZO_INGEST_USER_EMAIL and writes the token the store issues for it
+    # to the project .env as ZO_INGEST_SA_TOKEN. The store itself still
+    # initializes from ZO_ROOT_USER_* — that stays in the compose file, and the
+    # root password never reaches the agent's config.
+    # The token reference carries NO ${VAR:-default} on purpose: a literal
+    # default would be a published credential, and there is nothing to fall
+    # back to before the first deploy provisions the account.
     openobserve:
-      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
-      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+      password: ${ZO_INGEST_SA_TOKEN}
       org: default
     # Content gates — all default ON. The store is local and loopback-bound, so
     # full capture is the default posture; set any to false to suppress that
@@ -459,11 +604,31 @@ claude_code:
 # ============================================================
 # WEB PANEL CONFIGURATION
 # ============================================================
-# Controls which panel tabs appear in the web terminal (osprey web).
-# The Workspace panel is always shown; the Activity log is a separate page,
-# not a tab.
+# Controls the web terminal UI (osprey web): its Documentation and Feedback
+# controls, and which panel tabs appear. The Workspace panel is always shown;
+# the Activity log is a separate page, not a tab.
 
 web:
+  # Target of the Documentation button in the web terminal's utility cluster.
+  # Point it at a locally hosted copy of the docs when the control room has no
+  # route to the public site.
+  docs_url: https://als-apg.github.io/osprey
+
+  # Where the Feedback dialog's two outbound channels send a user. Nothing is
+  # ever posted for them: the browser opens a prefilled GitHub issue form or a
+  # prefilled mail draft, and the user decides whether to send it. Every
+  # submission is also recorded on this deployment, readable with
+  # `osprey feedback list` / `osprey feedback export`.
+  feedback:
+    # owner/repo whose new-issue form the GitHub channel prefills. Point it at
+    # the repository your users' reports should land in.
+    github_repo: als-apg/osprey
+    # Recipient of the prefilled mailto: draft the Email channel opens.
+    email: thellert@lbl.gov
+    # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+    # OLDEST saved session contexts are deleted; the small submission headers
+    # are always kept, so the submission history stays complete.
+    max_store_bytes: 268435456
 {%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}

@@ -21,7 +21,6 @@ caller nothing about where its capability went.
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import io
 import json
@@ -60,6 +59,7 @@ from .models import (
     PlanValidateRequest,
 )
 from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
+from .plan_metadata import extract_plan_name_from_source
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
 from .queue_backend import (
@@ -280,17 +280,28 @@ async def _capability_dict() -> dict[str, Any]:
     in ``detail`` so the operator sees the real cause rather than a shrug, and
     the route still answers 200 — the container healthcheck must not go red
     over a capability probe.
+
+    The hand-built record below is the ONE capability object on the wire that
+    does not come out of ``Capability.to_dict``, so it has to carry the same
+    keys — a consumer that parses the fallback differently from every other
+    record is a consumer that breaks exactly when the bridge is already in
+    trouble. The lane identity in particular is still perfectly knowable here:
+    it comes from render-time facts (`resolve_lane_identity`, which never
+    raises), not from the probe that just failed.
     """
-    from .queue_backend import REASON_MANAGER_UNREACHABLE
+    from .queue_backend import REASON_MANAGER_UNREACHABLE, resolve_lane_identity
 
     try:
         return (await get_queue_backend().capability()).to_dict()
     except Exception as exc:
         logger.warning("capability probe failed; reporting cannot-execute: %s", exc)
+        lane, lane_target = resolve_lane_identity()
         return {
             "can_execute": False,
             "reason": REASON_MANAGER_UNREACHABLE,
             "detail": f"The bridge could not determine whether plans can execute: {exc}",
+            "lane": lane,
+            "lane_target": lane_target,
         }
 
 
@@ -302,12 +313,17 @@ async def health() -> dict:
     route of its own, so no consumer has to learn a second endpoint to find out
     what the bridge in front of it can do:
 
-    ``{"status": "ok", "capability": {"can_execute", "reason", "detail"}}``
+    ``{"status": "ok", "capability": {"can_execute", "reason", "detail",
+    "lane", "lane_target"}}``
 
     ``can_execute`` is the answer; ``reason`` is one of the machine-readable
     ``REASON_*`` codes in `queue_backend.py`, which panels and MCP tools branch
     on; ``detail`` is the operator-facing sentence, and for a browse-only mock
-    deployment it names the exact command that flips it. ``status: "ok"`` means
+    deployment it names the exact command that flips it. ``lane`` and
+    ``lane_target`` say which plan lane answered and which control target it
+    serves — render-time facts, identical before and after a session switch,
+    which the host is what composes against the session's own target.
+    ``status: "ok"`` means
     only that this process is up — it is deliberately independent of
     ``can_execute``, because a browse-only deployment is a healthy deployment.
     """
@@ -653,12 +669,62 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     }
 
 
+@app.delete("/plans/session/{name}")
+def delete_session_plan(name: str) -> dict:
+    """Retire an authored session-tier plan file. Reaches NO hardware.
+
+    The counterpart of `POST /plans/session`, and the only way to un-author a
+    plan short of restarting the bridge — session state is ephemeral by design
+    (`session_dir.py`), but "ephemeral" only ever meant "lost on restart",
+    which left a plan authored once listed in `GET /plans` for the life of the
+    container. Ungated for the same reason the write and validate routes are:
+    removing a file touches no device, and `BLUESKY_LAUNCH_TOKEN`
+    authenticates the two launch routes only.
+
+    Scope is exactly one directory. The name resolves inside
+    `resolve_session_plan_dir()` and nowhere else, so the read-only
+    `shipped`/`preset`/`facility` layers are unreachable from here — a name
+    belonging to one of those simply has no session file behind it and
+    answers `deleted: false`.
+
+    The plan leaves `GET /plans` immediately: `plan_loader` re-scans the
+    directory layers on every call rather than caching them, so every surface
+    that resolves a name through the registry (the draft's plan-name check,
+    the load gate, the enqueue gate) stops finding it with no restart. Work
+    already under way is untouched — a queued or running item resolved its
+    plan out of the queueserver worker's namespace when it was enqueued, and
+    that namespace is not this route's to edit.
+
+    Any passing validation record for the removed bytes is deliberately left
+    alone. Records are keyed by content hash, not by name, so an orphan can
+    only ever be matched again by re-authoring byte-identical content — which
+    is the same file the record was made for, and correctly still validated.
+
+    Returns:
+        `{"name", "deleted"}` — `deleted` is False when there was no file to
+        remove. Idempotent like `DELETE /draft`: a caller that wants the name
+        gone gets that outcome either way, and never has to tell "I removed
+        it" apart from "it was already absent".
+    """
+    name = _sanitize_plan_name(name)
+    plan_path = resolve_session_plan_dir() / f"{name}.py"
+    # missing_ok rather than an is_file() precondition: the check and the
+    # unlink cannot be made atomic, and losing that race to a concurrent
+    # delete still leaves the caller in the state it asked for.
+    existed = plan_path.is_file()
+    plan_path.unlink(missing_ok=True)
+    return {"name": name, "deleted": existed}
+
+
 # ---------------------------------------------------------------------------
 # Plan source rendering: backs the launch-approval hook's
 # human-legible plan excerpt — the human backstop for the plan validator's
 # documented, accepted obfuscation residual (see `plan_validation.py`'s
-# module docstring). Read-only: never execs anything, only reads file text
-# already sitting on disk.
+# module docstring). Read-only: the lookup itself never execs anything, only
+# reads file text already sitting on disk — it does consult the plan registry
+# (`plan_loader.get_facility_plans`) to break a same-name collision the way the
+# loader broke it, which is the registry the bridge builds at startup and every
+# `GET /plans` already returns, not a new execution surface.
 # ---------------------------------------------------------------------------
 
 _SOURCE_TRUNCATE_CHARS = 4000  # default: a few KB, enough for a human skim
@@ -672,41 +738,87 @@ def _find_layer_source_path(name: str) -> tuple[Any, Provenance] | None:
     """Best-effort locate the on-disk file behind a shipped/preset/facility plan.
 
     Directory-layer files are keyed by their declared ``PLAN_METADATA["name"]``,
-    not necessarily their filename — so this parses each candidate file's
-    source with ``ast`` (never execs it) purely to read the literal ``name``
-    off its ``PLAN_METADATA`` dict. Returns `None` for a plan with no backing
-    file at all, or a name this scan can't locate; the route degrades to a
-    404 either way.
-    """
-    from .plan_loader import _iter_plan_files, _resolve_plan_dir_layers
+    not necessarily their filename — so each candidate file's declared name is
+    read with `extract_plan_name_from_source`, the shared source-only reader
+    for that one key (it parses the file, never imports or execs it).
 
+    Identity, not validity: this scan asks only *which file declares this
+    name*, and so must be exactly as permissive as an import. It deliberately
+    does not use the full-contract reader
+    (`extract_plan_metadata_from_source`), because a file the loader accepts
+    and registers can still fail that stricter read — a ``PLAN_METADATA`` whose
+    ``description`` is a module-level constant rather than a literal, say — and
+    404ing on such a plan would strip the source excerpt out of the human
+    approval prompt for a plan that is registered and launchable.
+
+    A file whose declared name cannot be read at all is skipped and the scan
+    continues to the next file and the next layer — never fatal. Such a file
+    cannot be the plan being asked about under any reading of it, so skipping
+    it decides nothing; it is logged at debug level because the route reports
+    only a bare 404.
+
+    When several layers declare the same plan name, the file served has to be
+    the file that would actually run — anything else shows an operator the
+    source of a file that is not the one about to execute, which is worse at an
+    approval gate than showing nothing. For a REGISTERED name the collision is
+    resolved by the registry itself: the candidate whose tier equals the
+    registered spec's ``provenance`` wins, so this agrees with
+    `plan_loader._register_plan` by reading its decision rather than re-deriving
+    it. Re-deriving it would not be equivalent — `_register_plan` only ever sees
+    files that loaded, and this scan cannot tell a loaded file from a
+    quarantined one, so a quarantined facility file shadowing a loadable shipped
+    one would win here while losing in the registry.
+
+    For an UNREGISTERED name the scan falls back to highest trust seen, last
+    match winning. That is the quarantined-file case — nothing registered the
+    name, and an operator debugging why their facility plan never appeared needs
+    exactly that file's text — so the fallback keeps an unregistered file's
+    source reachable instead of 404ing it.
+
+    Plans supplied through the legacy ``BLUESKY_PLAN_MODULE`` contract are
+    outside this scan either way: they register at `facility` rank but live in
+    no scanned directory, so no candidate file can match them. Pre-existing, and
+    unchanged by the registry tie-break.
+
+    Returns `None` for a plan with no backing file at all, or a name this scan
+    can't locate; the route degrades to a 404 either way.
+    """
+    from .plan_loader import (
+        _TRUST_ORDER,
+        _iter_plan_files,
+        _resolve_plan_dir_layers,
+        get_facility_plans,
+    )
+
+    registered = get_facility_plans().plans.get(name)
+    registered_provenance = registered.provenance if registered is not None else None
+
+    matched: tuple[Any, Provenance] | None = None
+    found: tuple[Any, Provenance] | None = None
+    found_rank = -1
     for directory, provenance in _resolve_plan_dir_layers():
+        # The session tier is resolved by filename before this scan is reached,
+        # and must never be served as if it carried a directory tier's trust.
         if provenance == "session":
             continue
+        rank = _TRUST_ORDER[provenance]
         for path in _iter_plan_files(directory):
-            try:
-                tree = ast.parse(path.read_text(encoding="utf-8"))
-            except (OSError, SyntaxError, UnicodeDecodeError):
+            declared = extract_plan_name_from_source(path)
+            if declared is None:
+                logger.debug("plan source scan: skipping %s (no readable plan name)", path)
                 continue
-            for node in tree.body:
-                if not isinstance(node, ast.Assign):
-                    continue
-                if not any(
-                    isinstance(target, ast.Name) and target.id == "PLAN_METADATA"
-                    for target in node.targets
-                ):
-                    continue
-                if not isinstance(node.value, ast.Dict):
-                    continue
-                for key, value in zip(node.value.keys, node.value.values, strict=True):
-                    if (
-                        isinstance(key, ast.Constant)
-                        and key.value == "name"
-                        and isinstance(value, ast.Constant)
-                        and value.value == name
-                    ):
-                        return path, provenance
-    return None
+            if declared != name:
+                continue
+            if provenance == registered_provenance:
+                # Last match within the registered tier wins: same-tier
+                # directories are scanned in the loader's own order, and
+                # `_register_plan` lets the later definition win there too.
+                matched = (path, provenance)
+            # `>=`, not `>`: an equal-trust redefinition lets the later-scanned
+            # file win, which is `_register_plan`'s rule for that case too.
+            if rank >= found_rank:
+                found, found_rank = (path, provenance), rank
+    return matched if matched is not None else found
 
 
 @app.get("/plans/{name}/source")

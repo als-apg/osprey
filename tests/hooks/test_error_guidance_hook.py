@@ -99,7 +99,7 @@ def test_validation_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_register",
         {"content": "test"},
         config_path=config,
         tool_response=_make_error_response(
@@ -179,6 +179,44 @@ def test_lattice_error_injects_guidance(hook_runner, make_config):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("error_type", "expected_class"),
+    [
+        # Refusals are gates saying no — "check the server logs" (Internal,
+        # the pre-fix fallthrough) is exactly the wrong guidance for them.
+        ("write_refused", "Safety"),
+        ("target_switched", "Safety"),
+        ("target_switch_refused", "Safety"),
+        # A switch attempted whose destination did not answer.
+        ("target_switch_failed", "Connection"),
+        # A deployment with no such target to offer.
+        ("target_switch_unavailable", "Validation"),
+    ],
+)
+def test_switch_and_refusal_types_do_not_fall_through_to_internal(
+    hook_runner, make_config, error_type, expected_class
+):
+    """The target-switch family classifies deliberately, never by fallthrough."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__controls__channel_write",
+        {"channel": "SR:TEST:SP", "value": 1.0},
+        config_path=config,
+        tool_response=_make_error_response(
+            error_type,
+            f"rendered as {error_type}",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert expected_class in ctx
+    assert "Internal" not in ctx
+
+
+@pytest.mark.unit
 def test_service_unavailable_injects_guidance(hook_runner, make_config):
     """service_unavailable is classified as Connection class."""
     config = make_config({})
@@ -205,7 +243,7 @@ def test_file_not_found_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_register",
         {"path": "missing.h5"},
         config_path=config,
         tool_response=_make_error_response(
@@ -491,7 +529,7 @@ def test_data_no_results_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_register",
         {"query": "nonexistent artifact"},
         config_path=config,
         tool_response=_make_error_response(
@@ -627,6 +665,11 @@ EXPECTED_ERROR_CLASSES = {
     "execution_error": "Execution",
     "lattice_error": "Execution",
     "safety_error": "Safety",
+    "write_refused": "Safety",
+    "target_switched": "Safety",
+    "target_switch_refused": "Safety",
+    "target_switch_failed": "Connection",
+    "target_switch_unavailable": "Validation",
     "internal_error": "Internal",
     "platform_error": "Internal",
 }

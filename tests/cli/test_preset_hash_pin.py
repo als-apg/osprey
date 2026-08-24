@@ -21,9 +21,15 @@ from osprey.cli.build_profile_merge import _hash_resolved_profile
 
 # preset name -> resolved-content hash, pre-rename.
 PINNED_PRESET_HASHES: dict[str, str] = {
-    "ariel-standalone": "sha256:a08bde688f81f7604da07822db5def68d6c0d294688f15ec8720ac5df11a8cee",
+    # Moved when the graph tools left the main agent for the new
+    # facility-knowledge-graph subagent: this preset's `agents:` went from the
+    # empty list to naming that one agent. NOT behavior-neutral — a rebuilt
+    # ARIEL deployment answers structural questions through delegation instead
+    # of direct mcp__graph__* calls — so the staleness advisory firing on
+    # already-deployed projects is the correct signal.
+    "ariel-standalone": "sha256:ae72c2982cf20738d0d6783531e3619fa4fcccce13199b25056c4db4ce4e51f9",
     "channel-finder-standalone": (
-        "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
+        "sha256:71c5399c9ff3f181c1998f2e35d2cdb65a29efc499dcbae73f0d4a0982544f3a"
     ),
     # A digest here is the resolved content of the preset AND of every preset
     # that extends it, so a change in a base moves all four control-assistant
@@ -44,20 +50,70 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt project — pymongo still lands in its venv, now from the base
     # install rather than the profile — but the generated pyproject.toml no
     # longer names it, so the advisory firing is correct.
-    "control-assistant": "sha256:7410d74d603fefa04d8ad79e042782da32b01a9acb0ca8871786e93ad3d65f13",
+    # Moved twice in one release window. The control-assistant tier gained the
+    # `bluesky-plans` skill, so a rebuilt project grows a
+    # `.claude/skills/bluesky-plans/` directory; and it gained
+    # `landing.notices` and `landing.footer`, so its landing page grows a
+    # collapsible "working safely" section and a footer line. Both are
+    # deploy-visible, so the staleness advisory firing on already-deployed
+    # projects is correct. `control-assistant-ariel` excludes the skill by
+    # name, so only the notices moved its digest.
+    # Moved again — and this time EVERY bundled preset moved, which is the
+    # signature of a change to the shared hook list rather than to one tier.
+    # `target-state` joined every preset's `hooks:`, shipping the stdlib
+    # control-target state reader into `.claude/hooks/`. It is a library the
+    # approval hook imports, not an event hook: selection is what copies a hook
+    # file and docstring frontmatter is what wires one, and this module has no
+    # frontmatter, so a rebuilt project gains the file and gains no wiring. The
+    # advisory firing on already-deployed projects is correct — the rendered
+    # `.claude/hooks/` really does grow a file.
+    # Moved (with every tier extending it) when the base gained the
+    # facility-knowledge-graph agent in its `agents:` list — the subagent that
+    # now owns the graph tools. A rebuilt project grows
+    # `.claude/agents/facility-knowledge-graph.md` and its CLAUDE.md roster
+    # entry; deploy-visible, so the advisory firing is correct.
+    # Re-recorded where the target-switch branch met main: the `target-state`
+    # hook and the facility-knowledge-graph agent are both in the resolved
+    # content now, so every digest below (bar channel-finder-standalone, on
+    # whose resolved content both lines already agreed) is the merged value,
+    # not either branch's own.
+    "control-assistant": "sha256:9d4a065ffa814c34921f9ab1d1f53c7d2a9e86c69ca783dea1b4e7c4bae00f9c",
     "control-assistant-ariel": (
-        "sha256:9e71eaa1c45afcf201a12a1722fab5b80ffcb059ff45b0d602785c7e37a1cea5"
+        "sha256:18d48c8612ed1bf5846df559692d929d6158269edf11bcdb67d9393860c23280"
     ),
+    # The two operator tiers below moved together, and alone, when each gained
+    # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
+    # block — the attached-render personas scaffold no services of their own, so
+    # without it their terminals would dial the shipped default port rather than
+    # the port the hosting deployment publishes its graph store on. The base
+    # `control-assistant` and the `control-assistant-ariel` tier are untouched
+    # (the change is in these two leaves, not in the base they extend), which is
+    # why only two of the four digests above move here. NOT behavior-neutral: a
+    # rebuilt operator terminal gains the `graph` MCP server and its tools, so
+    # the deploy-side staleness advisory firing on already-deployed
+    # operator-tier projects is the correct signal.
+    # Moved once more where the graph work met main: these two leaves already
+    # carried the `services.graphdb.port_host` key above, and main independently
+    # re-recorded them for the landing notices. Both edits are in the resolved
+    # content, so the digest here is neither branch's recorded value but the one
+    # the merged preset actually hashes to. Deploy-visible for both reasons at
+    # once, which is what the advisory should say.
     "control-assistant-readonly": (
-        "sha256:8a304867bb0f9d2aab63d6ebd3490780d6e720780d01562a72c92ce62ddc46f5"
+        "sha256:6b9c8309e48cf1ee2cda1d6366730e710e22aecfff04325af2dc1a5a836d49b9"
     ),
     "control-assistant-readwrite": (
-        "sha256:2a9af46cc9affb350db60b7df30ebc58f51d3ce19634ae05292e67d40bad60e2"
+        "sha256:86355a4b061f85a5c78b2f47d780d06033c85a8f34c7b50d4cc8e6090d36e966"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
     # the digest is comment-blind, so the rule drop is the entire delta.
-    "hello-world": "sha256:9a87fb40f03287e8b4605c63a56cb8220ae1c32cd2e8c7df9a7d01ad370f358a",
+    # Moved again when the preset gained the `memory-guard` hook entry, so a
+    # rebuilt project's PreToolUse chain now also gates Write/MultiEdit to
+    # Claude memory files and NotebookEdit to the agent-data artifacts tree.
+    # The comment-only fixes that shipped alongside it (correcting the
+    # mislabelled memory-guard/writes-check comments in the other presets)
+    # contributed nothing to any digest, including this one.
+    "hello-world": "sha256:b737b03979d25bec8de1aa4d382fa07ebc64971a093b59e8b0be21f1197ef395",
 }
 
 

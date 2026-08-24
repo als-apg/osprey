@@ -149,12 +149,157 @@ def _ariel_config(config_dict: dict) -> ARIELConfig:
     return ARIELConfig.from_dict(config_dict, _postgresql_services())
 
 
-async def get_status(config_dict: dict) -> dict:
-    """Return ARIEL service status as a plain dict."""
-    from osprey.services.ariel_search import create_ariel_service
+def check_vocabulary(
+    config_dict: dict,
+    path: str | None = None,
+    *,
+    config_dir: Path | None = None,
+) -> dict:
+    """Validate a facility vocabulary file without touching the database.
+
+    The whole point of the check is that it runs before anything is deployed:
+    no Postgres, no embedding provider, and no ``ariel`` section required when
+    the file is named on the command line.
+
+    Args:
+        config_dict: The raw ``ariel`` section. Only its ``vocabulary`` block is
+            read — for the default path and for the two direction gates, which
+            decide whether a form ever reaches ``plainto_tsquery`` and so
+            whether a stopword-valued form is worth warning about.
+        path: An explicit file to check. Wins over the configured path; a
+            relative value is resolved against the process working directory,
+            because it came from a shell rather than from a config file.
+        config_dir: Directory holding the config.yml *config_dict* came from, so
+            a relative ``ariel.vocabulary.path`` resolves to the same file the
+            web panel and the MCP server will read.
+
+    Returns:
+        ``{"status": "ok" | "invalid", "path": str, "concepts": int,
+        "errors": [...], "warnings": [...]}``. With no file to check at all the
+        status is ``"error"`` and ``message`` says so. Content problems are
+        reported, never raised.
+    """
+    from osprey.services.ariel_search.config import VocabularyConfig
+    from osprey.services.ariel_search.vocabulary import load_vocabulary
+    from osprey.utils.config_paths import resolve_config_relative_path
+
+    block = config_dict.get("vocabulary")
+    if not isinstance(block, dict):
+        block = {}
+
+    try:
+        vocabulary_config = VocabularyConfig.from_dict(block)
+    except ValueError as exc:
+        # A malformed knob is refused rather than defaulted, exactly as the
+        # config parser refuses it; the check is where an operator should find
+        # that out.
+        return {
+            "status": "invalid",
+            "path": str(path) if path else None,
+            "concepts": 0,
+            "errors": [str(exc)],
+            "warnings": [],
+        }
+
+    if path:
+        resolved = Path(path).expanduser()
+        if not resolved.is_absolute():
+            resolved = (Path.cwd() / resolved).resolve()
+    elif vocabulary_config.path:
+        resolved = resolve_config_relative_path(vocabulary_config.path, config_dir)
+    else:
+        return {
+            "status": "error",
+            "message": "no vocabulary path: pass PATH or set ariel.vocabulary.path",
+            "path": None,
+            "concepts": 0,
+            "errors": [],
+            "warnings": [],
+        }
+
+    vocabulary, errors, warnings = load_vocabulary(
+        resolved,
+        canonical_to_acronym=vocabulary_config.canonical_to_acronym,
+        canonical_to_shorthand=vocabulary_config.canonical_to_shorthand,
+    )
+    return {
+        "status": "invalid" if errors else "ok",
+        "path": str(resolved),
+        "concepts": vocabulary.concept_count if vocabulary is not None else 0,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def vocabulary_status(config_dict: dict, config_dir: Path | None = None) -> dict:
+    """Summarize the configured vocabulary for ``osprey ariel status``.
+
+    Deliberately database-free: the operator most in need of this line is the
+    one whose panel will not start, and a status command that needed Postgres
+    before it could say the vocabulary is broken would never reach them.
+
+    Args:
+        config_dict: The raw ``ariel`` section.
+        config_dir: Directory holding the config.yml it came from.
+
+    Returns:
+        ``{"status": "ok" | "invalid" | "disabled", "concepts": int,
+        "errors": [...]}``. A config that will not even parse — a legacy
+        ``ariel.pipelines`` section, a malformed block — is ``invalid`` carrying
+        the parse message, because nothing downstream can expand anything
+        either.
+    """
+    from osprey.services.ariel_search import ARIELConfig
 
     if not config_dict:
-        return {"status": "error", "message": "ARIEL not configured"}
+        return {"status": "disabled", "concepts": 0, "errors": []}
+
+    try:
+        # Not ``_ariel_config``: this is the one caller that must resolve a
+        # relative vocabulary path against the config file's own directory.
+        config = ARIELConfig.from_dict(config_dict, _postgresql_services(), config_dir=config_dir)
+        if not config.vocabulary.enabled:
+            return {"status": "disabled", "concepts": 0, "errors": []}
+        # validate() is the single source of truth for what is wrong with the
+        # block: it carries the loader's errors AND "enabled without a path".
+        # The prefix filter keeps unrelated config errors out of this one line.
+        errors = [error for error in config.validate() if error.startswith("ariel.vocabulary")]
+    except Exception as exc:  # noqa: BLE001 - any parse failure is reportable here
+        return {"status": "invalid", "concepts": 0, "errors": [str(exc)]}
+
+    if errors:
+        return {"status": "invalid", "concepts": 0, "errors": errors}
+
+    vocabulary = config.loaded_vocabulary
+    return {
+        "status": "ok",
+        "concepts": vocabulary.concept_count if vocabulary is not None else 0,
+        "errors": [],
+    }
+
+
+async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> dict:
+    """Return ARIEL service status as a plain dict.
+
+    Args:
+        config_dict: The raw ``ariel`` section.
+        config_dir: Directory holding the config.yml it came from, used to
+            resolve a relative ``ariel.vocabulary.path``.
+
+    Returns:
+        The status document. Every path through this function — unconfigured,
+        healthy, and both failure branches — carries a ``vocabulary`` key, so a
+        caller never has to reach the database to learn what the vocabulary is
+        doing.
+    """
+    from osprey.services.ariel_search import create_ariel_service
+
+    # Computed first and unconditionally: the vocabulary line must survive a
+    # database that is down and a config that will not parse.
+    vocabulary = vocabulary_status(config_dict, config_dir)
+
+    if not config_dict:
+        return {"status": "error", "message": "ARIEL not configured", "vocabulary": vocabulary}
 
     try:
         config = _ariel_config(config_dict)
@@ -196,6 +341,7 @@ async def get_status(config_dict: dict) -> dict:
                     "semantic": config.is_search_module_enabled("semantic"),
                     "hybrid": config.is_search_module_enabled("hybrid"),
                 },
+                "vocabulary": vocabulary,
             }
 
     except Exception as e:
@@ -205,8 +351,9 @@ async def get_status(config_dict: dict) -> dict:
                 "status": "error",
                 "message": "Cannot connect to the ARIEL database. "
                 "Make sure the database is running: osprey up",
+                "vocabulary": vocabulary,
             }
-        return {"status": "error", "message": msg}
+        return {"status": "error", "message": msg, "vocabulary": vocabulary}
 
 
 async def run_migrate(
@@ -509,9 +656,17 @@ async def run_watch(
 # qmd markdown-mirror resync
 # ---------------------------------------------------------------------------
 
-#: File at the mirror root holding the last resync watermark, as an ISO-8601
-#: UTC timestamp. Dot-prefixed so the sidecar skips it as a corpus document.
+#: File at the mirror root holding the last resync watermark. Dot-prefixed so
+#: the sidecar skips it as a corpus document.
 QMD_WATERMARK_NAME = ".qmd-resync-watermark"
+
+#: Serialization schema for the watermark marker itself.
+QMD_WATERMARK_FORMAT_VERSION = 1
+
+#: Markdown renderer format represented by a current watermark. Bump this when
+#: existing rows must be re-rendered even though their database values did not
+#: change; old markers will then force one full backfill scan.
+QMD_RENDERER_VERSION = 1
 
 #: Rows fetched per page while scanning for changed entries. Bounds the memory
 #: a rebuild of a large logbook needs without making the scan chatty.
@@ -585,19 +740,41 @@ def _read_qmd_watermark(mirror_root: Path) -> datetime | None:
 
     Returns:
         The stored timestamp as an aware UTC ``datetime``, or ``None`` when no
-        watermark exists or the stored value cannot be parsed. Both cases fall
-        back to a full scan, which is correct but slower -- never wrong.
+        current, valid watermark exists. Missing, legacy, corrupt, and
+        version-mismatched markers all fall back to a full scan, which is
+        correct but slower -- never wrong.
     """
+    import json
     from datetime import UTC, datetime
 
     marker = mirror_root / QMD_WATERMARK_NAME
     try:
-        raw = marker.read_text(encoding="utf-8").strip()
-    except OSError:
+        raw = marker.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
         return None
 
     try:
-        moment = datetime.fromisoformat(raw)
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    format_version = payload.get("format_version")
+    renderer_version = payload.get("renderer_version")
+    if (
+        type(format_version) is not int
+        or format_version != QMD_WATERMARK_FORMAT_VERSION
+        or type(renderer_version) is not int
+        or renderer_version != QMD_RENDERER_VERSION
+    ):
+        return None
+
+    raw_moment = payload.get("updated_at")
+    if not isinstance(raw_moment, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(raw_moment)
     except ValueError:
         return None
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
@@ -615,8 +792,18 @@ def _write_qmd_watermark(mirror_root: Path, moment: datetime) -> None:
             but could not record where it stopped must fail loudly, because the
             silent alternative is re-exporting from the old watermark forever.
     """
+    import json
+    from datetime import UTC
+
+    normalized = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
+    payload = {
+        "format_version": QMD_WATERMARK_FORMAT_VERSION,
+        "renderer_version": QMD_RENDERER_VERSION,
+        "updated_at": normalized.isoformat(),
+    }
+    serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     mirror_root.mkdir(parents=True, exist_ok=True)
-    _atomic_write_text(mirror_root / QMD_WATERMARK_NAME, f"{moment.isoformat()}\n")
+    _atomic_write_text(mirror_root / QMD_WATERMARK_NAME, f"{serialized}\n")
 
 
 def _touch_qmd_marker(mirror_root: Path) -> bool:
@@ -1014,7 +1201,7 @@ def _entry_summary(entry: dict) -> dict:
     }
 
 
-async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> dict:
+async def run_search(config_dict: dict, query: str, mode: str | None, limit: int) -> dict:
     """Execute a search query and return the result as a dict.
 
     Args:
@@ -1022,7 +1209,8 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
         query: Search query text.
         mode: Search module name, e.g. ``"keyword"``. Case and surrounding
             whitespace are normalized; whether the name is registered and
-            enabled is decided by the search service.
+            enabled is decided by the search service. ``None`` leaves the
+            choice to the deployment's ``ariel.default_search_mode``.
         limit: Maximum number of entries to return.
 
     Returns:
@@ -1036,10 +1224,12 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
 
     config = _ariel_config(config_dict)
 
-    try:
-        search_mode = normalize_search_mode(mode)
-    except ValueError as e:
-        return {"error": str(e)}
+    search_mode: str | None = None
+    if mode is not None:
+        try:
+            search_mode = normalize_search_mode(mode)
+        except ValueError as e:
+            return {"error": str(e)}
 
     try:
         service = await create_ariel_service(config)

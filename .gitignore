@@ -165,6 +165,7 @@ data/benchmarks/cross_paradigm/tier*/
 src/osprey/interfaces/artifacts/static/js/vendor/
 src/osprey/interfaces/artifacts/static/css/vendor/
 src/osprey/interfaces/web_terminal/static/vendor/
+src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
 tests/e2e/claude_code/benchmark_results/
@@ -196,6 +197,7 @@ node_modules/
 # the stale-literal problem the git-derived version exists to remove. It is still
 # packaged into the wheel and sdist — the hook registers it as a build artifact.
 src/osprey/_version.py
+packages/osprey-connectors/src/osprey_connectors/_version.py
 
 # feature-scaffolding logs (not committed)
 .claude/.logs/

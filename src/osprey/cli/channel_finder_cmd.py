@@ -12,8 +12,22 @@ import os
 
 import click
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.cli import output
 from osprey.cli.altitude import lift_gate
 from osprey.cli.styles import Messages, Styles, console
+
+#: The paradigms this command group can build and inspect: every registered
+#: paradigm whose store is a database file on disk.
+#:
+#: ``graph`` is the one deliberate exclusion. A graph store is a service
+#: reached over the network, so ``validate`` (which opens a file and checks it)
+#: and ``generate`` (which writes one) have no file to work on. Derived by
+#: subtraction from :data:`~osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`
+#: so registering a file-backed paradigm opens it up on both commands without a
+#: second edit, and so the exclusion stays a stated rule rather than a list that
+#: silently falls behind.
+FILE_DATABASE_PARADIGMS: list[str] = sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"})
 
 
 def _setup_config(project: str | None):
@@ -275,7 +289,7 @@ def build_database(
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed statistics")
 @click.option(
     "--pipeline",
-    type=click.Choice(["hierarchical", "in_context"]),
+    type=click.Choice(FILE_DATABASE_PARADIGMS),
     default=None,
     help="Override pipeline type detection (default: auto-detect from config)",
 )
@@ -284,7 +298,9 @@ def validate(ctx, database: str | None, verbose: bool, pipeline: str | None):
     """Validate a channel database JSON file.
 
     Checks JSON structure, schema validity, and database loading.
-    Auto-detects pipeline type (hierarchical vs in_context).
+    Auto-detects the paradigm from config when --pipeline is not given. A
+    graph project has no database file: it is told how to seed and inspect
+    its store instead.
 
     Examples:
 
@@ -367,8 +383,9 @@ def preview(
 ):
     """Preview a channel database with flexible display options.
 
-    Auto-detects database type (hierarchical, in_context)
-    and shows a tree visualization with configurable depth and sections.
+    Auto-detects the paradigm from config and shows a tree visualization with
+    configurable depth and sections. A graph project has no database file: it
+    is told how to seed and inspect its store instead.
 
     Examples:
 
@@ -430,8 +447,30 @@ def web(ctx, host: str, port: int):
     import uvicorn
 
     from osprey.interfaces.channel_finder.app import create_app
+    from osprey.interfaces.common_middleware import WEB_PORT_ENV
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
 
-    console.print(f"Starting Channel Finder at http://{host}:{port}", style=Styles.SUCCESS)
+    # Publish the settled port before the app is constructed: cookies ignore
+    # ports, so two OSPREY servers on this host share an origin as far as the
+    # browser is concerned, and the port is the only thing keeping their session
+    # cookies apart. ``session_cookie_name()`` reads it from here.
+    os.environ[WEB_PORT_ENV] = str(port)
+
+    # Mint the operator secret in this CLI parent, which becomes the server
+    # (direct-serve: uvicorn.run(app) runs in-process). ``mint_and_announce``
+    # settles the secret and returns the ``?token=`` login URL — the
+    # operator's only way past the auth middleware. ``announce`` is False only
+    # when the secret was already supplied by an ancestor/deployment, so a
+    # supplied secret is never re-echoed here.
+    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
+    login_url = mint_and_announce(host, port)
+
+    output.report(f"Starting Channel Finder at http://{host}:{port}")
+    if announce:
+        # ``output.report`` rather than ``console.print``: the login URL is a
+        # single unbroken token, and the plain Rich console wraps it at the
+        # terminal width, so a copied line loses the middle of the secret.
+        output.report(f"Open: {login_url}")
     app = create_app()
     uvicorn.run(app, host=host, port=port, log_level="info")
 
@@ -452,7 +491,7 @@ def web(ctx, host: str, port: int):
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["in_context", "hierarchical", "middle_layer", "all"]),
+    type=click.Choice([*FILE_DATABASE_PARADIGMS, "all"]),
     default="all",
     help="Format(s) to generate (default: all)",
 )
@@ -519,6 +558,8 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
     else:
         tier_spec = {"1": TIER_1, "3": TIER_3}[tier]
 
+    # One writer per paradigm in FILE_DATABASE_PARADIGMS; Click has already
+    # rejected any other --format before this point.
     format_map = {
         "in_context.json": lambda: format_in_context(channels, tier_spec),
         "hierarchical.json": lambda: format_hierarchical(tree_data, tier_spec),

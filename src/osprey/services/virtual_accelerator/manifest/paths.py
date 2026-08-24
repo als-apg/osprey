@@ -28,10 +28,11 @@ _CONTROL_ASSISTANT_DATA = _TEMPLATES_ROOT / "apps" / "control_assistant" / "data
 # `channel_finder_mode` defaults to "hierarchical"
 # (src/osprey/profiles/presets/control-assistant.yml), and
 # BuildProfile.resolved_tier() maps that to tier 3 (in_context -> tier 1,
-# hierarchical/middle_layer -> tier 3; see src/osprey/cli/build_profile.py).
-# All three paradigm DBs are address-identical at tier 3 (verified by
-# build.build_manifest()'s cross-paradigm check), so tier 3 is the default
-# tier this generator expands.
+# every other mode -> tier 3; see src/osprey/cli/build_profile.py).
+# All three file-backed paradigm DBs are address-identical at tier 3 (verified
+# by build.build_manifest()'s cross-paradigm check), so tier 3 is the default
+# tier this generator expands. The `graph` mode has no tier file at all, so it
+# adds no fourth DB here.
 DEFAULT_TIER = 3
 
 
@@ -42,7 +43,7 @@ class ManifestPaths:
     ``data_root`` is a project/preset ``data/`` directory: the bundled
     ``apps/<bundle>/data`` tree, or the tree a build profile points at with
     its ``data:`` key. ``tier`` selects which ``channel_databases/tiers/``
-    subdirectory the three paradigm DBs are read from -- the same
+    subdirectory the three file-backed paradigm DBs are read from -- the same
     build-resolved tier ``osprey build`` materializes into the project.
     """
 
@@ -87,11 +88,13 @@ class ManifestPaths:
         is deliberately absent -- the generator never reads it; the build step
         requires it separately, as the file that must ship *beside* a manifest.
 
-        All THREE paradigm DBs are required at any tier, not just the one the
-        project's ``channel_finder_mode`` selects: the generator's premise is
-        that they describe one namespace, and ``build.build_manifest`` checks
-        exactly that. Tier 1 ships only ``in_context``, so a tier-1 tree
-        always reports the other two missing and falls back.
+        All THREE file-backed paradigm DBs are required at any tier, not
+        just the one the project's ``channel_finder_mode`` selects: the
+        generator's premise is that they describe one namespace, and
+        ``build.build_manifest`` checks exactly that. Tier 1 ships only
+        ``in_context``, so a tier-1 tree always reports the other two missing
+        and falls back; a ``graph``-mode tree ships no paradigm DB at all and
+        falls back the same way.
         """
         return (
             self.hierarchical_db,

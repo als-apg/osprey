@@ -65,11 +65,11 @@ dependencies = [
     "google-generativeai",
     "ollama>=0.6.2",
     # Advanced code generation
-    # Claude Code SDK - pinned. Bundles CLI 2.1.191 (verified to work with
+    # Claude Code SDK - pinned. Bundles CLI 2.1.228 (verified to work with
     # als-apg routing). >=0.1.46 needed for list_subagents/
     # get_subagent_messages, which the e2e trace collector uses to read sub-agent
     # transcripts (CLI >=2.1.x no longer streams them through query()).
-    "claude-agent-sdk==0.2.110",
+    "claude-agent-sdk==0.2.136",
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
@@ -105,6 +105,14 @@ dependencies = [
     # ARIEL Web Interface (FastAPI server)
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.1",
+    # The web-terminal panel proxy's WebSocket leg. Reaches us transitively via
+    # uvicorn[standard] and tiled, but the proxy imports it directly and, more
+    # to the point, depends on a specific guarantee: `connect().process_redirect`
+    # (websockets >= 14) is what lets the handshake refuse to follow a redirect
+    # while it is carrying the operator secret. An install resolving an older
+    # websockets would still import, still connect, and silently follow that
+    # redirect off loopback — so the floor is declared here rather than inherited.
+    "websockets>=14",
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
     # transitive dependency — the sidecar imports it directly.
@@ -135,6 +143,10 @@ dependencies = [
     # (simulation.apply, deployment.container_lifecycle, services.archiver_recorder)
     # import pymongo directly rather than through a connector.
     "pymongo>=4.17.0",
+    # Neo4j driver for the graph store (osprey.services.graphdb). Pure Python,
+    # no build step, so it carries none of the platform-wheel concerns that
+    # justify keeping other clients optional. Core rather than an extra.
+    "neo4j>=5.20",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -186,7 +198,11 @@ dependencies = [
     # `--extra dev` would otherwise satisfy every other --dev precondition and
     # fail only at wheel-build time.
     "build",
-    "osprey-connectors>=0.1.0,<0.2.0",
+    # The connectors package versions with this repo's own calendar stream
+    # (same v-tags, same describe — see its pyproject.toml), so the two wheels
+    # built from one checkout always agree; the floor below is the last release
+    # tag, which any same-checkout build satisfies.
+    "osprey-connectors>=2026.6.2",
 ]
 
 [project.optional-dependencies]
@@ -224,6 +240,7 @@ dev = [
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
+    "rdflib>=7.0",  # TTL generator tests (semantic round-trip); runtime use stays in the knowledge extra
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -478,6 +495,7 @@ module = [
     "numpy.*",
     "matplotlib.*",
     "pyepics.*",
+    "p4p.*",
     "podman.*",
     "pymongo.*",
     "doocs4py.*",
@@ -548,7 +566,10 @@ target-version = "py311"
 src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
-extend-exclude = ["src/osprey/_version.py"]
+extend-exclude = [
+    "src/osprey/_version.py",
+    "packages/osprey-connectors/src/osprey_connectors/_version.py",
+]
 
 [tool.ruff.format]
 # Ruff >=0.16 also formats Python code blocks embedded in Markdown. The snippets

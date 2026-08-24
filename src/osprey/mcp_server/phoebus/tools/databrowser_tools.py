@@ -39,6 +39,11 @@ from typing import Any, TypeVar, cast
 import anyio
 from pydantic import ValidationError
 
+from osprey.mcp_server.control_system.target_banner import (
+    PHOEBUS_SUBJECT,
+    baseline_pinned_line,
+    prepend_line,
+)
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_panel_focus
 from osprey.mcp_server.phoebus import plt_generator
@@ -302,6 +307,9 @@ async def phoebus_open_databrowser(
         (the bridge is sent the ``.plt`` content directly; see module
         docstring). ``focused`` reports whether the Web Terminal tab-focus
         notification (best-effort, mirrors ``phoebus_open_panel``) succeeded.
+        While the session's control-system target differs from the deployment
+        baseline, one informational line naming both targets precedes that JSON
+        (see the ``bridge_tools`` module docstring).
     """
     if not channels:
         make_error(
@@ -370,18 +378,21 @@ async def phoebus_open_databrowser(
     except Exception as exc:
         logger.debug("panel focus notification failed (non-fatal): %s", exc)
 
-    return json.dumps(
-        {
-            "status": "success",
-            "handle": f"handle:{display_id}",
-            "plt_file": plt_path,
-            "id": display_id,
-            # No readiness poll here (unlike phoebus_open_panel): a Data
-            # Browser is a streaming chart, not a widget tree that
-            # perceive/drive would race against JavaFX model loading — the
-            # bridge's own "ready" is passed through as-is.
-            "ready": bool(body.get("ready", False)),
-            "channel_count": len(channels),
-            "focused": focused,
-        }
+    return prepend_line(
+        baseline_pinned_line(PHOEBUS_SUBJECT),
+        json.dumps(
+            {
+                "status": "success",
+                "handle": f"handle:{display_id}",
+                "plt_file": plt_path,
+                "id": display_id,
+                # No readiness poll here (unlike phoebus_open_panel): a Data
+                # Browser is a streaming chart, not a widget tree that
+                # perceive/drive would race against JavaFX model loading — the
+                # bridge's own "ready" is passed through as-is.
+                "ready": bool(body.get("ready", False)),
+                "channel_count": len(channels),
+                "focused": focused,
+            }
+        ),
     )

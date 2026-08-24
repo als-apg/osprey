@@ -40,6 +40,29 @@ def runner():
     return CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_operator_secret(monkeypatch):
+    """Keep the operator secret a launch mints from leaking between tests.
+
+    ``web()`` / ``_start_detached`` now mint the operator secret into
+    ``os.environ["OSPREY_TERMINAL_SECRET"]`` (so the serving worker/child
+    inherits it) and into the process-wide web-credentials holder. Both survive
+    a CliRunner invocation, so a launch in one test would otherwise hand its
+    secret to the next — masking, for instance, a multi-user launch that should
+    have refused to mint. The setenv-then-delenv forces monkeypatch to record an
+    undo entry even when the key starts absent, so the app's own direct write is
+    rolled back; ``reset_web_credentials`` clears the module holder around each
+    test.
+    """
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, reset_web_credentials
+
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "__unset_by_test_fixture__")
+    monkeypatch.delenv(OPERATOR_SECRET_ENV)
+    reset_web_credentials()
+    yield
+    reset_web_credentials()
+
+
 @pytest.fixture
 def deployment(lifecycle_repo: Path) -> Path:
     """An exemplar repo with a render — the shape every launch test needs."""
@@ -928,6 +951,66 @@ class TestPreflightAuthSecret:
         assert "⚠" in result.stderr
         assert "ANTHROPIC_API_KEY" in result.stderr
 
+    def test_keyless_proxy_provider_missing_secret_warns_no_abort(
+        self, runner, monkeypatch, deployment
+    ):
+        """A proxy provider whose registry adapter declares requires_api_key =
+        False (ollama) warns instead of aborting -- there is no upstream auth
+        for the missing secret to fail."""
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        spec = _stub_spec(
+            provider="ollama",
+            auth_env_var="ANTHROPIC_AUTH_TOKEN",
+            auth_secret_env="OLLAMA_API_KEY",
+            needs_proxy=True,
+        )
+        monkeypatch.setattr(
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "⚠" in result.stderr
+        assert "OLLAMA_API_KEY" in result.stderr
+        # The adapter's own api_key_note is the wording, not a generic refusal.
+        assert "does not require" in result.stderr
+
+    def test_unknown_proxy_provider_missing_secret_still_aborts(
+        self, runner, monkeypatch, deployment
+    ):
+        """A custom proxy the adapter registry has never heard of keeps the
+        strict behavior: no registry metadata licenses skipping its secret."""
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        spec = _stub_spec(
+            provider="my-proxy",
+            auth_env_var="ANTHROPIC_AUTH_TOKEN",
+            auth_secret_env="MY_PROXY_API_KEY",
+            needs_proxy=True,
+        )
+        monkeypatch.setattr(
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.delenv("MY_PROXY_API_KEY", raising=False)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1
+        assert "MY_PROXY_API_KEY" in result.output
+
     def test_no_provider_configured_skipped(self, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
@@ -1287,3 +1370,415 @@ class TestRepoFlagIsAuthoritative:
         expected = (repo / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
         assert observed["key"] == "sk-from-project-dotenv"
+
+
+# -- operator login URL (Task 2.2: single-user credential carrier) ----------
+#
+# Every launch shape mints the operator secret in the CLI PARENT and hands the
+# operator a one-time `?token=` login URL. The secret is minted here so the
+# serving worker/child inherits OSPREY_TERMINAL_SECRET through the environment
+# and pops it at its own app construction; the token rides in memory and the
+# environment only, never on disk. Under --detach the parent prints the URL
+# once and the child stays silent, so no token reaches the server's log.
+
+
+class TestOperatorLoginUrl:
+    """`osprey web` mints the operator secret in the parent and announces it."""
+
+    def _stub_launch(self, monkeypatch, captured: dict | None = None):
+        def _run(**kw):
+            if captured is not None:
+                captured.update(kw)
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _run)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        # Single-user shape: no declared bind host, so the secret is minted here
+        # rather than demanded from a deployment.
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+
+    def test_foreground_prints_open_token_url(self, runner, monkeypatch, deployment):
+        """The foreground launch prints `Open: …?token=<secret>` for the settled port."""
+        self._stub_launch(monkeypatch)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(own_port),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "Open:" in result.output
+        secret = os.environ.get("OSPREY_TERMINAL_SECRET")
+        assert secret  # minted into the environment for the serving app to pop
+        assert f"http://127.0.0.1:{own_port}/?token={secret}" in result.output
+
+    def test_reload_opens_token_url_not_bare_url(self, runner, monkeypatch, deployment):
+        """The --reload branch hands the TOKEN url to the browser opener.
+
+        The bare URL sets no cookie, so an auto-opened tab would land on the
+        login-required page; the ?token= exchange is what mints the session.
+        """
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+
+        opened: dict = {}
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.app._open_browser_when_ready",
+            lambda url, *a, **k: opened.update(url=url),
+        )
+        import uvicorn
+
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(own_port),
+                "--shell",
+                "true",
+                "--skip-preflight",
+                "--reload",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        secret = os.environ.get("OSPREY_TERMINAL_SECRET")
+        assert opened["url"] == f"http://127.0.0.1:{own_port}/?token={secret}"
+
+    def test_foreground_opens_token_url_not_bare_url(self, runner, monkeypatch, deployment):
+        """The DEFAULT (non-reload) branch routes the token URL to the opener too.
+
+        The foreground path delegates the auto-open to run_web; web() must thread
+        the token URL through as browser_url, or the most common launch shape
+        auto-opens the bare URL and lands on the login-required page. Drives the
+        REAL run_web (create_app / uvicorn.run / the opener are stubbed) so the
+        browser_url wiring is exercised, not mocked away.
+        """
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+
+        opened: dict = {}
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.app._open_browser_when_ready",
+            lambda url, *a, **k: opened.update(url=url),
+        )
+        monkeypatch.setattr("osprey.interfaces.web_terminal.app.create_app", lambda **_k: object())
+        import uvicorn
+
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(own_port),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        secret = os.environ.get("OSPREY_TERMINAL_SECRET")
+        assert opened["url"] == f"http://127.0.0.1:{own_port}/?token={secret}"
+
+    def test_inherited_secret_suppresses_the_open_line(self, runner, monkeypatch, deployment):
+        """A secret already in the environment is NOT re-announced.
+
+        This is the detached child (and the multi-user container): the URL was
+        printed once upstream, and re-printing it here is the only place the
+        token could leak — into the detached server's log, whose stdout this is.
+        """
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "inherited-secret")
+        self._stub_launch(monkeypatch)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(own_port),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "Open:" not in result.output
+        assert "inherited-secret" not in result.output
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch_subprocess("osprey.cli.web_cmd", popen=True)
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_detach_parent_announces_and_child_argv_is_tokenless(
+        self,
+        mock_config,
+        fake_subprocess,
+        mock_wait,
+        mock_preflight,
+        mock_resolve,
+        monkeypatch,
+        runner,
+        deployment,
+    ):
+        """The parent prints the token URL and sets the env; the child argv is clean.
+
+        The child inherits OSPREY_TERMINAL_SECRET through the environment
+        (Popen is passed no `env=`, so it inherits os.environ), which is set
+        BEFORE the spawn. The token must never ride in the child argv — argv is
+        what `ps` shows and what lands in a shell's history.
+        """
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        fake_subprocess.Popen.return_value = mock_proc
+
+        monkeypatch.chdir(deployment)
+        result = runner.invoke(web, ["--detach"])
+
+        assert result.exit_code == 0
+        secret = os.environ.get("OSPREY_TERMINAL_SECRET")
+        assert secret
+        # The parent announced the token URL exactly once, on its own stdout.
+        assert f"?token={secret}" in result.output
+        # The env carrier was set before the spawn, and Popen inherits it.
+        assert fake_subprocess.Popen.call_args.kwargs.get("env") is None
+        # Nothing carrying the token is in the child argv.
+        child_argv = fake_subprocess.Popen.call_args.args[0]
+        assert secret not in child_argv
+        assert not any("token" in str(arg) for arg in child_argv)
+        # Catch an EMBEDDED secret too, not just a standalone argv element.
+        assert not any(secret in str(arg) for arg in child_argv)
+
+
+class TestOperatorSecretDoesNotOutliveTheLaunch:
+    """The carrier a launcher publishes is closed again before any agent exists.
+
+    ``_mint_operator_url`` re-publishes the operator secret into ``os.environ``
+    on purpose — that is the only channel a ``--reload`` worker or a
+    ``--detach`` child has. On the DEFAULT foreground launch there is no such
+    child: ``run_web`` builds the app in this same, already-populated process,
+    so ``web_auth._populate`` (the only pop inside the holder) never runs a
+    second time. These tests drive the real launcher order rather than calling
+    ``_populate`` directly, because the ordering is the whole defect: every
+    individual piece behaves correctly and the composition did not.
+    """
+
+    def test_direct_serve_closes_the_carrier_at_app_construction(self, monkeypatch):
+        """Real order: mint in the launcher, build the app, inspect an SDK child env.
+
+        claude-agent-sdk builds its child's environment as
+        ``{**os.environ, **options.env}``, so ``build_clean_env`` merely
+        omitting the name proves nothing — the assertion has to be made against
+        that merge. If the secret survives here, the operator-chat agent can
+        send ``X-Osprey-Terminal-Secret`` and drive every operator route.
+        """
+        from osprey.agent_runner.clean_env import build_clean_env
+        from osprey.cli.web_cmd import _mint_operator_url
+        from osprey.interfaces.web_auth import (
+            OPERATOR_SECRET_ENV,
+            PANEL_TOKEN_ENV,
+            get_web_credentials,
+        )
+        from osprey.interfaces.web_terminal.app import create_app
+
+        monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+
+        login_url, announce = _mint_operator_url("127.0.0.1", _free_port())
+        assert announce, "a freshly minted secret is this launcher's to announce"
+
+        secret = get_web_credentials().operator_secret
+        assert secret and secret in login_url
+        # Mid-flight state, asserted so the fix cannot be "stop publishing":
+        # the carrier IS set between the mint and the spawn, which is what the
+        # --reload worker and the --detach child read.
+        assert os.environ.get(OPERATOR_SECRET_ENV) == secret
+
+        # ... and now the launcher BECOMES the server, in this process.
+        app = create_app()
+        assert app.state.web_credentials.operator_secret == secret
+
+        child_env = {**os.environ, **build_clean_env(project_cwd=".")}
+        assert OPERATOR_SECRET_ENV not in child_env, (
+            "the operator secret reached an SDK-spawned agent: the launcher "
+            "re-published it and nothing closed the carrier again"
+        )
+        assert PANEL_TOKEN_ENV not in child_env
+        assert secret not in child_env.values(), (
+            "the secret survived under a different key, which the name check "
+            "above would not have caught"
+        )
+
+    def test_a_second_app_in_the_same_process_keeps_the_carrier_shut(self, monkeypatch, tmp_path):
+        """An in-process companion built later does not reopen the window.
+
+        ``osprey chat`` and the web terminal both start companion apps in
+        daemon threads *after* the first app exists, and each one calls
+        ``mint_and_announce`` again (idempotent for the value, not for the
+        carrier). Closing on every construction, rather than once, is what
+        makes that safe.
+        """
+        from osprey.cli.web_cmd import _mint_operator_url
+        from osprey.interfaces.artifacts.app import create_app as create_artifacts_app
+        from osprey.interfaces.web_auth import (
+            OPERATOR_SECRET_ENV,
+            PANEL_TOKEN_ENV,
+            mint_and_announce,
+        )
+        from osprey.interfaces.web_terminal.app import create_app
+
+        monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+
+        _mint_operator_url("127.0.0.1", _free_port())
+        create_app()
+        # A companion announces itself, re-publishing the carrier a second time.
+        mint_and_announce("127.0.0.1", _free_port())
+        assert os.environ.get(OPERATOR_SECRET_ENV)
+
+        create_artifacts_app(workspace_root=tmp_path)
+
+        assert OPERATOR_SECRET_ENV not in os.environ
+        assert PANEL_TOKEN_ENV not in os.environ
+
+
+class TestContainerShapeWithoutASuppliedSecret:
+    """A declared bind host and no secret is a configuration error, not a crash."""
+
+    def test_mint_raises_a_click_exception_not_a_runtime_error(self, monkeypatch):
+        """The holder's ``RuntimeError`` is translated where nothing else catches it.
+
+        ``web()``'s ``try`` starts after this call and handles only
+        ``KeyboardInterrupt``, so an untranslated ``RuntimeError`` reaches the
+        operator as a traceback with the actionable message buried in it.
+        """
+        import click
+
+        from osprey.cli.web_cmd import _mint_operator_url
+        from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
+        monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")
+        monkeypatch.delenv(OPERATOR_SECRET_ENV, raising=False)
+
+        with pytest.raises(click.ClickException) as excinfo:
+            _mint_operator_url("127.0.0.1", 8087)
+
+        # The message the holder wrote is what names the fix; it must survive.
+        assert OPERATOR_SECRET_ENV in str(excinfo.value)
+        assert DECLARED_BIND_ENV in str(excinfo.value)
+
+    def test_the_cli_exits_with_the_message_and_no_traceback(self, runner, monkeypatch, deployment):
+        """End to end: `osprey web` in that shape fails cleanly with the reason."""
+        from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")
+        monkeypatch.delenv(OPERATOR_SECRET_ENV, raising=False)
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(_free_port()),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Traceback" not in result.output
+        assert OPERATOR_SECRET_ENV in result.output
+
+
+class TestInheritedSecretIsExplained:
+    """Silence about the login URL is itself reported, on the host shape."""
+
+    def _stub_launch(self, monkeypatch):
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **kw: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+
+    def test_shell_exported_secret_is_reported_without_echoing_it(
+        self, runner, monkeypatch, deployment
+    ):
+        """An operator who exported the variable learns why there is no URL.
+
+        The announce gate is a bare presence check, so this is indistinguishable
+        from the detached-child case at the code level — and both readers are
+        better served by a line naming the variable than by silence.
+        """
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "exported-in-my-shell")
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        self._stub_launch(monkeypatch)
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(_free_port()),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "Open:" not in result.output
+        assert "OSPREY_TERMINAL_SECRET" in result.output
+        # The value is never echoed, whatever else is said about it.
+        assert "exported-in-my-shell" not in result.output
+
+    def test_the_container_shape_says_nothing(self, runner, monkeypatch, deployment):
+        """Behind nginx there is no login URL to be missing, so no note is owed."""
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "supplied-by-the-deployment")
+        monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")
+        self._stub_launch(monkeypatch)
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                str(_free_port()),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "Open:" not in result.output
+        assert "OSPREY_TERMINAL_SECRET" not in result.output
+        assert "supplied-by-the-deployment" not in result.output

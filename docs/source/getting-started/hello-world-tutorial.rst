@@ -76,7 +76,7 @@ accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.
 
 The parts that *are* set are short. The agent's capabilities are lists of
-named artifacts from the OSPREY library — ten hooks (three of which form the
+named artifacts from the OSPREY library — eleven hooks (three of which form the
 write-safety chain), three rules, and one output style:
 
 .. code-block:: yaml
@@ -145,6 +145,9 @@ Step 4: Launch the Web Terminal
 This starts the OSPREY Web Terminal on http://127.0.0.1:8087 — a browser
 interface with the agent in a terminal pane on the left and a live workspace
 viewer on the right, where plots and other artifacts the agent produces appear.
+The command prints a login URL (``http://127.0.0.1:8087/?token=…``) once, at
+startup; opening it sets a session cookie and redirects to the clean address.
+The token is the server's own secret, so treat that URL like a password.
 No containers are involved; it is a local process serving your ``build/``.
 It refuses to start if there is no build yet, so run ``osprey build`` first.
 

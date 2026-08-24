@@ -236,11 +236,88 @@ services:
                     # Raise it on a large corpus, where a no-op sweep is not
                     # free.
 
+  # Graph store — a Neo4j container holding a DISPOSABLE mirror of an
+  # RDF/Turtle corpus. The TTL on disk stays the source of truth and
+  # `osprey knowledge seed-graph` rebuilds the graph from it, so losing this
+  # container's volume costs a re-seed, not data. It answers the multi-hop
+  # relationship questions keyword and semantic search cannot: what a channel
+  # belongs to, what a subsystem contains, what depends on what.
+  #
+  # Deployed by default, and this block is what makes that legal: a `graphdb`
+  # entry in `deployed_services` without it is refused before compose runs —
+  # nothing else says which ports to publish. Comment out both or neither.
+  #
+  # No password key here, deliberately. The container reads GRAPHDB_PASSWORD
+  # from the project .env, which `osprey up` mints when it is unset; a password
+  # written into this file would be read by nobody and would silently lose to
+  # the minted value. Same convention as `postgresql:` above.
+  #
+  # EXTERNAL STORE: to talk to a graph store this deployment does not run, add
+  # an explicit `uri:` (e.g. bolt://graph.example.org:7687) plus an optional
+  # `username:` (default neo4j) here, and leave `graphdb` OUT of
+  # `deployed_services`. Nothing is minted on that path — set GRAPHDB_PASSWORD
+  # in the project .env yourself, or the store refuses the connection.
+  graphdb:
+    path: ./services/graphdb
+    image: neo4j:5.20-community  # Pinned to 5.20: neosemantics (n10s), the
+                                 # plugin that imports the RDF, publishes no
+                                 # build for 5.23+. Repoint it at a mirror or a
+                                 # pre-baked image on an air-gapped host.
+    port_host: 7687       # Bolt — the only protocol the neo4j driver speaks,
+                          # so this is what the seeder and the agent dial.
+    http_port_host: 7474  # HTTP — the Neo4j Browser an operator opens, and the
+                          # endpoint the container healthcheck probes.
+                          # `osprey health` does NOT use this port: it dials the
+                          # store over bolt on port_host (or an explicit `uri`),
+                          # which is what its remedies name. Both ports publish
+                          # on the project-wide `deployment.bind_address`
+                          # (default 127.0.0.1); no per-service bind_address.
+    ttl_path: ./data/demo_machine.ttl
+                          # Corpus to seed the store from, resolved against this
+                          # file's directory (the same rule as
+                          # `facility_knowledge.bundle_path`). This one is the
+                          # demo machine — the same devices and channels the
+                          # channel database in `data/` describes, rebuilt as a
+                          # graph, so the agent's graph answers and its channel
+                          # search agree. Regenerate it after editing the
+                          # channel database with:
+                          #   osprey knowledge build-ttl data/demo_machine.ttl
+                          # (in a four-zone repo the render under build/ is
+                          # disposable — regenerate into your profile's data
+                          # tree and rebuild). A build profile that ships its
+                          # own `data:` tree replaces this directory wholesale,
+                          # so it must set this key in its `config:` overlay.
+                          # The ALS corpus stays available at
+                          # ./services/graphdb/als_gtb.ttl — point this key
+                          # there, or at your own TTL, to seed that instead.
+                          # Comment it out to bring the store up bootstrapped
+                          # but empty.
+    # JVM memory. Neo4j sizes nothing automatically inside a container — left
+    # unset it reads the HOST's memory and picks numbers the container's own
+    # limit will not honour — so all three are spelled out. Budget roughly
+    # heap_max_size + pagecache_size + ~0.5G of JVM overhead. These values run
+    # the shipped corpus comfortably; a substantially larger graph wants more.
+    heap_initial_size: 512m   # Heap the server starts with
+    heap_max_size: 1G         # Ceiling the heap may grow to
+    pagecache_size: 512m      # Off-heap cache for graph data and indexes,
+                              # separate from the heap and NOT taken out of it
+    # Query bounds, read by the agent's `read_cypher` tool. Both cap a SINGLE
+    # question rather than the store: the timeout is handed to the server,
+    # which cancels the transaction itself, and the row cap decides how much of
+    # a broad match comes back. Raising them spends the agent's context window,
+    # not the store's memory — a few thousand rows crowd out the conversation
+    # long before they trouble Neo4j.
+    query_timeout_s: 15   # Server-side transaction timeout for one agent
+                          # query, in seconds.
+    query_max_rows: 200   # Rows returned per query before truncation; the tool
+                          # says when it cut.
+
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
   - qmd             # Comment out together with the `qmd:` block above.
+  - graphdb         # Comment out together with the `graphdb:` block above.
 {% else %}
 # Attached project (deploy_services: false): this project connects to a
 # services stack another OSPREY project deployed on the same host, so it
@@ -332,27 +409,56 @@ control_system:
     allow_unlisted_channels: true  # Permissive mode for tutorial
 
   # Write Verification Configuration
-  # How the connector confirms a write took effect. The level below applies only when
-  # the caller does not name one: osprey.runtime.write_channel scripts and direct
-  # connector calls. The channel_write MCP tool, multi-channel writes, and Bluesky
-  # device writes pass an explicit level ("callback"); for those, only a per-channel
-  # "verification" entry in channel_limits.json changes the level, and only on
-  # single-channel tool writes.
-  # A failed verification is not a hard stop. The channel_write MCP tool reports it in
-  # its result (verification.verified: false); osprey.runtime.write_channel discards it
-  # (a readback mismatch is logged at debug level only); only write_channel_checked
-  # raises (plans, which write through the Bluesky bridge's connector-backed
-  # devices). A write the CA layer could not deliver at all - for example a PV that
-  # never connects - is different: it sets success: false, which does raise from
-  # osprey.runtime.write_channel and shows up as a failed write in the MCP tool.
+  # How the connector confirms a write took effect. Every write - single or batch,
+  # from the channel_write MCP tool or from osprey.runtime - resolves its level and
+  # its tolerance through the same four layers, most specific first: the channel's
+  # "verification" entry in channel_limits.json, then that database's "defaults"
+  # block, then the connector config below, then "callback".
+  # The keys below are that third layer: control_system.write_verification.default_level
+  # and control_system.write_verification.default_tolerance_percent.
+  # A caller that names a level explicitly gets exactly that level, and the
+  # per-channel tolerance still applies to it. The channel_write MCP tool names one
+  # only when asked, and a batch write names one only when asked, so each channel in
+  # a batch resolves its own entry exactly as a single write does.
+  # A failed verification is a hard stop on the Python path: osprey.runtime.write_channel
+  # routes through write_channel_checked and raises ChannelWriteFailedError. The
+  # channel_write MCP tool does not raise; it reports the outcome in write_state and
+  # verification.verified. A write the CA layer could not deliver at all - for example
+  # a PV that never connects - sets success: false on both paths.
   write_verification:
     default_level: callback  # Options: none, callback, readback
-                            # - none: Fast write, no verification (off, on the paths above)
+                            # - none: Fast write, no verification
                             # - callback: Control system confirms processing (e.g., EPICS IOC callback)
                             # - readback: Full verification with readback comparison
     default_tolerance_percent: 0.1  # Default tolerance: 0.1% (one per mil)
                                     # Only used for "readback" verification level
                                     # Can be overridden per-channel in channel_limits.json
+
+  # Channel-read response size
+  # Array channels (waveforms, camera frames) can be far larger than an agent's
+  # context can hold. channel_read returns an array inline only while it fits the
+  # budget below; anything larger is saved as an artifact and reported as a
+  # summary (shape, dtype, element count, numeric stats) plus a handle to the
+  # stored data. Strings and scalars are always inline, whatever their length.
+  #
+  # The default matches the repo's calibrated inline-plot budget
+  # (DEFAULT_MAX_POINTS = 2000 in the Bluesky bridge figure builder): ordinary
+  # waveforms and orbit vectors stay inline, camera frames take the artifact path.
+  read_inline_max_elements: 2000  # Per-value element count (arrays only).
+                                  # One channel_read call also inlines at most 4x
+                                  # this many elements in TOTAL across the channels
+                                  # it was asked for, consumed in request order;
+                                  # channels past that aggregate budget take the
+                                  # artifact path even when individually small, and
+                                  # say so (artifact_reason: aggregate_budget), so
+                                  # re-reading fewer channels inlines them.
+
+  # Per-channel rolling window for those read artifacts: only the newest N
+  # UNPINNED entries per channel are kept, older ones are pruned when a new one
+  # is saved. Pinned entries never count against the window and are never pruned,
+  # so pinning a frame keeps it for good. 0 = keep everything, which lets an
+  # unattended polling loop grow the gallery without bound.
+  channel_read_artifact_retention: 20
 
   # Pattern Detection (Layer 1 - Security)
   # Purpose: Detect ALL control system operations in generated code for approval workflows
@@ -426,6 +532,10 @@ control_system:
     virtual_accelerator:
       timeout: 5.0
       simulation_file: data/simulation/machine.json
+      # Channel the target switch reads to prove this target is reachable
+      # before making it active. A target with no probe_channel is never
+      # switched to. This one is served by the simulation machine model above.
+      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       gateways:
         read_only:
           address: localhost
@@ -437,8 +547,39 @@ control_system:
           use_name_server: true
 
     # EPICS connector (production mode) — ALS production values.
+    #
+    # PVAccess (PVA) read routing: addresses matching any glob in `pva_channels`
+    # are read through the p4p client — the transport NTNDArray camera frames
+    # arrive on — and every other address stays on Channel Access. Absent or
+    # empty (the default) means pure CA, exactly as before. Addresses stay raw:
+    # no pva:// prefixes anywhere, so channel limits, the :SP writability
+    # contract and audit records keep matching the same strings. PVA is
+    # read-only here — a write to a matching address is refused before any
+    # network operation.
+    #
+    # `pva_gateway` is ONE flat block, not the read_only/write_access pair the
+    # CA `gateways` below uses, precisely because there is no PVA write path.
+    # It is read only when pva_channels is non-empty, and maps to
+    # EPICS_PVA_ADDR_LIST — or to EPICS_PVA_NAME_SERVERS when use_name_server is
+    # true (TCP instead of UDP search: what SSH tunnels need). Whenever the block
+    # is present, EPICS_PVA_AUTO_ADDR_LIST is forced to "NO", mirroring the
+    # EPICS_CA_AUTO_ADDR_LIST containment the CA path applies: a deployment
+    # deliberately pinned to a gateway must not also broadcast-discover servers
+    # on its local subnet.
     epics:
       timeout: 5.0
+      # Channel the target switch reads to prove the live machine is reachable
+      # before making it active. Facility-specific, so nothing is shipped set:
+      # while it is unset this target is never switched to (the deployment
+      # baseline still connects normally).
+      # probe_channel: SR:BEAM:CURRENT
+      # pva_channels:
+      #   - "*:IMAGE*"
+      #   - "*:ARRAY*"
+      # pva_gateway:
+      #   address: your-pva-gateway.example.com  # Replace with your PVA gateway
+      #   port: 5075
+      #   use_name_server: false  # Set true for SSH tunnels
       gateways:
         read_only:
           address: cagw-alsdmz.als.lbl.gov
@@ -451,6 +592,20 @@ control_system:
           address: cagw-alsdmz.als.lbl.gov
           port: 5084
           use_name_server: false
+
+  # Control-System Target Switch (Layer 2)
+  # Bounds how a running session moves between the connector targets above.
+  target_switch:
+    drain_timeout_s: 5      # Seconds in-flight operations get to finish on the
+                            # old target before it is torn down regardless
+    probe_interval_s: 30    # Seconds between background reachability probes of
+                            # every target's gateways
+    # Operator acknowledgment for the live machine. Set it to your own live
+    # gateway's hostname to confirm the `epics` gateways above really are your
+    # facility's. While it is unset a session may not switch TO the live
+    # target; returning to it when it is this deployment's baseline is always
+    # allowed.
+    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov
 
 # Archiver Configuration
 archiver:
@@ -471,6 +626,11 @@ archiver:
   # with the block that makes the archive exist, which is the preset's job and
   # arrives as an `archiver.type` override at build time.
   type: mock_archiver  # <-- 'epics_archiver' for production
+
+  # When a read names no bin size, the bin is chosen from the time span so a
+  # continuously archived channel returns about this many points (1 s bins up
+  # to ~2.8 h, ~53 min bins for a year). The agent is told which bin was used.
+  auto_bin_points: 10000
 
   # Mock archiver (development mode) — synthesizes history from the same
   # simulation machine model as the control-system connector above, so live
@@ -581,7 +741,7 @@ archiver:
 
 channel_finder:
   # Active pipeline mode
-  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
+  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", "middle_layer", or "graph"
 
   # osprey:panel-port channel_finder
   # CHANNELS tab: the channel-finder UI is a web server of its own, configured
@@ -608,7 +768,13 @@ channel_finder:
   #     max_tokens: 1000
   #   llm_batch_size: 10
 
-  # Pipeline-specific configurations
+  # Pipeline-specific configurations. Three of the four paradigms name the
+  # database file they read, and their block appears below. The fourth,
+  # `graph`, names nothing here: it answers from the Neo4j store declared under
+  # `services.graphdb` above — the one this project deploys, or a facility-
+  # hosted one named by an explicit `uri:` there. So `pipeline_mode: graph`
+  # plus that block is the whole of its configuration, and this section renders
+  # empty in graph mode.
   pipelines:
 {% if enable_in_context %}
     # In-Context Pipeline (Semantic Search)
@@ -670,9 +836,12 @@ channel_finder:
 
   # Benchmarking configuration
   # All paradigms share a single benchmark query set, tier-resolved at build
-  # time per channel_finder_mode (in_context → tier 1, hierarchical/middle_layer
-  # → tier 3; override with `osprey set tier=N`, then rebuild).  Query file is
-  # materialized to data/benchmarks/queries.json by the scaffolder.
+  # time per channel_finder_mode (in_context → tier 1; hierarchical,
+  # middle_layer and graph → tier 3; override with `osprey set tier=N`, then
+  # rebuild).  Query file is materialized to data/benchmarks/queries.json by
+  # the scaffolder.  Graph mode takes no tier override — it ships no tiered
+  # database, so the tier selects only this query set and `osprey build`
+  # refuses an explicit one.
   benchmark:
     # Single source of truth — all paradigms read the same query set.
     dataset_path: data/benchmarks/queries.json
@@ -787,22 +956,108 @@ ariel:
   #   port: 8085
   #   auto_launch: true
 
+  # Which module answers a search that names no mode — the web interface's
+  # opening tab, `osprey ariel search` without `--mode`, and the service API.
+  # Naming a module that is not enabled below is refused at startup rather
+  # than quietly answered by a different one. Unset, this resolves to `hybrid`
+  # where that module is enabled and `keyword` everywhere else.
+  default_search_mode: hybrid
+
+  # Facility vocabulary: the shorthand operators type ("t/s the bpm offset"),
+  # mapped to the words the logbook prose actually contains ("troubleshoot",
+  # "beam position monitor"). Stemming cannot bridge those two spellings, so
+  # without this file a search in control-room shorthand misses the entries
+  # that describe exactly what it asked about. Expansion is plain dictionary
+  # matching — no model, no network call — and every rewrite is reported back
+  # as `expanded_terms`, so a surprising hit always arrives with its reason.
+  #
+  # This project ships a twenty-concept EXAMPLE at the path below, covering
+  # what most storage-ring facilities share (the orbit and ring group is
+  # storage-ring-specific — a linac or FEL should delete it first). It is a
+  # starting point, not your vocabulary: edit it, and validate every edit
+  # with
+  #   osprey ariel vocab-check data/ariel/vocabulary.yml
+  #
+  # The file is read ONCE, when this config is parsed — not lazily on the first
+  # search — so a broken file is a startup-time failure, loudly: the ARIEL
+  # panel comes up in CONFIGURATION INVALID mode with the errors and the fix on
+  # screen and the search form disabled, search returns 503 naming
+  # `ariel.vocabulary.path`, and the MCP server refuses to start. Browse,
+  # entries, status and publishing keep working. The recovery is either switch
+  # `enabled` to false or repoint `path`, then restart — and if the file is
+  # baked into a deployed persona image, fix the source and rebuild.
+  vocabulary:
+    enabled: true
+
+    # Resolved against the directory holding this file, like every other
+    # config-relative path here (`qmd_export.mirror_path` and
+    # `facility_knowledge.bundle_path` follow the same rule).
+    path: data/ariel/vocabulary.yml
+
+    # Whether a search that expresses no preference gets expansion. Shipped
+    # explicitly rather than left to its default, because the per-request
+    # `expand_query` argument overrides it in both directions and an operator
+    # reading this file should be able to see which way the default falls.
+    expand_by_default: true
+
+    # The two direction gates, deliberately asymmetric. Matching a form and
+    # adding its canonical is always on (`bpm` finds "beam position monitor").
+    # These control the REVERSE: spelling a canonical out and also searching
+    # the short form. For an acronym that is free recall — an initialism means
+    # one thing. For ordinary words it is not: expanding "calibration" into
+    # "cal" drags in far more noise than it recovers.
+    canonical_to_acronym: true
+    canonical_to_shorthand: false
+
+    # No `expand_modes` key: unset means every enabled search module expands,
+    # which is what a facility wants until proven otherwise, and a shipped list
+    # would rot the moment a module is toggled. The key exists as one specific
+    # knob — hybrid search feeds the expanded query to the qmd sidecar's LLM
+    # reranker, so a facility whose reranked ordering degrades under expansion
+    # sets `expand_modes: [keyword, semantic]` here to drop `hybrid` alone
+    # without giving up expansion everywhere else.
+
   # Search modules (leaf-level search functions)
   # provider: references api.providers for credentials (api_key, base_url)
   # Both keyword and semantic are enabled by default.
   # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
-  # NOTE: entries seeded by `osprey sim apply` are keyword-only. Seeding skips
-  # the enhancement passes AND drops the embedding tables outright, so
+  # NOTE: entries seeded by `osprey sim apply` carry no embeddings. Seeding
+  # skips the enhancement passes AND drops the embedding tables outright, so
   # recovering semantic search takes two steps: `osprey ariel migrate` to
   # recreate the tables, then `osprey ariel enhance` to fill them. (`osprey
   # ariel sync` is not a shortcut here: it migrates, but then polls an
   # ingestion adapter this preset has none of, and fails before it enhances.)
   # Until then a semantic query disables itself at runtime and returns a notice
   # telling you to use keyword search — it does not silently return zero hits,
-  # and it does not run the keyword search for you.
+  # and it does not run the keyword search for you. Hybrid search is NOT
+  # affected: seeding exports the qmd markdown mirror on its way out, so the
+  # sidecar indexes the seeded narrative and `hybrid` answers immediately.
   search_modules:
     keyword:
       enabled: true
+      # These knobs MUST stay under `settings:`. The search-config loader keeps
+      # only `enabled`, `provider`, `model` and `settings` and drops every
+      # other key without a word, so a knob written as a sibling of `enabled`
+      # is silently inert — no error, no warning, just the defaults forever.
+      settings:
+        # Pattern tokens in a keyword query: `*` globs (`SR01C___BPM*`, with
+        # `?` as a single-character wildcard inside a glob) and explicit
+        # `/regex/` tokens, run as case-insensitive matches against the entry
+        # text — a glob is additionally anchored to word boundaries, an
+        # explicit `/regex/` is matched exactly as written. Both need at
+        # least 3 consecutive literal characters to be indexable; below that
+        # the token is searched as ordinary text and the search says so in
+        # its diagnostics. Set false to make `*` and `/…/` plain words again
+        # — the escape hatch for a logbook whose prose is full of literal
+        # asterisks.
+        patterns_enabled: true
+        # The wall-clock envelope a pattern search runs under. Applied only to
+        # a query that actually emitted a pattern predicate, so an ordinary
+        # keyword search is untouched by it. A pattern that cannot use the
+        # index scans the whole logbook, and this is what stops that from
+        # holding the panel open; the search returns a timeout diagnostic
+        # rather than nothing, so the agent can tell "too slow" from "no hits".
+        pattern_timeout_seconds: 10.0
     semantic:
       enabled: true      # Degrades gracefully if Ollama/pgvector unavailable
       provider: ollama    # References api.providers.ollama
@@ -1078,15 +1333,18 @@ claude_code:
     # (Hardcoding localhost would make the in-container dispatch worker emit to
     # its own loopback and silently drop everything.)
     #
-    # OpenObserve auth + org routing. user/password read the OpenObserve root
-    # credentials from the project .env — the SAME values the openobserve
-    # service reads — so container and agent auth stay in sync (single source of
-    # truth). `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env;
-    # the ${VAR:-default} fallbacks (mirroring the openobserve compose defaults)
-    # keep the agent launchable before the first deploy.
+    # OpenObserve auth + org routing. These are the store's dedicated INGEST
+    # account, not its root credentials: `osprey up` creates a service account
+    # named ZO_INGEST_USER_EMAIL and writes the token the store issues for it
+    # to the project .env as ZO_INGEST_SA_TOKEN. The store itself still
+    # initializes from ZO_ROOT_USER_* — that stays in the compose file, and the
+    # root password never reaches the agent's config.
+    # The token reference carries NO ${VAR:-default} on purpose: a literal
+    # default would be a published credential, and there is nothing to fall
+    # back to before the first deploy provisions the account.
     openobserve:
-      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
-      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+      password: ${ZO_INGEST_SA_TOKEN}
       org: default
     # Content gates — all default ON. This store captures full transcripts; it
     # is local and air-gapped, so full capture is the default posture. Set any
@@ -1124,10 +1382,10 @@ claude_code:
 # ============================================================
 # WEB PANEL CONFIGURATION
 # ============================================================
-# Controls the web terminal UI (osprey web): its theme and which panel tabs
-# appear. The Workspace panel is always shown; the Activity log is a separate
-# page, not a tab. Domain-specific panels are listed here — remove or disable
-# as needed.
+# Controls the web terminal UI (osprey web): its theme, its Documentation and
+# Feedback controls, and which panel tabs appear. The Workspace panel is always
+# shown; the Activity log is a separate page, not a tab. Domain-specific panels
+# are listed here — remove or disable as needed.
 
 web:
   # Default web UI theme. Two forms, and the difference matters:
@@ -1142,6 +1400,27 @@ web:
   # overrides this per user. Independent of `cli.theme` above (console-only) —
   # the two never share a value.
   # theme: main
+
+  # Target of the Documentation button in the web terminal's utility cluster.
+  # Point it at a locally hosted copy of the docs when the control room has no
+  # route to the public site.
+  docs_url: https://als-apg.github.io/osprey
+
+  # Where the Feedback dialog's two outbound channels send a user. Nothing is
+  # ever posted for them: the browser opens a prefilled GitHub issue form or a
+  # prefilled mail draft, and the user decides whether to send it. Every
+  # submission is also recorded on this deployment, readable with
+  # `osprey feedback list` / `osprey feedback export`.
+  feedback:
+    # owner/repo whose new-issue form the GitHub channel prefills. Point it at
+    # the repository your users' reports should land in.
+    github_repo: als-apg/osprey
+    # Recipient of the prefilled mailto: draft the Email channel opens.
+    email: thellert@lbl.gov
+    # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+    # OLDEST saved session contexts are deleted; the small submission headers
+    # are always kept, so the submission history stays complete.
+    max_store_bytes: 268435456
 {%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}
@@ -1254,6 +1533,14 @@ web:
 #       per-user port families, and the user list. Per-user containers share
 #       the host network namespace, so each companion panel needs its own port
 #       family; families left unset fall back to the registry defaults.
+#   modules.web_terminals.landing.notices
+#       Markdown files shown as collapsible sections on the landing page —
+#       what operators read before opening a terminal. Each file's first
+#       heading is its section label. `data/landing/working-safely.md` ships
+#       with the multi-user presets and is yours to rewrite; add your own for
+#       local procedures or contacts. Omit the key for OSPREY's built-in
+#       safety notice, or set it to [] for none. `landing.footer` sets the
+#       line underneath.
 #
 # See docs/how-to/web-terminal/multi-user.rst for the full schema. The build
 # interview (/osprey-build-interview) fills these in when you tell it the

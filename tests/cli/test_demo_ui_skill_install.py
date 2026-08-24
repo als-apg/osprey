@@ -85,7 +85,12 @@ class TestDemoUiSkillStructure:
             assert tool in skill_text, f"Missing panel tool: {tool}"
 
     def test_choreographs_the_artifact_tools(self, skill_text):
-        for tool in ("create_interactive_plot", "artifact_save", "artifact_focus", "artifact_pin"):
+        for tool in (
+            "create_interactive_plot",
+            "artifact_register",
+            "artifact_focus",
+            "artifact_pin",
+        ):
             assert tool in skill_text, f"Missing artifact tool: {tool}"
 
     def test_offers_the_workflow_menu(self, skill_text):

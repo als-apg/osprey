@@ -47,6 +47,11 @@ async def create_interactive_plot(
     You MUST call ``save_artifact(fig, "title")`` on your Plotly figure to
     produce output — figures are not auto-captured.
 
+    Leave backgrounds, font colors, and grid colors unset (no ``template=``,
+    ``paper_bgcolor``, ``plot_bgcolor`` or ``font.color``): the gallery
+    re-themes every interactive plot to the operator's active theme, and
+    hand-picked page colors fight that. Trace colors are kept as you set them.
+
     Args:
         code: Python code using Plotly to create interactive charts.
         title: Human-readable title for the chart.
@@ -55,9 +60,11 @@ async def create_interactive_plot(
             variable before your code runs. Accepts two forms:
             (1) artifact ID (12-char hex), or
             (2) workspace file path.
-            When provided, ``data`` is a **pandas DataFrame** — do NOT
+            When provided, ``data`` is a **pandas DataFrame** for tabular
+            sources (CSV/JSON/Excel/Parquet) or a **numpy ndarray** for
+            ``.npy`` artifacts (channel_read image/waveform data) — do NOT
             re-parse or re-unwrap it; use it directly (e.g. ``data.columns``,
-            ``data['col']``).
+            ``data['col']``, or ``go.Heatmap(z=data)`` for a 2-D array).
 
     Returns:
         JSON with artifact_ids and preview info.

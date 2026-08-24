@@ -18,7 +18,6 @@ class SemanticProcessorMigration(BaseMigration):
     Creates:
     - summary column on enhanced_entries
     - keywords column on enhanced_entries
-    - Full-text search indexes
     """
 
     @property
@@ -43,21 +42,6 @@ class SemanticProcessorMigration(BaseMigration):
             """
             ALTER TABLE enhanced_entries
             ADD COLUMN IF NOT EXISTS keywords TEXT[] DEFAULT '{}'
-            """
-        )
-
-        await conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_entries_keywords
-            ON enhanced_entries USING GIN(keywords)
-            """
-        )
-
-        await conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_entries_text_search
-            ON enhanced_entries
-            USING GIN(to_tsvector('english', raw_text || ' ' || COALESCE(summary, '')))
             """
         )
 

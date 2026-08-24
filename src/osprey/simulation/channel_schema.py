@@ -4,10 +4,12 @@ Declares, for each device family in :data:`osprey.simulation.facility_spec.
 ALS_U_AR`, the tier-3 channel structure (FIELD/SUBFIELD levels of the
 ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` address) and the human-facing
 display metadata a downstream tier-DB generator needs to emit
-the three shipped tier-3 channel database formats --
+the three shipped file-backed tier-3 channel database formats --
 ``hierarchical.json``, ``in_context.json``, ``middle_layer.json`` (under
 ``src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/
-tier3/``) -- address-identically for every family.
+tier3/``) -- address-identically for every family. The ``graph`` paradigm has
+no tier file of its own: its TTL corpus is generated from the ``hierarchical``
+and ``in_context`` DBs above, so it inherits whatever this module declares.
 
 Stdlib-only (``dataclasses``), zero third-party dependencies, matching the
 style of :mod:`osprey.simulation.facility_spec`. This module is purely

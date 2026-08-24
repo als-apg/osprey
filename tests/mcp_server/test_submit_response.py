@@ -8,7 +8,12 @@ Covers:
   - Custom data_type passed through
   - source_agent / category mapping
   - skip_artifact mode
+  - The results-data contract: an agent whose rendered definition declares a
+    ``results_category`` hands in its computed quantities as ``data`` and the
+    tool files them as a JSON artifact there — and refuses a hand-in without them
 """
+
+import json
 
 import pytest
 
@@ -28,11 +33,28 @@ _fn = submit_response.fn if hasattr(submit_response, "fn") else submit_response
 
 
 @pytest.fixture
-def workspace(tmp_path):
-    """Initialize a temporary ArtifactStore workspace."""
+def workspace(tmp_path, monkeypatch):
+    """Initialize a temporary ArtifactStore workspace.
+
+    ``OSPREY_CONFIG`` is pinned into the same temp dir so the tool resolves its
+    project — and therefore its ``.claude/agents/`` declarations — there rather
+    than wherever pytest happens to run.
+    """
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
     initialize_artifact_store(workspace_root=tmp_path)
     yield tmp_path
     reset_artifact_store()
+
+
+def _declare_agent(project_dir, name, results_category=None):
+    """Render a minimal ``.claude/agents/<name>.md`` the way the build would."""
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    lines = ["---", f"name: {name}"]
+    if results_category is not None:
+        lines.append(f"results_category: {results_category}")
+    lines += ["---", f"# {name}", ""]
+    (agents_dir / f"{name}.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 class TestSubmitResponse:
@@ -236,3 +258,159 @@ class TestSubmitResponse:
         _exc_ctx["envelope"]
         store = get_artifact_store()
         assert len(store.list_entries()) == 0
+
+    @pytest.mark.asyncio
+    async def test_narrative_does_not_claim_a_domain_category(self, workspace):
+        """The prose artifact must not land in a domain results category.
+
+        pyat-specialist's computed quantities are filed as JSON under
+        ``lattice_analysis``. If this markdown claimed the same key, that
+        category would stop identifying structured results.
+        """
+        raw = await _fn(
+            title="AR Optics Summary",
+            content="Tunes and beta functions computed from the design lattice.",
+            source_agent="pyat-specialist",
+        )
+        data = extract_response_dict(raw)
+
+        entry = get_artifact_store().get_entry(data["artifact_id"])
+        assert entry is not None
+        assert entry.artifact_type == "markdown"
+        assert entry.category != "lattice_analysis"
+        assert entry.category == "agent_response"
+
+    @pytest.mark.asyncio
+    async def test_explicit_data_type_drives_the_category(self, workspace):
+        """An explicit data_type is the category — the agent name never overrides it."""
+        raw = await _fn(
+            title="BPM Channel Addresses",
+            content="Found 12 BPM channels.",
+            data_type="channel_addresses",
+            source_agent="channel-finder",
+        )
+        data = extract_response_dict(raw)
+
+        entry = get_artifact_store().get_entry(data["artifact_id"])
+        assert entry is not None
+        assert entry.category == "channel_addresses"
+
+
+class TestResultsDataContract:
+    """An agent that declares ``results_category`` owes ``data`` at hand-in.
+
+    The declaration lives in the agent's own rendered definition — the same
+    frontmatter the dispatch worker reads for tool surfaces — so one file says
+    both what the agent may use and what it must hand back.
+    """
+
+    @pytest.mark.asyncio
+    async def test_data_is_filed_as_json_in_the_declared_category(self, workspace):
+        _declare_agent(workspace, "pyat-specialist", "lattice_analysis")
+        payload = {"tune_x": 0.2345, "tune_y": 0.1876, "circumference_m": 182.0}
+
+        raw = await _fn(
+            title="AR optics",
+            content="Tunes and circumference computed from the design lattice.",
+            source_agent="pyat-specialist",
+            data=payload,
+        )
+        data = extract_response_dict(raw)
+
+        assert data["status"] == "success"
+        store = get_artifact_store()
+
+        # The prose is still the agent_response markdown it always was.
+        prose = store.get_entry(data["artifact_id"])
+        assert prose is not None
+        assert prose.artifact_type == "markdown"
+        assert prose.category == "agent_response"
+
+        # The data sheet is a second artifact, JSON, in the declared category,
+        # attributed to the same agent, and holds exactly what was handed in.
+        results = store.get_entry(data["data_artifact_id"])
+        assert results is not None
+        assert results.artifact_type == "json"
+        assert results.category == "lattice_analysis"
+        assert results.source_agent == "pyat-specialist"
+        assert json.loads(store.get_file_path(results.id).read_text()) == payload
+        # The two know about each other.
+        assert results.metadata["response_artifact_id"] == prose.id
+        assert prose.metadata["data_artifact_id"] == results.id
+
+    @pytest.mark.asyncio
+    async def test_declared_agent_without_data_is_refused(self, workspace):
+        _declare_agent(workspace, "pyat-specialist", "lattice_analysis")
+
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn(
+                title="AR optics",
+                content="Tunes computed from the design lattice.",
+                source_agent="pyat-specialist",
+            )
+
+        msg = ctx["envelope"]["error_message"]
+        assert "pyat-specialist" in msg
+        assert "lattice_analysis" in msg
+        assert "data=" in msg
+        # Nothing half-filed: no prose artifact either.
+        assert get_artifact_store().list_entries() == []
+
+    @pytest.mark.asyncio
+    async def test_empty_data_counts_as_missing(self, workspace):
+        _declare_agent(workspace, "pyat-specialist", "lattice_analysis")
+
+        with assert_raises_error(error_type="validation_error"):
+            await _fn(
+                title="AR optics",
+                content="Tunes computed from the design lattice.",
+                source_agent="pyat-specialist",
+                data={},
+            )
+        assert get_artifact_store().list_entries() == []
+
+    @pytest.mark.asyncio
+    async def test_data_from_an_agent_with_no_declaration_is_refused(self, workspace):
+        _declare_agent(workspace, "logbook-search")
+
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn(
+                title="Vacuum events",
+                content="Three events found.",
+                source_agent="logbook-search",
+                data={"events": 3},
+            )
+
+        assert "results_category" in ctx["envelope"]["error_message"]
+        assert get_artifact_store().list_entries() == []
+
+    @pytest.mark.asyncio
+    async def test_unregistered_declared_category_is_refused(self, workspace):
+        _declare_agent(workspace, "odd-agent", "not_a_real_category")
+
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn(
+                title="Something",
+                content="Some prose.",
+                source_agent="odd-agent",
+                data={"x": 1},
+            )
+
+        assert "not_a_real_category" in ctx["envelope"]["error_message"]
+        assert get_artifact_store().list_entries() == []
+
+    @pytest.mark.asyncio
+    async def test_agents_with_no_declaration_are_untouched(self, workspace):
+        """A searcher hands in prose exactly as before — no data, no refusal."""
+        _declare_agent(workspace, "logbook-search")
+
+        raw = await _fn(
+            title="Vacuum events",
+            content="Three events found.",
+            source_agent="logbook-search",
+        )
+        data = extract_response_dict(raw)
+
+        assert data["status"] == "success"
+        assert "data_artifact_id" not in data
+        assert len(get_artifact_store().list_entries()) == 1

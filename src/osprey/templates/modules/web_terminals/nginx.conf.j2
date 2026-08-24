@@ -17,11 +17,16 @@
       `proxy_pass` upstream host below — nginx is the only process on the
       shared host netns expected to reach it from outside.
     services: list[dict], required (may be empty)
-      Same list docker-compose.web.yml.j2 consumes. Only `user` and `web` are
-      used here — the artifact/ariel/lattice families get no nginx route of
+      Same list docker-compose.web.yml.j2 consumes. Only `user`, `web`,
+      `login_exempt`, `terminal_secret_env` and `session_cookie` are read here
+      — the artifact/ariel/lattice families get no nginx route of
       their own: once a browser is on a user's own `/u/<user>/` origin, the
       per-user app reverse-proxies its own panels (routes/proxy.py) to those
       three families internally, so nginx never needs to know about them.
+      `session_cookie` is the name of the ONE cookie that user's app issues
+      (`osprey_terminal_session_<web>`), resolved by render.py through the app's
+      own `session_cookie_name()` so the perimeter cannot spell it differently
+      than the app that reads it.
     tls_enabled: bool, required (defaults to False)
       When true, emit TWO server blocks: a redirect-only one on nginx_port
       whose entire content is `return 301 https://$host$request_uri;`, and the
@@ -41,9 +46,16 @@
       emitted and the plain proxy config below is the whole render.
       Per-service exception: a svc with `login_exempt: true` (the roster
       entry declared `login: false`) gets NO auth_request and NO internal
-      verify target — it is served publicly even while auth is on. The
-      cookie strip in its location is kept: public or not, a per-user
-      container must never receive the origin-wide session cookie jar.
+      verify target — it is served publicly even while auth is on. It also
+      gets neither of the two things an authenticated location gets: no
+      operator-secret header is injected into it, and its cookie is not cut.
+      Nothing authenticated that request at the perimeter, so the app's own
+      token->cookie session is the only gate left standing, and that gate
+      reads a cookie the browser has to be allowed to send.
+      Both effects hang off ONE predicate — `auth_method != "none" and not
+      svc.login_exempt` — for the reason spelled out at the strip below:
+      either half alone is a broken deployment.
+
     auth_port: int, required when auth_method != "none" (defaults to 9070)
       The loopback port the auth sidecar listens on. Reached at bind_host, the
       same way every per-user app is: the sidecar shares the host network
@@ -71,6 +83,25 @@
   `nginx -t` with it mounted at the EXACT container path above (against the
   real base image, not wrapped in a hand-written http{} block), not just as
   a syntactically-standalone fragment.
+
+  ----------------------------------------------------------------------------
+  WHAT REACHES AN UPSTREAM
+
+  Every `/u/<user>/` location forwards exactly the credentials this perimeter
+  put there, whatever the auth mode:
+
+    * `Authorization` is cleared unconditionally. nginx never sets it on this
+      path, so an arriving value is the client's; the app's own bearer tier is
+      loopback traffic inside the container and never crosses this proxy.
+    * `X-Osprey-Terminal-Secret` is either INJECTED (gated locations, from that
+      user's envsubst'd snippet) or CLEARED (auth off, or `login: false`) — it
+      is never forwarded from the client.
+    * `Cookie` is either cut entirely (gated locations, which authenticate by
+      the injected header) or narrowed to that user's own `session_cookie`
+      (auth off, or `login: false`, where that cookie is the only gate left).
+      In neither case does the browser's whole jar — which names every other
+      terminal it has unlocked, and the sidecar's origin-wide session — reach a
+      container running agent-generated code.
 
   ----------------------------------------------------------------------------
   WHY A REAL REVERSE PROXY
@@ -118,9 +149,14 @@
   AUTH/TLS, OFF BY DEFAULT
 
   A deployment that sets neither `web_terminals.auth` nor `web_terminals.tls`
-  renders plain http: no `auth_request`, every `/u/<user>/` open to anyone who
-  can reach the port. Both features are opt-in, and each is gated
-  independently:
+  renders plain http: no `auth_request`, and no operator secret injected into
+  any location. That is not an open perimeter — each terminal behind it still
+  authenticates EVERY request against its own operator secret, which `osprey
+  up` mints for every roster user in every auth mode. What is missing here is a
+  login FLOW: a browser gets past that gate by opening the user's `?token=` URL
+  once (`osprey users login-url <user>`), which the app trades for its session
+  cookie. See WHAT REACHES AN UPSTREAM above for what each location forwards.
+  Both features are opt-in, and each is gated independently:
 
   - `tls_enabled` (default False) emits nothing. When true, the plain port
     becomes a redirect-only server and a second `listen 443 ssl` server —
@@ -150,6 +186,61 @@
   is validated by actually running nginx, not by string-matching the template
   output.
 #}
+# The access log, with the query string cut out of it.
+#
+# nginx's built-in `combined` format logs `$request` — the raw request line,
+# query string and all. Under this deployment that is a credential store: the
+# ONLY way into an auth-off multi-user terminal is
+# `/u/<user>/?token=<that user's operator secret>` (the app exchanges the token
+# for a session cookie and redirects to the clean URL), so with the default
+# format every login writes a working credential in cleartext to nginx's stdout
+# — readable by `docker logs`, and shipped verbatim by any log collector
+# scraping container output. A log is not a place a credential can be revoked
+# from.
+#
+# `$osprey_log_path` instead (mapped below): `$request_uri` with everything from
+# the first `?` onward cut off. Still percent-encoded, so it is safe to emit —
+# and `log_format` escapes control characters in every variable anyway (nginx
+# >= 1.11.8, the default `escape`). `$uri` would also be query-free but is the
+# post-rewrite path, so a landing-page hit would log as `/landing.html` rather
+# than as the `/` the client asked for. `$request_method` and `$server_protocol`
+# restore the two other pieces `$request` carried, so this stays a line the
+# usual log parsers read.
+#
+# `$http_referer` is dropped rather than logged: a browser that lands on the
+# `?token=` URL sends that whole URL as the Referer of everything the page then
+# fetches, so the field is a second copy of the same secret. Nothing else here
+# needs it.
+#
+# This covers the access log only. nginx's ERROR log is not formattable, and its
+# entries carry `request: "GET /uri?args ..."` — so a token can still reach it
+# when a request fails at the proxy (an upstream that is down, a timeout).
+# Narrowing that is not something a config can do; it is the reason the
+# `?token=` URL is one-shot in practice — the app redirects to the clean URL as
+# soon as it has set the cookie.
+# The requested path with the query string cut off. Anchored and greedy-free:
+# `[^?]*` stops at the first `?`, which is where the query starts, so nothing
+# after it can be carried into the value. A request with no query at all falls
+# to the default and is logged whole.
+map $request_uri $osprey_log_path {
+    default $request_uri;
+    "~^([^?]*)\?" $1;
+}
+
+log_format osprey_sanitized '$remote_addr - $remote_user [$time_local] '
+                            '"$request_method $osprey_log_path $server_protocol" '
+                            '$status $body_bytes_sent "$http_user_agent"';
+
+# The `access_log` that selects it is emitted per SERVER, not here at http
+# level, and that placement is the load-bearing part. The base image's own main
+# config already carries `access_log /var/log/nginx/access.log main;` at http
+# level (with that path symlinked to /dev/stdout), and nginx does not replace a
+# same-level directive — every `access_log` on one level is written. A second
+# one here would ADD the sanitized line beside the `combined`-format one that
+# still holds the token. A `server`-level directive is what actually suppresses
+# the inherited default: access_log is inherited from the level above ONLY when
+# the current level defines none.
+
 map $http_upgrade $connection_upgrade {
     default upgrade;
     '' close;
@@ -220,6 +311,11 @@ server {
     listen [::]:{{ nginx_port }};
     server_name _;
 
+    # Here too: this server sees the same URLs the content server does, tokens
+    # included, and one that logged them in the default format would undo the
+    # sanitizing next door.
+    access_log /dev/stdout osprey_sanitized;
+
     return 301 https://$host$request_uri;
 }
 {% endif %}
@@ -236,6 +332,12 @@ server {
     listen [::]:{{ nginx_port }};
 {% endif %}
     server_name _;
+
+    # Server level, which is what makes it REPLACE the base image's http-level
+    # `access_log ... main;` rather than run alongside it (see the log_format
+    # above). Every request this deployment answers is logged through the
+    # sanitized format, or not logged at all.
+    access_log /dev/stdout osprey_sanitized;
 
     root /usr/share/nginx/html;
 {%- if auth_method != "none" %}
@@ -277,8 +379,12 @@ server {
 {% if auth_method != "none" and svc.login_exempt %}
         # Authentication is on, but this roster entry declared `login: false`:
         # it is served to anyone who can reach this nginx, exactly as the whole
-        # deployment is when auth is off. The cookie strip below still applies —
-        # a public container must never see another user's session cookie.
+        # deployment is when auth is off. So this location injects no operator
+        # secret — there is no authorized request here for nginx to vouch for —
+        # and it does not cut the browser's cookie outright: the app's own
+        # token->cookie session IS the gate in front of {{ svc.user }} now, and it
+        # only holds if that cookie is allowed to reach the app. What it forwards
+        # is that ONE cookie and nothing else; see the Cookie header below.
 {% endif -%}
 {% if auth_method != "none" and not svc.login_exempt %}
         # Authentication is on (web_terminals.auth.method is "{{ auth_method }}"):
@@ -307,6 +413,37 @@ server {
         # it off — the app's own API errors are its business, not the
         # perimeter's.
         error_page 401 = @osprey_auth_401;
+
+        # {{ svc.user }}'s operator secret — the credential that user's app
+        # authenticates every request against — injected ONLY here, bound to
+        # the gate above rather than to the deployment's shape:
+        #
+        #  - The directive is emitted inside this `auth_request`-guarded branch
+        #    and nowhere else, so an ungated location does not have it at all.
+        #    A denied subrequest ends the request before the `proxy_pass`
+        #    below, so nothing that failed the gate carries the header
+        #    upstream. And because this SETS the header, a client that sends
+        #    one of its own has it overwritten rather than forwarded.
+        #  - The snippet is per-user: it names {{ svc.user }}'s own variable
+        #    ({{ svc.terminal_secret_env }}) and no other, so no terminal is
+        #    reachable with a different terminal's secret.
+        #
+        # The included file is deliberately absent from every rendered
+        # artifact. render.py writes it as an nginx *template* next to this
+        # conf (nginx/templates/secret-{{ svc.user }}.conf.template), compose
+        # mounts that directory read-only at /etc/nginx/templates, and the base
+        # image's entrypoint envsubsts it to the path below at container start
+        # — so the secret VALUE lives only in the deploy .env and in the
+        # container's environment, never on disk in build/ or in an image
+        # layer. The entrypoint's output directory is /etc/nginx/osprey and
+        # pointedly NOT conf.d, which the base image globs into `http{}`: a
+        # secret header set at http level would be sent to every upstream,
+        # the auth sidecar included.
+        #
+        # A missing file is a hard startup failure, which is the right way for
+        # this to break: an auth-on deployment whose secrets were never minted
+        # must not come up serving terminals that trust anything.
+        include /etc/nginx/osprey/secret-{{ svc.user }}.conf;
 {% endif %}
         proxy_pass http://{{ bind_host }}:{{ svc.web }}/;
         proxy_http_version 1.1;
@@ -316,19 +453,74 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-{%- if auth_method != "none" %}
-        # The browser's cookies stop here. One cookie jar serves this whole
-        # origin, so an operator with several users unlocked would otherwise
-        # hand {{ svc.user }}'s container a session cookie naming all of them —
-        # and these containers run agent-generated code, which makes anything
-        # readable inside one a credential that has effectively left the
-        # perimeter. Nothing is lost by cutting it: the web-terminal app sets
-        # and reads no cookies at all, and the only thing that needs this one
-        # is the sidecar, which is reached by a different route.
+        # Nothing this perimeter did not itself put there.
+        #
+        # `Authorization` is a credential nginx never sets on this path, so
+        # whatever arrives in it came from the client and means nothing here.
+        # The app DOES accept an `Authorization: Bearer` — the panel token, the
+        # narrow tier its own tooling authenticates with — and that traffic is
+        # loopback INSIDE the container (the workspace hooks post to
+        # `http://127.0.0.1:<web>/api/panels`), so it never crosses this proxy
+        # and clearing the header costs it nothing. Unconditional, unlike the
+        # two below: the header is never legitimate here in any auth mode.
+        proxy_set_header Authorization "";
+{%- if auth_method != "none" and not svc.login_exempt %}
+        # The browser's cookie header stops here — gated on the SAME predicate
+        # that included the secret above, and that is the point of writing it
+        # twice: this location authenticates by the header nginx just set, so
+        # the cookie is not the credential and has no business travelling.
+        #
+        # One cookie jar serves this whole origin, so forwarding it would hand
+        # {{ svc.user }}'s container the sidecar's `osprey_auth_session` — the
+        # cookie that unlocks every user this operator has open — and these
+        # containers run agent-generated code, which makes anything readable
+        # inside one a credential that has effectively left the perimeter. The
+        # app's own `osprey_terminal_session_<port>` cookie is cut with it, and
+        # nothing is lost: that cookie is the gate for locations which get no
+        # header, and this location gets one.
+        #
+        # The two halves must never be gated apart. Strip without header is a
+        # location that authenticates nothing and 401s every request; header
+        # without strip lets an unauthenticated request carry an operator's
+        # session cookie into a container.
         proxy_set_header Cookie "";
+{%- else %}
+        # No operator secret is injected into this location — authentication is
+        # off, or this entry declared `login: false` — so the two headers that
+        # carry one are handled the other way round from the gated branch above.
+        #
+        # The secret header is CLEARED rather than left alone. nginx sets it on
+        # gated locations only, so a value arriving here came from the client;
+        # forwarding it would let anyone who can reach this port present a
+        # credential the app trusts absolutely, which is the one thing this
+        # carrier exists to make impossible.
+        proxy_set_header X-Osprey-Terminal-Secret "";
+        # Exactly ONE cookie is forwarded: the session cookie {{ svc.user }}'s own
+        # app issues. It cannot be cut — with nothing injected here, that cookie
+        # IS the only gate left in front of this terminal — but the rest of the
+        # jar has no business travelling. Cookies ignore ports, so one jar
+        # serves this whole origin: the raw `Cookie` header names every OTHER
+        # terminal this browser has unlocked (`osprey_terminal_session_<port>`,
+        # one per user) and, with auth on, the sidecar's origin-wide
+        # `osprey_auth_session` as well. These containers run agent-generated
+        # code, so anything readable inside one is a credential that has left
+        # the perimeter.
+        #
+        # The name is a render-time literal from the app's own
+        # `session_cookie_name()` (render.py resolves `svc.session_cookie`), so
+        # the perimeter and the app cannot spell it differently. An absent
+        # cookie substitutes to empty, which the app reads as no credential —
+        # the same answer it gives to a request that sent none.
+        proxy_set_header Cookie "{{ svc.session_cookie }}=$cookie_{{ svc.session_cookie }}";
 {%- endif %}
         proxy_buffering off;
         proxy_read_timeout 3600s;
+        # Nginx's own default (1m) is smaller than the feedback form's upload
+        # cap — a screenshot attached to a bug report would 413 here before
+        # the request ever reaches {{ svc.user }}'s app. Stated explicitly so
+        # the limit is this proxy's contract, not an inherited default that
+        # would silently shrink if the base image's own default ever changes.
+        client_max_body_size 4m;
     }
 
     # Stable bookmark for {{ svc.user }} without a trailing slash.

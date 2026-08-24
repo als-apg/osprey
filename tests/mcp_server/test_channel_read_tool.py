@@ -17,7 +17,12 @@ from tests.mcp_server.conftest import (
 
 
 def _make_channel_value(
-    value=500.2, units="mA", alarm_status="NO_ALARM", timestamp="2024-01-15T10:30:00"
+    value=500.2,
+    units="mA",
+    alarm_status="NO_ALARM",
+    timestamp="2024-01-15T10:30:00",
+    enum_label=None,
+    enum_labels=None,
 ):
     cv = MagicMock()
     cv.value = value
@@ -29,7 +34,47 @@ def _make_channel_value(
     cv.metadata.description = "Test channel"
     cv.metadata.display_low = 0.0
     cv.metadata.display_high = 1000.0
+    # Default to "not an enum channel", spelled out because a bare MagicMock
+    # attribute is truthy and the tool ships these keys only when they are set.
+    cv.metadata.enum_label = enum_label
+    cv.metadata.enum_labels = enum_labels
     return cv
+
+
+def _fake_enum_pv(value=2, labels=("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")):
+    """A fake pyepics PV for an mbbi: the index it reports, and what it means."""
+    pv = MagicMock()
+    pv.wait_for_connection.return_value = True
+    pv.connected = True
+    pv.get.return_value = value
+    pv.timestamp = 1_750_000_000.0
+    pv.units = ""
+    pv.precision = None
+    pv.status = 0
+    pv.severity = 0
+    pv.type = "time_enum"
+    pv.enum_strs = labels
+    return pv
+
+
+def _epics_connector_serving(pv):
+    """A real EPICSConnector whose every read is answered by ``pv``.
+
+    The point of going through the real connector rather than a mocked
+    ``ChannelValue`` is that the mapping under test is the connector's; a stub
+    would only assert that the tool copies fields it was handed.
+    """
+    from osprey.connectors.control_system.epics_connector import EPICSConnector
+
+    fake_epics = MagicMock()
+    fake_epics.PV.return_value = pv
+
+    connector = EPICSConnector()
+    connector._epics = fake_epics
+    connector._connected = True
+    connector._epics_configured = True
+    connector._timeout = 5.0
+    return connector
 
 
 def _get_channel_read():
@@ -270,3 +315,161 @@ async def test_channel_read_empty_list(tmp_path, monkeypatch):
         await fn(channels=[])
 
     _exc_ctx["envelope"]
+
+
+@pytest.mark.unit
+async def test_channel_access_alarm_renders_as_a_name(tmp_path, monkeypatch):
+    """A CA alarm reaches the tool payload as its EPICS name, not a raw code.
+
+    Driven through a real ``EPICSConnector`` with a fake pyepics rather than a
+    mocked ``ChannelValue``, so this asserts on what the connector actually
+    ships to the tool. PVAccess already emitted names; Channel Access sent the
+    integer, which is what an agent then had to guess at.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: epics\n")
+    initialize_server_context()
+
+    from osprey.connectors.control_system.epics_connector import EPICSConnector
+
+    pv = MagicMock()
+    pv.wait_for_connection.return_value = True
+    pv.connected = True
+    pv.get.return_value = 500.2
+    pv.timestamp = 1_750_000_000.0
+    pv.units = "mA"
+    pv.precision = 3
+    pv.status = 3  # HIHI
+    pv.severity = 2
+    fake_epics = MagicMock()
+    fake_epics.PV.return_value = pv
+
+    connector = EPICSConnector()
+    connector._epics = fake_epics
+    connector._connected = True
+    connector._epics_configured = True
+    connector._timeout = 5.0
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        fn = _get_channel_read()
+        result = await fn(channels=["SR:CURRENT:RB"], include_metadata=True)
+
+    data = extract_response_dict(result)
+    channel = data["summary"]["readings"]["SR:CURRENT:RB"]
+    assert channel["alarm_status"] == "HIHI"
+    assert channel["value"] == 500.2
+
+
+@pytest.mark.unit
+async def test_enum_reading_carries_its_state_label(tmp_path, monkeypatch):
+    """An mbbi reading reaches the agent as an index *and* the state it names.
+
+    Driven through a real ``EPICSConnector`` with a fake pyepics, for the same
+    reason as the alarm-name test above: what matters is what the connector
+    actually ships to the tool. Before this, an agent asked "what mode is the
+    device in?" was handed ``2`` and had nowhere to look up what 2 meant.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: epics\n")
+    initialize_server_context()
+
+    connector = _epics_connector_serving(_fake_enum_pv())
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        fn = _get_channel_read()
+        result = await fn(channels=["SR:DIAG:MODE"], include_metadata=True)
+
+    data = extract_response_dict(result)
+    channel = data["summary"]["readings"]["SR:DIAG:MODE"]
+    assert channel["value"] == 2
+    assert channel["enum_label"] == "ACQUIRING"
+    assert channel["enum_labels"] == ["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"]
+    # And the envelope says what those keys are, so the agent is not left to
+    # infer the index/label relationship from one example.
+    enum_fields = data["access_details"]["enum_fields_per_entry"]
+    assert set(enum_fields["fields"]) == {"enum_label", "enum_labels"}
+
+
+@pytest.mark.unit
+async def test_a_non_enum_entry_has_no_enum_keys_at_all(tmp_path, monkeypatch):
+    """Two null keys on every analogue reading would read as "no labels known"."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    initialize_server_context()
+
+    mock_connector = AsyncMock()
+    mock_connector.read_channel.return_value = _make_channel_value(value=500.2)
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        fn = _get_channel_read()
+        result = await fn(channels=["SR:CURRENT:RB"], include_metadata=True)
+
+    data = extract_response_dict(result)
+    channel = data["summary"]["readings"]["SR:CURRENT:RB"]
+    assert "enum_label" not in channel
+    assert "enum_labels" not in channel
+
+
+@pytest.mark.unit
+async def test_enum_keys_are_omitted_when_metadata_is_off(tmp_path, monkeypatch):
+    """include_metadata=False means no metadata, enum labels included."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: epics\n")
+    initialize_server_context()
+
+    connector = _epics_connector_serving(_fake_enum_pv())
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        fn = _get_channel_read()
+        result = await fn(channels=["SR:DIAG:MODE"], include_metadata=False)
+
+    data = extract_response_dict(result)
+    channel = data["summary"]["readings"]["SR:DIAG:MODE"]
+    assert channel["value"] == 2
+    assert "enum_label" not in channel
+    assert "enum_fields_per_entry" not in data["access_details"]
+
+
+@pytest.mark.unit
+async def test_access_details_accounts_for_every_key_on_an_enum_entry(tmp_path, monkeypatch):
+    """The exactness contract holds for enums too: the extra keys are advertised.
+
+    ``fields_per_entry`` names what every entry carries; the enum keys are
+    conditional, so they are advertised separately rather than promised on
+    entries that will never have them.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: epics\n")
+    initialize_server_context()
+
+    connector = _epics_connector_serving(_fake_enum_pv())
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        fn = _get_channel_read()
+        result = await fn(channels=["SR:DIAG:MODE"], include_metadata=True)
+
+    data = extract_response_dict(result)
+    advertised = set(data["access_details"]["fields_per_entry"])
+    advertised |= set(data["access_details"]["enum_fields_per_entry"]["fields"])
+    shipped = set(data["summary"]["readings"]["SR:DIAG:MODE"])
+    assert advertised == shipped

@@ -31,7 +31,7 @@ from typing import Any, NamedTuple
 
 import click
 
-from osprey.cli.output import fail, note, report, warn
+from osprey.cli.output import fail, machine_mode, note, report, warn
 from osprey.cli.repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from osprey.cli.styles import Styles
 from osprey.utils.logger import get_logger
@@ -242,6 +242,139 @@ def _drop_user_from_profile_roster(profile_path: Path, user: str) -> _RosterEdit
     return _RosterEdit(changed=True, expanded_bare_entries=expanded)
 
 
+def _roster_usernames(config_path: str) -> list[str]:
+    """The web-terminal roster the running stack was rendered with.
+
+    Read from the rendered ``build/config.yml`` every verb here acts through,
+    normalized by the module's own normalizer so a bare-string roster and an
+    explicit one answer identically. The WHOLE roster, ``login: false`` entries
+    included: those users have a terminal, and a terminal needs a secret whether
+    or not it sits behind a login.
+
+    Args:
+        config_path: The rendered config, as :class:`_Repo` carries it.
+
+    Returns:
+        The usernames, empty for a deployment with no web-terminal roster.
+    """
+    from osprey.deployment.web_terminals.personas import normalize_users
+    from osprey.utils.config import load_project_config
+
+    config = load_project_config(config_path)
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+
+
+def _mint_terminal_secrets(session: _Repo) -> None:
+    """Establish the deploy ``.env`` terminal secret every roster user needs.
+
+    The same mint ``osprey up``'s preflight runs, called from the roster verbs
+    that make a user's terminal real before a deploy does: a workspace seeded
+    for someone with no secret comes up as a terminal nginx cannot reach.
+    Idempotent — an established secret is never rewritten — so a verb that runs
+    it on an unchanged roster writes nothing.
+
+    Unlike the deploy path this does NOT gate: these verbs are not what brings
+    the stack up, and refusing to seed a workspace over a secret ``osprey up``
+    will mint (or refuse on) itself would block the operator from the wrong
+    place. A failure that leaves a user without a secret is reported by the mint
+    and caught by that deploy gate.
+
+    Args:
+        session: The resolved repo — the root the ``.env`` lives at, and the
+            rendered config the roster is read from.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import ensure_terminal_secrets
+
+    ensure_terminal_secrets(session.root, _roster_usernames(session.config))
+
+
+def _purge_terminal_secret(session: _Repo, user: str) -> None:
+    """Drop one departed user's terminal secret from the deploy ``.env``.
+
+    Reported, never raised. By the time this runs the user's containers and
+    volumes are already gone, so letting an unwritable ``.env`` abort the verb
+    would report the opposite of what happened — and the leftover is a variable
+    an operator can delete in one line, which the warning names.
+
+    Skipped entirely when a SURVIVING roster user shares the departing user's
+    env-var suffix (``alice-b`` and ``alice_b`` both key
+    ``OSPREY_TERMINAL_SECRET_ALICE_B``). Purging there would lock out a user who
+    is still on the roster, which is worse than the stale value it would clean
+    up. Such a roster cannot be minted for at all — ``ensure_terminal_secrets``
+    refuses it — so this only ever fires on a hand-placed value, but "only
+    reachable by hand" is not a reason to delete a live user's key. If the
+    roster cannot be read the purge proceeds: an unreadable rendered config is
+    not evidence of a collision, and skipping on it would leave every removal's
+    secret behind.
+
+    Args:
+        session: The resolved repo; the ``.env`` sits at its root.
+        user: The username whose secret is being removed.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import (
+        purge_terminal_secret,
+        terminal_secret_var,
+    )
+    from osprey.utils.dotenv import ENV_LOCAL_FILENAME
+
+    variable = terminal_secret_var(user)
+    try:
+        survivors = [name for name in _roster_usernames(session.config) if name != user]
+    except Exception as exc:  # noqa: BLE001 - advisory read; see the docstring
+        logger.debug(f"Roster collision check skipped for {user!r}: {exc}")
+        survivors = []
+    shared_with = [name for name in survivors if terminal_secret_var(name) == variable]
+    if shared_with:
+        warn(
+            f"{user}'s terminal secret was left in place: {', '.join(shared_with)} shares it",
+            f"{', '.join(shared_with)} maps onto the same {variable}, and is still on the "
+            "roster. Removing the value would lock them out of their own terminal.\n"
+            "Rename one of those users so each has a variable of their own, then delete "
+            "the old value by hand.",
+        )
+        return
+
+    try:
+        purge_terminal_secret(user, session.root)
+    except OSError as exc:
+        warn(
+            f"{user}'s terminal secret could not be removed from this repo's .env",
+            f"{exc}\nEverything else about the removal succeeded. The stale value would "
+            "be inherited by a re-added user of the same name.\n"
+            f"Delete {variable} from {session.root / ENV_LOCAL_FILENAME} by hand.",
+        )
+
+
+def _purge_orphan_terminal_secrets(session: _Repo) -> None:
+    """Drop terminal secrets belonging to nobody on the current roster.
+
+    ``prune``'s counterpart to :func:`_purge_terminal_secret`, and reported
+    rather than raised for the same reason: the destructive half has already
+    run.
+
+    Args:
+        session: The resolved repo — the ``.env`` at its root, and the rendered
+            config naming who is still on the roster.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import (
+        TERMINAL_SECRET_VAR_PREFIX,
+        purge_orphan_terminal_secrets,
+    )
+    from osprey.utils.dotenv import ENV_LOCAL_FILENAME
+
+    try:
+        purge_orphan_terminal_secrets(session.root, _roster_usernames(session.config))
+    except OSError as exc:
+        warn(
+            "Terminal secrets for pruned users could not be removed from this repo's .env",
+            f"{exc}\nEverything else about the prune succeeded. A stale value would be "
+            "inherited by a re-added user of the same name.\n"
+            f"Delete the {TERMINAL_SECRET_VAR_PREFIX}* entries for departed users from "
+            f"{session.root / ENV_LOCAL_FILENAME} by hand.",
+        )
+
+
 def _rendered_config_path(repo_root: Path) -> Path:
     """Where the running stack's config lives in a deployment repo."""
     from osprey.deployment.staleness import BUILD_DIRNAME
@@ -341,7 +474,8 @@ def users() -> None:
     A multi-user deployment gives each person on the roster their own web
     terminal, container and workspace volumes. These verbs act on that roster:
     remove one person, clear out the ones who already left, re-seed workspaces,
-    rotate a login password, and render the env file the terminals run with.
+    rotate a login password, hand one person the URL that opens their terminal,
+    and render the env file the terminals run with.
 
     Every verb acts on the deployment repo you are standing in; pass --repo to
     act on another one. The roster itself lives in the profile.
@@ -354,6 +488,7 @@ def users() -> None:
       $ osprey users prune --purge --yes
       $ osprey users seed alice
       $ osprey users passwd alice
+      $ osprey users login-url alice
       $ osprey users env --output .env.users
 
     Run 'osprey users VERB --help' for the options a single verb takes.
@@ -455,6 +590,14 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
             # makes the same removal in both files.
             decommission_user(session.config, user, archive=archive, purge=purge, assume_yes=yes)
 
+        # After the engine, never before it: the engine owns the typed
+        # confirmation, and a declined gate must leave the deployment exactly as
+        # it was. The engine's own purge reaches `.env.auth` only, so without
+        # this the departed user's terminal secret would stay in the deploy
+        # `.env` — inherited by a re-added same-name user whose predecessor,
+        # their browser and any copy they took with them still know the value.
+        _purge_terminal_secret(session, user)
+
         try:
             edit = _drop_user_from_profile_roster(profile_path, user)
         except Exception as exc:
@@ -528,6 +671,14 @@ def prune(repo: Path | None, archive: bool, purge: bool, yes: bool, dry_run: boo
         from osprey.deployment.web_terminals.lifecycle import prune_users
 
         prune_users(session.config, dry_run=dry_run, archive=archive, purge=purge, assume_yes=yes)
+        if not dry_run:
+            # Asked of the roster rather than of the runtime, which is what
+            # makes it answerable here at all: `prune_users` discovers orphans
+            # in the container runtime and reports no names back, while a
+            # terminal secret keyed to nobody on the roster is stale whether or
+            # not a container survived to be pruned. `--dry-run` touches
+            # nothing, here as everywhere else in this verb.
+            _purge_orphan_terminal_secrets(session)
 
 
 @users.command()
@@ -541,7 +692,142 @@ def seed(user: str | None, repo: Path | None) -> None:
     with _users_session(repo) as session:
         from osprey.deployment.web_terminals.seeding import seed_web_terminals
 
+        # The whole roster even when USER names one person: the mint is
+        # idempotent, and a secret missing for somebody else is a gap `osprey
+        # up` would refuse on either way. Before the seeding, so a workspace is
+        # never prepared for a terminal that has no way to be reached.
+        _mint_terminal_secrets(session)
         seed_web_terminals(session.config, user)
+
+
+@users.command("login-url")
+@click.argument("user")
+@repo_option
+def login_url(user: str, repo: Path | None) -> None:
+    """Print one user's login URL for this deployment.
+
+    Every web terminal authenticates each request against that user's own
+    operator secret, which nginx stamps on requests it has authenticated. With
+    web_terminals.auth.method at 'none' — the default — nginx authenticates
+    nobody and stamps nothing, so the terminal's own gate is the only one: a
+    browser gets in by opening this URL once, which trades the token for a
+    session cookie and redirects to the plain address. The same is true for a
+    roster entry that set 'login: false' while auth is on.
+
+    A user who signs in through the login page has no token URL, and this verb
+    refuses for them: nginx denies the request before the app can read the
+    token, so the URL would only bounce them to that page. It names the login
+    page instead of printing a live secret that accomplishes nothing.
+
+    The URL carries that user's secret. Treat it like a password: send it to the
+    person it belongs to, over something you would send a password over, and
+    give each person only their own. It stays valid until the secret is rotated
+    (delete their OSPREY_TERMINAL_SECRET_* line from .env and run 'osprey up').
+
+    Only the URL goes to stdout, so it can be piped or copied; everything else
+    is written to stderr.
+
+    Examples:
+
+    \b
+      $ osprey users login-url alice
+      $ osprey users login-url alice | pbcopy
+    """
+    # No banner: stdout is the URL and nothing else, the same contract `users
+    # env` keeps for the file it renders.
+    with _users_session(repo, announce=False) as session:
+        from osprey.deployment.deploy_summary import token_login_users
+        from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
+        from osprey.deployment.web_terminals.render import (
+            deployment_external_origin,
+            terminal_login_url,
+        )
+        from osprey.utils.config import load_project_config
+        from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+
+        roster = _roster_usernames(session.config)
+        if user not in roster:
+            # Named before the secret is looked up: a user who is not on the
+            # roster has no variable to be missing, and reporting the absent
+            # variable instead would send an operator to edit .env over what is
+            # really a roster edit.
+            known = ", ".join(roster) if roster else "(the roster is empty)"
+            fail(
+                f"No web-terminal user {user!r} in this deployment",
+                f"{session.config} lists: {known}.\n"
+                "Add them to modules.web_terminals.users in profile.yml and run "
+                "`osprey build`.",
+                "name a user on the roster",
+            )
+            raise click.Abort()
+
+        # A user BEHIND the login wall has no use for this URL, and the URL
+        # would not work if they tried it: nginx's `auth_request` denies the
+        # request before the app ever sees the `?token=`, and even after a
+        # successful sidecar login the gated location forwards `Cookie ""`, so
+        # the token->cookie exchange the URL exists to trigger can never apply.
+        # Refused rather than caveated: a live operator secret should not leave
+        # the deployment to accomplish nothing. The predicate is the deploy
+        # summary's own, so the verb and the closing card cannot disagree about
+        # who has a login page.
+        config = load_project_config(session.config)
+        if user not in token_login_users(config):
+            try:
+                origin = deployment_external_origin(config)
+            except ValueError:
+                origin = ""
+            login_page = f"{origin}/auth/login" if origin else "this deployment's /auth/login"
+            fail(
+                f"{user} signs in through the login page, so no token URL applies",
+                f"This deployment authenticates {user} at {login_page}; nginx refuses "
+                "the request before the app can read a ?token=, so the URL would only "
+                "land them back on that page. Set their password with "
+                f"`osprey users passwd {user}` (or, under OIDC, have them sign in "
+                "with the identity their roster entry names).",
+                "send them the login page, not a token URL",
+            )
+            raise click.Abort()
+
+        variable = terminal_secret_var(user)
+        env_path = session.root / ENV_LOCAL_FILENAME
+        stored = parse_dotenv_file(env_path) if env_path.is_file() else {}
+        secret = str(stored.get(variable, "") or "").strip()
+        if not secret:
+            # The mint runs on every `osprey up`, in every auth method, so an
+            # absent value means this deployment has not been started yet (or
+            # the line was removed by hand) rather than anything the operator
+            # has to invent. The remedy is the mint, not a value.
+            fail(
+                f"No terminal secret for {user} in {env_path}",
+                f"{variable} is unset or empty, so there is no URL to build. Every "
+                "roster user's secret is minted during `osprey up`'s preflight.",
+                "run `osprey up` (or `osprey users seed`) to mint it",
+            )
+            raise click.Abort()
+
+        # The origin comes from the rendered config, so this URL is on the same
+        # origin the container checks a mutating request's `Origin` against —
+        # a link built from any other host would load and then refuse every
+        # action taken on it.
+        url = terminal_login_url(config, user, secret)
+
+        # Context to stderr, so `osprey users login-url alice | pbcopy` copies
+        # the URL and not the warning about it. `machine_mode` is what moves
+        # every renderer line over; nothing here prints the secret except the
+        # URL itself.
+        with machine_mode():
+            warn(
+                f"This URL contains {user}'s terminal secret",
+                "Anyone holding it has that terminal. Send it only to "
+                f"{user}, the way you would send a password.",
+            )
+        # Through the renderer, not a raw write: this is the verb's primary
+        # output and takes the report altitude like every other verb's. It
+        # stays one unwrapped line — `report` prints with soft_wrap, so a long
+        # origin does not get a newline folded into the middle of a URL an
+        # operator is about to paste — and it is OUTSIDE the machine_mode block
+        # above, so it is the only thing on stdout.
+        report(url)
 
 
 @users.command()
@@ -627,13 +913,13 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             USERS_ENV_FILENAME,
             _build_env_production_subset,
             _claude_code_auth_secret_vars,
+            render_env_users,
         )
         from osprey.utils.config import load_project_config
         from osprey.utils.dotenv import (
             ENV_LOCAL_FILENAME,
             ENV_SHARED_FILENAME,
             chain_files,
-            format_env_line,
             merge_chain,
             parse_dotenv_file,
         )
@@ -675,7 +961,17 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
 
         deploy_config = load_project_config(session.config)
 
-        required_vars, extra_vars = _claude_code_auth_secret_vars(deploy_config, project_root)
+        # This verb renders the file the terminals RUN with, so it is the other
+        # moment an operator prepares a terminal by hand. The mint's own line
+        # goes through `machine_mode`, which sends every renderer line to
+        # stderr: in the default mode stdout IS the rendered file, and one
+        # promoted fact printed there would corrupt a `> .env.users` redirect.
+        with machine_mode():
+            _mint_terminal_secrets(session)
+
+        required_vars, extra_vars, _keyless_vars = _claude_code_auth_secret_vars(
+            deploy_config, project_root
+        )
         missing = {var: origin for var, origin in required_vars.items() if var not in dotenv}
         if missing:
             # Warn rather than refuse: whether an absent auth secret is fatal is
@@ -691,9 +987,11 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
         subset = _build_env_production_subset(
             deploy_config, dotenv, {**required_vars, **extra_vars}
         )
-        # Same line renderer the deploy path writes through, so a value needing
-        # quotes to survive a re-read is rendered identically either way.
-        rendered = "".join(f"{format_env_line(key, value)}\n" for key, value in subset.items())
+        # The deploy path's own renderer (readme header + quoted lines), so a
+        # file rendered here and one `osprey up` generates are byte-identical.
+        # The header reaches stdout too: stdout IS the file in that mode, and
+        # comment lines are valid dotenv for every compose reader.
+        rendered = render_env_users(subset)
 
         if output_path is None:
             # ALLOWLISTED raw click.echo, not a renderer primitive: stdout here

@@ -32,7 +32,7 @@ Build & Deploy a Project
       :link-type: doc
 
       Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
-      CBORG, AMSC i2, Ollama, and others — via ``config.yml``.
+      CBORG, AMSC i2, Ollama, and others — via the build profile (``profile.yml``).
 
    .. grid-item-card:: Run Open & Local Models
       :link: run-open-models
@@ -76,6 +76,14 @@ Run & Operate the Agent
       containerized Web Terminal per user, in read-only and write-capable
       capability tiers.
 
+   .. grid-item-card:: Send and Retrieve Feedback
+      :link: send-feedback
+      :link-type: doc
+
+      Let operators report problems from the Web Terminal itself — three
+      channels, what each attaches, and the ``osprey feedback`` verbs that read
+      the results back.
+
    .. grid-item-card:: Command-Line Agent
       :link: cli-agent
       :link-type: doc
@@ -111,6 +119,20 @@ Run & Operate the Agent
 
       Extend ``osprey health`` with facility probe checks and plugins, and tune
       the suite's cost classes and timeouts via the ``health:`` config block.
+
+   .. grid-item-card:: The ``osprey health --json`` Contract
+      :link: health-json-contract
+      :link-type: doc
+
+      The report envelope, the per-check row shape, the exit codes, and the
+      ``jq`` patterns for consuming all of it from a CI job.
+
+   .. grid-item-card:: Switch the Control Target
+      :link: switch-control-target
+      :link-type: doc
+
+      Rehearse work on the virtual accelerator and then run it on the real
+      machine, in one session — the roster, the live gate, and what refuses.
 
 Extend & Integrate
 ------------------
@@ -160,6 +182,14 @@ Bundled Services & Tutorials
       Search, filter, and explore control system channels using the Channel Finder
       service and its web interface.
 
+   .. grid-item-card:: Search the Facility Graph
+      :link: use-facility-graph
+      :link-type: doc
+
+      Let the Osprey agent answer structure questions — device rollups, section
+      walks, which PVs a device exposes — with read-only Cypher over the
+      facility knowledge graph.
+
    .. grid-item-card:: ARIEL Logbook Search
       :link: ariel/index
       :link-type: doc
@@ -199,16 +229,20 @@ Bundled Services & Tutorials
    containerize-project
    web-terminal/index
    multi-user
+   send-feedback
    cli-agent
    event-dispatch
    chat-bridges/index
    monitor-agent
    configure-health-checks
+   health-json-contract
+   switch-control-target
    add-connector
    add-mcp-server
    use-python-executor
    use-facility-knowledge
    use-channel-finder
+   use-facility-graph
    ariel/index
    use-virtual-accelerator
    bluesky/index

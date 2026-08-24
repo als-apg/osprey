@@ -47,6 +47,11 @@ from osprey.utils.workspace import STATE_ZONE_DIRS
 from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR
 from .repo_resolver import HELD_SOURCE_ZONE_DIRNAME
+from .variant_selection import (
+    VARIANT_DIRNAME,
+    VARIANT_SETTING_FILENAME,
+    VARIANT_SETTING_KEY,
+)
 
 if TYPE_CHECKING:
     # Annotation only — both modules are imported lazily inside the command
@@ -119,6 +124,11 @@ def _repo_gitignore() -> str:
 # unanchored `{BUILD_OUTPUT_DIR}/` or `.env*` would also swallow a same-named path anywhere
 # deeper in the tree — including files moved there later — and it would do it
 # silently.
+#
+# The same pattern covers `{VARIANT_SETTING_FILENAME}`, which is not a secret but is
+# host-local for the same reason: it holds `{VARIANT_SETTING_KEY}=<name>`, naming
+# which `{VARIANT_DIRNAME}/<name>.yml` overlay THIS host builds. Committing it would
+# hand this host's choice to every other one.
 /.env*
 !/.env.example
 !/{ENV_SHARED_FILENAME}
@@ -165,6 +175,10 @@ def _repo_env_shared(name: str) -> str:
 # A key set in both files takes its value from `.env`. There is nothing more to
 # it than that: same syntax, same variables, lower precedence.
 #
+# One exception, and only if profile.yml asks for it: a variable listed under
+# `env.pinned` is this file's to decide. `osprey up` refuses to start when
+# `.env` or a shell export sets one.
+#
 # Never put a secret here — this file is committed. An API key, a token or a
 # password goes in `.env`, which git ignores and which never leaves the host.
 # Neither file ever enters a container image; both are read at run time.
@@ -173,6 +187,12 @@ def _repo_env_shared(name: str) -> str:
 # NO_PROXY=localhost,127.0.0.1
 # HTTP_PROXY=http://proxy.example.com:8080
 # HTTPS_PROXY=http://proxy.example.com:8080
+
+# Site CA bundle — uncomment if a proxy re-signs TLS with a site CA.
+# On RHEL-family hosts the system bundle lives here:
+# SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# REQUESTS_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+# NODE_EXTRA_CA_CERTS=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 """
 
 
@@ -220,6 +240,10 @@ edited by hand.
 setting appears in both, the one in `.env` wins. That is how a single host
 changes a shared default without affecting anyone else. None of these files go
 into a container image — they are all read when the deployment starts.
+
+If `profile.yml` lists a variable under `env.pinned`, that one is the exception:
+`{ENV_SHARED_FILENAME}` decides it, and `osprey up` refuses to start when `.env`
+or a shell export disagrees.
 
 `{MERGED_COMPOSE_FILENAME}` at the root is generated the same way, so a deploy
 can hand the container runtime one file instead of several. It is kept out of
@@ -670,24 +694,33 @@ def _reinstate_held_source_zone(target: Path) -> None:
     version simply has no place for. So the holding directory is removed only
     when the restore emptied it, and otherwise stays, named, for its owner to
     decide about. It is git-ignored, so leaving it costs nothing.
-    """
-    import shutil
 
+    Clearing what stands in a held entry's way is
+    :func:`~.build_cmd._clear_leftover`'s job, for the same reason the swap
+    hands it the same job: every removal here is followed by a rename onto the
+    name that was removed, so a half-written output nobody can delete — a
+    container's root-owned files, an NFS sillyrename — must be moved out of the
+    way instead of silently left to fail that rename. Failing to put a source
+    zone back is the one outcome this function must never reach quietly.
+    """
+    from osprey.utils.workspace import STATE_DIR_NAME
+
+    from .build_cmd import _clear_leftover
     from .profile_cmd import MATERIALIZED_SOURCE_ENTRIES
 
     stash = target / HELD_SOURCE_ZONE_DIRNAME
     if not stash.is_dir():
         return
 
+    # The STATE zone, for the same reasons the swap parks there: git-ignored,
+    # same filesystem, and not part of what a re-materialization replaces.
+    aside_root = target / STATE_DIR_NAME
     for name in MATERIALIZED_SOURCE_ENTRIES:
         held = stash / name
         if not held.exists():
             continue
         destination = target / name
-        if destination.is_dir():
-            shutil.rmtree(destination, ignore_errors=True)
-        else:
-            destination.unlink(missing_ok=True)
+        _clear_leftover(destination, aside_root=aside_root)
         held.rename(destination)
 
     unrecognized = sorted(entry.name for entry in stash.iterdir())
@@ -699,7 +732,11 @@ def _reinstate_held_source_zone(target: Path) -> None:
             "directory yourself.",
         )
         return
-    shutil.rmtree(stash, ignore_errors=True)
+    # Not best-effort either: while this directory stands, every verb finds the
+    # repo through it and refuses (:func:`~.repo_resolver.find_repo_root`), so a
+    # stash that survives its own emptying leaves the repo exactly as unusable
+    # as the crash did.
+    _clear_leftover(stash, aside_root=aside_root)
 
 
 @contextmanager
@@ -1454,6 +1491,7 @@ def _report(
     pin.
     """
     from .phase_reporter import current_reporter
+    from .profile_card import print_profile_card
     from .profile_cmd import _skipped_keys_note
 
     echo = current_reporter().echo
@@ -1471,6 +1509,12 @@ def _report(
 
     for line in _ci_report(deploy_files, target):
         echo(line)
+
+    # Last, so the report keeps its shape: files first, then what the profile
+    # those files describe consists of. It stays on screen through everything a
+    # chained `--up` does, which is the point — the composition is what someone
+    # reads while the containers pull.
+    print_profile_card(materialized.resolved, materialized.persona_deltas)
 
 
 def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:

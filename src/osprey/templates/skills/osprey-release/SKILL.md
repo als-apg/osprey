@@ -219,16 +219,29 @@ gh run watch                                 # follow the release.yml run
 gh release view vYYYY.M.P                    # confirm GitHub Release exists
 pip install --upgrade osprey-framework       # in a fresh shell
 python -c "import osprey; print(osprey.__version__)"
+open https://als-apg.github.io/osprey/        # switcher button reads vYYYY.M.P
 ```
 
-Three success signals:
+Four success signals:
 
 - `release.yml` finished green.
 - `https://pypi.org/project/osprey-framework/YYYY.M.P/` exists.
 - `https://github.com/als-apg/osprey/releases/tag/vYYYY.M.P` has the CHANGELOG
   entries as the body.
+- The version switcher *button* on `https://als-apg.github.io/osprey/` reads
+  `vYYYY.M.P`, not the previous release. (The dropdown lists the new tag
+  either way; the button is what proves the root was rebuilt.) If it still
+  reads the old release, check the docs runs first
+  (`gh run list --workflow=docs.yml --limit 5`): if no run for the tag ever
+  started, it was superseded while pending — GitHub keeps one pending run per
+  concurrency group — so `gh workflow run docs.yml -f tag=vYYYY.M.P` and
+  re-check.
 
-If any fail, stop and investigate before announcing the release.
+If any fail, stop and investigate before announcing the release. An empty
+answer — `gh run watch` finding no matching run, or a command returning
+nothing on an API hiccup — is neither success nor failure: re-query with an
+explicit run selector (`gh run watch <run-id>`) before treating anything as
+green.
 
 ---
 
@@ -265,5 +278,7 @@ This is a fallback. The default path is the automated workflow.
 - **Release candidates / beta tags** — not currently supported by
   `release.yml`, which triggers on `v*.*.*` only. If you need an RC channel,
   the workflow needs changes first.
-- **Documentation builds** — handled separately by `docs.yml`; no manual
-  step needed in the release flow.
+- **Documentation builds** — `docs.yml` publishes the docs from the tag on
+  its own: the site root shows the newest release and `main` publishes at
+  `/latest/`. Nothing to run by hand unless the root did not pick up the new
+  tag, in which case Step 5's re-dispatch applies.

@@ -293,6 +293,176 @@ def test_a_failed_summary_prints_nothing_and_is_recorded(probe, monkeypatch):
     assert any("Endpoint summary skipped" in message for message in probe.messages)
 
 
+# ---------------------------------------------------------------------------
+# Port-aware HTTP predicate: one service, two ports, two vocabularies
+# ---------------------------------------------------------------------------
+
+
+def _address_for(entries: list[tuple[str, str]], host_port: int) -> str:
+    """The single ``graphdb`` address published on ``host_port``.
+
+    Asserts on the address rather than on a substring of the whole block, so a
+    URL leaking onto the bolt row cannot hide behind the Browser row matching.
+    """
+    matches = [
+        address
+        for service, address in entries
+        if service == "graphdb" and f":{host_port}" in address
+    ]
+    assert len(matches) == 1, f"expected one graphdb entry on {host_port}, got {matches}"
+    return matches[0]
+
+
+@pytest.fixture
+def graphdb_compose_file(tmp_path):
+    """A graph store publishing both of its ports the way the template does."""
+    path = tmp_path / "docker-compose.graphdb.yml"
+    path.write_text(
+        """
+services:
+  graphdb:
+    ports:
+      - "127.0.0.1:7687:7687"
+      - "127.0.0.1:7474:7474"
+""",
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def test_only_the_browser_port_of_the_graph_store_is_a_url(graphdb_compose_file):
+    """The needle: one service, two ports, and only 7474 speaks HTTP.
+
+    Bolt is a binary protocol — a ``http://`` prefix on 7687 would hand the
+    operator a link that cannot open, which is worse than no link at all.
+    """
+    entries = deploy_summary.endpoint_entries({"project_name": "demo"}, [graphdb_compose_file])
+
+    assert _address_for(entries, 7474) == "http://127.0.0.1:7474"
+    assert _address_for(entries, 7687) == "127.0.0.1:7687"
+
+
+def test_moved_graph_store_ports_stay_port_aware(tmp_path):
+    """The decision follows the CONTAINER port, not the host port it was moved to.
+
+    A project that published the graph store somewhere else still gets its
+    Browser link and its bare bolt address — keying the predicate on the host
+    port would have silently swapped the two the moment either moved.
+    """
+    path = tmp_path / "docker-compose.moved.yml"
+    path.write_text(
+        """
+services:
+  graphdb:
+    ports:
+      - "127.0.0.1:17687:7687"
+      - "127.0.0.1:17474:7474"
+""",
+        encoding="utf-8",
+    )
+    entries = deploy_summary.endpoint_entries({"project_name": "demo"}, [str(path)])
+
+    assert _address_for(entries, 17474) == "http://127.0.0.1:17474"
+    assert _address_for(entries, 17687) == "127.0.0.1:17687"
+
+
+def test_host_network_graph_store_renders_the_same_way(tmp_path):
+    """A derived binding and a published one describe the same endpoint.
+
+    Both carry the container port the image fixes, so the summary cannot say
+    "Browser" about one deployment's 7474 and "bolt" about another's.
+    """
+    empty = tmp_path / "docker-compose.yml"
+    empty.write_text("services: {}\n", encoding="utf-8")
+    config = {
+        "project_name": "demo",
+        "services": {"graphdb": {"network": "host", "port_host": 7687, "http_port_host": 7474}},
+    }
+
+    entries = deploy_summary.endpoint_entries(config, [str(empty)])
+
+    assert _address_for(entries, 7474).startswith("http://127.0.0.1:7474")
+    assert not _address_for(entries, 7687).startswith("http://")
+    # The host-network annotation is orthogonal to the scheme and survives both.
+    assert all("(host network)" in _address_for(entries, port) for port in (7474, 7687))
+
+
+def test_host_network_and_published_graph_stores_agree_on_moved_ports(tmp_path):
+    """The two sources render identically for the same moved ports."""
+    published = tmp_path / "docker-compose.published.yml"
+    published.write_text(
+        """
+services:
+  graphdb:
+    ports:
+      - "127.0.0.1:27687:7687"
+      - "127.0.0.1:27474:7474"
+""",
+        encoding="utf-8",
+    )
+    empty = tmp_path / "docker-compose.empty.yml"
+    empty.write_text("services: {}\n", encoding="utf-8")
+    derived_config = {
+        "project_name": "demo",
+        "services": {"graphdb": {"network": "host", "port_host": 27687, "http_port_host": 27474}},
+    }
+
+    parsed = deploy_summary.endpoint_entries({"project_name": "demo"}, [str(published)])
+    derived = deploy_summary.endpoint_entries(derived_config, [str(empty)])
+
+    for port in (27474, 27687):
+        # Only the "(host network)" annotation may differ between the two.
+        assert _address_for(derived, port).removesuffix("  (host network)") == _address_for(
+            parsed, port
+        )
+
+
+def test_single_port_http_services_are_unchanged_beside_the_graph_store(tmp_path):
+    """Every existing member still renders as a URL on whatever port it published."""
+    path = tmp_path / "docker-compose.mixed.yml"
+    path.write_text(
+        """
+services:
+  graphdb:
+    ports:
+      - "127.0.0.1:7687:7687"
+      - "127.0.0.1:7474:7474"
+  openobserve:
+    ports:
+      - "127.0.0.1:5080:5080"
+  tiled:
+    ports:
+      - "127.0.0.1:8000:8000"
+  postgresql:
+    ports:
+      - "127.0.0.1:5432:5432"
+""",
+        encoding="utf-8",
+    )
+    entries = dict(deploy_summary.endpoint_entries({"project_name": "demo"}, [str(path)]))
+
+    assert entries["openobserve"] == "http://127.0.0.1:5080"
+    assert entries["tiled"] == "http://127.0.0.1:8000"
+    assert entries["postgresql"] == "127.0.0.1:5432"
+
+
+def test_an_unrecognised_graph_store_port_stays_a_bare_address(tmp_path):
+    """A port the image does not fix gets no link it cannot honour."""
+    path = tmp_path / "docker-compose.extra.yml"
+    path.write_text(
+        """
+services:
+  graphdb:
+    ports:
+      - "127.0.0.1:2004:2004"
+""",
+        encoding="utf-8",
+    )
+    entries = deploy_summary.endpoint_entries({"project_name": "demo"}, [str(path)])
+
+    assert _address_for(entries, 2004) == "127.0.0.1:2004"
+
+
 def test_every_deploy_exit_path_shares_this_one_seam():
     """The exit paths inherit the printed form because they all land here.
 

@@ -12,6 +12,7 @@ How to run a deployment's containerized services.
    - Configuring services in ``config.yml`` (minimal example)
    - Keeping a rendered deployment up to date, and the ``--dev`` workflow
    - Which compose providers are supported, and what changes between them
+   - Overriding service images, and mirroring every image into one registry
    - Where the deeper reference lives: compose templates, networking, and the ``.env`` chain each have their own subpage
 
    **Prerequisites:** Docker or Podman installed locally.
@@ -76,6 +77,46 @@ is no search order. A plain name like ``postgresql`` resolves to top-level
 ``applications.<app>.<name>`` reads ``applications.<app>.services.<name>``.
 The flat form shown above is the common case; the namespaced forms exist for
 build profiles that ship multiple applications.
+
+The graph store (``graphdb``)
+-----------------------------
+
+Alongside ``postgresql`` and ``openobserve``, the ``control-assistant`` preset
+deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
+graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
+and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an
+operator opens (``http_port_host``), the Turtle corpus to load (``ttl_path``,
+resolved against the ``config.yml`` directory), and the JVM memory the container
+runs with.
+
+Two more keys bound what one *query* may cost rather than what the container may
+use: ``query_timeout_s`` (15 seconds by default) is the transaction timeout the
+store enforces on a single query, so a runaway traversal is cancelled
+server-side rather than left open by a client that has given up, and
+``query_max_rows`` (200) is how many rows come back before the answer is
+truncated. The OSPREY agent's graph search reads both, and tells you when a
+result was cut short. Raising them spends the agent's context window rather than
+the store's memory — a few thousand rows crowd out the conversation long before
+they trouble Neo4j. For what the agent does with the store once it is up — the
+query tools, the read-only posture, and how to generate a corpus of your own —
+see :doc:`/how-to/use-facility-graph`.
+
+The block carries **no password**, deliberately — the same convention
+``postgresql`` follows. ``osprey up`` mints ``GRAPHDB_PASSWORD`` into the
+project ``.env`` when it is unset, and the container reads it from there; a
+password written into ``config.yml`` would be read by nobody.
+
+On a first bring-up the deploy starts the store ahead of the rest of the stack,
+bootstraps it, and imports ``ttl_path`` — a store that came up empty would answer
+every query with zero rows, which reads as wrong data rather than as no data.
+Later deploys find the corpus already there and leave it alone. If bootstrapping
+or seeding fails the deploy warns and carries on, naming ``osprey knowledge
+seed-graph`` (see :doc:`/how-to/okf-bundle`), the verb that finishes the job by hand.
+
+To query a graph store this deployment does *not* run, give the block an
+explicit ``uri:`` and leave ``graphdb`` out of ``deployed_services``. Nothing is
+minted or seeded on that path — the graph is somebody else's, so set
+``GRAPHDB_PASSWORD`` in the project ``.env`` yourself.
 
 CLI Commands
 ============
@@ -227,6 +268,43 @@ chain resolves to it warns by name — never by value — and states which value
 the provider it just probed will actually use, plus what to do about it. The
 reliable habit is to put the value in the env chain and leave your shell out of
 it: that is the one gesture that means the same thing on both providers.
+
+.. _podman-network-backend:
+
+Podman's network backend (required by the Bluesky stack)
+--------------------------------------------------------
+
+The ``bluesky`` service puts its bridge, RE Manager and Redis on an internal
+network and dual-homes the queueserver across two networks. Resolving one
+container by name from another is therefore load-bearing, and on Podman that
+depends on which networking backend the host runs:
+
+* **netavark** (Podman 4.0+ default) — ships aardvark-dns, which serves
+  container-name DNS on every network a container is attached to. **Required.**
+* **cni** (the legacy backend, still configured on some RHEL 8 hosts) — has no
+  aardvark-dns. A dual-homed container receives only its *first* network's
+  resolver, so ``bluesky-queueserver`` can never resolve ``bluesky-redis``.
+
+On ``cni`` the queueserver never becomes healthy and ``osprey up`` aborts before
+the web slice renders — the whole deployment is down, on a DNS fact nothing in
+the deploy output points at. So ``osprey up`` checks the backend up front and
+refuses, before touching a container, when ``bluesky`` is deployed on a ``cni``
+host. Only the Bluesky stack needs this; every other service here runs fine on
+either backend, and a Docker host is unaffected.
+
+To switch a host over, install ``aardvark-dns`` and set the backend in
+``containers.conf`` (``/etc/containers/containers.conf``, or
+``~/.config/containers/containers.conf`` for a rootless deployment):
+
+.. code-block:: ini
+
+   [network]
+   network_backend = "netavark"
+
+Existing Podman networks were created by the old backend and must be recreated
+afterwards — ``podman network rm`` for the project's own networks, or
+``podman system reset`` on a host with nothing else to lose. Check the result
+with ``podman info --format '{{.Host.NetworkBackend}}'``.
 
 Deployment Workflow
 ===================

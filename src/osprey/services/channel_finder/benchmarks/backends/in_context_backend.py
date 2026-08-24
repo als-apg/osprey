@@ -43,8 +43,8 @@ class InContextBackend(Backend):
     The backend identifier is ``"direct"`` rather than ``"in_context"`` —
     that's the *paradigm* this backend can host, not the harness shape.
     Calling it ``"in_context"`` would conflate the paradigm axis
-    (``in_context`` / ``hierarchical`` / ``middle_layer``) with the harness
-    axis (``sdk`` / ``react`` / ``direct``) on the dashboard.
+    (``in_context`` / ``hierarchical`` / ``middle_layer`` / ``graph``) with the
+    harness axis (``sdk`` / ``react`` / ``direct``) on the dashboard.
     """
 
     name = "direct"

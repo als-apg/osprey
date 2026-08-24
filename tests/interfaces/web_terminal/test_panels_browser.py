@@ -3102,6 +3102,22 @@ def _palette_live_server(workspace):
             yield base_url, app
 
 
+def _wait_for_ariel_ready(page: Page) -> None:
+    """Block until ARIEL's standalone URL has resolved through /api/ariel-server.
+
+    The palette builds its rows once per open (palette.js re-renders per open,
+    not per keystroke), so an open that outruns ARIEL's config fetch is missing
+    the ARIEL rows for as long as it stays open — no amount of typing brings
+    them back. The rail entry sheds ``.disabled`` in the same settle that
+    publishes the URL (initPanel → assumeHealthy), so waiting on the class is
+    waiting on the rows' precondition. Every test that opens the palette and
+    expects an ARIEL row must pass through here first.
+    """
+    expect(
+        page.locator('button.panel-rail-button[data-panel-id="ariel"]:not(.disabled)')
+    ).to_be_attached(timeout=10_000)
+
+
 def _palette_input(page: Page):
     return page.locator(_PALETTE_INPUT)
 
@@ -3133,6 +3149,23 @@ def _open_palette(page: Page, *, hotkey: bool = False) -> None:
     else:
         page.locator("#command-palette-btn").click()
     expect(page.locator(_PALETTE_OVERLAY)).to_be_visible(timeout=5_000)
+
+
+def _wait_for_panel_rows(page: Page) -> None:
+    """Wait until the rail's ARIEL entry is usable before opening the palette.
+
+    The ARIEL rows — and the popout row in particular — exist only once the
+    panel-config fetch has resolved (``getPanelStandaloneUrl`` answers null
+    until then). In isolation that takes well under a second; at the tail of a
+    long single-process browser run it can exceed the palette's own 5 s budget.
+    Waiting on the rail entry, which the same fetch enables, anchors the palette
+    assertions to the state they actually depend on instead of to a timer. The
+    rail signals availability with the ``disabled`` CSS class, not the HTML
+    attribute (panel-rail.js ``setEntryEnabled``), so this waits on the class.
+    """
+    expect(
+        page.locator('button.panel-rail-button[data-panel-id="ariel"]:not(.disabled)')
+    ).to_be_attached(timeout=15_000)
 
 
 def _palette_query(page: Page, query: str) -> None:
@@ -3177,6 +3210,7 @@ def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path,
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
 
+        _wait_for_panel_rows(page)
         _open_palette(page, hotkey=True)
 
         # Real focus, not merely a rendered overlay. The diagnostic carries the
@@ -3225,6 +3259,7 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
 
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
+        _wait_for_ariel_ready(page)
         _focus_service_panel(page, "ariel", "ARIEL")
 
         _open_palette(page)
@@ -3259,7 +3294,9 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
 
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
+        _wait_for_ariel_ready(page)
 
+        _wait_for_panel_rows(page)
         _open_palette(page)
         _palette_query(page, "logbook")
 
@@ -3284,7 +3321,9 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
 
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
+        _wait_for_ariel_ready(page)
 
+        _wait_for_panel_rows(page)
         _open_palette(page)
         _palette_query(page, "ariel window")
         row = _palette_row(page, "Open ARIEL in a new window")

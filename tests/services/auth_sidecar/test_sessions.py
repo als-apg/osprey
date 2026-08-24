@@ -426,6 +426,15 @@ def test_the_current_version_is_stamped_into_the_payload(codec: SessionCodec) ->
             "non-string tag",
         ),
         (
+            {
+                "v": PAYLOAD_VERSION,
+                "sid": "s",
+                "iat": 0.0,
+                "users": {"alice": {"exp": 1, "sub": 9}},
+            },
+            "non-string subject",
+        ),
+        (
             {"v": PAYLOAD_VERSION, "sid": "s", "iat": 0.0, "users": {"": {"exp": 1}}},
             "empty username",
         ),
@@ -523,3 +532,85 @@ def test_state_is_hashable() -> None:
     state = SessionState(session_id="s", issued_at=0.0).with_user("alice", expires_at=1.0)
 
     assert len({state, state}) == 1
+
+
+# --- the OIDC subject -------------------------------------------------------
+
+
+def test_round_trip_preserves_the_oidc_subject(codec: SessionCodec, clock: FakeClock) -> None:
+    """The subject the provider issued survives the cookie round trip."""
+    state = codec.new_state().with_user(
+        "alice", expires_at=clock.now + HOUR, oidc_subject="provider|abc123"
+    )
+
+    decoded = codec.decode(codec.encode(state))
+
+    assert decoded.users == (
+        UnlockedUser(username="alice", expires_at=clock.now + HOUR, oidc_subject="provider|abc123"),
+    )
+
+
+def test_an_entry_carries_no_subject_by_default(codec: SessionCodec, clock: FakeClock) -> None:
+    """Password mode has no provider subject, so the field stays empty."""
+    state = codec.new_state().with_user(
+        "alice", expires_at=clock.now + HOUR, generation_tag="0123456789abcdef"
+    )
+
+    entry = codec.decode(codec.encode(state)).entry("alice")
+
+    assert entry is not None
+    assert entry.oidc_subject == ""
+
+
+def test_the_subject_is_written_into_the_payload(codec: SessionCodec, clock: FakeClock) -> None:
+    """Pinning the wire key: a later reader looks for ``sub``, not a rename."""
+    encoded = codec.encode(
+        codec.new_state().with_user(
+            "alice", expires_at=clock.now + HOUR, oidc_subject="provider|abc123"
+        )
+    )
+
+    payload = URLSafeSerializer(SECRET, salt=SIGNATURE_SALT).loads(encoded)
+
+    assert payload["users"]["alice"]["sub"] == "provider|abc123"
+
+
+def test_a_payload_without_a_subject_decodes_as_empty() -> None:
+    """Cookies minted before ``sub`` existed keep working, at the same version.
+
+    The subject was added without a :data:`PAYLOAD_VERSION` bump on purpose, so
+    a browser holding a pre-upgrade cookie stays logged in instead of being
+    silently signed out.
+    """
+    encoded = sign_payload(
+        {
+            "v": PAYLOAD_VERSION,
+            "sid": "s",
+            "iat": 0.0,
+            "users": {"alice": {"exp": 1_000_000_000.0, "tag": "0123456789abcdef"}},
+        }
+    )
+
+    entry = SessionCodec(SECRET, clock=FakeClock()).decode(encoded).entry("alice")
+
+    assert entry is not None
+    assert entry.generation_tag == "0123456789abcdef"
+    assert entry.oidc_subject == ""
+
+
+def test_re_adding_a_user_refreshes_the_subject_in_place(
+    codec: SessionCodec, clock: FakeClock
+) -> None:
+    """A fresh login re-states the subject rather than merging with the old one."""
+    state = (
+        codec.new_state()
+        .with_user("alice", expires_at=clock.now + 60, oidc_subject="provider|old")
+        .with_user("alice", expires_at=clock.now + HOUR, oidc_subject="provider|new")
+    )
+
+    decoded = codec.decode(codec.encode(state))
+
+    alice = decoded.entry("alice")
+    assert alice is not None
+    assert alice.oidc_subject == "provider|new"
+    assert len(decoded.users) == 1

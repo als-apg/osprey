@@ -1,8 +1,8 @@
 {
   "ariel": {
-    "captured_utc": "2026-07-13T00:31:20.931915+00:00",
+    "captured_utc": "2026-08-19T17:49:55.618858+00:00",
     "kind": "static",
-    "osprey_version": "2026.6.3"
+    "osprey_version": "2026.6.2.post1352+geab911034.d20260819"
   },
   "qmd_query_pipeline": {
     "captured_utc": "2026-08-19T04:20:17.523563+00:00",
@@ -15,9 +15,9 @@
     "osprey_version": "2026.6.2.post1376+gded1de181.d20260819"
   },
   "theme_switcher": {
-    "captured_utc": "2026-07-19T23:44:27.053288+00:00",
+    "captured_utc": "2026-08-19T17:22:48.810849+00:00",
     "kind": "static",
-    "osprey_version": "2026.6.3"
+    "osprey_version": "2026.6.2.post1352+geab911034.d20260819"
   },
   "web_terminal_hero": {
     "captured_utc": "2026-07-13T02:09:20.559452+00:00",

@@ -7,6 +7,7 @@ regardless of which modules are enabled.
 from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.database.migrations import BaseMigration
+from osprey.services.ariel_search.database.search_fts import RAW_TEXT_FTS_EXPRESSION
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -86,6 +87,14 @@ class CoreMigration(BaseMigration):
             """
             CREATE INDEX IF NOT EXISTS idx_entries_raw_text_trgm
             ON enhanced_entries USING GIN(raw_text gin_trgm_ops)
+            """
+        )
+
+        # Raw-text full-text index for keyword search when semantic processing is disabled
+        await conn.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_entries_raw_text_fts
+            ON enhanced_entries USING GIN({RAW_TEXT_FTS_EXPRESSION})
             """
         )
 

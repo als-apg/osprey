@@ -45,9 +45,25 @@ import { escapeHtml } from '/design-system/js/dom.js';
  */
 
 /**
+ * @typedef {Object} VocabularyCapability
+ * @property {boolean} enabled
+ * @property {number} concepts
+ * @property {boolean} expand_by_default
+ */
+
+/**
+ * The /api/capabilities payload. `status`/`config_errors`/`remedy` are absent
+ * on a healthy panel and present only when the backend reports a degraded
+ * configuration: `configuration_invalid` means search is dead (the search form
+ * is blocked), `configuration_warning` means search still works.
  * @typedef {Object} Capabilities
  * @property {Object<string, AdvancedCategory>} categories
  * @property {AdvancedParam[]} [shared_parameters]
+ * @property {string|null} [default_mode]
+ * @property {'ok'|'configuration_warning'|'configuration_invalid'} [status]
+ * @property {string[]} [config_errors]
+ * @property {string|null} [remedy]
+ * @property {VocabularyCapability} [vocabulary]
  */
 
 // --- State ---
@@ -61,6 +77,10 @@ let paramValues = {};
 const dynamicOptionsCache = {};
 
 // --- Fallback ---
+// Used when /api/capabilities could not be fetched at all. The annotation is
+// deliberate: it makes tsc prove the literal still satisfies the typedef every
+// time a capabilities field is added.
+/** @type {Capabilities} */
 const FALLBACK_CAPABILITIES = {
   categories: {
     direct: {
@@ -71,6 +91,10 @@ const FALLBACK_CAPABILITIES = {
     },
   },
   shared_parameters: [],
+  status: 'ok',
+  config_errors: [],
+  remedy: null,
+  vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
 };
 
 // --- Public API ---
@@ -81,6 +105,15 @@ const FALLBACK_CAPABILITIES = {
  */
 export function initAdvancedOptions(caps) {
   capabilities = caps || FALLBACK_CAPABILITIES;
+
+  // The deployment decides which mode a search runs in when the user picks
+  // none, so the opening tab follows ariel.default_search_mode rather than a
+  // hardcoded guess. A capabilities payload without it (or naming a mode this
+  // build does not render) leaves the module-level default in place.
+  const advertised = capabilities?.default_mode;
+  if (advertised && _modeExists(advertised)) {
+    currentMode = advertised;
+  }
 
   // Set defaults from capabilities
   resetToDefaults();
@@ -240,6 +273,23 @@ function selectMode(mode) {
 }
 
 /**
+ * Whether the capabilities payload advertises a mode by this name.
+ * @param {string} modeName - Mode name
+ * @returns {boolean} True when a rendered tab exists for the mode
+ */
+function _modeExists(modeName) {
+  const categories = capabilities?.categories || {};
+  for (const cat of Object.values(categories)) {
+    for (const mode of (cat.modes || [])) {
+      if (mode.name === modeName) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Get parameter descriptors for a mode.
  * @param {string} modeName - Mode name
  * @returns {AdvancedParam[]} Parameter descriptors
@@ -271,7 +321,7 @@ function renderAdvancedPanel() {
 
   if (allParams.length === 0) {
     container.innerHTML = `
-      <div class="empty-state" style="padding: var(--ariel-space-6);">
+      <div class="empty-state" style="padding: var(--space-5);">
         <p class="empty-state-text">No advanced options for this mode.</p>
       </div>
     `;

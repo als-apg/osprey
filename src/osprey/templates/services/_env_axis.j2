@@ -1,0 +1,114 @@
+{#
+  _env_axis.j2 — the SINGLE renderer for the per-service env passthrough axis.
+
+  Every compose template that honors a service's `env:` key imports this macro
+  rather than writing the loop itself, for the same reason `_network_axis.j2`
+  exists beside it: one axis, one renderer, so a set of templates cannot drift
+  into a set of dialects that each spell "hand this host variable to the
+  container" slightly differently.
+
+  ----------------------------------------------------------------------------
+  IMPORTING
+  ----------------------------------------------------------------------------
+
+  The macro takes everything it needs as parameters, so a plain (context-free)
+  import is correct — never `with context`:
+
+    Service templates, rendered by an Environment rooted at the PROJECT root
+    (deployment/compose_generator.py's `FileSystemLoader(".")`, template paths
+    like `services/<name>/docker-compose.yml.j2`):
+
+      {% import "services/_env_axis.j2" as hostenv %}
+
+    Templates rendered by an Environment rooted at this directory import by
+    bare name instead:
+
+      {% import "_env_axis.j2" as hostenv %}
+
+  ----------------------------------------------------------------------------
+  THE `svc` ARGUMENT
+  ----------------------------------------------------------------------------
+
+  The macro takes the service's own config block as its first argument — the
+  `services.<name>` mapping of the rendered config.yml:
+
+      {{- hostenv.passthrough(services.qmd) }}
+
+  It may arrive as a mapping (the usual case), as None, or undefined; the last
+  two mean "the service declares nothing", which renders nothing at all. The
+  one key read here is `env`: a list of host environment variable NAMES, in the
+  author's order, which is the order they are emitted in.
+
+  Names are validated where the profile is parsed — `env_names_errors` in
+  cli/build_profile_schema.py, over both the nested `services.<name>.config.env`
+  spelling and the dotted `services.<name>.env` one — and `ServiceDef.env_names()`
+  is where the empty default is spelled for every reader on the Python side.
+  Nothing malformed therefore reaches a render; a macro that somehow saw a bare
+  string or a number where a list belongs emits nothing, rather than one line
+  per character.
+
+  ----------------------------------------------------------------------------
+  A BARE `${VAR}`: NO `:-` DEFAULT, NO `:?` REFUSAL
+  ----------------------------------------------------------------------------
+
+  A `:-<literal>` default would mean the macro inventing a value. It cannot: it
+  knows a NAME and nothing whatever about what that name means to the service —
+  a site proxy, a tuning knob, a path. A guessed value is worse than none,
+  because the container then starts and looks healthy while running on it.
+
+  A `:?` refusal would abort the render of the WHOLE compose document over one
+  unset name, taking down every other service in the deployment — none of which
+  asked for that variable. Whether a declared name is actually set is a
+  deployment question, answered where the deployment can name it, not by a
+  document that refuses to parse. (The templates do use `:?` by hand for the
+  handful of variables that are genuinely load-bearing for one service; see the
+  archiver recorder's external-IOC `EPICS_CA_NAME_SERVERS`. That is a per-
+  variable judgement a generic macro has no way to make.)
+
+  What a bare `${VAR}` leaves behind when nothing sets it is an EMPTY value, not
+  an absent one: compose interpolates the empty string, so the container sees
+  the variable set-and-empty. That distinction matters to code reading it as
+  `e.get(NAME, default)`, for which "" is a value that beats the default — the
+  bridges' DEDUP_PATH comments are where it bites. Compose's list form
+  (`- VAR`) is the spelling that omits an unset name instead, and it is not
+  available here: these `environment:` blocks are mappings throughout, and YAML
+  admits no block that is half mapping and half list.
+
+  Empty-when-unset is also what keeps a value rotatable by editing the env chain
+  alone: nothing about it is baked into the image or into a default here, so the
+  next render carries whatever the chain carries.
+
+  ----------------------------------------------------------------------------
+  WHITESPACE CONTRACT
+  ----------------------------------------------------------------------------
+
+  As in `_network_axis.j2`: the macro emits a LEADING newline and no trailing
+  one, and is called alone on its own line with a left-trim marker, as the last
+  thing in an `environment:` block:
+
+      {{- hostenv.passthrough(services.qmd) }}
+
+  With nothing declared the macro emits the empty string and the whole line
+  disappears, leaving the block byte-for-byte what it was — rather than the
+  blank line an `{% if %}`/`{% endif %}` pair would have left.
+
+  Mind the `{{-`: it strips ALL preceding whitespace, so do not place a call
+  where a deliberate blank line precedes it.
+#}
+
+{#- The declared host variables, one `NAME: ${NAME}` line each, in author order.
+
+    `indent` defaults to the six spaces an `environment:` entry sits at in these
+    templates, which is the only place this macro is called from. -#}
+{%- macro passthrough(svc, indent=6) -%}
+{%- set s = svc if svc else {} -%}
+{%- set declared = s.env | default([], true) -%}
+{%- set names = declared if declared is sequence and declared is not string and declared is not mapping else [] -%}
+{%- set ns = namespace(lines=['']) -%}
+{%- for name in names if name is string -%}
+{%- set _ = ns.lines.append(' ' * indent ~ name ~ ': ${' ~ name ~ '}') -%}
+{%- endfor -%}
+{%- if ns.lines | length > 1 -%}
+{{ ns.lines | join('\n') }}
+{%- endif -%}
+{%- endmacro %}

@@ -178,6 +178,29 @@ PER_USER_CONTEXT_DIRNAME: str = _PER_USER_CONVENTION.source
 #: the same filename.
 CONTEXT_BASELINE_FILENAME: str = "base.md"
 
+
+def context_baseline_slot(root: Path) -> Path:
+    """The baseline slot inside a per-user context directory.
+
+    Args:
+        root: A per-user context directory — a profile's
+            ``web-terminal-context/``, the framework's template copy of it, or
+            an app bundle's.
+
+    Returns:
+        The path of the shared baseline in that directory, whether or not a
+        file is there.
+
+    Four sites act on this one slot — the validator that accepts it as the
+    convention's only loose file, the plan that copies it, ``osprey init``
+    that seeds it, and the bundle/framework lookup that picks the text to seed
+    it from — and each one used to join the filename itself. They spell it here
+    instead, so a slot the validator accepts is exactly the slot the build
+    copies and ``osprey init`` writes.
+    """
+    return root / CONTEXT_BASELINE_FILENAME
+
+
 CONVENTION_SOURCES: tuple[str, ...] = tuple(c.source for c in CONVENTION_DIRS)
 
 PROJECT_MIRROR_DIR = "project"
@@ -195,11 +218,35 @@ BUILD_OUTPUT_DIR = BUILD_DIR_NAME
 #: never rendered, and never wiped by a build. Aliased for the same reason.
 STATE_DIR = STATE_DIR_NAME
 
+#: The boot unit ``osprey scaffold systemd`` writes beside the profile, spelled
+#: as a literal because :mod:`~osprey.cli.deploy_scaffold_templates` — which
+#: owns the name as ``SYSTEMD_UNIT_NAME`` — imports *from* this module, so
+#: importing it back would close a cycle. The two spellings are pinned to each
+#: other by a test rather than by an import.
+_SYSTEMD_UNIT_ENTRY = "osprey.service"
+
 #: SOURCE zone: tracked, user-edited. ``profile.yml`` plus the material it
-#: names, and the CI files a deployment ships (``scripts/verify.sh`` beside
-#: ``ci-extra.yml``; ``.gitlab-ci.yml`` is dot-prefixed and exempt already).
+#: names, and the files a deployment's scaffolding verbs emit into the root:
+#: the CI pair (``scripts/verify.sh`` beside ``ci-extra.yml``;
+#: ``.gitlab-ci.yml`` is dot-prefixed and exempt already) and the systemd boot
+#: unit. Those are OSPREY's own output, so a build that flagged them would be
+#: warning about a file OSPREY told the operator to create.
+#: ``profiles/`` holds the host-variant overlays
+#: (:mod:`~osprey.cli.variant_selection`) — tracked like everything else here,
+#: since which hosts a deployment has is part of what the deployment is. Only
+#: the *choice* between them is host-local, and that lives in an ignored
+#: dot-file the warning never sees.
 _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
-    {"profile.yml", "triggers.yml", "data", "personas", "scripts", "ci-extra.yml"}
+    {
+        "profile.yml",
+        "triggers.yml",
+        "data",
+        "personas",
+        "profiles",
+        "scripts",
+        "ci-extra.yml",
+        _SYSTEMD_UNIT_ENTRY,
+    }
 )
 
 #: SECRETS zone: git-ignored, durable. Dot-prefixed, so already exempt from the
@@ -593,7 +640,7 @@ def _validate_directory_dir(convention: ConventionDir, root: Path) -> list[str]:
     for entry in sorted(root.iterdir(), key=lambda p: p.name):
         if entry.name.startswith("."):
             continue
-        if convention.per_user and entry.name == CONTEXT_BASELINE_FILENAME and entry.is_file():
+        if convention.per_user and entry == context_baseline_slot(root) and entry.is_file():
             # The shared baseline, not a user: it has its own slot at the
             # convention root and is planned as a file copy.
             continue
@@ -623,7 +670,9 @@ def _per_user_file_error(convention: ConventionDir, entry: Path) -> str:
     the routes that carry it: a named user's directory, or — for the shared
     baseline — the :data:`CONTEXT_BASELINE_FILENAME` slot at the convention
     root, which the validator has already accepted by the time this error fires
-    for anything else.
+    for anything else. Both routes are offered, because the message cannot tell
+    which one the file wants: a loose file here is as likely to be baseline text
+    under the wrong name as it is to be one user's.
     """
     header = (
         f"{convention.source}/{entry.name} is a file: {convention.source}/ holds one "
@@ -635,7 +684,10 @@ def _per_user_file_error(convention: ConventionDir, entry: Path) -> str:
     return (
         f"{header}\n"
         f"  Move it into the directory of the user it belongs to "
-        f"({convention.source}/<user>/{entry.name}), naming a user the build resolves."
+        f"({convention.source}/<user>/{entry.name}), naming a user the build resolves.\n"
+        f"  Or, if it is the text every user starts from, rename it to "
+        f"{convention.source}/{CONTEXT_BASELINE_FILENAME} — the shared baseline slot, "
+        f"the one loose file {convention.source}/ accepts."
     )
 
 
@@ -759,7 +811,7 @@ def plan_convention_copies(
 
         if convention.shape is EntryShape.DIRECTORY:
             if convention.per_user:
-                baseline = root / CONTEXT_BASELINE_FILENAME
+                baseline = context_baseline_slot(root)
                 if baseline.is_file():
                     # Roster-independent by design: the baseline overrides the
                     # framework's fallback for every seeded user at once, so it

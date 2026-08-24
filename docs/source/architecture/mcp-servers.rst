@@ -4,8 +4,9 @@ MCP Servers
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. The Osprey agent discovers servers from ``.mcp.json`` at startup and calls
-tools via stdio JSON-RPC. There are **8 in-tree MCP servers**; build profiles
-can inject additional servers beyond the core set below.
+tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
+deployment normally renders; build profiles can inject additional servers beyond
+them.
 
 
 Control System
@@ -28,15 +29,20 @@ safety-limits enforcement on all write operations.
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
   ``bin_size=0`` returns full resolution and is valid only with ``processing="raw"``.
+  When ``bin_size`` is omitted the bin is derived from the time span so a continuously
+  archived channel returns about ``archiver.auto_bin_points`` (default 10 000) points —
+  1 s for anything under ~2.8 hours, ~53 minutes for a year — and the summary reports the
+  bin that was used and whether it was requested or chosen automatically.
 - ``channel_limits`` -- Query the channel safety limits database (lookup, pattern match, summary).
 
 
 Channel Finding
 ---------------
 
-OSPREY provides three channel finder variants, each suited to different
-facility data models and search strategies. Deployments typically enable
-one or two variants depending on available metadata.
+OSPREY provides four channel finder variants, each suited to different
+facility data models and search strategies. A deployment picks one with
+``channel_finder.pipeline_mode``, and whichever it picks is served under the one
+``channel-finder`` name.
 
 ``channel_finder_hierarchical``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -86,6 +92,37 @@ lookups and validation.
 - ``statistics`` -- Get database statistics (total channels, systems, families).
 - ``run_sql`` -- Run a read-only SQL query directly against the channel finder DuckDB database (``channels``, ``systems``, ``families`` tables).
 
+``channel_finder_graph``
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.channel_finder_graph``
+
+Finds channels by searching the facility knowledge graph. Instead of drilling
+through a database file, the agent writes read-only Cypher against the seeded
+``graphdb`` store, so a question can start from a description, an alternate name
+or a system just as easily as from an address. Selected with
+``channel_finder.pipeline_mode: graph``, and needs a ``services.graphdb`` store
+to search -- deployed with the rest of the stack, or one the facility already
+runs.
+
+``read_cypher`` and ``get_schema`` are the ``graph`` server's own tools, served
+here under the ``channel-finder`` name: the same read transaction, the same
+refusal of extension procedures and ``LOAD CSV``, the same row and time bounds.
+The examples catalogue is this package's own, written around the questions
+operators ask about channels rather than around general graph exploration. See
+:doc:`/how-to/use-facility-graph`.
+
+**Tools:**
+
+- ``read_cypher`` -- Run one read-only Cypher query and return the matching rows,
+  bounded by ``services.graphdb.query_max_rows`` and
+  ``services.graphdb.query_timeout_s``.
+- ``get_schema`` -- Report the node labels, relationship types, sampled per-label
+  property names and namespace prefixes this graph holds.
+- ``example_queries`` -- Return runnable Cypher examples for the common channel
+  questions, each with per-corpus parameter values.
+- ``capabilities`` -- Report the server description, tool list and operating notes.
+
 Workspace
 ---------
 
@@ -100,7 +137,7 @@ tools into several functional areas.
 
 **Artifacts:**
 
-- ``artifact_save`` -- Save a file or generated content as a gallery artifact.
+- ``artifact_register`` -- Register a file on disk, or literal text, as a gallery artifact.
 - ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
 - ``artifact_list`` -- List stored artifacts, optionally narrowed by category, tool or agent.
 - ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).
@@ -228,3 +265,31 @@ agent can look up operational know-how and draft new concepts for human review.
 - ``read_concept`` -- Read a concept document by its OKF §2 concept ID.
 - ``search`` -- Search the facility knowledge bundle for a query string.
 - ``draft_concept`` -- Draft a new concept document for human review and approval.
+
+
+Facility Graph
+--------------
+
+``graph``
+~~~~~~~~~
+
+Package: ``osprey.mcp_server.graph``
+
+Read-only Cypher search over the facility knowledge graph -- the
+NARAD-convention RDF corpus held by the ``graphdb`` store. Rendered only where
+``services.graphdb`` is configured, and called by the
+**facility-knowledge-graph subagent**: the main agent's route to the graph is
+delegation, mirroring the channel finder. Every query runs in a read
+transaction, and extension procedures, extension functions and ``LOAD CSV`` are
+refused before the store is dialed. See :doc:`/how-to/use-facility-graph`.
+
+**Tools:**
+
+- ``read_cypher`` -- Run one read-only Cypher query and return the matching rows,
+  bounded by ``services.graphdb.query_max_rows`` and
+  ``services.graphdb.query_timeout_s``.
+- ``get_schema`` -- Report the node labels, relationship types, sampled per-label
+  property names and namespace prefixes this graph holds.
+- ``example_queries`` -- Return curated, runnable Cypher examples for the common
+  question shapes, each with per-corpus parameter values.
+- ``capabilities`` -- Report the server description, tool list and operating notes.

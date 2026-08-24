@@ -350,8 +350,9 @@ def _check_timezone(config: dict[str, Any]) -> CheckResult:
             status=Status.WARNING,
             message="Timezone is UTC (default)",
             details=(
-                "Set system.timezone in config.yml to your facility timezone "
-                "(e.g., America/New_York, Europe/Berlin)"
+                "Set system.timezone under `config:` in profile.yml to your "
+                "facility timezone (e.g., America/New_York, Europe/Berlin) "
+                "and run `osprey build`."
             ),
         )
     return CheckResult(

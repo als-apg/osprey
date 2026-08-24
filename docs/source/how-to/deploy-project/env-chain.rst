@@ -26,7 +26,8 @@ A deployment reads its environment from two files at the repository root:
 on every path that reads them — the deploy, the CLI, the containers. That is
 the whole rule: same syntax, same variables, ``.env.shared`` simply sits lower.
 Setting a key in ``.env`` is how one host departs from a shared default, and
-there is nothing else to do about it.
+there is nothing else to do about it — unless the profile has declared that
+variable the shared file's to decide (see :ref:`deployment-pinned-env`).
 
 Both files stay on the host. Neither ever enters a container image: they are
 read at run time and handed to the container runtime, which uses them to fill
@@ -79,7 +80,7 @@ worth editing because the next command overwrites them:
        accept only one
    * - ``build/.env.chain-state.json``
      - machine — fingerprints of the shared values as of the last deploy, so a
-       stale local pin can be spotted. It stores digests, never values.
+       stale local value can be spotted. It stores digests, never values.
 
 The generated ``.gitignore`` keeps all of them out of version control except
 ``.env.shared`` and ``.env.example``, which carry nothing a host may not share.
@@ -135,6 +136,9 @@ are.
   remove the key from ``.env``; to keep a local value deliberately, set it to
   the value this host actually wants. The warning repeats until you do one or
   the other.
+* **Pinned variables** — a refusal. A profile can declare that some variables
+  are the shared file's to decide and no one else's; ``osprey up`` then refuses
+  to start when anything contradicts that. See :ref:`deployment-pinned-env`.
 * **Chain drift** — a refusal. Which env files the stack reads is decided when
   the project is rendered, not when it starts: adding ``.env.shared`` to a
   project built without one puts none of its values into the containers, and
@@ -143,7 +147,9 @@ are.
 * **Shell exports** — when a variable exported in your shell disagrees with the
   value the chain resolves to, ``osprey up`` names it and says which of the two
   the compose provider it just probed will actually substitute (see
-  :ref:`compose-interpolation-precedence`).
+  :ref:`compose-interpolation-precedence`). A warning, so the export stays
+  available as an escape hatch — except for a pinned name, where it is a
+  refusal.
 
 .. note::
 
@@ -154,3 +160,74 @@ are.
    from ``services.postgresql`` — keeps such deployments working. To adopt
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
+
+.. _deployment-pinned-env:
+
+Pinning a variable to the chain
+-------------------------------
+
+``.env`` winning is the right default, and for a few variables it is the wrong
+one: a proxy every host at the site has to go through, a hostname the whole
+facility shares. A profile can say so, in ``profile.yml``:
+
+.. code-block:: yaml
+
+   env:
+     pinned:
+       - HTTPS_PROXY
+       - FACILITY_ARCHIVER_HOST
+
+Pinning does not change how a value resolves. It changes what ``osprey up``
+does when something contradicts the declaration: it refuses to start, rather
+than let the stack run on a value from a source the deployment said it would
+not come from. Three checks, one for each way that can happen:
+
+* **The declaration itself.** Pinning a name the deploy writes for you is
+  refused — a service token or password it mints, a service default it records,
+  a Bluesky substrate variable, a credential ``--reuse-stores`` restores from a
+  surviving volume. A pin says the chain is the variable's only source, and
+  ``osprey up`` writing that same name into ``.env`` contradicts it by
+  construction. The message names each offender and its remedy:
+  ``unpin <NAME>; it is machine-minted.`` The check covers every name any writer
+  can produce, not only the services this deployment currently enables, so
+  turning a service on later cannot make a profile that was fine start
+  refusing.
+* **A local override.** ``.env`` setting a pinned name is refused. Without the
+  pin that is just this host's business; with it, the stack would start on a
+  value contradicting what the deployment declares it runs on — and nothing
+  else would notice, because the override is well-formed and the stack comes up
+  healthy.
+* **A shell export.** An export disagreeing with the chain is a warning for any
+  unpinned variable, deliberately: exporting over the store is a legitimate
+  one-off. For a pinned name it is a refusal, under either compose provider.
+  Docker Compose would substitute the exported value; podman-compose would
+  ignore it. Neither outcome is acceptable for a name the deployment declared
+  its own, and a repo must not be startable on one host and refused on another
+  for the same shell state, so the answer is the same on both — only the
+  explanation differs.
+
+All three run before any secret is minted and before any image is built, so a
+deploy that is going to stop here stops having provisioned nothing. All three
+print names and never values.
+
+Either remedy is one edit. To start on the declared value, remove the name from
+``.env`` or unset the export. To let this host decide it after all, drop the
+name from ``env.pinned`` and re-run ``osprey build``.
+
+**A pin covers the chain and the shell, not the files derived from them.**
+Those two are where a value can reach a container while every reading of
+``.env.shared`` goes on describing something else. ``.env.users`` carries a
+copy of what the chain already resolved to, and ``.env.auth`` holds credentials
+the deploy mints; neither is a place a pinned variable's value gets decided, so
+there is nothing there for the declaration to contradict.
+
+The declaration is read from ``profile.yml`` at the repository root, as
+``osprey build`` emitted it — a flat document. A hand-written profile that
+inherits its ``env`` block through ``extends:`` leaves the parent's pins unread
+and nothing enforced; spell them out in the repository's own profile.
+
+.. note::
+
+   The warning ``osprey up`` prints as **Stale pin** is a different thing: a
+   value pinned by hand in ``.env`` that has fallen behind the shared default.
+   It is unrelated to ``env.pinned``, and it stays a warning.

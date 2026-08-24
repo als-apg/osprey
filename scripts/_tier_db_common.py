@@ -9,9 +9,12 @@ so that rule is defined once; each script keeps only its own argument parsing
 and console output.
 
 Tier 2 is retired: only tiers 1 and 3 are published. Tier 1 ships the
-``in_context`` paradigm only; tier 3 ships all three. The published tiers (and
-the paradigms each ships) come from
-:data:`osprey.services.channel_finder.benchmarks.generator.TIER_PARADIGMS`.
+``in_context`` paradigm only; tier 3 ships every tier view. The published tiers
+(and the paradigms each ships) come from
+:data:`osprey.services.channel_finder.benchmarks.generator.TIER_PARADIGMS`,
+which subtracts ``graph`` from the paradigm registry: a graph store is seeded
+from the facility corpus TTL, so there is no graph database for these scripts
+to write or validate.
 """
 
 from __future__ import annotations

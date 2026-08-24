@@ -43,7 +43,7 @@ async def artifact_export(
         return make_error(
             "not_found",
             f"Artifact '{artifact_id}' not found.",
-            ["Use artifact_save or execute to create artifacts first."],
+            ["Use artifact_register or execute to create artifacts first."],
         )
 
     target_mime = f"image/{format}"

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.services.ariel_search.capabilities import get_capabilities
+from osprey.services.ariel_search.capabilities import (
+    SHARED_PARAMETERS,
+    get_capabilities,
+    shared_parameters,
+)
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.search.base import ParameterDescriptor
 from osprey.services.ariel_search.search.keyword import (
@@ -222,6 +226,7 @@ class TestGetCapabilities:
     def _make_config(
         self,
         search_modules: dict | None = None,
+        default_search_mode: str | None = None,
     ) -> ARIELConfig:
         """Create an ARIELConfig for testing."""
         config_dict: dict = {
@@ -229,7 +234,24 @@ class TestGetCapabilities:
         }
         if search_modules:
             config_dict["search_modules"] = search_modules
+        if default_search_mode:
+            config_dict["default_search_mode"] = default_search_mode
         return ARIELConfig.from_dict(config_dict)
+
+    def test_advertises_the_configured_default_mode(self):
+        """The frontend's opening tab follows ariel.default_search_mode."""
+        config = self._make_config(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}},
+            default_search_mode="keyword",
+        )
+        assert get_capabilities(config)["default_mode"] == "keyword"
+
+    def test_advertises_the_implicit_default_mode(self):
+        """With no configured default, capabilities advertise the implicit one."""
+        config = self._make_config(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}}
+        )
+        assert get_capabilities(config)["default_mode"] == "hybrid"
 
     def test_returns_correct_structure(self):
         """get_capabilities returns correct top-level structure."""
@@ -338,3 +360,125 @@ class TestGetCapabilities:
         result = get_capabilities(config)
         direct_modes = result["categories"]["direct"]["modes"]
         assert direct_modes == []
+
+
+VOCABULARY_YML = """
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms:
+      - t/s
+      - ts
+  - canonical: beam position monitor
+    kind: acronym
+    forms:
+      - BPM
+  - canonical: radio frequency
+    kind: acronym
+    forms:
+      - RF
+"""
+
+
+class TestVocabularyCapabilities:
+    """The vocabulary block and the ``expand_query`` shared parameter."""
+
+    def _make_config(self, vocabulary: dict | None = None) -> ARIELConfig:
+        """Create an ARIELConfig, optionally with an ``ariel.vocabulary`` block."""
+        config_dict: dict = {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "search_modules": {"keyword": {"enabled": True}},
+        }
+        if vocabulary is not None:
+            config_dict["vocabulary"] = vocabulary
+        return ARIELConfig.from_dict(config_dict)
+
+    def _write_vocabulary(self, tmp_path) -> str:
+        """Write a three-concept vocabulary file and return its path."""
+        path = tmp_path / "vocabulary.yml"
+        path.write_text(VOCABULARY_YML)
+        return str(path)
+
+    def test_disabled_vocabulary_omits_the_toggle(self):
+        """No vocabulary configured means no ``expand_query`` shared parameter."""
+        result = get_capabilities(self._make_config())
+        param_names = [p["name"] for p in result["shared_parameters"]]
+
+        assert "expand_query" not in param_names
+
+    def test_disabled_vocabulary_reports_an_empty_block(self):
+        """The capability entry is present but reports nothing available."""
+        result = get_capabilities(self._make_config())
+
+        assert result["vocabulary"] == {
+            "enabled": False,
+            "concepts": 0,
+            "expand_by_default": False,
+        }
+
+    def test_enabled_vocabulary_advertises_the_toggle(self, tmp_path):
+        """An enabled vocabulary adds a boolean ``expand_query`` parameter."""
+        config = self._make_config(
+            vocabulary={"enabled": True, "path": self._write_vocabulary(tmp_path)}
+        )
+        result = get_capabilities(config)
+        params = {p["name"]: p for p in result["shared_parameters"]}
+
+        assert params["expand_query"]["type"] == "bool"
+        assert params["expand_query"]["default"] is True
+        assert params["expand_query"]["section"] == "General"
+
+    def test_enabled_vocabulary_reports_the_concept_count(self, tmp_path):
+        """The loaded vocabulary's concept count reaches the frontend."""
+        config = self._make_config(
+            vocabulary={"enabled": True, "path": self._write_vocabulary(tmp_path)}
+        )
+        result = get_capabilities(config)
+
+        assert result["vocabulary"] == {
+            "enabled": True,
+            "concepts": 3,
+            "expand_by_default": True,
+        }
+
+    def test_expand_by_default_false_is_reported_and_defaulted(self, tmp_path):
+        """``expand_by_default: false`` flows into both the block and the toggle."""
+        config = self._make_config(
+            vocabulary={
+                "enabled": True,
+                "path": self._write_vocabulary(tmp_path),
+                "expand_by_default": False,
+            }
+        )
+        result = get_capabilities(config)
+        params = {p["name"]: p for p in result["shared_parameters"]}
+
+        assert params["expand_query"]["default"] is False
+        assert result["vocabulary"]["expand_by_default"] is False
+        assert result["vocabulary"]["concepts"] == 3
+
+    def test_shared_parameters_helper_appends_to_the_constant(self, tmp_path):
+        """``shared_parameters(config)`` appends to, never mutates, the constant."""
+        config = self._make_config(
+            vocabulary={"enabled": True, "path": self._write_vocabulary(tmp_path)}
+        )
+        params = shared_parameters(config)
+
+        assert len(SHARED_PARAMETERS) == 5
+        assert len(params) == 6
+        assert [p.name for p in params[:5]] == [p.name for p in SHARED_PARAMETERS]
+        assert params[-1].name == "expand_query"
+        assert isinstance(params[-1], ParameterDescriptor)
+
+    def test_key_order_is_stable(self, tmp_path):
+        """The payload's top-level key order does not shift with the vocabulary."""
+        config = self._make_config(
+            vocabulary={"enabled": True, "path": self._write_vocabulary(tmp_path)}
+        )
+
+        assert list(get_capabilities(config)) == [
+            "categories",
+            "default_mode",
+            "shared_parameters",
+            "vocabulary",
+        ]

@@ -8,6 +8,7 @@ Tests the Click command group including:
 - Benchmark subcommand
 """
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import click
@@ -521,6 +522,48 @@ class TestValidateSubcommand:
         assert "--verbose" in result.output
         assert "--pipeline" in result.output
 
+    def test_validate_help_lists_every_file_backed_paradigm(self, runner):
+        """``--pipeline`` offers each paradigm whose store is a file on disk.
+
+        The list is derived from the paradigm registry minus ``graph`` --- a
+        graph store is a service reached over the network, not a file this
+        command can open --- so the help text is the visible half of that rule.
+        """
+        result = runner.invoke(channel_finder, ["validate", "--help"])
+        assert result.exit_code == 0
+        assert "[hierarchical|in_context|middle_layer]" in " ".join(result.output.split())
+
+    def test_validate_routes_a_middle_layer_database(self, runner, tmp_path):
+        """``--pipeline middle_layer`` loads the file through MiddleLayerDatabase."""
+        db_file = tmp_path / "middle_layer.json"
+        db_file.write_text(
+            json.dumps(
+                {
+                    "Storage Ring": {
+                        "BPM": {
+                            "setup": {"DeviceList": [[1, 1]]},
+                            "Monitor": {
+                                "ChannelNames": ["SR:BPM1:X", "SR:BPM1:Y"],
+                                "Units": "mm",
+                            },
+                        }
+                    }
+                }
+            )
+        )
+
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                result = runner.invoke(
+                    channel_finder,
+                    ["validate", "--database", str(db_file), "--pipeline", "middle_layer"],
+                )
+
+        assert result.exit_code == 0
+        printed = " ".join(result.output.split())
+        assert "VALID" in printed
+        assert "Middle Layer" in printed
+
     def test_validate_with_valid_database(self, runner, tmp_path):
         """validate with a valid in-context database passes."""
         db_file = tmp_path / "test_db.json"
@@ -553,6 +596,76 @@ class TestValidateSubcommand:
                 )
         assert result.exit_code == 1
         assert "INVALID" in result.output
+
+
+# ============================================================================
+# Graph Paradigm Tests
+# ============================================================================
+
+
+GRAPH_CONFIG = {"channel_finder": {"pipeline_mode": "graph"}}
+
+
+class TestGraphParadigmGuidance:
+    """A graph project has no channel database file for either command to open.
+
+    Both verbs auto-detect the paradigm from config, find ``graph``, and answer
+    with the store's own three verbs instead of a path panel --- and succeed,
+    because a graph project configured this way is healthy.
+    """
+
+    def _invoke(self, runner, args):
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                with patch("osprey.utils.config.load_config", return_value=GRAPH_CONFIG):
+                    return runner.invoke(channel_finder, args)
+
+    def test_validate_prints_the_graph_panel_and_succeeds(self, runner, tmp_path):
+        result = self._invoke(runner, ["--project", str(tmp_path), "validate"])
+        printed = " ".join(result.output.split())
+        assert result.exit_code == 0
+        assert "Graph Paradigm" in printed
+        assert "The graph store is the database" in printed
+        assert "osprey knowledge seed-graph" in printed
+        assert "osprey health --category graphdb" in printed
+        assert "get_schema and read_cypher" in printed
+
+    def test_validate_does_not_offer_the_file_remedy(self, runner, tmp_path):
+        result = self._invoke(runner, ["--project", str(tmp_path), "validate"])
+        printed = " ".join(result.output.split())
+        assert "No database configured" not in printed
+        assert "database.path" not in printed
+        assert "Database Path" not in printed
+
+    def test_preview_prints_the_graph_panel_and_succeeds(self, runner, tmp_path):
+        result = self._invoke(runner, ["--project", str(tmp_path), "preview"])
+        printed = " ".join(result.output.split())
+        assert result.exit_code == 0
+        assert "Graph Paradigm" in printed
+        assert "The graph store is the database" in printed
+        assert "osprey knowledge seed-graph" in printed
+        assert "osprey health --category graphdb" in printed
+        assert "get_schema and read_cypher" in printed
+
+    def test_preview_does_not_offer_the_file_remedy(self, runner, tmp_path):
+        result = self._invoke(runner, ["--project", str(tmp_path), "preview"])
+        printed = " ".join(result.output.split())
+        assert "No database configured" not in printed
+        assert "database.path" not in printed
+
+    def test_an_explicit_database_is_still_validated(self, runner, tmp_path):
+        """``--database`` names a file; the project's graph mode says nothing
+        about how to read one, so the file-backed default is used rather than
+        handing ``graph`` to a file loader."""
+        db_file = tmp_path / "test_db.json"
+        db_file.write_text(
+            '{"channels": [{"template": false, "channel": "CH1", '
+            '"address": "PV:CH1", "description": "Test channel"}]}'
+        )
+        result = self._invoke(runner, ["validate", "--database", str(db_file)])
+        printed = " ".join(result.output.split())
+        assert "Graph Paradigm" not in printed
+        assert "In Context" in printed
 
 
 # ============================================================================

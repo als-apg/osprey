@@ -1,0 +1,205 @@
+# Bench IOC record set -- the "real machine" side of a target switch.
+#
+# Thirteen records in three groups:
+#
+#   1. Ten channels the virtual accelerator also serves, seeded with distinct
+#      NONZERO values that no virtual accelerator run produces. This is the
+#      point of the whole image. A freshly booted virtual accelerator answers
+#      SR:DIAG:BPM:01:POSITION:X with 0.0, so a test that asserted "reads zero"
+#      would pass against a working VA, against a broken VA, and against no
+#      switch at all. Every shared channel here therefore holds a value that is
+#      both nonzero and unlike its neighbours, so an assertion on the value
+#      names one target and only one.
+#
+#   2. Three channels that exist HERE and nowhere in the virtual accelerator's
+#      manifest (the SR:DIAG:STRIPLINE family). They follow the same address
+#      grammar -- RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD, device zero-padded
+#      to two digits -- so nothing downstream needs a special case for them.
+#      They prove the "exists here, not there" direction of a switch.
+#
+#   3. Deliberate absences, which prove the other direction. The virtual
+#      accelerator serves SR:DIAG:DCCT:01:CURRENT:RB, the whole SR:RF:CAVITY
+#      and SR:RF:KLYSTRON families, every quadrupole and sextupole family, and
+#      all of SR:VAC. None of them are here, and none of them should be added:
+#      a channel that resolves against both targets cannot demonstrate that a
+#      switch narrowed what is reachable.
+#
+# Authoring constraints, from the shipped test-IOC safety rule: DESC is at most
+# 39 ASCII characters (longer values are silently truncated), the file is ASCII
+# throughout (write "deg" and "u", never the symbols), and no comment contains a
+# dollar-parenthesis substitution, because the database parser expands those
+# even inside a comment line.
+#
+# PINI("YES") appears on every input record so that each one processes once
+# during iocInit. Without it the records still hold their seeded VAL, but with
+# UDF set, and every read carries an INVALID severity that has nothing to do
+# with the value being wrong. Processing once at boot clears it.
+
+#
+# --- Group 1: shared with the virtual accelerator ---------------------------
+#
+
+# The readiness probe. Both existing harnesses point their probe_channel at this
+# address, so it is the first thing a switch reads after a target comes up, and
+# the value below is what tells them which target answered.
+record(ai, "SR:MAG:HCM:01:CURRENT:RB") {
+    field(DESC, "Bench corrector current readback")
+    field(EGU,  "A")
+    field(PREC, "3")
+    field(VAL,  "7.25")
+    field(PINI, "YES")
+}
+
+# Writable, and deliberately unlike the virtual accelerator, whose manifest
+# serves setpoints as ai records fronted by a write handler. Here the setpoint
+# is a plain ao: a real IOC's setpoint accepts a caput through ordinary record
+# processing, and a client that only ever met the VA's arrangement should meet
+# this one too. DRVL/DRVH mirror the corrector bounds in the shipped
+# channel_limits.json (-12 to +12 A), so a client-side limits check and the
+# IOC's own drive limits agree on what is out of range.
+record(ao, "SR:MAG:HCM:01:CURRENT:SP") {
+    field(DESC, "Bench corrector current setpoint")
+    field(EGU,  "A")
+    field(PREC, "3")
+    field(DRVL, "-12.0")
+    field(DRVH, "12.0")
+    field(VAL,  "7.25")
+    field(PINI, "YES")
+}
+
+record(ai, "SR:MAG:HCM:01:CURRENT:GOLDEN") {
+    field(DESC, "Bench corrector golden current")
+    field(EGU,  "A")
+    field(PREC, "3")
+    field(VAL,  "5.5")
+    field(PINI, "YES")
+}
+
+record(bi, "SR:MAG:HCM:01:STATUS:ON") {
+    field(DESC, "Bench corrector power supply state")
+    field(ZNAM, "OFF")
+    field(ONAM, "ON")
+    field(VAL,  "1")
+    field(PINI, "YES")
+}
+
+# The protected channel. ASG names the access-security group defined in
+# bench.acf, which grants READ and withholds WRITE, so this record is readable
+# by anyone and writable by no one. It is a setpoint rather than a readback on
+# purpose: refusing a write to something that plainly looks writable is what
+# exercises a client's refusal path, whereas a readback would look no different
+# from a client that simply never tried to write.
+record(ao, "SR:MAG:VCM:02:CURRENT:SP") {
+    field(DESC, "Bench vertical corrector setpoint")
+    field(EGU,  "A")
+    field(PREC, "3")
+    field(DRVL, "-12.0")
+    field(DRVH, "12.0")
+    field(VAL,  "-3.5")
+    field(PINI, "YES")
+    field(ASG,  "protected")
+}
+
+# The alarm-limit carrier. The four thresholds and their severities exist so
+# that alarm metadata is queryable over CA (a DBR_CTRL_DOUBLE read returns them
+# alongside the value), not so that this record alarms: the seeded value sits
+# comfortably inside LOW..HIGH, and a bench IOC that booted into a MAJOR alarm
+# would be noise in every log that touches it.
+record(ai, "SR:MAG:VCM:02:CURRENT:RB") {
+    field(DESC, "Bench vertical corrector readback")
+    field(EGU,  "A")
+    field(PREC, "3")
+    field(HIHI, "11.0")
+    field(HIGH, "9.0")
+    field(LOW,  "-9.0")
+    field(LOLO, "-11.0")
+    field(HHSV, "MAJOR")
+    field(HSV,  "MINOR")
+    field(LSV,  "MINOR")
+    field(LLSV, "MAJOR")
+    field(VAL,  "-3.5")
+    field(PINI, "YES")
+}
+
+record(bi, "SR:MAG:VCM:02:STATUS:ON") {
+    field(DESC, "Bench vertical corrector PS state")
+    field(ZNAM, "OFF")
+    field(ONAM, "ON")
+    field(VAL,  "1")
+    field(PINI, "YES")
+}
+
+record(ai, "SR:DIAG:BPM:01:POSITION:X") {
+    field(DESC, "Bench BPM horizontal position")
+    field(EGU,  "mm")
+    field(PREC, "4")
+    field(VAL,  "0.412")
+    field(PINI, "YES")
+}
+
+record(ai, "SR:DIAG:BPM:01:POSITION:Y") {
+    field(DESC, "Bench BPM vertical position")
+    field(EGU,  "mm")
+    field(PREC, "4")
+    field(VAL,  "-0.187")
+    field(PINI, "YES")
+}
+
+record(bi, "SR:DIAG:BPM:01:STATUS:VALID") {
+    field(DESC, "Bench BPM reading validity flag")
+    field(ZNAM, "INVALID")
+    field(ONAM, "VALID")
+    field(VAL,  "1")
+    field(PINI, "YES")
+}
+
+#
+# --- Group 2: bench-only, absent from the virtual accelerator ---------------
+#
+
+record(ai, "SR:DIAG:STRIPLINE:01:AMPLITUDE:RB") {
+    field(DESC, "Bench-only stripline amplitude")
+    field(EGU,  "mV")
+    field(PREC, "3")
+    field(VAL,  "12.75")
+    field(PINI, "YES")
+}
+
+# Multi-state enumeration, seeded to a nonzero index for the same reason every
+# analogue value here is nonzero: index 0 is what an unloaded, unprocessed, or
+# entirely absent record also reports.
+record(mbbi, "SR:DIAG:STRIPLINE:01:MODE:STATE") {
+    field(DESC, "Bench-only stripline mode")
+    field(ZRST, "OFFLINE")
+    field(ONST, "STANDBY")
+    field(TWST, "ACQUIRING")
+    field(THST, "FAULT")
+    field(VAL,  "2")
+    field(PINI, "YES")
+}
+
+# Derived value. CP on the input link makes this record process whenever the
+# amplitude changes, so the two stay consistent without either one being scanned
+# periodically -- a bench IOC that woke up ten times a second to recompute a
+# constant would add nothing but log volume.
+#
+# A and VAL are both seeded, and that is what makes this record safe to assert
+# on. CP forces the link to be resolved through Channel Access even though both
+# records live in this IOC, so it is still connecting when iocInit prints the
+# readiness marker. Without the seeds, a client that read this channel the
+# instant the marker appeared would get 0.0 with UDF set, and the same client a
+# moment later would get 6.375 -- an assertion that passes or flakes on timing
+# alone. With them, PINI processing at iocInit finds the link not yet connected,
+# leaves VAL at its loaded value, and the channel reads 6.375 from the first
+# moment it is reachable; the CP link then keeps it live for every later change.
+# Keep A and VAL consistent with the amplitude above and with CALC.
+record(calc, "SR:DIAG:STRIPLINE:01:AMPLITUDE:SCALED") {
+    field(DESC, "Bench-only scaled stripline amplitude")
+    field(EGU,  "mV")
+    field(PREC, "3")
+    field(INPA, "SR:DIAG:STRIPLINE:01:AMPLITUDE:RB CP")
+    field(CALC, "A*0.5")
+    field(A,    "12.75")
+    field(VAL,  "6.375")
+    field(PINI, "YES")
+}

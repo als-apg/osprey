@@ -33,15 +33,17 @@ names another one explicitly.
    osprey config             # Show the deployment configuration
    osprey chat               # Talk to this deployment's agent
    osprey users              # Manage web-terminal users
+   osprey feedback           # Read feedback sent from the web terminals
    osprey profile            # Validate and inspect build profiles
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
+   osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
-   osprey scaffold           # CI files and build artifact overrides
+   osprey scaffold           # CI files, boot unit, build artifact overrides
    osprey audit              # Audit project or profile safety
    osprey skills             # Manage bundled Osprey skills
    osprey vendor             # Manage locally bundled vendor assets
@@ -140,6 +142,12 @@ address the rendered config: ``config.control_system.type=epics`` writes that
 literal dotted entry into the profile's ``config:`` block. ``VALUE`` is read as
 YAML, so ``true``/``false`` become booleans and bare numbers become numbers.
 
+``channel_finder_mode`` names the channel-finder paradigm the build renders:
+``in_context``, ``hierarchical``, ``middle_layer`` or ``graph``. The first three
+search a channel database file; ``graph`` searches the graph store named by
+``services.graphdb`` -- deployed with the stack or facility-hosted -- instead of
+a database file.
+
 Two shorthands stand in for longer key paths: ``connector=`` writes
 ``config.control_system.type``, and ``epics_gateway=`` writes a known facility's
 EPICS gateway addresses. (Control systems beyond the bundled ones are reachable
@@ -214,6 +222,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 
    osprey profile validate TARGET
    osprey profile presets
+   osprey profile artifacts
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -226,6 +235,11 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 ``osprey profile presets``
    List bundled preset names, one per line. Every name printed is usable as
    ``--preset NAME`` for ``osprey init``.
+
+``osprey profile artifacts``
+   List every artifact the six profile lists can name — hooks, rules, skills,
+   agents, output styles, and web panels — with a one-line description of
+   each. The same menu appears as commented entries in an emitted profile.
 
 .. code-block:: bash
 
@@ -439,6 +453,11 @@ these verbs act on that roster, which lives in the profile. Every verb takes
      - Change one user's login password (password authentication only).
        Prompts without echoing, and ends that user's sessions.
      - —
+   * - ``login-url USER``
+     - Print the URL that opens that user's terminal. Only the URL goes to
+       stdout, so it can be piped or copied. Refuses for a user who signs in
+       through the login page.
+     - —
    * - ``env``
      - Render ``.env.users``, the env file every per-user container runs
        with.
@@ -451,6 +470,19 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``-y, --yes`` -- Assume yes to confirmation prompts.
 
 ``--dry-run`` -- Show what would happen without making changes.
+
+``osprey users login-url`` builds the URL from that user's operator secret in
+the repository's ``.env``, which ``osprey up`` mints for every roster user in
+every auth mode. Opening it once trades the token for a session cookie. It is
+how someone gets in when nginx authenticates nobody — ``auth.method: none``, or
+a roster entry with ``login: false`` — and it is a password: send each person
+only their own. Rotate one by deleting that user's ``OSPREY_TERMINAL_SECRET_*``
+line from ``.env`` and running ``osprey up`` again.
+
+For a user who *is* behind the login wall the command refuses and names their
+login page instead. The URL would not work for them — the authentication
+service turns the request away before the terminal can read the token — and
+printing it would put a live credential in someone's inbox for nothing.
 
 ``osprey users env`` renders the same subset a deploy would generate, from the
 same two inputs — the rendered deploy config and the repository root's env
@@ -469,10 +501,84 @@ CI, pass it: without ``--output`` the assembled secrets go to the job log.
    osprey users prune --dry-run
    osprey users seed alice
    osprey users passwd alice
+   osprey users login-url alice
    osprey users env --output .env.users
 
 See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
 verbs end to end.
+
+osprey feedback
+===============
+
+Read the feedback this deployment's web terminals collected. People using a web
+terminal can send a report from the terminal itself; each submission is stored
+with the session it was sent from, in the sender's own workspace, and these
+verbs read it back. Every verb takes ``--repo DIRECTORY``.
+
+A multi-user deployment keeps one store per person, and reading it starts a
+short-lived read-only container on each person's workspace — so the
+deployment's container runtime has to be up. A single-user deployment keeps one
+store on this machine, read straight off disk.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 46 32
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``list``
+     - One line per submission, newest first: id, who sent it, when (UTC),
+       which channel it went out on, and the start of the message. Headers
+       only.
+     - —
+   * - ``export``
+     - Every submission's whole record plus the session captured with it, as
+       one JSON array. Written a record at a time, so a large store never has
+       to fit in memory.
+     - ``-o/--output``
+
+``-o, --output PATH`` -- Write the export to this file instead of stdout. Naming
+a directory, or a file inside a directory that does not exist, is a usage error
+at parse time, before any workspace is read.
+
+With no ``--output``, ``export`` puts the JSON document on stdout and nothing
+else, so it can be redirected straight into a file; errors and the closing
+summary go to standard error. With ``--output``, the human output stays on the
+terminal and the file holds the export. An empty store exports ``[]``.
+
+A workspace that cannot be read is reported and the rest of the deployment is
+still listed or exported; the export's closing summary distinguishes a workspace
+that contributed nothing from one that was only partly readable. If nothing at
+all could be read, both verbs stop rather than reporting a deployment with no
+feedback in it. A submission whose session was dropped to keep the store inside
+``web.feedback.max_store_bytes`` carries ``context_pruned``; one missing its
+session for any other reason carries ``context_missing``. The submission is
+exported either way.
+
+Exit status: ``0`` on success, including a deployment nobody has sent feedback
+from. Non-zero when the repository has no build, when every workspace failed to
+read, and when an export stopped part-way — in which case the file still parses
+and holds what was read.
+
+``agent_data.base_dir`` is checked on the **single-user** path only, and a
+``~``-relative value there is non-zero with the explanation (the data lands
+where the verb cannot reach it). The multi-user path never consults the key: it
+mounts each person's volume and reads a fixed path inside it, so a rostered
+deployment with a ``~``-relative ``agent_data.base_dir`` writes its feedback to
+a volume these verbs do not mount and simply reads as having none. Nothing
+detects that, so do not read an empty multi-user listing as proof. See
+:doc:`/how-to/send-feedback`.
+
+.. code-block:: bash
+
+   osprey feedback list
+   osprey feedback list --repo ../other-deployment
+   osprey feedback export --output feedback.json
+   osprey feedback export > feedback.json
+
+See :doc:`/how-to/send-feedback` for the dialog these records come from and what
+each submission carries.
 
 osprey health
 =============
@@ -492,6 +598,12 @@ Run comprehensive system health check.
 ``--category NAME`` -- Run only the named category (repeatable).
 
 ``--full`` -- Also run on-demand categories (live model chat, pinned CLI download).
+
+Exit codes: ``0`` healthy, ``1`` warnings only, ``2`` one or more errors,
+``3`` the command itself failed, ``130`` interrupted. See
+:doc:`/how-to/health-json-contract` for the ``--json`` document's shape and the
+``jq`` patterns for consuming it, and :doc:`/how-to/configure-health-checks` for
+the ``health:`` config block.
 
 osprey chat
 ===========
@@ -556,8 +668,9 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder build-database``
    Build a channel database from a CSV file.
 
-``osprey channel-finder validate``
-   Validate a channel database JSON file.
+``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
+   Validate a channel database JSON file. The paradigm is auto-detected from the
+   project's config; ``--pipeline`` overrides that.
 
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
@@ -574,6 +687,10 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder web``
    Launch the Channel Finder web interface.
 
+A graph-mode project has no channel database file: ``validate`` and ``preview``
+say so and point at ``osprey knowledge seed-graph`` and the ``read_cypher`` tool,
+and ``--pipeline`` does not offer ``graph`` for the same reason.
+
 .. code-block:: bash
 
    osprey channel-finder build-database
@@ -582,6 +699,57 @@ Options: ``--project PATH``, ``-v, --verbose``
    osprey channel-finder generate --format hierarchical
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
+
+osprey knowledge
+================
+
+Build and load the facility's knowledge material: the OKF bundle of concept
+documents, and the NARAD-convention corpus the graph store holds. An omitted
+``BUNDLE`` comes from ``facility_knowledge.bundle_path`` and an omitted ``TTL``
+from ``services.graphdb.ttl_path``. See :doc:`/how-to/okf-bundle` and
+:doc:`/how-to/use-facility-graph`.
+
+``osprey knowledge regen-index [BUNDLE]``
+   Regenerate the ``index.md`` files throughout an OKF bundle. Run it twice and
+   the second run changes nothing.
+
+``osprey knowledge validate [BUNDLE]``
+   Check every document in a bundle against the OKF format.
+
+``osprey knowledge seed-from-ttl TTL BUNDLE [--force]``
+   Write stub concept documents into a bundle from a TTL corpus, one per class,
+   for a person to fill in.
+
+``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH]``
+   Derive a NARAD-convention TTL corpus from the channel database: one device
+   node per device, one binding per address, a read or write direction on every
+   signal, and the descriptions that let the corpus be searched by meaning
+   rather than by address alone.
+
+   ``--channel-db`` is the hierarchical database, and defaults to the one
+   ``channel_finder.pipelines.hierarchical.database.path`` names.
+   ``--descriptions`` is the in-context database of the same machine, whose
+   per-channel text becomes each binding's description; unnamed, it is looked
+   for as ``in_context.json`` beside the file ``--channel-db`` named, which is
+   how the OSPREY source tree keeps the two. A rendered project holds only the
+   paradigm it runs, so name both there. ``--limits`` decides which signals are
+   written and ``--ontology`` maps device families to classes; both fall back to
+   the config and the shipped table. :doc:`/how-to/use-facility-graph` has the
+   detail.
+
+   A graph-mode project ships no channel database by design, so the command
+   refuses there and says to name the sources with ``--channel-db`` and
+   ``--descriptions``.
+
+``osprey knowledge seed-graph [TTL] [--force]``
+   Load a TTL corpus into the deployed graph store. ``--force`` wipes the store
+   and imports from scratch, which is what a changed store configuration needs.
+
+.. code-block:: bash
+
+   osprey knowledge build-ttl data/demo_machine.ttl
+   osprey knowledge seed-graph data/demo_machine.ttl
+   osprey knowledge validate
 
 osprey ariel
 ============
@@ -604,10 +772,24 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
 ``enhance [--module NAME] [--force] [--limit N]`` -- Run enhancement modules.
 
+``qmd-resync [--rebuild]``
+   Re-export entries the qmd markdown mirror never saw --- entries created in
+   the web interface, attachment uploads, and entries written through the
+   logbook write service. ``--rebuild`` wipes the mirror and re-exports
+   everything, which is what to run after ``purge``.
+   ``ingest`` and ``watch`` already do this pass on their own.
+
 ``models`` -- List embedding models and tables.
 
-``search QUERY [--mode keyword|semantic] [--limit N] [--json]``
-   Execute a search query (default mode: ``keyword``).
+``search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
+   Execute a search query. Without ``--mode``, the deployment's
+   ``ariel.default_search_mode`` decides.
+
+``vocab-check [PATH] [--json]``
+   Validate a facility vocabulary file --- the shorthand-to-prose mapping that
+   query expansion uses. Checks ``PATH``, or the file named by
+   ``ariel.vocabulary.path`` when no path is given. Needs no database. Exits 1
+   and lists every error when the file is broken; warnings never fail it.
 
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.
@@ -620,6 +802,7 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
+   osprey ariel vocab-check data/ariel/vocabulary.yml
    osprey ariel web --port 8080
 
 osprey artifacts
@@ -628,7 +811,7 @@ osprey artifacts
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
 interactive plots, tables, and other outputs produced by the Osprey agent during
 analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact()`` in
-``osprey execute`` or the ``artifact_save`` MCP tool.
+``osprey execute`` or the ``artifact_register`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``
    Launch the Artifact Gallery web interface. Starts a FastAPI server on
@@ -654,7 +837,11 @@ osprey web
 Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web [OPTIONS]``
-   Start the web terminal server (default: ``http://127.0.0.1:8087``).
+   Start the web terminal server (default: ``http://127.0.0.1:8087``). On
+   startup it prints a login URL (``…/?token=…``) that sets a session cookie
+   and then redirects to the clean address. The URL is printed once, but its
+   token is the server's own secret and stays valid for the life of the
+   process — treat it like a password.
 
    ``-p, --port INTEGER`` — Port (default: from config or 8087).
 
@@ -664,7 +851,9 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--repo PATH`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
 
-   ``--detach`` — Run in background (PID written to ``.osprey-web.pid``).
+   ``--detach`` — Run in background (PID written to ``var/osprey-web.pid``). The
+   login token is held only in memory; if the printed URL is lost, stop and
+   restart the server to mint a new one.
 
    ``--reload`` — Auto-reload for development.
 
@@ -690,7 +879,9 @@ write theme files. See :doc:`/how-to/web-terminal/theming`.
 
 ``osprey theme-lab [OPTIONS]``
    Serve the Theme Lab and open it. The URL is printed as well, so the page can
-   be opened by hand if no browser appears.
+   be opened by hand if no browser appears. It is a login URL at the server root
+   (``…/?token=…``): opening it sets a session cookie and then redirects to the
+   lab itself.
 
    ``-p, --port INTEGER`` — Port to serve on (default: an unused port chosen
    automatically).
@@ -733,7 +924,8 @@ directories, and lifecycle scripts.
 osprey scaffold
 ===============
 
-Emit the repository's CI files and manage build artifact ownership.
+Emit the repository's CI files and boot unit, and manage build artifact
+ownership.
 Framework-managed build artifacts (agents, rules, etc.) can be claimed
 per-facility for in-place editing. A claim moves the artifact out of the build
 zone and into the profile beside it; the next build copies it back and registers
@@ -753,6 +945,19 @@ All subcommands accept a common flag:
    file the scaffolder did not write is reported and left alone unless
    ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
    pipeline includes it.
+
+``osprey scaffold systemd [--force]``
+   Emit a systemd user unit that starts this deployment at boot: ``osprey.service``
+   at the repository root, plus the commands to install it. The unit runs
+   ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
+   the repository and the ``osprey`` program written in as full paths — systemd
+   starts a unit with no working directory and a short ``PATH``. Run it on the
+   machine that will run the deployment, and again after the repository moves or
+   OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
+   ``ci``: a matching file is left untouched, and a file the scaffolder did not
+   write needs ``--force``. Refuses when no ``osprey`` program can be found to
+   name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
+   see :doc:`../how-to/deploy-a-facility`.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
@@ -801,6 +1006,7 @@ All subcommands accept a common flag:
 .. code-block:: bash
 
    osprey scaffold ci                             # Re-emit the CI files
+   osprey scaffold systemd                        # Write the boot unit
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template
@@ -830,9 +1036,10 @@ can be installed either globally or into a specific project's
 
    Currently supported skills:
 
-   * ``osprey-build-interview`` — guided facility-repository generation (see
-     :doc:`/getting-started/osprey-build-interview`). Typically installed globally
-     so it is available in any Osprey agent session.
+   * ``osprey-build-interview`` — set up or migrate an OSPREY deployment
+     through a guided conversation anchored on the live deployment repo (see
+     :doc:`/getting-started/osprey-build-interview`). Typically installed
+     globally so it is available in any Osprey agent session.
    * ``osprey-contribute`` — walks a contributor through the GitHub Flow
      journey from a working-tree change to a merged PR on ``main`` (branching,
      atomic commits, push, PR, rebase, merge).
@@ -868,10 +1075,24 @@ switch the interfaces over to local bundles.
 
    ``-q, --quiet`` — Suppress per-file output.
 
-   ``-k, --insecure`` — Skip TLS cert verification. Every asset is still
-   checked against its manifest SHA256, so this is safe behind corporate
-   proxies (e.g. Squid) that intercept TLS. Also enabled via
-   ``OSPREY_VENDOR_INSECURE=1``.
+   Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
+   fails cert verification until it is pointed at the site's CA bundle.
+   That is the first remedy to reach for — verification stays on:
+
+   .. code-block:: bash
+
+      OSPREY_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+        osprey vendor fetch
+
+   ``SSL_CERT_FILE`` works too (Python's default SSL context honors it);
+   ``OSPREY_CA_BUNDLE`` wins when both are set. The path above is the
+   RHEL-family system bundle — on Debian-family hosts it is
+   ``/etc/ssl/certs/ca-certificates.crt``.
+
+   ``-k, --insecure`` — The fallback when no CA bundle is at hand: skip TLS
+   cert verification. Every asset is still checked against its manifest
+   SHA256, so this is safe behind corporate proxies that intercept TLS.
+   Also enabled via ``OSPREY_VENDOR_INSECURE=1``.
 
 ``osprey vendor verify``
    Verify all vendor assets exist on disk with correct SHA256 checksums.
@@ -879,7 +1100,8 @@ switch the interfaces over to local bundles.
 .. code-block:: bash
 
    osprey vendor fetch                    # Download all assets
-   osprey vendor fetch --insecure         # Behind a TLS-intercepting proxy
+   OSPREY_CA_BUNDLE=/path/to/ca.pem osprey vendor fetch   # TLS-intercepting proxy, verified
+   osprey vendor fetch --insecure         # Fallback: no CA bundle at hand
    osprey vendor verify                   # Check checksums
 
 Environment Variables

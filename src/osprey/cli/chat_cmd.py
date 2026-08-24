@@ -150,20 +150,71 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     registered server the chance to start; each server's ``auto_launch_checker``
     decides whether it actually does.
 
+    Each companion that starts runs in a daemon thread in **this** process, so
+    it shares this process's web credentials. For every one that starts,
+    :func:`osprey.interfaces.web_auth.mint_and_announce` settles the operator
+    secret once (idempotent) and returns a per-companion ``?token=`` login URL
+    carrying it — the operator's only way past that companion's auth
+    middleware, and what this function returns in place of a bare URL.
+
+    Two process-wide steps frame that loop.
+
+    **Before it, the settled web-terminal port is published as
+    ``OSPREY_WEB_PORT``**, because that is what names the browser session
+    cookie. :func:`~osprey.interfaces.common_middleware.session_cookie_name`
+    appends the port to the cookie's base name so that two OSPREY servers on one
+    host — one origin, as far as a browser that ignores ports is concerned — do
+    not overwrite each other's session; with no port published, every companion
+    here falls back to the bare base name and collides with any other OSPREY
+    server on the host that fell back too. One name for all of them is the right
+    answer rather than one per companion: every companion in this process shares
+    a single credential holder and a single session map, so a browser that signs
+    in at any one of them is signed in at all of them. The *terminal's* port is
+    the one to publish because that is what ``OSPREY_WEB_PORT`` already means to
+    its other readers — the agent's panel tools and MCP helpers resolve the web
+    terminal through it — so naming a companion's port there would misdirect
+    them. An already-published value wins: the per-user container's compose sets
+    it to the port that container really listens on.
+
+    **After it, :func:`~osprey.interfaces.web_auth.close_env_carriers` pops both
+    credential carriers back out of ``os.environ``.** ``mint_and_announce``
+    re-publishes the operator secret on every call, and the last call in the
+    loop has no app construction behind it to close the carrier again — each
+    companion's ``create_app`` runs in its own daemon thread and calls
+    ``close_env_carriers`` whenever it happens to finish, so which carriers
+    survive the loop is otherwise a matter of thread timing. Closing them here
+    makes the end state deterministic: this process serves and spawns with
+    neither credential in its environment. The agent child never depended on
+    them anyway — :func:`chat` builds its environment from
+    :func:`~osprey.agent_runner.clean_env.build_base_child_env`, which drops
+    both names, and takes the panel token it re-adds straight from the
+    credential holder.
+
     Args:
         project_dir: The rendered project — ``build/``, which holds config.yml.
 
     Returns:
-        ``(display_name, url)`` for each server that ended up running.
+        ``(display_name, login_url)`` for each server that ended up running.
     """
+    from osprey.cli.web_cmd import resolve_web_port
     from osprey.infrastructure.server_launcher import _launchers, ensure_web_server
+    from osprey.interfaces.common_middleware import WEB_PORT_ENV
+    from osprey.interfaces.web_auth import close_env_carriers, mint_and_announce
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
-    from osprey.utils.workspace import reset_config_cache
+    from osprey.utils.workspace import load_osprey_config, reset_config_cache
 
     config_file = project_dir / "config.yml"
     if config_file.exists():
         os.environ["OSPREY_CONFIG"] = str(config_file)
     reset_config_cache()
+
+    # Name this process's session cookie before the first app is built. The port
+    # comes from the same resolver ``osprey web`` binds by, so a chat session and
+    # the terminal for this deployment agree on the name. An empty value counts
+    # as absent: an unset compose variable interpolates to the empty string.
+    if not (os.environ.get(WEB_PORT_ENV) or "").strip():
+        web_terminal = load_osprey_config().get("web_terminal") or {}
+        os.environ[WEB_PORT_ENV] = str(resolve_web_port(None, web_terminal.get("port")))
 
     started: list[tuple[str, str]] = []
     for key, defn in FRAMEWORK_WEB_SERVERS.items():
@@ -172,7 +223,7 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
             launcher = _launchers[key]
             if launcher._launched:
                 host, port = launcher._config_reader()
-                started.append((defn.name, f"http://{host}:{port}"))
+                started.append((defn.name, mint_and_announce(host, port)))
         except Exception as exc:
             # Fail OPEN — a companion panel that will not start is not a reason
             # to withhold the agent session — but not fail SILENT. Reported
@@ -184,6 +235,12 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
                 f"{type(exc).__name__}: {exc}\n"
                 "The session continues without it. Run `osprey web` to see why.",
             )
+
+    # Last statement, so it settles what the daemon threads left behind: every
+    # companion that started has already settled the holder through
+    # ``mint_and_announce``, and if none did there is nothing in this process
+    # that will ever ask the holder for a credential.
+    close_env_carriers()
     return started
 
 
@@ -274,6 +331,10 @@ def chat(
         inject_provider_env,
         load_provider_spec,
     )
+    from osprey.build.claude_code_telemetry import (
+        ObservabilityCredentialError,
+        telemetry_creds_are_store_issued,
+    )
     from osprey.deployment.staleness import BUILD_DIRNAME
     from osprey.utils.claude_launcher import build_claude_launch_argv
 
@@ -322,6 +383,27 @@ def chat(
         spec = load_provider_spec(build_dir)
     except yaml.YAMLError as exc:
         raise _unreadable_config(config_path, exc) from exc
+    except ObservabilityCredentialError as exc:
+        # Keep this arm ahead of any broader one added later: it subclasses
+        # ValueError, so an `except ValueError` below would swallow it whole.
+        #
+        # Resolving the provider also resolves the telemetry block, so an
+        # observability credential that does not exist yet arrives as a failure
+        # to read the provider — and on a deployment that has never run
+        # `osprey up`, the store-issued token in the shipped telemetry block is
+        # exactly that. Drop telemetry for this session and start; the session
+        # is read-oriented, ends when the operator closes it, and losing its
+        # traces is not a reason to withhold the agent. Anything else — a
+        # credential an operator has to set, or one that is simply blank —
+        # keeps raising untouched.
+        if not telemetry_creds_are_store_issued(exc):
+            raise
+        output.warn(
+            "Telemetry is off for this session",
+            f"`osprey up` issues {', '.join(exc.unresolved_vars)} when it starts the "
+            "telemetry store, and this deployment has not been started yet.",
+        )
+        spec = load_provider_spec(build_dir, include_telemetry=False)
 
     if spec is None:
         # No provider configured, so inject_provider_env — the only caller of
@@ -408,4 +490,32 @@ def chat(
     # Companion servers and the translation proxy run in daemon threads, so the
     # parent process must stay alive — always subprocess.run, never os.execvp,
     # which would replace it.
-    raise SystemExit(subprocess.run(args).returncode)
+    #
+    # The agent is spawned with a DELIBERATELY built environment, not the
+    # parent's os.environ. build_base_child_env() strips the Claude Code session
+    # vars and — crucially here — the sensitive credentials named by
+    # osprey.utils.sensitive_env: OSPREY_TERMINAL_SECRET (the operator secret
+    # the in-process companions authenticate with, which the agent must never
+    # hold — possession would let agent-run code authenticate as the server that
+    # launched it) and OSPREY_PANEL_TOKEN. Neither is in the parent's os.environ
+    # by this point, so the strip is a second line rather than the boundary
+    # itself; the boundary is that this is a COMPLETE environment, not an
+    # overlay on the parent's. The panel token is then re-added explicitly: the
+    # agent's MCP panel tools and the panel/approval hooks it spawns
+    # legitimately need it to make panel-tier calls to those companions.
+    # Nothing re-adds the terminal secret; a child that needs one mints its own.
+    #
+    # The value comes from the credential HOLDER, not from os.environ, where by
+    # design there is nothing left to read: _launch_companion_servers closes
+    # both carriers before it returns. The holder is the same object those
+    # companions authenticate against and cannot race with the daemon threads
+    # they run in. Gated on a companion having actually started, so a session
+    # with no panel host to call hands the child no credential at all.
+    from osprey.agent_runner.clean_env import build_base_child_env
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+
+    child_env = build_base_child_env()
+    if started_servers:
+        child_env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
+
+    raise SystemExit(subprocess.run(args, env=child_env).returncode)

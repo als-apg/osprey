@@ -9,11 +9,11 @@ import pytest
 
 from osprey.mcp_server.workspace.execution.sandbox_executor import (
     SandboxExecutionResult,
-    _collect_artifacts,
     create_sandbox_execution_folder,
     execute_sandbox_code,
     validate_sandbox_code,
 )
+from osprey.stores.artifact_manifest import collect_artifacts
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +484,7 @@ class TestCollection:
         (folder / "artifacts" / "manifest.json").write_text(json.dumps(manifest))
         (folder / "artifacts" / "abc_chart.html").write_text("<html></html>")
 
-        artifacts = _collect_artifacts(folder)
+        artifacts = collect_artifacts(folder)
         assert len(artifacts) == 1
         assert artifacts[0]["title"] == "Chart"
         assert artifacts[0]["path"].exists()
@@ -497,14 +497,14 @@ class TestCollection:
         manifest = [{"filename": "missing.txt", "title": "Missing"}]
         (folder / "artifacts" / "manifest.json").write_text(json.dumps(manifest))
 
-        artifacts = _collect_artifacts(folder)
+        artifacts = collect_artifacts(folder)
         assert artifacts == []
 
     def test_artifact_collection_no_manifest(self, tmp_path):
         folder = tmp_path / "exec"
         folder.mkdir()
 
-        artifacts = _collect_artifacts(folder)
+        artifacts = collect_artifacts(folder)
         assert artifacts == []
 
 

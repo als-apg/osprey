@@ -13,7 +13,8 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 
-from osprey.agent_runner.clean_env import build_clean_env
+from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,20 @@ def _build_extra_env(
     ``OSPREY_SESSION_ID`` (session-scoped agent-data relocation and artifact
     session tagging) and stays unset for new sessions — because the telemetry
     locator must not carry those side effects.
+
+    The result also carries the **panel token**, and that is the one place the
+    PTY child gets it. :func:`~osprey.interfaces.web_auth._populate` pops the
+    token out of ``os.environ`` and
+    :func:`~osprey.agent_runner.clean_env.build_base_child_env` strips it, so
+    :func:`~osprey.interfaces.web_terminal.pty_manager.build_pty_env` — which
+    hands its result to ``Popen(env=...)`` as the child's *complete*
+    environment — would otherwise produce a child that holds no panel
+    credential at all, leaving the MCP panel tools and the panel/approval hooks
+    to send no bearer and be answered 401 in silence. ``extra_env`` is applied
+    after the strip, which is what makes this the seam for a deliberate
+    re-introduction. Only the panel token is re-introduced: it authorises the
+    narrow panel tier (:data:`~osprey.interfaces.web_auth.PANEL_TIER_ROUTES`)
+    and nothing else. The operator secret is never put back.
     """
     extra_env: dict[str, str] = {}
     # The PTY terminal IS the expert web surface — every session spawned here
@@ -106,6 +121,7 @@ def _build_extra_env(
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
+    extra_env[PANEL_TOKEN_ENV] = get_web_credentials(websocket.app).panel_token
     hooks_env = getattr(websocket.app.state, "hooks_env", {})
     if hooks_env:
         extra_env.update(hooks_env)
@@ -149,10 +165,9 @@ async def terminal_ws(websocket: WebSocket):
         # Force a known session UUID so the workspace provenance_locator tool can
         # hand it back (via OSPREY_TELEMETRY_SESSION_ID, injected below) and it
         # matches the value the OTEL emitter tags records with as session.id — a
-        # filed issue's provenance pointer then resolves. Leave claude_session_id
-        # None so the new-session snapshot/discovery path is unchanged: discovery
-        # simply finds the id we forced. (Not claude_session_id, which would set
-        # OSPREY_SESSION_ID and relocate session-scoped agent data.)
+        # filed issue's provenance pointer then resolves. (Not claude_session_id,
+        # which would set OSPREY_SESSION_ID and relocate session-scoped agent
+        # data — this is the CLI's session id, not an agent-data scope.)
         telemetry_session_id = str(uuid.uuid4())
         command = [*base_shell_command, "--session-id", telemetry_session_id]
         claude_session_id = None
@@ -160,8 +175,11 @@ async def terminal_ws(websocket: WebSocket):
     if effort:
         command.extend(["--effort", effort])
 
-    # Use claude_session_id as pool key for resumes, temp key for new sessions
-    current_key = claude_session_id or f"terminal-{uuid.uuid4().hex[:8]}"
+    # Pool key: the requested id for resumes, the forced id for new sessions.
+    # A new session's id is dictated on the command line above, never guessed,
+    # so the pool is keyed by the real session id from the first moment and
+    # needs no later rekey.
+    current_key = claude_session_id or telemetry_session_id
 
     # Wait for the client's initial resize message before spawning the PTY.
     initial_cols, initial_rows = 80, 24
@@ -178,14 +196,9 @@ async def terminal_ws(websocket: WebSocket):
     except TimeoutError:
         logger.warning("No initial resize from client within 5s, using defaults")
 
-    # For new sessions, snapshot existing session files before spawning
-    snapshot: set[str] | None = None
-    if claude_session_id is None:
-        snapshot = discovery.snapshot_session_ids()
-
-    # For resumes, snapshot too — a stale/absent --resume-id can make the CLI
-    # silently start a fresh session instead of resuming, and this is how we
-    # tell the two apart once the PTY is up.
+    # For resumes, snapshot the session files before spawning — a stale/absent
+    # --resume-id can make the CLI silently start a fresh session instead of
+    # resuming, and this is how we tell the two apart once the PTY is up.
     resume_snapshot: set[str] | None = None
     if mode == "resume" and req_session_id:
         resume_snapshot = discovery.snapshot_session_ids()
@@ -202,18 +215,16 @@ async def terminal_ws(websocket: WebSocket):
     )
     registry.attach_session(current_key)
 
-    # For new sessions, discover the Claude-generated UUID asynchronously
-    if snapshot is not None:
-
-        async def _do_initial_discover():
-            nonlocal current_key
-            found = await _discover_and_notify(
-                snapshot, discovery, registry, current_key, websocket
+    # New sessions: confirm the id immediately. It is the id this handler put
+    # on the CLI's own command line a few lines up, so there is nothing to wait
+    # for and nothing to race.
+    if claude_session_id is None:
+        try:
+            await websocket.send_text(
+                json.dumps({"type": "session_info", "session_id": current_key})
             )
-            if found:
-                current_key = found
-
-        asyncio.create_task(_do_initial_discover())
+        except Exception:
+            pass
 
     # For resumes, confirm the actually-attached session id so the client can
     # tell a live resume from a silently-fresh PTY on a stale --resume-id.
@@ -221,11 +232,13 @@ async def terminal_ws(websocket: WebSocket):
     # warm session (same live PTY) and a cold resume whose session file was
     # already on disk before we spawned (the id was genuinely valid). Only a
     # request for an id with no file on disk — stale/absent — is ambiguous:
-    # the CLI may fall back to creating a fresh session, so that case is
-    # confirmed via the same discovery mechanism (and window) used above —
-    # every entry into this branch is racing the CLI's own startup to write
-    # a new session file, so it needs the same generous timeout as the
-    # new-session path, not a shortened one.
+    # the CLI may fall back to creating a fresh session under an id of its own
+    # choosing, and ``--resume`` gives this handler no way to dictate that id
+    # the way the new-session path dictates one. So this branch alone still
+    # discovers, and it keeps the generous window: it is racing the CLI's own
+    # startup, and a fallback id that arrives late is still worth having. When
+    # the window closes with nothing new, the requested id is confirmed rather
+    # than left unanswered, so the client is never stranded without one.
     if resume_snapshot is not None:
         if was_reused or req_session_id in resume_snapshot:
             try:
@@ -243,7 +256,17 @@ async def terminal_ws(websocket: WebSocket):
                 )
                 if found:
                     current_key = found
-                else:
+                elif session.is_alive:
+                    # Nothing new appeared and the PTY is still up, so the
+                    # requested id resumed after all — confirm it. A PTY that
+                    # has already exited says the opposite: ``--resume`` found
+                    # no such conversation and the CLI quit. Confirming the id
+                    # back in that case would tell the client to keep an id
+                    # that resolves to nothing and re-resume it on the next
+                    # reload, which is how a dead tab becomes a permanent one.
+                    # Staying quiet leaves the client's own failover — driven
+                    # by the ``exit`` frame it has already been sent — to
+                    # discard the id and start clean.
                     try:
                         await websocket.send_text(
                             json.dumps({"type": "session_info", "session_id": current_key})
@@ -385,9 +408,20 @@ async def terminal_ws(websocket: WebSocket):
         output_task.cancel()
         # Detach instead of terminate — keep session alive in the pool.
         # Only terminate if the process has already died.
-        registry.detach_session(current_key)
+        #
+        # Both steps are guarded on this handler still OWNING the pool entry,
+        # because the key alone no longer identifies it. Now that every new
+        # session hands the client an id it stores and resumes, two handlers
+        # meeting on one key is ordinary: a second tab (or a reload whose
+        # disconnect the server sees late) can resume the id, find this PTY
+        # dead, and spawn a replacement under the same key. An unguarded
+        # teardown would then terminate the live replacement and clear the
+        # attachment the newer handler holds, killing a terminal the operator
+        # is looking at.
+        if registry.get_session(current_key) is session:
+            registry.detach_session(current_key)
         if not session.is_alive:
-            registry.terminate_session(current_key)
+            registry.terminate_session_if_owner(current_key, session)
 
 
 @router.post("/api/terminal/logout")
@@ -443,7 +477,7 @@ async def operator_ws(websocket: WebSocket):
     forward_task = None
 
     try:
-        env = build_clean_env(project_cwd=cwd)
+        env = build_operator_child_env(project_cwd=cwd)
         session = await registry.create_session(operator_key, cwd=cwd, env=env)
     except Exception as exc:
         logger.error("Failed to create operator session: %s", exc)

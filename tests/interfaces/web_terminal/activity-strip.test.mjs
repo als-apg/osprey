@@ -709,3 +709,59 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(NaN, now)).toBe('');
   });
 });
+
+describe('empty-strip focusability', () => {
+  // The strip is the trigger for a history that lives on the SERVER, fetched
+  // when the popover opens. An empty live line therefore says nothing about
+  // whether there is history to show — after any reload the ring is full and
+  // the line is empty — so the trigger stays operable regardless. The floating
+  // variant's empty-state invisibility is solved in activity-strip.css, which
+  // reveals the strip on focus rather than removing the way in.
+
+  test('a strip with nothing to show is still a tab stop', () => {
+    makeStrip();
+    expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+
+  test('showing a frame leaves the trigger focusable', async () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+    expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+
+  test('the auto-clear timeout keeps the tab stop', async () => {
+    // The state a reloaded page starts in: nothing live, history on the server.
+    const strip = makeStrip(1000);
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mount.textContent).toBe('');
+    expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+
+  test('an explicit clear() keeps the tab stop', async () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+    strip.clear();
+    await flush();
+    expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+
+  test('the trigger stays focusable across an open/close over an emptied strip', async () => {
+    const strip = makeStrip(1000, async () => []);
+    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
+    await flush();
+    await strip.openHistory();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mount.textContent).toBe('');
+    expect(mount.getAttribute('tabindex')).toBe('0');
+
+    strip.closeHistory();
+    await flush();
+    expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+});

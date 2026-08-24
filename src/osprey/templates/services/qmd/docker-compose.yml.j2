@@ -2,6 +2,12 @@
     file-level stanza — comes from the shared macro rather than being spelled
     here, so every service template states the same topology the same way. -#}
 {%- import "services/_network_axis.j2" as net -%}
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing and this file renders exactly
+    as it did before the axis existed. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 {#- Paths inside the container. Each is used twice (as a mount target and as
     the environment variable that tells the entrypoint where to look), so they
     are named once here: a volume mounted at one path while the process reads
@@ -46,7 +52,7 @@
 
 services:
   qmd:
-    image: ${OSPREY_QMD_IMAGE:-{{ services.qmd.image | default(osprey_labels.project_name ~ '-qmd:local') }}}
+    image: ${OSPREY_QMD_IMAGE:-{{ services.qmd.image | default(osprey_images.qmd) }}}
     build:
       # EVERY relative path in this file — the build context and the bind-mount
       # sources alike — resolves against the pinned compose project directory,
@@ -119,6 +125,7 @@ services:
       # indexed is a redeploy, not an image rebuild.
       OSPREY_QMD_INDEX_CONFIG: "{{ index_config }}"
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.qmd) }}
     volumes:
       # The index. A named volume rather than a bind: it is derived data the
       # sidecar owns end to end, it is large, and rebuilding it from scratch

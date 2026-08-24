@@ -1,17 +1,21 @@
 """Resolving a configured theme name into concrete themes and their CSS values.
 
-Two surfaces need to turn a configured ``web.theme`` value into something
+Three surfaces need to turn a configured ``web.theme`` value into something
 concrete, and they must agree:
 
 - The **web terminal** server-renders a theme id onto ``<html data-theme>`` so
   the generated ``theme-boot.js`` first-paints without a flash.
+- The **artifact gallery** stamps the same attribute onto the artifact pages it
+  serves, so one opened outside the hub honors the deployment's pin too.
 - The **multi-user landing page** is a flat file nginx serves with no app
   behind it, so it cannot link the token stylesheet at all — its renderer bakes
   the resolved theme's values straight into the page's inline ``<style>``.
 
-Both read the same ``tokens/`` source tree the design-system generator builds
-from, rather than parsing a generated artifact, so neither can drift from a
-stale build.
+All three read the same ``tokens/`` source tree the design-system generator
+builds from, rather than parsing a generated artifact, so none can drift from a
+stale build. The first two also read the *deployment's* configured value rather
+than being handed one, so :func:`resolve_configured_web_theme` owns that read
+(environment before config) as well as the resolution.
 
 A configured value may name either a **family** (``"desy"`` — a palette, with
 light/dark left to each viewer's OS) or a concrete **theme id**
@@ -25,13 +29,19 @@ explicitly configured dark id.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
 from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "DEFAULT_WEB_THEME",
+    "ConfiguredWebTheme",
+    "configured_web_theme",
+    "resolve_configured_web_theme",
     "load_theme_registry",
     "resolve_theme_id",
     "resolve_pinned_mode",
@@ -39,6 +49,10 @@ __all__ = [
     "theme_css_variables",
     "MissingThemeVariableError",
 ]
+
+#: Used when neither ``OSPREY_WEB_THEME`` nor ``web.theme`` names anything: the
+#: built-in family, which pins no mode and so leaves light/dark to each viewer.
+DEFAULT_WEB_THEME = "main"
 
 
 class MissingThemeVariableError(KeyError):
@@ -169,6 +183,77 @@ def family_of(theme_id: str, entries: Sequence[ThemeManifestEntry]) -> str | Non
         if entry.id == theme_id:
             return entry.family
     return None
+
+
+@dataclass(frozen=True)
+class ConfiguredWebTheme:
+    """What a deployment's configured web-theme value resolves to.
+
+    Attributes:
+        id: The concrete baked theme id — always a real id, never a family.
+        pinned_mode: ``"dark"``/``"light"`` if the configured value named a
+            concrete id, ``None`` if it named a family (or was unknown). See
+            :func:`resolve_pinned_mode` for why this cannot be read back off
+            ``id``.
+        family: The family ``id`` belongs to, or ``None`` if unknown.
+    """
+
+    id: str
+    pinned_mode: str | None
+    family: str | None
+
+
+def configured_web_theme() -> str:
+    """The raw web-theme value a deployment configured.
+
+    ``OSPREY_WEB_THEME`` wins over ``web.theme``, so several containers sharing
+    one baked config image can each be themed individually through the
+    environment — the same shape ``OSPREY_WEB_APP_NAME`` uses, and how
+    multi-user deployments theme each user's container from the roster's
+    ``theme:`` key. Falls back to :data:`DEFAULT_WEB_THEME`.
+
+    Raises:
+        Exception: Whatever reading the config raises — ``FileNotFoundError``
+            when none is primed. The servers that call this disagree about what
+            that should mean (the terminal must still render *some* theme, the
+            gallery simply serves unpinned pages), so the fallback is theirs.
+    """
+    from_env = os.environ.get("OSPREY_WEB_THEME", "").strip()
+    if from_env:
+        return from_env
+
+    from osprey.utils.config import get_config_value
+
+    return str(get_config_value("web.theme", DEFAULT_WEB_THEME) or DEFAULT_WEB_THEME)
+
+
+def resolve_configured_web_theme(configured: str | None = None) -> ConfiguredWebTheme:
+    """Resolve the configured web theme into id, pin and family in one read.
+
+    The single interpretation of the environment → config → family/id chain, so
+    the surfaces that server-render a theme cannot disagree about what a
+    configured value means.
+
+    Args:
+        configured: A raw value to resolve instead of reading the deployment's
+            own (mainly for tests).
+
+    Returns:
+        The resolved :class:`ConfiguredWebTheme`.
+
+    Raises:
+        Exception: As :func:`configured_web_theme`, plus anything
+            :func:`load_theme_registry` raises. Callers own the fallback.
+    """
+    if configured is None:
+        configured = configured_web_theme()
+    entries, defaults = load_theme_registry()
+    theme_id = resolve_theme_id(configured, entries, defaults)
+    return ConfiguredWebTheme(
+        id=theme_id,
+        pinned_mode=resolve_pinned_mode(configured, entries),
+        family=family_of(theme_id, entries),
+    )
 
 
 def theme_css_variables(theme_id: str, names: Iterable[str]) -> dict[str, str]:

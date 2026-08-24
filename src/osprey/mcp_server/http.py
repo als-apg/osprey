@@ -4,6 +4,34 @@ import logging
 
 logger = logging.getLogger("osprey.mcp_server.http")
 
+#: Activity kind that means "this touched the control system" — the kind
+#: ``channel_write``, ``execute`` and ``execute_file`` already emit. It is the
+#: one kind whose events are stamped with the session's control-system target,
+#: because it is the one kind for which "which machine?" is a real question.
+CONTROL_ACTIVITY_KIND = "channel"
+
+#: Tool name reported for a control-system target switch. The switch tool emits
+#: through :func:`notify_target_switch_async` rather than spelling this itself.
+TARGET_SWITCH_TOOL = "control_target_set"
+
+#: Activity kind a switch is reported under. A switch changes what the session
+#: is configured to talk to, so it rides the ``config`` kind the route already
+#: accepts — a new kind would be rejected with a 422 by the web terminal and the
+#: event would vanish.
+TARGET_SWITCH_KIND = "config"
+
+#: The two switch outcomes. Spelled here so the success and failure emits of the
+#: switch tool cannot drift into two vocabularies.
+SWITCH_OUTCOME_SUCCESS = "success"
+SWITCH_OUTCOME_FAILURE = "failure"
+
+#: Sentinel handed to ``resolve_session_target`` as its "no answer" value. That
+#: resolver returns the baseline it is given whenever the state is absent,
+#: foreign-owned, ambiguous or corrupt; passing a value no target can equal is
+#: how this module tells "nothing published" apart from "published as live",
+#: without restating the ownership rule that resolver owns.
+_NO_TARGET = ""
+
 
 def gallery_url() -> str:
     """Build the gallery base URL from config.
@@ -62,10 +90,69 @@ def phoebus_bridge_url() -> str:
     return f"http://{host}:{port}"
 
 
+_PANEL_TOKEN_LATCH: str | None = None
+
+
+def reset_panel_token_latch() -> None:
+    """Forget the last panel token :func:`_panel_auth_headers` saw (tests only)."""
+    global _PANEL_TOKEN_LATCH
+    _PANEL_TOKEN_LATCH = None
+
+
+def _panel_auth_headers() -> dict[str, str]:
+    """Build the ``Authorization`` header the terminal API's panel routes want.
+
+    The MCP server is an agent-reachable process, so it carries the *panel
+    token* — a low-privilege credential that unlocks only the panel-coordination
+    routes — and never the operator secret that authorises a browser session.
+
+    The value is read from ``OSPREY_PANEL_TOKEN`` on every call rather than
+    captured at import: the carrier is published into the environment by the
+    launching process, which may happen after this module is first imported.
+
+    The last non-blank value seen is also latched, because this process can
+    lose the carrier from under itself: saving an artifact auto-launches the
+    artifact companion app (``osprey.stores.artifact_store`` ->
+    ``ensure_artifact_server``), and when that happens in-process the app's
+    construction closes both credential carriers in ``os.environ`` — the
+    same scrub every interface app performs so a child it spawns cannot
+    inherit them.  Without the latch every panel call after that point would
+    go out with no bearer and be refused.  The environment is still consulted
+    first, so a value published after import (or rotated) wins over the latch.
+    The latch is never fed from the credential holder: in a process that
+    never held a carrier, ``get_web_credentials()`` would *mint* a token the
+    terminal does not recognise.
+
+    Returns:
+        ``{"Authorization": "Bearer <token>"}`` when the carrier (or the
+        latch) holds a non-blank value, otherwise ``{}``.  Blank counts as
+        absent — an uninterpolated compose variable arrives as ``""`` — and a
+        bare ``"Bearer "`` would be a credential-shaped lie the route has to
+        reject.
+    """
+    global _PANEL_TOKEN_LATCH
+    import os
+
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
+
+    token = os.environ.get(PANEL_TOKEN_ENV, "").strip()
+    if token:
+        _PANEL_TOKEN_LATCH = token
+    elif _PANEL_TOKEN_LATCH:
+        token = _PANEL_TOKEN_LATCH
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:
     """Fire-and-forget JSON POST to a local HTTP endpoint.
 
-    Non-fatal: logs a warning if the target is unreachable.
+    Carries the panel token as a bearer header when one is available
+    (:func:`_panel_auth_headers`).
+
+    Non-fatal: logs a warning if the target is unreachable *or* rejects the
+    call.  That deliberately covers a ``401``: a credential regression makes
+    panel notifications go quiet rather than crashing the tool that emitted
+    them, and nothing here retries.
     Used by focus tools and panel-focus notifications.
     """
     import json as _json
@@ -76,7 +163,7 @@ def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:
         req = urllib.request.Request(
             url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **_panel_auth_headers()},
             method="POST",
         )
         urllib.request.urlopen(req, timeout=timeout)
@@ -89,6 +176,11 @@ def _post_json_with_response(url: str, payload: dict, *, timeout: int = 3) -> tu
 
     Unlike :func:`post_json` this propagates connection-level exceptions so the
     caller can distinguish "server rejected" from "server unreachable".
+
+    Carries the panel token as a bearer header when one is available
+    (:func:`_panel_auth_headers`).  A ``401`` is a rejection like any other: it
+    comes back as ``(401, body)`` for the caller to surface, never raised and
+    never retried.
 
     Args:
         url: Full URL to POST to.
@@ -111,7 +203,7 @@ def _post_json_with_response(url: str, payload: dict, *, timeout: int = 3) -> tu
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **_panel_auth_headers()},
         method="POST",
     )
     try:
@@ -152,20 +244,28 @@ def fetch_panels(timeout: int = 3) -> dict | None:
 
     Returns:
         The parsed JSON payload, or ``None`` when the web terminal is
-        unreachable (CLI-only mode) or answered with something other than a
-        JSON object — callers decide how to surface that.  Read individual
-        keys with ``.get()``; servers predating the layout-report feature omit
-        the three fields entirely.
+        unreachable (CLI-only mode), rejected the panel token (``401`` — a
+        credential regression reads as "no panel state", not as a crash), or
+        answered with something other than a JSON object — callers decide how
+        to surface that.  Read individual keys with ``.get()``; servers
+        predating the layout-report feature omit the three fields entirely.
     """
     import json as _json
     import urllib.request
 
     base = web_terminal_url()
     try:
-        with urllib.request.urlopen(f"{base}/api/panels", timeout=timeout) as resp:
+        # Built inside the guard: assembling the credential header is itself
+        # fallible, and a read helper whose contract is "None when the panel
+        # state cannot be had" must not crash its callers on the way to asking.
+        req = urllib.request.Request(f"{base}/api/panels", headers=_panel_auth_headers())
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = _json.loads(resp.read())
     except Exception as exc:
-        logger.warning("panel fetch failed (web terminal unreachable): %s", exc)
+        logger.warning(
+            "panel fetch failed (web terminal unreachable or rejected the panel token): %s",
+            exc,
+        )
         return None
     return data if isinstance(data, dict) else None
 
@@ -335,6 +435,144 @@ def notify_panel_focus(panel_id: str, url: str | None = None) -> None:
     post_json(f"{base}/api/panel-focus", payload, timeout=2)
 
 
+def resolve_activity_target() -> str | None:
+    """The control-system target to name on an activity event, or ``None``.
+
+    Answers from the target-state file a controls server publishes, through
+    :func:`~osprey.mcp_server.control_system.target_banner.resolve_session_target`
+    — the same resolver the approval prompt, the Phoebus guard and the health
+    row use, so no two surfaces can describe one session differently. The
+    resolver is holder-agnostic on purpose: this call is made from whichever MCP
+    server process emitted the activity (the controls server for
+    ``channel_write``, the python executor for ``execute``), and the record it
+    matches is the one owned by the same Claude Code parent.
+
+    Returns ``None``, and never the deployment baseline, when nothing is
+    published. The baseline of a ``mock`` deployment resolves to ``live``;
+    stamping that on an activity event would tell an operator a simulated write
+    touched the real machine. An unpublished target is an absent claim, not a
+    ``live`` one.
+
+    Never raises: a failure to answer degrades to an unstamped event, the same
+    fail-closed direction every other reader of that state file takes.
+    """
+    try:
+        from osprey.mcp_server.control_system.target_banner import resolve_session_target
+
+        target = resolve_session_target(_NO_TARGET)
+    except Exception as exc:  # pragma: no cover - defensive; resolver is total
+        logger.debug("Could not resolve the session control-system target: %s", exc)
+        return None
+    return target or None
+
+
+def _stamp_target(detail: str | None, target: str | None) -> str | None:
+    """Prefix *detail* with *target*, or return it unchanged.
+
+    The prefix goes at the FRONT and before the route's length bound is applied,
+    so a bulk write long enough to be truncated still names the machine it
+    landed on. ``detail`` is the only field of the activity frame the web
+    terminal carries through to the browser, which is why the target rides in it
+    rather than in a key of its own (see :func:`notify_agent_activity`).
+    """
+    if target is None:
+        return detail
+    return f"[{target}] {detail}" if detail else f"[{target}]"
+
+
+def build_target_switch_detail(
+    from_target: str,
+    to_target: str,
+    outcome: str,
+    generation: int | None = None,
+    reason: str | None = None,
+) -> str:
+    """Render the one-line body of a target-switch activity event.
+
+    Shape::
+
+        live → va · success (generation 3)
+        live → va · failure: probe channel never connected
+        va → live · failure
+
+    Both targets are always named — the operator needs to know what the session
+    was on as much as what it moved to, and on a failure the first of those is
+    still where it is. ``generation`` and ``reason`` are omitted when absent
+    rather than rendered as ``None``.
+    """
+    line = f"{from_target} → {to_target} · {outcome}"
+    if reason:
+        line = f"{line}: {reason}"
+    if generation is not None:
+        line = f"{line} (generation {generation})"
+    return line
+
+
+def notify_target_switch(
+    *,
+    from_target: str,
+    to_target: str,
+    outcome: str,
+    generation: int | None = None,
+    reason: str | None = None,
+) -> None:
+    """Fire-and-forget POST reporting a control-system target switch.
+
+    Emitted on **both** outcomes. A switch that succeeds moves every subsequent
+    tool call to another machine, and a switch that fails leaves the session on
+    the machine it started from — an operator who approved the attempt has to be
+    able to see which of those happened without asking.
+
+    Args:
+        from_target: Target the session was on (``live`` / ``va``).
+        to_target: Target the switch was asked for.
+        outcome: :data:`SWITCH_OUTCOME_SUCCESS` or :data:`SWITCH_OUTCOME_FAILURE`.
+        generation: Switch generation the session is on after the attempt, when
+            the caller knows it. Omitted from the line when ``None``.
+        reason: Short, operator-readable cause of a failure. Omitted when
+            ``None`` — an unexplained failure is still reported.
+
+    Never raises; blocking, so coroutines call :func:`notify_target_switch_async`.
+    """
+    notify_agent_activity(
+        TARGET_SWITCH_TOOL,
+        TARGET_SWITCH_KIND,
+        detail=build_target_switch_detail(from_target, to_target, outcome, generation, reason),
+    )
+
+
+async def notify_target_switch_async(
+    *,
+    from_target: str,
+    to_target: str,
+    outcome: str,
+    generation: int | None = None,
+    reason: str | None = None,
+) -> None:
+    """Awaitable form of :func:`notify_target_switch` — the one the switch tool
+    calls. The blocking POST runs off the loop.
+
+    The emit itself is fire-and-forget and swallows every failure. The one thing
+    outside that guarantee is the deferred ``anyio`` import on the first call,
+    which is deferred to match the rest of this module and cannot fail in the
+    MCP-server process this runs in (anyio is a hard dependency of the server).
+    """
+    import functools
+
+    import anyio
+
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_target_switch,
+            from_target=from_target,
+            to_target=to_target,
+            outcome=outcome,
+            generation=generation,
+            reason=reason,
+        )
+    )
+
+
 def notify_agent_activity(
     tool: str,
     kind: str,
@@ -363,11 +601,23 @@ def notify_agent_activity(
         detail: Optional free-form detail (e.g. channel name, file path).
             Truncated to the route's 1024-char bound so an unbounded caller
             (e.g. a bulk channel write) cannot turn the emit into a silent 422.
+
+    Control-system activity (``kind`` :data:`CONTROL_ACTIVITY_KIND`) is stamped
+    with the session's target here, in the one place every emit site passes
+    through, so ``channel_write``, ``execute`` and ``execute_file`` report the
+    same machine without each resolving it — three resolutions is how three
+    surfaces start disagreeing. The stamp rides in ``detail`` because that is
+    the only free field the ``/api/agent-activity`` route carries through to the
+    browser: its request model names ``kind``/``panel``/``detail`` and drops
+    anything else, so a structured ``target`` key would be silently discarded
+    server-side and never reach an operator's screen.
     """
     try:
         target: dict = {"kind": kind}
         if panel is not None:
             target["panel"] = panel
+        if kind == CONTROL_ACTIVITY_KIND:
+            detail = _stamp_target(detail, resolve_activity_target())
         if detail is not None:
             if len(detail) > 1024:
                 detail = detail[:1023] + "…"

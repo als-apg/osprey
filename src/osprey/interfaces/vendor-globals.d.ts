@@ -11,6 +11,7 @@ declare const katex: any;
 declare const Terminal: any;
 declare const FitAddon: any;
 declare const WebLinksAddon: any;
+declare const ClipboardAddon: any;
 
 // The per-user URL prefix injected into every served HTML document by the
 // web-terminal app (`window.__OSPREY_PREFIX__ = "/u/<user>"` or "" for the

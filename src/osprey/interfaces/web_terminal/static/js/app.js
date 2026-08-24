@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
+import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId, getCurrentSessionId, getTerminalInstance } from './terminal.js';
 import { onConnectionStateChange, withPrefix } from './api.js';
 import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -11,11 +11,14 @@ import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
+import { stripQueryMode } from '/design-system/js/frame-params.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initDisplayMenu } from './display-menu.js';
+import { initIdentityMenu } from './identity-menu.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
+import { initFeedback } from './feedback-boot.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -57,7 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogoutButton();
   initModeToggle();
   initDisplayMenu();
+  initIdentityMenu();
   initRailPosition();
+  initFeedbackDialog();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -88,8 +93,11 @@ function initNewSessionButton() {
 /* ---- Logout Button ---- */
 
 /**
- * Only present in the DOM when the server rendered a non-empty `landing_url`
- * (multi-user deployments). Plain `osprey web` never emits the button, so
+ * Log out renders in TWO places — `#logout-btn` in the header identity chip's
+ * menu (the copy palette-boot.js's "Log out" command also resolves) and
+ * `#display-menu-logout-btn` in the display menu's action row — and both are
+ * only present in the DOM when the server rendered a non-empty `landing_url`
+ * (multi-user deployments). Plain `osprey web` never emits either button, so
  * this is a no-op there.
  *
  * Real logout, in order: (1) POST the server logout route — prefix-aware via
@@ -103,8 +111,8 @@ function initNewSessionButton() {
  * and navigates — the client's own record of "my session" is what matters
  * for this browser, and getting stuck on the page helps no one.
  *
- * The click handler locks the button (`disabled` + `aria-busy`) once a safe
- * logout is under way: `disabled` stops a second POST, and `aria-busy`
+ * The click handler locks the clicked button (`disabled` + `aria-busy`) once
+ * a safe logout is under way: `disabled` stops a second POST, and `aria-busy`
  * announces the in-flight state to assistive tech. Neither is reset — every
  * path out of the handler navigates away, unloading the page. The unsafe
  * `landing_url` guard returns before the lock, leaving the button usable.
@@ -114,28 +122,40 @@ function initNewSessionButton() {
  * that event has already passed, e.g. in a test environment.
  */
 export function initLogoutButton() {
-  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('logout-btn'));
-  if (!btn) return;
+  for (const id of ['logout-btn', 'display-menu-logout-btn']) {
+    const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById(id));
+    if (!btn) continue;
 
-  const landingUrl = btn.dataset.landingUrl;
-  if (!landingUrl) return;
+    const landingUrl = btn.dataset.landingUrl;
+    if (!landingUrl) continue;
 
-  btn.addEventListener('click', async () => {
-    if (!isSafeLandingUrl(landingUrl)) {
-      console.error('Refusing to navigate to unsafe landing_url:', landingUrl);
-      return;
-    }
-    btn.disabled = true;
-    btn.setAttribute('aria-busy', 'true');
-    try {
-      await fetch(withPrefix('/api/terminal/logout'), { method: 'POST' });
-    } catch (err) {
-      console.error('Logout request failed:', err);
-    }
-    await endAuthSession();
-    clearStoredSessionId();
-    window.location.assign(landingUrl);
-  });
+    btn.addEventListener('click', () => handleLogoutClick(btn, landingUrl));
+  }
+}
+
+/**
+ * The shared click flow behind both logout buttons; `btn` is the copy that
+ * was clicked, so the in-flight lock lands on the control the operator is
+ * looking at.
+ *
+ * @param {HTMLButtonElement} btn
+ * @param {string} landingUrl
+ */
+async function handleLogoutClick(btn, landingUrl) {
+  if (!isSafeLandingUrl(landingUrl)) {
+    console.error('Refusing to navigate to unsafe landing_url:', landingUrl);
+    return;
+  }
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    await fetch(withPrefix('/api/terminal/logout'), { method: 'POST' });
+  } catch (err) {
+    console.error('Logout request failed:', err);
+  }
+  await endAuthSession();
+  clearStoredSessionId();
+  window.location.assign(landingUrl);
 }
 
 /**
@@ -234,6 +254,34 @@ function initModeToggle() {
 }
 
 /**
+ * Wire the rail's utility cluster (Documentation + Feedback) and the feedback
+ * dialog — see feedback-boot.js, which owns the whole arrangement.
+ *
+ * Returns as soon as the button is live; the deployment's own config arrives
+ * over HTTP afterwards and fills itself in. Guarded like the other
+ * network-dependent inits above, so a failure costs the two rail controls and
+ * nothing more.
+ *
+ * Both terminal dependencies are injected from here rather than imported
+ * inside the dialog: app.js is already the module that knows about the
+ * terminal, and keeping the dependency pointing this way is what lets the
+ * dialog and its transport be tested without one. They are passed as function
+ * references, not values — the session id changes as the operator switches
+ * sessions, and the terminal does not exist yet when a guarded `initTerminal()`
+ * has failed.
+ */
+function initFeedbackDialog() {
+  try {
+    initFeedback({
+      getSessionId: getCurrentSessionId,
+      getTerminal: getTerminalInstance,
+    });
+  } catch (err) {
+    console.error('Failed to init feedback:', err);
+  }
+}
+
+/**
  * Adopt a one-shot `?rail=` as an explicit choice. rail-boot.js already
  * stamped the attribute pre-paint; re-setting it through setRailPosition
  * persists it and strips the param, so a reload (or a stale bookmark of the
@@ -274,23 +322,6 @@ function isSafeLandingUrl(/** @type {string} */ url) {
   } catch {
     return false;
   }
-}
-
-/**
- * Strip a one-shot `mode` param from the URL's query string, if present,
- * without adding a history entry — the mode-axis twin of theme-manager's
- * _stripQueryTheme(). Once the user makes an explicit choice, a leftover
- * `?mode=` must not out-rank it (or localStorage) on the next reload.
- */
-function stripQueryMode() {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (!params.has('mode')) return;
-    params.delete('mode');
-    const query = params.toString();
-    const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
-    window.history.replaceState(window.history.state, '', url);
-  } catch { /* non-browser environment or a blocked history API — non-fatal */ }
 }
 
 /* ---- Drawer Trigger Highlight ---- */
