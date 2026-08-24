@@ -4287,3 +4287,74 @@ def test_proxy_teardown_runs_even_when_the_assertion_fails__mutation_drops_the_c
     del _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_STOP_STEP)["if"]
     with pytest.raises(AssertionError, match="always"):
         test_proxy_teardown_runs_even_when_the_assertion_fails(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (p) privilege-split-e2e gates the merge, and the gate has no orphan jobs
+# ---------------------------------------------------------------------------
+
+PRIVSPLIT_JOB = "privilege-split-e2e"
+
+#: Jobs deliberately OUTSIDE ``all-checks-passed.needs``. Every entry needs a
+#: reason: ``channel-finder-benchmarks`` is a manually dispatched quality score
+#: (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``),
+#: and the gate cannot depend on itself. Anything else that is not in
+#: ``needs`` can go red forever inside a green check — the 17 privilege-split
+#: Docker tests did exactly that for a phase.
+JOBS_OUTSIDE_THE_GATE = frozenset({BENCHMARKS_JOB, GATE_JOB})
+
+
+def test_all_checks_passed_needs_privilege_split(workflow: dict[str, Any]) -> None:
+    """The privilege-split lane is the only EXECUTED proof that the render
+    zone is root-owned and the served process runs as uid 1000. It must
+    gate the merge like every other e2e lane."""
+    assert PRIVSPLIT_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{PRIVSPLIT_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_privilege_split__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(PRIVSPLIT_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_privilege_split(mutated)
+
+
+def _jobs_missing_from_the_gate(wf: dict[str, Any]) -> list[str]:
+    needs = set(_jobs(wf)[GATE_JOB]["needs"])
+    return sorted(set(_jobs(wf)) - needs - JOBS_OUTSIDE_THE_GATE)
+
+
+def test_every_job_is_gated_or_deliberately_excluded(workflow: dict[str, Any]) -> None:
+    """The reverse of ``test_gate_checks_every_needed_job``: that one proves
+    ``needs`` ⊆ checked, this one proves jobs ⊆ ``needs`` ∪ allowlist. A new
+    lane that nobody adds to ``needs`` is otherwise invisible — the roll-up
+    stays green whatever the lane does."""
+    assert _jobs_missing_from_the_gate(workflow) == []
+
+
+def test_every_job_is_gated_or_deliberately_excluded__mutation_adds_orphan_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["orphan-lane"] = {"runs-on": "ubuntu-latest", "steps": []}
+    assert _jobs_missing_from_the_gate(mutated) == ["orphan-lane"]
+
+
+# ---------------------------------------------------------------------------
+# (q) posture-toggle browser test: named in the browser lane (same vacuous-
+# green shape as (h)/(h2) — the unit lane skips it without chromium)
+# ---------------------------------------------------------------------------
+
+POSTURE_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_posture_toggle_browser.py"
+
+
+def test_posture_toggle_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
+    """The toggle's only end-to-end proof (badge agrees with the store)
+    must be NAMED in the lane's explicit file list; nowhere else in CI has
+    Chromium installed."""
+    assert POSTURE_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+
+
+def test_posture_toggle_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{POSTURE_BROWSER_TEST_FILE} \\\n", "")
+    assert POSTURE_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
