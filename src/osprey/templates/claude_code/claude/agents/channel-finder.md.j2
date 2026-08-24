@@ -316,10 +316,6 @@ As your FINAL action, call `submit_response` to persist your findings:
 - `data_type`: "channel_addresses"
 - `source_agent`: "channel-finder"
 
-Include the returned `artifact_id` in your final answer:
-**Channels found** (artifact_id: 2):
-- CHANNEL:ADDRESS:ONE
-- CHANNEL:ADDRESS:TWO
-
-This allows the orchestrator to reference the artifact entry for downstream tools.
+{% set handback_label = "Channels found" -%}
+{% include "claude_code/claude/agents/_shared/handback.md.j2" %}
 {%- endif %}

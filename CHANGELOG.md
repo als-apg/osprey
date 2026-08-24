@@ -113,6 +113,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   control system turned it down, and that no value was written, so the
   operator is not sent to check OSPREY's own write settings for access the
   control system grants.
+- Sub-agents that file their answer as an artifact (channel finder, knowledge
+  graph, logbook search, facility knowledge, pyAT) now hand the orchestrator a
+  pointer — the artifact id, a short headline and the identifiers asked for —
+  instead of repeating the artifact, and the orchestrator focuses that artifact
+  in the gallery rather than re-typing its tables into the chat.
 - Interactive plot artifacts now follow the active theme everywhere: opened in
   their own tab ("Open in new tab"), on first visit with a deployment-pinned
   `web.theme`, and under every theme family — not just light/dark inside the

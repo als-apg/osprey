@@ -1,0 +1,22 @@
+{#- The hand-back contract every subagent that files its answer with
+    submit_response shares. The artifact is the deliverable; the text the
+    subagent returns to the parent is a pointer to it. Set `handback_label`
+    before including to relabel the id line (the channel finder keeps its
+    tested "Channels found"); the default is "Results". -#}
+## Handing Back
+
+`submit_response` files your answer as an artifact and returns its `artifact_id`.
+The artifact is the deliverable. Your reply to the parent is a pointer to it, not
+a copy of it: the parent shows it to the user by focusing it in the gallery, and
+reads it with `artifact_read` only when the next step needs the detail. Your
+reply to the parent is exactly this:
+
+**{{ handback_label | default("Results") }}** (artifact_id: <id>)
+<the headline, a few sentences at most: the answer itself, and anything the
+parent must know before acting on it — a list that came back truncated, an
+ambiguity you resolved, a scope you narrowed>
+<the definitive identifiers, one per line, when the question asked for them —
+the same identifiers you filed with the artifact>
+
+Never paste the artifact body — tables, per-device listings, full entry text —
+into the reply.

@@ -172,9 +172,9 @@ submit_response(
 )
 ```
 
-The tool files `data` as a JSON artifact in `lattice_analysis` and returns its id;
-echo that id in your reply so the parent can reference or re-delegate it. A
-`submit_response` without `data` is refused — the prose alone is not the result.
+The tool files `data` as a JSON artifact in `lattice_analysis` and returns its id
+(see **Handing Back** below). A `submit_response` without `data` is refused — the
+prose alone is not the result.
 
 For a **large array** the operator wants plotted (beta along the whole ring, a
 response matrix), do not retype it into `data`: save it from inside the computing
@@ -182,11 +182,13 @@ response matrix), do not retype it into `data`: save it from inside the computin
 artifact_type="json", category="lattice_analysis")`, coerced to native types first
 (`np.asarray(x).tolist()`), and put the returned artifact id in `data` instead.
 
+{% include "claude_code/claude/agents/_shared/handback.md.j2" %}
+
 ## Handoff to Visualization
 
 You cannot spawn other agents. If the operator wants plots or dashboards of what you
-computed, **return the results artifact id(s) to the parent** and note that the
-parent can re-delegate them to `data-visualizer`. Do not attempt to visualize yourself.
+computed, note in your hand-back that the parent can re-delegate the results
+artifact to `data-visualizer`. Do not attempt to visualize yourself.
 
 ## Rules
 

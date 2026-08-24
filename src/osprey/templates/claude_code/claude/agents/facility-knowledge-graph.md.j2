@@ -124,6 +124,5 @@ As your FINAL action, call `submit_response` to persist your findings:
 - `data_type`: "agent_response"
 - `source_agent`: "facility-knowledge-graph"
 
-Include the returned `artifact_id` in your final answer:
-**Results** (artifact_id: 3): ...
-{% endif %}
+{% include "claude_code/claude/agents/_shared/handback.md.j2" %}
+{%- endif %}
