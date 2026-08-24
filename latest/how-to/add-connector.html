@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Add an MCP Server" href="add-mcp-server.html" />
-    <link rel="prev" title="The osprey health --json Contract" href="health-json-contract.html" />
+    <link rel="prev" title="Switch the Control Target at Run Time" href="switch-control-target.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -402,6 +402,7 @@
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Add a Connector</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
@@ -535,6 +536,13 @@ environment is genuinely absent.</p></li>
 
 <span class="n">channel_value</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s1">&#39;ANY:MADE:UP:NAME&#39;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Value: </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">units</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer</span>
+<span class="c1"># state index, with the state names alongside it:</span>
+<span class="n">mode</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s1">&#39;SR:DIAG:MODE&#39;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mode</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> means </span><span class="si">{</span><span class="n">mode</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">enum_label</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>   <span class="c1"># e.g. 2 means ACQUIRING</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">mode</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">enum_labels</span><span class="p">)</span>  <span class="c1"># [&#39;OFFLINE&#39;, &#39;STANDBY&#39;, &#39;ACQUIRING&#39;, &#39;FAULT&#39;]</span>
+
 <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
 </pre></div>
 </div>
@@ -956,6 +964,29 @@ more specific than “the value did not match”. A readback that raised is repo
 <p>Leaving a field at <code class="docutils literal notranslate"><span class="pre">None</span></code> means “not reported”, which is deliberately different from a
 severity of <code class="docutils literal notranslate"><span class="pre">0</span></code> (“reported, and healthy”). A connector whose backend has no alarm
 concept leaves all three unset and remains fully supported.</p>
+<p><strong>Two metadata fields are enum-only.</strong>
+<code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelMetadata</span></code> accepts, beside units
+and precision:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">enum_labels</span></code> – every state the channel can report, as a list of names in index
+order (EPICS <code class="docutils literal notranslate"><span class="pre">ZRST</span></code>..``FFST``, a PVAccess NTEnum’s <code class="docutils literal notranslate"><span class="pre">choices</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">enum_label</span></code> – the name of the state <em>this</em> reading is in.</p></li>
+</ul>
+<p>They belong to enum-typed records only (<code class="docutils literal notranslate"><span class="pre">mbbi</span></code>/<code class="docutils literal notranslate"><span class="pre">mbbo</span></code>/<code class="docutils literal notranslate"><span class="pre">bi</span></code>/<code class="docutils literal notranslate"><span class="pre">bo</span></code>, <code class="docutils literal notranslate"><span class="pre">NTEnum</span></code>,
+and whatever your control system calls the same thing) and stay <code class="docutils literal notranslate"><span class="pre">None</span></code> everywhere
+else – which is how a consumer tells a state channel from a numeric one. Report the
+<strong>integer index</strong> as <code class="docutils literal notranslate"><span class="pre">ChannelValue.value</span></code> and put the name here, rather than making
+the value a string: the reading then has one machine-readable type whichever protocol
+served it, and the operator-facing name is carried rather than lost. Populate them
+best-effort – a control system that cannot report the label list, or an index outside
+it, leaves the fields unset and the read still succeeds.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Archiver connectors are a different contract: historical enum samples arrive as
+<strong>strings</strong> in the <code class="docutils literal notranslate"><span class="pre">value</span></code> column and must not be coerced (see <a class="reference internal" href="#archiver-connectors">Archiver
+Connectors</a> below). A live read reports the index plus these labels; an archived
+series reports what the archiver stored.</p>
+</div>
 <p>Your connector must return the standard data models from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.control_system.base</span></code>: <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelMetadata</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, and <code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code>.</p>
 <section id="archiver-connectors">
 <h3>Archiver Connectors<a class="headerlink" href="#archiver-connectors" title="Link to this heading">#</a></h3>
@@ -1049,6 +1080,10 @@ a channel’s own dtype flows straight through, and only combining a non-numeric
 channel with a numeric one in the same query promotes the shared <code class="docutils literal notranslate"><span class="pre">value</span></code> column to
 a mixed dtype. A custom connector must resist forcing <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">float64</span></code> “for
 consistency” – doing so silently corrupts every enum/status channel it touches.</p>
+<p>This is deliberately not the live-read contract, where an enum reads as its index
+and the label travels in <code class="docutils literal notranslate"><span class="pre">enum_label</span></code>. An archiver reports what its backend
+recorded, and what these backends recorded is the string; converting one form into
+the other would require a label list the archive does not carry.</p>
 <p>Query windows must also be normalized to UTC before touching the wire: a naive
 (timezone-less) <code class="docutils literal notranslate"><span class="pre">start_date</span></code>/<code class="docutils literal notranslate"><span class="pre">end_date</span></code> is facility-local, matching how the rest
 of the framework reads operator wall-clock times, and must be converted – not
@@ -1120,12 +1155,12 @@ don’t need a registry entry.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="health-json-contract.html"
+       href="switch-control-target.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</p>
+        <p class="prev-next-title">Switch the Control Target at Run Time</p>
       </div>
     </a>
     <a class="right-next"

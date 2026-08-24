@@ -402,6 +402,7 @@
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
@@ -500,6 +501,7 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.</
 <li><p class="sd-card-text">What the Virtual Accelerator is (and is not)</p></li>
 <li><p class="sd-card-text">The three-state <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> switch</p></li>
 <li><p class="sd-card-text">Pointing a project at the soft-IOC the stack already deploys</p></li>
+<li><p class="sd-card-text">Moving a running session between the soft-IOC and the real machine</p></li>
 <li><p class="sd-card-text">Switching back to the mock, and why plans go browse-only there</p></li>
 <li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
 <li><p class="sd-card-text">Write limits</p></li>
@@ -587,6 +589,29 @@ up as it is asked for it — the build <strong>refuses</strong> the profile, and
 do instead: point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store this deployment writes
 (<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> for the store the preset deploys), or stay on <code class="docutils literal notranslate"><span class="pre">mock</span></code> for
 an honestly storeless deployment. <a class="reference internal" href="#the-honesty-rule">The honesty rule</a> below explains why.</p>
+</section>
+<section id="switching-a-running-session">
+<h2>Switching a running session<a class="headerlink" href="#switching-a-running-session" title="Link to this heading">#</a></h2>
+<p>The three commands above set which control system the deployment <strong>starts</strong> on.
+They are not the only way to change target, and on a deployment that describes
+both a real machine and a Virtual Accelerator they are not the usual one.</p>
+<p>A running session can be moved between the two — rehearse a script against the
+soft-IOC, look at what it did, then run it on the machine — with a single
+approval-gated tool call and no rebuild, no redeploy and no restart:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>&gt; switch to the virtual accelerator
+&gt; ... run the work, check the results ...
+&gt; switch to the live machine
+</pre></div>
+</div>
+<p>The destination is connected and proven reachable before the current one is
+retired, so a switch that cannot reach its target leaves the session working
+exactly where it was. Moving <em>toward</em> the real machine additionally requires a
+strict limits posture and an explicit operator acknowledgment; coming back to a
+deployment’s own baseline never does. Nothing is remembered: every server start
+returns to the baseline.</p>
+<p>See <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> for the whole workflow — what the target roster
+reports, what the switch refuses and why, and how Bluesky plans behave while a
+session is switched.</p>
 </section>
 <section id="switching-back-to-the-mock">
 <h2>Switching back to the mock<a class="headerlink" href="#switching-back-to-the-mock" title="Link to this heading">#</a></h2>
@@ -858,6 +883,7 @@ reporting the key as merely unset.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-a-running-session">Switching a running session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-back-to-the-mock">Switching back to the mock</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>

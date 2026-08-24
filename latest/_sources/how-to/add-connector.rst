@@ -53,6 +53,13 @@ Mock Mode (Development & R&D)
 
    channel_value = await connector.read_channel('ANY:MADE:UP:NAME')
    print(f"Value: {channel_value.value} {channel_value.metadata.units}")
+
+   # A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer
+   # state index, with the state names alongside it:
+   mode = await connector.read_channel('SR:DIAG:MODE')
+   print(f"{mode.value} means {mode.metadata.enum_label}")   # e.g. 2 means ACQUIRING
+   print(mode.metadata.enum_labels)  # ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
+
    await connector.disconnect()
 
 Production Mode (EPICS)
@@ -514,6 +521,30 @@ Leaving a field at ``None`` means "not reported", which is deliberately differen
 severity of ``0`` ("reported, and healthy"). A connector whose backend has no alarm
 concept leaves all three unset and remains fully supported.
 
+**Two metadata fields are enum-only.**
+:class:`~osprey.connectors.control_system.base.ChannelMetadata` accepts, beside units
+and precision:
+
+- ``enum_labels`` -- every state the channel can report, as a list of names in index
+  order (EPICS ``ZRST``..``FFST``, a PVAccess NTEnum's ``choices``).
+- ``enum_label`` -- the name of the state *this* reading is in.
+
+They belong to enum-typed records only (``mbbi``/``mbbo``/``bi``/``bo``, ``NTEnum``,
+and whatever your control system calls the same thing) and stay ``None`` everywhere
+else -- which is how a consumer tells a state channel from a numeric one. Report the
+**integer index** as ``ChannelValue.value`` and put the name here, rather than making
+the value a string: the reading then has one machine-readable type whichever protocol
+served it, and the operator-facing name is carried rather than lost. Populate them
+best-effort -- a control system that cannot report the label list, or an index outside
+it, leaves the fields unset and the read still succeeds.
+
+.. note::
+
+   Archiver connectors are a different contract: historical enum samples arrive as
+   **strings** in the ``value`` column and must not be coerced (see `Archiver
+   Connectors`_ below). A live read reports the index plus these labels; an archived
+   series reports what the archiver stored.
+
 Your connector must return the standard data models from ``osprey.connectors.control_system.base``: :class:`~osprey.connectors.control_system.base.ChannelValue`, :class:`~osprey.connectors.control_system.base.ChannelMetadata`, :class:`~osprey.connectors.control_system.base.ChannelWriteResult`, and :class:`~osprey.connectors.control_system.base.WriteVerification`.
 
 Archiver Connectors
@@ -604,6 +635,11 @@ a channel's own dtype flows straight through, and only combining a non-numeric
 channel with a numeric one in the same query promotes the shared ``value`` column to
 a mixed dtype. A custom connector must resist forcing ``value`` to ``float64`` "for
 consistency" -- doing so silently corrupts every enum/status channel it touches.
+
+This is deliberately not the live-read contract, where an enum reads as its index
+and the label travels in ``enum_label``. An archiver reports what its backend
+recorded, and what these backends recorded is the string; converting one form into
+the other would require a label list the archive does not carry.
 
 Query windows must also be normalized to UTC before touching the wire: a naive
 (timezone-less) ``start_date``/``end_date`` is facility-local, matching how the rest
