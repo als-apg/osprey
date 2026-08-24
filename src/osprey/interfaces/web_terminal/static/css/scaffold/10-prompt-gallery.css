@@ -1026,3 +1026,43 @@
   flex: 1;
   min-height: 0;
 }
+
+/* ---- Protected-Set (read-only) Affordances ---- */
+
+/* Neutral rather than alarming: a reserved file is not an error state, it is
+   a file whose edits belong in the build profile. */
+.prompts-badge.read-only {
+  color: var(--text-secondary);
+  background: var(--neutral-tint-12);
+  border: 1px solid var(--neutral-tint-20);
+}
+
+/* Reuses the card's own left border (2px, transparent by default) rather than
+   adding chrome: enough to separate reserved files down a long grid, quiet
+   enough that the badge stays the thing that says what the state is. */
+.prompts-card-readonly {
+  border-left-color: var(--neutral-tint-20);
+}
+
+.prompts-readonly-note {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-snug);
+  padding: 0 12px 8px;
+}
+
+/* The disabled Save/Edit controls already read as disabled; this is for the
+   editor body, which otherwise looks exactly like an editable one. */
+.prompts-edit-textarea.prompts-edit-readonly {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+/* A degraded save is a success with a caveat, not a failure: showWriteNotice
+   (edit.js) reuses the error strip with this modifier so the operator has one
+   place to look — the override below is what keeps the notice from painting
+   in failure red. */
+.prompts-error--notice {
+  color: var(--text-secondary);
+}

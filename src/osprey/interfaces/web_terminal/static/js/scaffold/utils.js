@@ -340,3 +340,71 @@ export function renderFrontMatterTable(fields) {
 
   return table;
 }
+
+// ---- Protected-Set Affordances ---- //
+
+/**
+ * Why the panel will not save some of the files it happily shows.
+ *
+ * The server is the enforcement — `is_reserved_write` refuses these writes
+ * whatever the client believes, and `read_only` on a listed artifact is that
+ * same call's answer, precomputed. This string is the panel's half of the
+ * bargain: the operator meets the fact while reading, on the badge and on the
+ * control that is greyed out, instead of only when a save comes back 403.
+ *
+ * Panel copy, deliberately not a mirror of the server's PROFILE_EDIT_NOTICE:
+ * that one is written for a whole-panel banner and enumerates the paths,
+ * while this one is attached to a specific artifact the reader is already
+ * looking at, so it says what to do rather than which files are affected.
+ */
+export const READ_ONLY_REASON =
+  'Rendered by the build profile. Edit it in the profile and rebuild the '
+  + 'project — a save aimed at it here is refused, because a profile that no '
+  + 'longer describes the project it built is worse than an edit that did not '
+  + 'happen.';
+
+/**
+ * Build the READ-ONLY badge shown on a reserved artifact's card and in its
+ * detail header. Carries {@link READ_ONLY_REASON} as its tooltip so the badge
+ * answers "why" on hover rather than just asserting the state.
+ * @returns {HTMLSpanElement}
+ */
+export function createReadOnlyBadge() {
+  const badge = document.createElement('span');
+  badge.className = 'prompts-badge read-only';
+  badge.textContent = 'READ-ONLY';
+  badge.title = READ_ONLY_REASON;
+  return badge;
+}
+
+/**
+ * Give a card the full reserved-artifact treatment: the left-border tint
+ * (10-prompt-gallery.css) and the badge.
+ *
+ * One call rather than two, so the tint and the badge cannot drift apart —
+ * a tinted card with no badge asserts a state it never explains, and a badged
+ * card with no tint is not separable at a glance down a long grid.
+ * {@link createReadOnlyBadge} stays exported for the detail header, which
+ * wants the badge without the card class.
+ *
+ * @param {HTMLElement} card Card element for a reserved artifact.
+ */
+export function markReadOnlyCard(card) {
+  card.classList.add('prompts-card-readonly');
+  card.appendChild(createReadOnlyBadge());
+}
+
+/**
+ * Lock an editor textarea for a reserved artifact.
+ *
+ * The Edit tab is disabled for reserved artifacts, so this is the second lock
+ * rather than the first — it holds for any path that reaches the edit view
+ * anyway, and makes the state visible instead of merely refused. Callers own
+ * anything else the form needs disabled alongside it.
+ *
+ * @param {HTMLTextAreaElement} textarea Editor the panel may not write.
+ */
+export function lockEditor(textarea) {
+  textarea.readOnly = true;
+  textarea.classList.add('prompts-edit-readonly');
+}
