@@ -83,7 +83,11 @@ When asked to create an interactive chart (data exploration, hover tooltips, zoo
 - **Always label axes** with units (e.g., "Time [s]", "Current [mA]")
 - **Use descriptive titles** that explain what the plot shows
 - **Include legends** when multiple traces are present
-- **Use colorblind-safe palettes**: tab10, Set2, or Paired from matplotlib
+- **Use colorblind-safe palettes** for trace/marker colors: tab10, Set2, or Paired from matplotlib
+- **Leave Plotly backgrounds, font colors, and grid colors unset** (no `template=`,
+  `paper_bgcolor`, `plot_bgcolor`, or `font.color`): the gallery re-themes every
+  interactive plot to the operator's active theme, and hand-picked page colors
+  fight that. Trace colors are kept as you set them.
 - **Set appropriate figure size**: (10, 6) for standard, (12, 8) for complex plots
 - **Add grid lines** for readability (enabled by default styling in static plots)
 - **Use appropriate plot types**: scatter for correlations, line for time series,

@@ -31,7 +31,7 @@ Use the `create_interactive_plot` MCP tool to produce a **multi-panel Plotly fig
 - Particle beam phase space (x-x', y-y') with color-coded amplitude
 - Resonance diagram with tune footprint overlay
 
-Use `plotly.subplots.make_subplots` for multi-panel layout. Apply a clean template (`plotly_white` or `plotly_dark`). Add descriptive axis labels and a figure title. Call `save_artifact(fig, "Title")` at the end.
+Use `plotly.subplots.make_subplots` for multi-panel layout. Leave backgrounds, font colors, and grid colors unset — the gallery re-themes every interactive plot to the operator's active theme, and hand-picked colors fight that. Add descriptive axis labels and a figure title. Call `save_artifact(fig, "Title")` at the end.
 
 ### 1b. Matplotlib Static Plot — `execute`
 
@@ -44,7 +44,7 @@ Use the `execute` MCP tool to create a **publication-quality matplotlib figure**
 - Frequency map analysis colored by diffusion rate
 - Mountain range plot of bunch profiles over multiple turns
 
-Use `plt.subplots()`, apply `plt.style.use("seaborn-v0_8-whitegrid")` or similar, and call `save_artifact(fig, "Title", "description")`.
+Use `plt.subplots()` and call `save_artifact(fig, "Title", "description")`. Static PNGs are not re-themed by the gallery, so keep the default light styling (e.g. `plt.style.use("seaborn-v0_8-whitegrid")`) rather than a dark one.
 
 ### 1c. Markdown Report with LaTeX — `artifact_register`
 
