@@ -276,6 +276,9 @@ telemetry would fail with a plausible-looking secret on file instead of an
 obviously missing one. The account name does carry a fallback, because it is a
 name rather than a secret.
 
+.. raw:: html
+   :file: ../_diagrams/otel-endpoint-context.html
+
 .. important::
 
    For ``backend: openobserve`` the OTLP endpoint is **auto-derived** and you

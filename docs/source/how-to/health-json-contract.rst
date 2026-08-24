@@ -352,7 +352,7 @@ nine keys describe the same scoped run.
        Add facility probe checks and plugins, and tune the suite's cost
        classes and timeouts.
 
-   :doc:`non_interactive_query`
+   :doc:`cli-agent`
        The other machine-readable verb — full agent runs for CI.
 
    :doc:`/cli-reference/index`

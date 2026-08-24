@@ -19,6 +19,10 @@ Two independent axes
 How open models are routed
 --------------------------
 
+The routing is the same one every provider follows — :ref:`drawn in full
+<provider-routing-diagram>` on the providers page. What matters here is which
+branch an open model lands on.
+
 Open models are most often served behind an **OpenAI-compatible** API — that is how
 CBORG, Ollama, and vLLM all expose them — while the Osprey agent emits **Anthropic
 Messages** calls. When the endpoint speaks the OpenAI protocol, OSPREY bridges the

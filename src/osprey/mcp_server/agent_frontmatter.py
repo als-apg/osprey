@@ -12,7 +12,8 @@ cannot disagree about which files are agents or what an agent is called.
 Frontmatter contract (matching what the Claude Code CLI loads):
 
 * Only files directly in ``.claude/agents/`` (non-recursive; the templates
-  ship a ``_terminology`` sibling directory that must not be scanned).
+  ship ``_terminology`` and ``_shared`` partial directories alongside the
+  agents that must not be scanned).
 * A file must start with ``---``; the block up to the closing ``---`` is
   parsed with ``yaml.safe_load``.
 * Agents are keyed by the frontmatter ``name:`` (what the CLI dispatches on),

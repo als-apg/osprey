@@ -102,6 +102,5 @@ As your FINAL action, call `submit_response` to persist your findings:
 - `data_type`: "logbook_research"
 - `source_agent`: "logbook-deep-research"
 
-Include the returned `artifact_id` in your final answer:
-**Results** (artifact_id: 5): ...
-{% endif %}
+{% include "claude_code/claude/agents/_shared/handback.md.j2" %}
+{%- endif %}

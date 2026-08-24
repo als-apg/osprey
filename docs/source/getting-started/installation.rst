@@ -310,7 +310,7 @@ OSPREY is installed and ready to use. Here's what to do next:
 
    **Deploying Services**
 
-   See :doc:`/how-to/deploy-project` for setting up containerized services like Jupyter
+   See :doc:`/how-to/deploy-project/index` for setting up containerized services like Jupyter
    notebooks, databases, or simulation IOCs.
 
    **Detailed Configuration**

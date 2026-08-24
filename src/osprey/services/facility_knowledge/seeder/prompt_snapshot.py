@@ -1,10 +1,12 @@
 """Seed-time schema snapshot, baked into the graph agent's rendered prompt.
 
-The facility-knowledge-graph agent needs the store's vocabulary — labels,
+The facility-knowledge-graph agent — and the channel finder in its graph
+paradigm, which reads the same store — needs the store's vocabulary: labels,
 relationship types, property spellings — before it can write a Cypher query
 that returns rows instead of a confident zero. At run time that vocabulary
 comes from the ``get_schema`` and ``example_queries`` tools; this module moves
-the common case earlier, so a fresh subagent starts already knowing it.
+the common case earlier, so a fresh subagent starts already knowing it. Each
+agent file is baked with the example catalogue its own server serves.
 
 **The seeder owns the baked block, not the build.** ``osprey build`` renders
 the agent prompt before any store exists, so it ships a placeholder that tells
@@ -30,11 +32,13 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from osprey.services.facility_knowledge.seeder.graph_seeder import NARAD_PREFIXES
+from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -193,13 +197,36 @@ def detect_corpus(run: RunCypher, known: frozenset[str] | set[str]) -> str | Non
 SNAPSHOT_BEGIN = "<!-- osprey:graph-snapshot begin -->"
 SNAPSHOT_END = "<!-- osprey:graph-snapshot end -->"
 
-#: The rendered agent file this module patches, wherever a render holds one.
+#: The heading the shared template partial puts above the markers. A file that
+#: carries it without the marker pair has been hand-edited.
+SNAPSHOT_HEADING = "## The Graph at Hand"
+
+#: The rendered agent files this module patches, each paired with the module
+#: holding the curated example catalogue its own MCP server serves. One
+#: registry, so a file cannot be found without a catalogue or rendered without
+#: being found. The catalogues are named rather than imported: both are pure
+#: stdlib data, but reaching them through the tools packages must not become
+#: an import-time dependency of the seeder.
 AGENT_FILENAME = "facility-knowledge-graph.md"
+CHANNEL_FINDER_FILENAME = "channel-finder.md"
+_CATALOGUE_MODULES: dict[str, str] = {
+    AGENT_FILENAME: "osprey.mcp_server.graph.tools.examples_data",
+    CHANNEL_FINDER_FILENAME: "osprey.mcp_server.channel_finder_graph.tools.examples_data",
+}
+TARGET_FILENAMES = tuple(_CATALOGUE_MODULES)
+
+
+def _example_catalogues() -> dict[str, Sequence[Any]]:
+    """The curated catalogue each target file is baked with, keyed by filename."""
+    return {
+        filename: import_module(module).EXAMPLE_QUERIES
+        for filename, module in _CATALOGUE_MODULES.items()
+    }
 
 
 def render_block(
     schema: dict[str, Any],
-    examples: list[Any],
+    examples: Sequence[Any],
     *,
     corpus: str | None,
     digest: str | None,
@@ -278,29 +305,44 @@ def render_block(
 
 
 def snapshot_targets(render_dir: Path) -> list[Path]:
-    """Every rendered graph-agent file under *render_dir*.
+    """Every rendered graph-querying agent file under *render_dir*.
 
-    The render's own ``.claude/agents/`` plus one directory level down, which
-    is where attached persona renders (the operator terminals sharing this
-    deployment's store) keep theirs. Deliberately not a recursive walk: a
-    render carries a ``.venv`` that makes ``rglob`` pay for tens of thousands
-    of directories to find at most a handful of files.
+    Three places, all of them renders of this one deployment: the render's own
+    ``.claude/agents/``; one directory level down, where attached persona
+    renders (the operator terminals sharing this deployment's store) keep
+    theirs; and the container-path copies ``osprey build`` stages as each
+    image's build context (:func:`osprey.utils.workspace.container_image_context`),
+    which the images are built from.
+
+    Deliberately not a recursive walk: a render carries a ``.venv`` that makes
+    ``rglob`` pay for tens of thousands of directories to find a handful of
+    files.
     """
-    candidates = [render_dir / ".claude" / "agents" / AGENT_FILENAME]
-    candidates += sorted(render_dir.glob(f"*/.claude/agents/{AGENT_FILENAME}"))
+    agent_dirs = [
+        render_dir / ".claude" / "agents",
+        *sorted(render_dir.glob("*/.claude/agents")),
+        *sorted(render_dir.glob(f"{IMAGE_DIR_NAME}/*/{BUILD_DIR_NAME}/.claude/agents")),
+    ]
+    candidates = [agents / filename for agents in agent_dirs for filename in TARGET_FILENAMES]
     return [path for path in candidates if path.is_file()]
 
 
-def apply_snapshot(render_dir: Path, block: str) -> list[Path]:
-    """Replace the managed region of every target file with *block*.
+def apply_snapshot(render_dir: Path, blocks: Mapping[str, str]) -> list[Path]:
+    """Replace the managed region of every target file with its block.
 
-    A file without both markers is skipped rather than appended to: the marker
-    pair ships with the agent template, so its absence means a hand-edited or
-    pre-snapshot render, and growing an unmarked section in someone's edited
-    prompt is worse than leaving the tools to answer at run time.
+    Args:
+        render_dir: The directory holding the rendered ``config.yml``.
+        blocks: The rendered block per target filename (:data:`TARGET_FILENAMES`).
+
+    A file without the marker pair is never appended to. One that still shows
+    a trace of the section — the heading, or a lone marker — has been
+    hand-edited, and growing an unmarked section in someone's edited prompt is
+    worse than leaving the tools to answer at run time, so it is reported and
+    left alone. One with no trace at all never shipped the section (the
+    channel finder outside its graph paradigm) and is skipped quietly.
 
     Returns:
-        The files now carrying *block* (rewritten or already current).
+        The files now carrying their block (rewritten or already current).
     """
     patched: list[Path] = []
     for path in snapshot_targets(render_dir):
@@ -308,10 +350,11 @@ def apply_snapshot(render_dir: Path, block: str) -> list[Path]:
         begin = text.find(SNAPSHOT_BEGIN)
         end = text.find(SNAPSHOT_END)
         if begin == -1 or end < begin:
-            logger.warning("No snapshot markers in %s; leaving it alone", path)
+            if begin != -1 or end != -1 or SNAPSHOT_HEADING in text:
+                logger.warning("No snapshot marker pair in %s; leaving it alone", path)
             continue
         end += len(SNAPSHOT_END)
-        updated = text[:begin] + block + text[end:]
+        updated = text[:begin] + blocks[path.name] + text[end:]
         if updated != text:
             path.write_text(updated, encoding="utf-8")
         patched.append(path)
@@ -331,24 +374,31 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
 
     Returns:
         The rendered agent files now carrying the snapshot; empty when the
-        render has none (the agent is disabled, or this is a store-only
-        project).
+        render has none (the agents are disabled, the channel finder runs
+        another paradigm, or this is a store-only project).
     """
-    # Function-local: examples_data is pure stdlib data, but importing it
-    # through the tools package must not become an import-time dependency of
-    # the seeder.
-    from osprey.mcp_server.graph.tools.examples_data import EXAMPLE_QUERIES
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
     def run(cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         return [record.data() for record in session.run(cypher, params or {})]
 
-    known = frozenset(corpus for example in EXAMPLE_QUERIES for corpus in example.parameters)
-    block = render_block(
-        collect_schema(run),
-        list(EXAMPLE_QUERIES),
-        corpus=detect_corpus(run, known),
-        digest=graph_seeder.read_marker(session),
-        resource_count=graph_seeder.resource_count(session),
+    catalogues = _example_catalogues()
+    known = frozenset(
+        corpus
+        for examples in catalogues.values()
+        for example in examples
+        for corpus in example.parameters
     )
-    return apply_snapshot(render_dir, block)
+    # One capture, rendered once per catalogue: the schema is the store's and
+    # the same for both agents; only the curated examples differ.
+    schema = collect_schema(run)
+    corpus = detect_corpus(run, known)
+    digest = graph_seeder.read_marker(session)
+    resource_count = graph_seeder.resource_count(session)
+    blocks = {
+        filename: render_block(
+            schema, examples, corpus=corpus, digest=digest, resource_count=resource_count
+        )
+        for filename, examples in catalogues.items()
+    }
+    return apply_snapshot(render_dir, blocks)

@@ -95,23 +95,7 @@ remedy — and never retry an unreachable store.
   rows, never kinds. When unsure, prefer the narrower set and say what you
   excluded.
 
-## The Graph at Hand
-
-{#- The managed region below is REWRITTEN IN THE RENDER by whichever verb
-    seeds or re-verifies the store (`osprey up`'s staging step, or `osprey
-    knowledge seed-graph`): prompt_snapshot.bake_snapshot() replaces
-    marker-to-marker with the schema and curated examples captured from the
-    live store, stamped with the seed marker's checksum. The placeholder is
-    what an unseeded render ships. Keep the marker comments byte-identical to
-    prompt_snapshot.SNAPSHOT_BEGIN/END — a consistency test pins them. -#}
-<!-- osprey:graph-snapshot begin -->
-
-No snapshot has been captured yet. The store is seeded at deploy time, and
-whichever verb touches it (`osprey up`, `osprey knowledge seed-graph`) fills
-this section in from the live store. Until then, start with
-`example_queries()` and `get_schema()` before writing any Cypher.
-
-<!-- osprey:graph-snapshot end -->
+{% include "claude_code/claude/agents/_shared/graph_snapshot.md.j2" %}
 
 ## Submitting Results
 
@@ -124,6 +108,5 @@ As your FINAL action, call `submit_response` to persist your findings:
 - `data_type`: "agent_response"
 - `source_agent`: "facility-knowledge-graph"
 
-Include the returned `artifact_id` in your final answer:
-**Results** (artifact_id: 3): ...
-{% endif %}
+{% include "claude_code/claude/agents/_shared/handback.md.j2" %}
+{%- endif %}

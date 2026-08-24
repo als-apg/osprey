@@ -1,0 +1,58 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 328" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
+  <title id="safety-chain-title">Write-path safety chain</title>
+  <desc id="safety-chain-desc">Every channel_write passes three gates in order — the writes_check kill switch, the limits database, and the human approval gate — before the MCP server executes it; failing any gate blocks the write.</desc>
+  <defs>
+    <marker id="safety-chain-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="164" y1="108" x2="232" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="352" y1="108" x2="420" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="540" y1="108" x2="608" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="728" y1="108" x2="796" y2="108" marker-end="url(#safety-chain-arr)"/>
+  <path class="e" d="M292,136 V216 Q292,224 300,224 H442 Q450,224 450,232 V240" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="480" y1="136" x2="480" y2="240" marker-end="url(#safety-chain-arr)"/>
+  <path class="e" d="M668,136 V216 Q668,224 660,224 H518 Q510,224 510,232 V240" marker-end="url(#safety-chain-arr)"/>
+  <!-- pass labels -->
+  <rect class="mask" x="364" y="88" width="44" height="12" rx="2"/>
+  <text class="ta" x="386" y="97" text-anchor="middle">ENABLED</text>
+  <rect class="mask" x="556" y="88" width="36" height="12" rx="2"/>
+  <text class="ta" x="574" y="97" text-anchor="middle">VALID</text>
+  <rect class="mask" x="738" y="88" width="48" height="12" rx="2"/>
+  <text class="ta" x="762" y="97" text-anchor="middle">APPROVED</text>
+  <!-- fail labels -->
+  <rect class="mask" x="232" y="164" width="52" height="12" rx="2"/>
+  <text class="ta ta-warn" x="258" y="173" text-anchor="middle">DISABLED</text>
+  <rect class="mask" x="488" y="164" width="44" height="12" rx="2"/>
+  <text class="ta ta-warn" x="510" y="173" text-anchor="middle">INVALID</text>
+  <rect class="mask" x="676" y="164" width="52" height="12" rx="2"/>
+  <text class="ta ta-warn" x="702" y="173" text-anchor="middle">REJECTED</text>
+  <!-- nodes -->
+  <rect class="mask" x="44" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb-in" x="44" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="104" y="104" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="104" y="120" text-anchor="middle">channel_write</text>
+  <rect class="mask" x="232" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb" x="232" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="292" y="104" text-anchor="middle">writes_check</text>
+  <text class="ts" x="292" y="120" text-anchor="middle">kill switch</text>
+  <rect class="mask" x="420" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb" x="420" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="480" y="104" text-anchor="middle">limits</text>
+  <text class="ts" x="480" y="120" text-anchor="middle">min · max · step</text>
+  <rect class="mask" x="608" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb-foc" x="608" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="668" y="104" text-anchor="middle">approval</text>
+  <text class="ts" x="668" y="120" text-anchor="middle">human gate</text>
+  <rect class="mask" x="796" y="80" width="120" height="56" rx="6"/>
+  <rect class="nb" x="796" y="80" width="120" height="56" rx="6"/>
+  <text class="tn" x="856" y="104" text-anchor="middle">MCP server</text>
+  <text class="ts" x="856" y="120" text-anchor="middle">executes write</text>
+  <rect class="mask" x="420" y="240" width="120" height="48" rx="6"/>
+  <rect class="nb-warn" x="420" y="240" width="120" height="48" rx="6"/>
+  <text class="tn" x="480" y="260" text-anchor="middle">blocked</text>
+  <text class="ts" x="480" y="276" text-anchor="middle">write refused</text>
+</svg>
+</div>

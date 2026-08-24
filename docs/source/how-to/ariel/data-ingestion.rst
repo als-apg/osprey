@@ -7,21 +7,8 @@ ARIEL's ingestion system converts facility-specific logbook data into a common s
 Ingestion Architecture
 ----------------------
 
-.. code-block:: text
-
-   Source System (HTTP API / JSONL file)
-           ↓
-   Facility Adapter (FacilityAdapter)
-           ↓
-   EnhancedLogbookEntry (TypedDict)
-           ↓
-   ARIELRepository.upsert_entry()
-           ↓
-   PostgreSQL (enhanced_entries table)
-           ↓
-   Enhancement Modules (optional)
-       ├── TextEmbeddingModule → per-model embedding tables
-       └── SemanticProcessorModule → keywords + summary fields
+.. raw:: html
+   :file: ../../_diagrams/ariel-ingestion.html
 
 The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adapters_>`_ connects to the source system --- whether that is a live HTTP API, a JSONL dump, or any other data source --- and yields entries one at a time as ``EnhancedLogbookEntry`` TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The ``ARIELRepository`` upserts these entries into the ``enhanced_entries`` table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional `enhancement modules <Enhancement Pipeline_>`_ can be run as a separate step to compute additional derived fields --- embeddings, keywords, summaries, or any other enrichment --- and write them back to the `database`_.
 

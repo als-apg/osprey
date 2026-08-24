@@ -168,6 +168,11 @@ verbatim or summarize.
 The channel database is a knowledge graph and you query it by writing read-only
 Cypher. Work in this order — do not open by composing a query from scratch.
 
+The **Graph at Hand** section below may already carry the store's schema and
+the curated examples, captured from the live store when its corpus was seeded.
+When it does, go straight to Step 3; Steps 1 and 2 are for what that snapshot
+does not answer.
+
 ### Step 1: Read the curated examples
 
 Call `example_queries()`. It returns runnable Cypher for the shapes that answer
@@ -282,6 +287,8 @@ A query naming a label or property that does not exist returns zero rows rather
 than an error, so an empty result means "check the spelling with `get_schema()`"
 at least as often as it means "the facility has no such device".
 
+{% include "claude_code/claude/agents/_shared/graph_snapshot.md.j2" %}
+
 {% include "claude_code/claude/agents/_terminology/graph.md.j2" %}
 {% else %}
 {# Every paradigm must have an arm above. Without this the chain would fall
@@ -316,10 +323,6 @@ As your FINAL action, call `submit_response` to persist your findings:
 - `data_type`: "channel_addresses"
 - `source_agent`: "channel-finder"
 
-Include the returned `artifact_id` in your final answer:
-**Channels found** (artifact_id: 2):
-- CHANNEL:ADDRESS:ONE
-- CHANNEL:ADDRESS:TWO
-
-This allows the orchestrator to reference the artifact entry for downstream tools.
+{% set handback_label = "Channels found" -%}
+{% include "claude_code/claude/agents/_shared/handback.md.j2" %}
 {%- endif %}

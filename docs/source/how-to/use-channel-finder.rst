@@ -14,6 +14,10 @@ rather than exact channel names.
    Hellert et al. (2025), *From Natural Language to Control Signals*,
    `arXiv:2512.18779 <https://arxiv.org/abs/2512.18779>`_.
 
+   :ref:`retrieval-paths`
+      Where the Channel Finder sits among OSPREY's retrieval stacks --- it is
+      the one that uses no embeddings at all.
+
 
 Choosing a Pipeline
 ===================
@@ -42,6 +46,12 @@ explicitly.
 +---------------------------+----------------------------------------------+
 | **Graph**                 | Machines described in a knowledge graph      |
 +---------------------------+----------------------------------------------+
+
+The three are not size tiers of one design. Each takes a differently shaped
+database and resolves a query by a different mechanism:
+
+.. raw:: html
+   :file: ../_diagrams/channel-finder-pipelines.html
 
 
 In-Context Pipeline
@@ -183,7 +193,7 @@ entry under ``pipelines:`` — that section renders empty in graph mode — and 
 The store comes from the ``services.graphdb`` block, either one this deployment
 runs or one the facility already hosts (an explicit ``services.graphdb.uri``
 and ``username``, with ``GRAPHDB_PASSWORD`` in the project ``.env``). See
-:ref:`profile-graph-mode` for both shapes, and :doc:`deploy-project` for the
+:ref:`profile-graph-mode` for both shapes, and :doc:`deploy-project/index` for the
 block itself. A build that enables the channel finder but renders no
 ``services.graphdb`` block is refused, naming the missing block, rather than
 shipping a pipeline with nothing to read — which is why the

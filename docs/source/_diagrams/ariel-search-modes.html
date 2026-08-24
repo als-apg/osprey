@@ -1,0 +1,38 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 208" role="img" aria-labelledby="ariel-search-modes-title ariel-search-modes-desc">
+  <title id="ariel-search-modes-title">Search-mode dispatch</title>
+  <desc id="ariel-search-modes-desc">A query enters the ARIEL search service with a mode name; the registry resolves the mode to its module — refusing unknown or disabled modes rather than falling back — and that module's execute produces the search result.</desc>
+  <defs>
+    <marker id="ariel-search-modes-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="180" y1="92" x2="228" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="364" y1="92" x2="412" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="548" y1="92" x2="596" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="732" y1="92" x2="780" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <rect class="mask" x="372" y="72" width="32" height="12" rx="2"/>
+  <text class="ta" x="388" y="81" text-anchor="middle">MODE</text>
+
+  <rect class="mask" x="44" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="44" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="112" y="88" text-anchor="middle">user query</text>
+  <text class="ts" x="112" y="104" text-anchor="middle">cli · mcp · web</text>
+  <rect class="mask" x="228" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb" x="228" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="296" y="88" text-anchor="middle">search service</text>
+  <text class="ts" x="296" y="104" text-anchor="middle">search(mode=…)</text>
+  <rect class="mask" x="412" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-foc" x="412" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">registry</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">no silent fallback</text>
+  <rect class="mask" x="596" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb" x="596" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="664" y="88" text-anchor="middle">module</text>
+  <text class="ts" x="664" y="104" text-anchor="middle">execute()</text>
+  <rect class="mask" x="780" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-st" x="780" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="848" y="88" text-anchor="middle">result</text>
+  <text class="ts" x="848" y="104" text-anchor="middle">entries · modes used</text>
+</svg>
+</div>

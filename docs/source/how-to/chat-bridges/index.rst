@@ -29,35 +29,8 @@ A bridge sits between a chat room and the :doc:`event dispatch pipeline
 <../event-dispatch>`. It never runs the agent itself. It hands the question to
 the dispatcher, waits, and posts back what comes out.
 
-.. code-block:: text
-
-      Nextcloud Talk room                Google Chat space
-              |                                  |
-              | the bridge asks                  | the bridge reads
-              | for new messages                 | a message queue
-              v                                  v
-      +--------------------+         +--------------------+
-      |    Talk adapter    |         |    Chat adapter    |
-      +--------------------+         +--------------------+
-                \                                /
-                 \                              /
-                  v                            v
-           +--------------------------------------+
-           |         shared bridge engine         |
-           |  remembers each question, keeps the  |
-           |  conversation, retries what failed   |
-           +--------------------------------------+
-                      |                       ^
-              question|                       | answer + any files
-                      v                       |
-           +--------------------------------------+
-           |           Event dispatcher           |
-           +--------------------------------------+
-                             |
-                             v
-           +--------------------------------------+
-           |   Dispatch worker  ->  Osprey agent  |
-           +--------------------------------------+
+.. raw:: html
+   :file: ../../_diagrams/chat-bridge-pipeline.html
 
 Only the top box changes between chat systems. Each system has its own small
 **adapter**, which knows how messages arrive there and how to post a reply

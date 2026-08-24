@@ -1,0 +1,56 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 380" role="img" aria-labelledby="provider-routing-title provider-routing-desc">
+  <title id="provider-routing-title">How requests reach a provider</title>
+  <desc id="provider-routing-desc">The Osprey agent speaks the Anthropic Messages API. Providers that already speak it are reached directly; providers that offer only an OpenAI-compatible endpoint are reached through a local translation proxy that OSPREY starts at launch. MCP tool servers are a separate client stack — they use LiteLLM and do not travel the agent's path.</desc>
+  <defs>
+    <marker id="provider-routing-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges -->
+  <path class="e" d="M216,116 H232 Q240,116 240,108 V82 Q240,74 248,74 H632" marker-end="url(#provider-routing-arr)"/>
+  <path class="e" d="M216,144 H232 Q240,144 240,152 V182 Q240,190 248,190 H312" marker-end="url(#provider-routing-arr)"/>
+  <line class="e" x1="570" y1="190" x2="632" y2="190" marker-end="url(#provider-routing-arr)"/>
+  <line class="e" x1="216" y1="280" x2="312" y2="280" marker-end="url(#provider-routing-arr)"/>
+  <line class="e" x1="570" y1="280" x2="632" y2="280" marker-end="url(#provider-routing-arr)"/>
+
+  <!-- clients -->
+  <rect class="nb-in" x="16" y="100" width="200" height="60" rx="6"/>
+  <text class="tn" x="116" y="126" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="116" y="144" text-anchor="middle">Anthropic Messages API</text>
+
+  <rect class="nb-in" x="16" y="250" width="200" height="60" rx="6"/>
+  <text class="tn" x="116" y="276" text-anchor="middle">MCP tool servers</text>
+  <text class="ts" x="116" y="294" text-anchor="middle">a separate client stack</text>
+
+  <!-- direct lane -->
+  <text class="ta" x="300" y="68">native — nothing in between</text>
+  <rect class="nb" x="640" y="46" width="280" height="56" rx="6"/>
+  <text class="tn" x="780" y="70" text-anchor="middle">Anthropic-native endpoint</text>
+  <text class="ts" x="780" y="88" text-anchor="middle">anthropic · cborg · als-apg</text>
+
+  <!-- proxied lane -->
+  <rect class="nb-foc" x="320" y="162" width="250" height="64" rx="6"/>
+  <text class="tn" x="445" y="184" text-anchor="middle">local translation proxy</text>
+  <text class="ts" x="445" y="201" text-anchor="middle">Anthropic ↔ OpenAI</text>
+  <text class="ts" x="445" y="216" text-anchor="middle">random port, started at launch</text>
+
+  <rect class="nb" x="640" y="162" width="280" height="64" rx="6"/>
+  <text class="tn" x="780" y="184" text-anchor="middle">OpenAI-compatible endpoint</text>
+  <text class="ts" x="780" y="201" text-anchor="middle">stanford · argo · asksage · amsc-i2</text>
+  <text class="ts" x="780" y="216" text-anchor="middle">ollama · vllm · ds4</text>
+
+  <!-- mcp lane -->
+  <rect class="nb" x="320" y="252" width="250" height="56" rx="6"/>
+  <text class="tn" x="445" y="276" text-anchor="middle">LiteLLM</text>
+  <text class="ts" x="445" y="294" text-anchor="middle">not the agent's path</text>
+
+  <rect class="nb" x="640" y="252" width="280" height="56" rx="6"/>
+  <text class="tn" x="780" y="276" text-anchor="middle">any provider</text>
+  <text class="ts" x="780" y="294" text-anchor="middle">whatever LiteLLM can call</text>
+
+  <text class="ta ta-warn" x="480" y="342" text-anchor="middle">keep the trailing /v1 on an OpenAI-compatible base_url — the proxy needs it; the agent's own requests have it stripped</text>
+  <text class="ta" x="480" y="358" text-anchor="middle">api_protocol: anthropic routes a custom Anthropic-speaking gateway down the direct lane instead</text>
+</svg>
+</div>

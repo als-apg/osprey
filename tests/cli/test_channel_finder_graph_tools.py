@@ -310,3 +310,39 @@ def test_graph_paradigm_prompt_requires_a_definitive_channel_list(tmp_path):
     assert "## Report Format" in body, "the graph arm must carry the report-format section"
     assert "**Channels found**" in body, "the contract must reuse the existing list label"
     assert "**Channels found**: none" in body, "the empty answer must have a spelled-out form"
+
+
+# ---------------------------------------------------------------------------
+# The graph arm carries the seed-time snapshot region; the others carry none
+# ---------------------------------------------------------------------------
+
+
+def test_graph_paradigm_prompt_carries_the_snapshot_placeholder(tmp_path):
+    """The graph arm ships the marker pair the seed-time bake rewrites.
+
+    The channel finder's graph paradigm reads the same store the
+    facility-knowledge-graph subagent does, and until it carried the region it
+    paid a three-call schema prelude on every delegation that the other agent
+    was designed to skip.
+    """
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-snapshot", "graph")
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+
+    assert body.count(prompt_snapshot.SNAPSHOT_BEGIN) == 1
+    assert body.count(prompt_snapshot.SNAPSHOT_END) == 1
+    assert body.find(prompt_snapshot.SNAPSHOT_BEGIN) < body.find(prompt_snapshot.SNAPSHOT_END)
+    assert "No snapshot has been captured yet" in body
+
+
+@pytest.mark.parametrize("mode", [m for m in VALID_CHANNEL_FINDER_MODES if m != "graph"])
+def test_other_paradigms_carry_no_snapshot_region(tmp_path, mode):
+    """A file-backed paradigm has no store to snapshot, so it ships no markers."""
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    _manager, project_dir = _control_assistant(tmp_path, f"cf-nosnap-{mode}", mode)
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+
+    assert prompt_snapshot.SNAPSHOT_BEGIN not in body
+    assert "Graph at Hand" not in body

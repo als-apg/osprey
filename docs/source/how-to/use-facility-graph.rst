@@ -7,7 +7,7 @@ Search the Facility Graph
 The facility graph holds the *structure* of the machine: the devices, the
 sections they sit in, the classes they belong to, and the control system
 addresses bound to each one. It is served by the ``graphdb`` store
-(:doc:`deploy-project`) and searched by the **facility-knowledge-graph agent**
+(:doc:`deploy-project/index`) and searched by the **facility-knowledge-graph agent**
 — a specialist the main OSPREY agent delegates structural questions to — which
 writes Cypher (Neo4j's query language, the graph counterpart of SQL) through
 the ``graph`` MCP server. You never write it yourself, and neither does the
@@ -218,7 +218,7 @@ answer that says it was cut short.
        says so and suggests a ``LIMIT``, an aggregate, or a narrower ``MATCH``.
 
 Both bound keys live in the ``services.graphdb`` block, alongside the image and
-port settings documented in :doc:`deploy-project`.
+port settings documented in :doc:`deploy-project/index`.
 
 .. note::
 
@@ -462,7 +462,7 @@ control surface and no graph tools by design.
 
 .. seealso::
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
       The ``services.graphdb`` block: image, ports, corpus, memory, and the
       query bounds.
 

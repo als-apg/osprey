@@ -1,0 +1,125 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1280 728" role="img" aria-labelledby="write-sequence-title write-sequence-desc">
+  <title id="write-sequence-title">Control-system write, end to end</title>
+  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the Osprey agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the kill switch and limits and ask the operator for approval before the control-system MCP writes through the connector and verifies the new setpoint.</desc>
+  <defs>
+    <marker id="write-sequence-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- lifelines -->
+  <line class="ll" x1="120" y1="72" x2="120" y2="688"/>
+  <line class="ll" x1="328" y1="72" x2="328" y2="688"/>
+  <line class="ll" x1="536" y1="72" x2="536" y2="688"/>
+  <line class="ll" x1="744" y1="72" x2="744" y2="688"/>
+  <line class="ll" x1="952" y1="72" x2="952" y2="688"/>
+  <line class="ll" x1="1160" y1="72" x2="1160" y2="688"/>
+  <!-- activation bars -->
+  <rect class="act" x="324" y="112" width="8" height="544"/>
+  <rect class="act" x="532" y="144" width="8" height="64"/>
+  <rect class="act" x="740" y="368" width="8" height="160"/>
+  <rect class="act" x="948" y="240" width="8" height="96"/>
+  <rect class="act" x="948" y="528" width="8" height="96"/>
+  <rect class="act" x="1156" y="272" width="8" height="32"/>
+  <rect class="act" x="1156" y="560" width="8" height="32"/>
+  <!-- phase labels -->
+  <text class="te" x="40" y="148">LOOKUP</text>
+  <text class="te" x="40" y="244">READ</text>
+  <text class="te" x="40" y="372">GATED WRITE</text>
+  <!-- messages -->
+  <line class="e" x1="120" y1="112" x2="324" y2="112" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="156" y="92" width="136" height="12" rx="2"/>
+  <text class="ta" x="224" y="101" text-anchor="middle">bump corrector +0.5 A</text>
+
+  <line class="e" x1="332" y1="144" x2="532" y2="144" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="355" y="124" width="154" height="12" rx="2"/>
+  <text class="ta" x="432" y="133" text-anchor="middle">corrector setpoint, sector 3</text>
+
+  <path class="e" d="M540,176 H572 Q580,176 580,184 V192 Q580,200 572,200 H544" marker-end="url(#write-sequence-arr)"/>
+  <text class="ta" x="588" y="188">query channel-finder DB</text>
+
+  <line class="e e-dash" x1="532" y1="208" x2="332" y2="208" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="372" y="188" width="120" height="12" rx="2"/>
+  <text class="ta" x="432" y="197" text-anchor="middle">SR03C:COR:H1:CURRENT</text>
+
+  <line class="e" x1="332" y1="240" x2="948" y2="240" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="542" y="220" width="196" height="12" rx="2"/>
+  <text class="ta" x="640" y="229" text-anchor="middle">channel_read(SR03C:COR:H1:CURRENT)</text>
+
+  <line class="e" x1="956" y1="272" x2="1156" y2="272" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1014" y="252" width="84" height="12" rx="2"/>
+  <text class="ta" x="1056" y="261" text-anchor="middle">read_channel()</text>
+
+  <line class="e e-dash" x1="1156" y1="304" x2="956" y2="304" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1036" y="284" width="40" height="12" rx="2"/>
+  <text class="ta" x="1056" y="293" text-anchor="middle">1.2 A</text>
+
+  <line class="e e-dash" x1="948" y1="336" x2="332" y2="336" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="596" y="316" width="88" height="12" rx="2"/>
+  <text class="ta" x="640" y="325" text-anchor="middle">current = 1.2 A</text>
+
+  <line class="e" x1="332" y1="368" x2="740" y2="368" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="576" y="348" width="128" height="12" rx="2"/>
+  <text class="ta" x="640" y="357" text-anchor="middle">channel_write(…, 1.7 A)</text>
+
+  <path class="e" d="M748,400 H780 Q788,400 788,408 V416 Q788,424 780,424 H752" marker-end="url(#write-sequence-arr)"/>
+  <text class="ta" x="796" y="412">writes_check → enabled</text>
+
+  <path class="e" d="M748,432 H780 Q788,432 788,440 V448 Q788,456 780,456 H752" marker-end="url(#write-sequence-arr)"/>
+  <text class="ta" x="796" y="444">limits → within range</text>
+
+  <line class="e" x1="740" y1="464" x2="124" y2="464" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="168" y="444" width="112" height="12" rx="2"/>
+  <text class="ta" x="224" y="453" text-anchor="middle">approve? write 1.7 A</text>
+
+  <line class="e e-dash" x1="120" y1="496" x2="740" y2="496" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="196" y="476" width="56" height="12" rx="2"/>
+  <text class="ta" x="224" y="485" text-anchor="middle">approved</text>
+
+  <line class="e" x1="748" y1="528" x2="948" y2="528" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="820" y="508" width="56" height="12" rx="2"/>
+  <text class="ta" x="848" y="517" text-anchor="middle">proceed</text>
+
+  <line class="e" x1="956" y1="560" x2="1156" y2="560" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1012" y="540" width="88" height="12" rx="2"/>
+  <text class="ta" x="1056" y="549" text-anchor="middle">write_channel()</text>
+
+  <line class="e e-dash" x1="1156" y1="592" x2="956" y2="592" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="1016" y="572" width="80" height="12" rx="2"/>
+  <text class="ta" x="1056" y="581" text-anchor="middle">success=True</text>
+
+  <line class="e e-dash" x1="948" y1="624" x2="332" y2="624" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="556" y="604" width="168" height="12" rx="2"/>
+  <text class="ta" x="640" y="613" text-anchor="middle">write confirmed · verified 1.7 A</text>
+
+  <line class="e-acc" x1="324" y1="656" x2="124" y2="656" marker-end="url(#write-sequence-arr)"/>
+  <rect class="mask" x="160" y="636" width="128" height="12" rx="2"/>
+  <text class="ta ta-acc" x="224" y="645" text-anchor="middle">done — 1.7 A (+0.5 A)</text>
+
+  <!-- actors -->
+  <rect class="mask" x="40" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb-in" x="40" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="120" y="44" text-anchor="middle">operator</text>
+  <text class="ts" x="120" y="60" text-anchor="middle">via web terminal</text>
+  <rect class="mask" x="248" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb-foc" x="248" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="328" y="44" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="328" y="60" text-anchor="middle">orchestrator</text>
+  <rect class="mask" x="456" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="456" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="536" y="44" text-anchor="middle">channel finder</text>
+  <text class="ts" x="536" y="60" text-anchor="middle">sub-agent</text>
+  <rect class="mask" x="664" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="664" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="744" y="44" text-anchor="middle">safety hooks</text>
+  <text class="ts" x="744" y="60" text-anchor="middle">PreToolUse chain</text>
+  <rect class="mask" x="872" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="872" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="952" y="44" text-anchor="middle">control system MCP</text>
+  <text class="ts" x="952" y="60" text-anchor="middle">tool server</text>
+  <rect class="mask" x="1080" y="24" width="160" height="48" rx="6"/>
+  <rect class="nb" x="1080" y="24" width="160" height="48" rx="6"/>
+  <text class="tn" x="1160" y="44" text-anchor="middle">connector</text>
+  <text class="ts" x="1160" y="60" text-anchor="middle">EPICS / mock</text>
+</svg>
+</div>

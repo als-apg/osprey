@@ -22,9 +22,8 @@ runs it as a **subprocess** on the host (``ExecutionWrapper``).
 Results---stdout, stderr, figures, and saved artifacts---are returned as
 structured JSON.
 
-.. code-block:: text
-
-   Osprey agent → execute MCP tool → safety checks → host subprocess → result JSON
+.. raw:: html
+   :file: ../_diagrams/python-executor.html
 
 Executed code can import whatever is installed in the project's environment;
 see :ref:`executor-environment` for how to find out what that is.
