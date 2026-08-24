@@ -438,6 +438,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- CI: the unit lane's step summary now tabulates the slowest tests of the run
+  and the uploaded diagnostics artifact carries the full pytest log.
 - `osprey-connectors` now versions with the framework's calendar stream —
   both wheels are built from one checkout and carry one number, so the
   independent `0.x` line (and the question of what counts as a minor) is

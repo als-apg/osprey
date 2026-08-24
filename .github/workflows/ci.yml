@@ -230,22 +230,36 @@ jobs:
         # it into a silent wedge rather than a death. A live CA client/server
         # pair is only safe in a process of its own.
         #
-        # --durations=50: the ubuntu cells run ~2x the macOS wall clock and the
-        # gap is undiagnosed. A per-cell slow-test ranking in every run is what
+        # --durations=50: a per-cell slow-test ranking in every run is what
         # tells "one group of tests got expensive" apart from "the whole suite
-        # is uniformly slower on this runner" — remove once the unit lane's
-        # runtime question is settled.
-        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 -n 4 --dist loadgroup $COV_ARGS
+        # is uniformly slower on this runner". It settled the ubuntu-vs-macOS
+        # question once (#582: no runner gap, the profile is the same on both)
+        # and stays on so the next drift is diagnosable from the summary
+        # instead of by re-instrumenting the lane.
+        #
+        # Teed into ci-diag/ rather than read from the job log: `gh run view
+        # --log` returns a fraction of a 60k-line log, and the durations
+        # report is at the end of it. scripts/ci/diag_summary.py renders the
+        # top of the report into the step summary, and the upload below keeps
+        # the whole log. `pipefail` is set explicitly because an unspecified
+        # `shell:` runs `bash -e` WITHOUT it — the pipe would otherwise turn
+        # every red suite into tee's green exit. The directory is created here
+        # because tests/ci_diagnostics.py creates it at pytest configure time,
+        # which is after tee has to open its file.
+        mkdir -p ci-diag
+        set -o pipefail
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
-    # They run on success too: on a green lane the summary is one line, and on
-    # a killed lane it is the only place the answer exists.
+    # They run on success too: on a green lane the summary is the slow-test
+    # ranking, and on a killed lane it is the only place the answer exists.
     - name: Summarise lane diagnostics
       if: always()
       # Names the test each worker was inside when the lane stopped. All four
       # workers stalling at once means the runner went away; one worker stalling
       # means the test it names deadlocked. That distinction decides whether a
-      # rerun is legitimate, and it is not recoverable from the job log.
+      # rerun is legitimate, and it is not recoverable from the job log. On a
+      # lane that finished, tabulates the top of the durations report instead.
       #
       # `python3`, not `uv run`: the script is stdlib-only and standalone by
       # design, so it still reports when the failure being diagnosed is the
