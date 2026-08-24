@@ -14,6 +14,7 @@ from osprey.interfaces.web_terminal.claude_code_files import (
     ClaudeCodeFileService,
     ProtectedWriteError,
 )
+from osprey.interfaces.web_terminal.ownership import reserved_write_channel
 from osprey.interfaces.web_terminal.routes.config import router as config_router
 from osprey.services.python_executor.refusal_audit import PROTECTED_WRITES_LOG_FILENAME
 
@@ -168,15 +169,21 @@ class TestWriteFile:
         with pytest.raises(ProtectedWriteError, match="not project-relative"):
             service.write_file("../../etc/passwd", "hacked")
 
-    def test_write_file_traversal_still_blocked_behind_the_reserved_check(
+    def test_write_file_refuses_a_link_that_escapes_the_project(
         self, service, project_dir, tmp_path
     ):
-        """The reserved check runs first; ``_validate_path`` still guards symlinks."""
+        """A link out of the project is refused by the reserved check, which resolves.
+
+        It answers first and answers about the file the bytes would land on, so
+        an escaping link never reaches ``_validate_path``; that check stays as
+        the second gate. Either way the refusal is a ``PermissionError``, which
+        is what the route maps to 403.
+        """
         outside = tmp_path.parent / "outside-the-project.md"
         outside.write_text("# Untouched\n")
         (project_dir / ".claude" / "agents" / "escape.md").symlink_to(outside)
 
-        with pytest.raises(PermissionError, match="traversal"):
+        with pytest.raises(ProtectedWriteError, match="not project-relative"):
             service.write_file(".claude/agents/escape.md", "hacked")
         assert outside.read_text() == "# Untouched\n"
 
@@ -407,15 +414,15 @@ class TestCreateFile:
         with pytest.raises(ProtectedWriteError, match="not project-relative"):
             service.create_file("../../etc/evil.md", "hacked")
 
-    def test_create_file_traversal_still_blocked_behind_the_reserved_check(
+    def test_create_file_refuses_a_link_that_escapes_the_project(
         self, service, project_dir, tmp_path
     ):
-        """The reserved check runs first; ``_validate_path`` still guards symlinks."""
+        """Same on the create route: the resolving reserved check answers first."""
         outside = tmp_path.parent / "outside-the-create-target.md"
         outside.write_text("# Untouched\n")
         (project_dir / ".claude" / "agents" / "escape.md").symlink_to(outside)
 
-        with pytest.raises(PermissionError, match="traversal"):
+        with pytest.raises(ProtectedWriteError, match="not project-relative"):
             service.create_file(".claude/agents/escape.md", "hacked")
         assert outside.read_text() == "# Untouched\n"
 
@@ -545,3 +552,107 @@ class TestDetectLanguage:
 
     def test_unknown(self):
         assert ClaudeCodeFileService.detect_language("file.txt") == "text"
+
+
+class TestSymlinkedReservedTargets:
+    """A link is judged by the file it lands on, not by the name it wears.
+
+    Every writer here reaches disk through the filesystem, which follows
+    links: a save opens the link's *target*. So an unprotected name pointing
+    into a reserved subtree (``.claude/agents/x.md`` -> ``../rules/safety.md``)
+    is lexically an agent and physically a rule, and the panel must judge it as
+    the latter — the same question ``ownership.reserved_write_channel`` already
+    answers for the scaffold gallery.
+    """
+
+    @pytest.fixture
+    def hook(self, project_dir):
+        """An ``osprey_`` hook — the write-safety layer's own protected file."""
+        target = project_dir / ".claude" / "hooks" / "osprey_writes_check.py"
+        target.write_text("# the write-safety hook\n")
+        return target
+
+    @pytest.mark.parametrize(
+        ("link_rel", "target_rel", "channel_phrase"),
+        [
+            (".claude/agents/x.md", ".claude/rules/safety.md", "`rules/`"),
+            (
+                ".claude/agents/hook-alias.py",
+                ".claude/hooks/osprey_writes_check.py",
+                "`hooks/`",
+            ),
+        ],
+    )
+    def test_write_file_refuses_a_link_onto_a_reserved_file(
+        self, service, project_dir, audit_dir, hook, link_rel, target_rel, channel_phrase
+    ):
+        target = project_dir / target_rel
+        before = target.read_bytes()
+        (project_dir / link_rel).symlink_to(target)
+
+        with pytest.raises(ProtectedWriteError) as excinfo:
+            service.write_file(link_rel, "PWNED")
+
+        message = str(excinfo.value)
+        assert channel_phrase in message
+        assert "nothing was written" in message.lower()
+        assert target.read_bytes() == before
+
+    def test_write_file_refusal_through_a_link_is_audited(self, service, project_dir, audit_dir):
+        link_rel = ".claude/agents/x.md"
+        (project_dir / link_rel).symlink_to(project_dir / ".claude" / "rules" / "safety.md")
+
+        with pytest.raises(ProtectedWriteError):
+            service.write_file(link_rel, "PWNED")
+
+        records = _audit_records(audit_dir)
+        assert len(records) == 1
+        record = records[0]
+        assert record["surface"] == "claude_setup"
+        # The record names the path the operator typed, and the channel that
+        # owns the file it would have landed on.
+        assert record["target_file"] == link_rel
+        assert record["channel"] == reserved_write_channel(project_dir, link_rel)
+        assert record["reason"] == "reserved path"
+
+    def test_create_file_refuses_a_dangling_link_into_a_reserved_subtree(
+        self, service, project_dir, audit_dir
+    ):
+        """Create is the other half: a link with no target yet still lands in ``rules/``."""
+        link_rel = ".claude/agents/new-rule.md"
+        landing = project_dir / ".claude" / "rules" / "authored-by-the-agent.md"
+        (project_dir / link_rel).symlink_to(landing)
+
+        with pytest.raises(ProtectedWriteError) as excinfo:
+            service.create_file(link_rel, "# Authored by the agent\n")
+
+        assert "`rules/`" in str(excinfo.value)
+        assert not landing.exists()
+
+    def test_list_files_marks_a_link_onto_a_reserved_file_read_only(self, service, project_dir):
+        """The badge is the same one a direct reserved file gets."""
+        (project_dir / ".claude" / "agents" / "x.md").symlink_to(
+            project_dir / ".claude" / "rules" / "safety.md"
+        )
+
+        entries = {f["path"]: f for f in service.list_files()}
+        assert entries[".claude/rules/safety.md"]["read_only"] is True
+        assert entries[".claude/agents/x.md"]["read_only"] is True
+
+    def test_a_link_onto_an_unreserved_file_is_still_writable(self, service, project_dir):
+        """The twin: resolution decides, so an ordinary link keeps working.
+
+        Without this the gate could pass by refusing every symlink, which
+        would be a different feature — and a broken panel.
+        """
+        (project_dir / ".claude" / "agents" / "alias.md").symlink_to(
+            project_dir / ".claude" / "commands" / "note.md"
+        )
+        (project_dir / ".claude" / "commands" / "note.md").write_text("# Note\n")
+
+        entries = {f["path"]: f for f in service.list_files()}
+        assert entries[".claude/agents/alias.md"]["read_only"] is False
+
+        result = service.write_file(".claude/agents/alias.md", "# Reworked\n")
+        assert result["status"] == "saved"
+        assert (project_dir / ".claude" / "commands" / "note.md").read_text() == "# Reworked\n"
