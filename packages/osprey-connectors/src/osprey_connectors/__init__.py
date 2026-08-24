@@ -5,4 +5,4 @@ dependencies. Main osprey depends on this package and re-exports every
 module under its historical ``osprey.*`` path.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

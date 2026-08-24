@@ -95,6 +95,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Control-system failure envelopes now name the machine they happened on: a
+  connect failure, a timeout, a limits refusal or a denied write carries the
+  active target's name, label and endpoint (`details.active_target`, plus an
+  `active target: ...` clause in the message). On a deployment with a runtime
+  live/VA switch, "the write timed out" no longer leaves the operator to
+  reconstruct *which machine* from session memory.
+- Enum channel reads (EPICS `mbbi`/`bi`/`bo` and PVA `NTEnum`) now carry
+  their state labels: the value stays the integer index on every protocol,
+  and the reading's metadata adds `enum_label` (the state the channel is in)
+  and `enum_labels` (every state in index order). An operator asking "what
+  mode is the device in?" is told `ACQUIRING`, not `2`.
 - A write the control system itself denies — EPICS access security answering
   a put with "Write access denied" — is now reported as a refusal naming the
   control system, instead of an `internal_error` that named nothing. The new
