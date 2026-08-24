@@ -67,10 +67,11 @@ def _load_ariel_config() -> dict:
 def _config_dir() -> Path | None:
     """Return the directory of the config.yml this CLI run is reading.
 
-    A relative ``ariel.vocabulary.path`` names a file next to that config, not
-    next to whatever directory the operator happened to run from — so every
-    process reading the same config finds the same vocabulary file. Delegates
-    to the framework rule rather than restating it.
+    A relative ``ariel.vocabulary.path`` names a file in that config's project
+    (the shared resolver anchors it on the project root), not in whatever
+    directory the operator happened to run from — so every process reading the
+    same config finds the same vocabulary file. Delegates to the framework rule
+    rather than restating it.
 
     Returns:
         The config's parent directory, or None when it cannot be determined, in

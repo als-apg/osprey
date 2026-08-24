@@ -662,22 +662,105 @@ def _resolve_qmd_corpora(config, repo_root):
     if isinstance(bundle_path, str) and bundle_path.strip():
         corpora.append(corpus(QMD_OKF_COLLECTION, bundle_path.strip()))
 
-    ariel = config.get("ariel")
-    modules = ariel.get("enhancement_modules") if isinstance(ariel, dict) else None
-    export = modules.get("qmd_export") if isinstance(modules, dict) else None
-    if isinstance(export, dict) and export.get("enabled"):
-        # `mirror_path` may be written directly on the module block or inside
-        # its `settings:` mapping — ARIEL's own loader merges the two with
-        # `settings` winning, and the mount must follow whichever the exporter
-        # will actually write to.
-        settings = export.get("settings")
-        mirror_path = export.get("mirror_path")
-        if isinstance(settings, dict) and settings.get("mirror_path"):
-            mirror_path = settings["mirror_path"]
-        if isinstance(mirror_path, str) and mirror_path.strip():
-            corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path.strip()))
+    mirror_path = configured_ariel_mirror_path(config)
+    if mirror_path is not None:
+        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
 
     return corpora
+
+
+def configured_ariel_mirror_path(config):
+    """The ``mirror_path`` an enabled ARIEL qmd export writes to, or ``None``.
+
+    One reader for the key, shared by the sidecar's corpus list, the host
+    directory the deploy provisions and the per-user mount the web-terminal
+    overlay emits — so the directory the exporter fills, the one the sidecar
+    indexes and the one a persona container writes into are provably the same
+    configured string.
+
+    ``mirror_path`` may be written directly on the module block or inside its
+    ``settings:`` mapping — ARIEL's own loader merges the two with ``settings``
+    winning, and every consumer must follow whichever the exporter will
+    actually write to. A disabled export names nothing: there is then no
+    writer, so nothing to mount or index. An enabled export with no path is a
+    config error the exporter itself refuses at runtime; ``None`` here too.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: The configured path as written (relative or absolute), stripped,
+        or ``None``
+    :rtype: str | None
+    """
+    ariel = (config or {}).get("ariel")
+    modules = ariel.get("enhancement_modules") if isinstance(ariel, dict) else None
+    export = modules.get("qmd_export") if isinstance(modules, dict) else None
+    if not isinstance(export, dict) or not export.get("enabled"):
+        return None
+    settings = export.get("settings")
+    mirror_path = export.get("mirror_path")
+    if isinstance(settings, dict) and settings.get("mirror_path"):
+        mirror_path = settings["mirror_path"]
+    if isinstance(mirror_path, str) and mirror_path.strip():
+        return mirror_path.strip()
+    return None
+
+
+def resolve_ariel_mirror_dir(config, repo_root=None):
+    """The ARIEL qmd mirror on the host, or ``None`` when no export writes one.
+
+    The mirror counterpart of :func:`resolve_facility_bundle_dir`, anchored the
+    same way and for the same reason: a relative value resolves against the
+    deployment repo root, which is what every bind source in a rendered
+    compose file resolves against — and, since the exporter's own resolver
+    anchors on the project root too
+    (:func:`osprey.services.ariel_search.enhancement.qmd_export.exporter.resolve_mirror_path`),
+    the directory provisioned here is the directory the exporter fills.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param repo_root: Deployment repo root; ``None`` resolves it from *config*
+    :type repo_root: str | pathlib.Path | None
+    :return: Absolute path to the mirror root, or ``None``
+    :rtype: pathlib.Path | None
+    """
+    raw = configured_ariel_mirror_path(config)
+    if raw is None:
+        return None
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    root = Path(repo_root) if repo_root is not None else Path(resolve_repo_root(config))
+    return root / path
+
+
+def user_audit_relpath(user):
+    """Repo-relative host directory backing one web-terminal user's audit zone.
+
+    ``<var/audit>/<user>``: the deployment's own audit zone
+    (:data:`osprey.utils.workspace.AUDIT_DIR_RELPATH`, where the host's python
+    executor appends its refusal log) with one subdirectory per roster user, so
+    the per-user containers — each of which writes the same fixed filename
+    into what it sees as ``<project>/var/audit`` — cannot overwrite one
+    another's log, and an operator reading the host finds every user's records
+    under the one zone the audit already lives in.
+
+    Spelled here, and read from here by both the web-terminal render (the bind
+    source) and the deploy provisioning (the directory it pre-creates), so the
+    two cannot name different places.
+
+    :param user: Roster user name
+    :type user: str
+    :return: The repo-relative path, POSIX-spelled
+    :rtype: str
+    """
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+
+    return f"{AUDIT_DIR_RELPATH}/{user}"
+
+
+def resolve_user_audit_dir(repo_root, user):
+    """Absolute host path of :func:`user_audit_relpath` under *repo_root*."""
+    return Path(repo_root) / user_audit_relpath(user)
 
 
 def _resolve_qmd_render_context(config, repo_root):
@@ -1557,6 +1640,15 @@ def _ensure_agent_data_structure(config):
     bundle_dir = resolve_facility_bundle_dir(config, project_root)
     if bundle_dir is not None:
         ensure_shared_corpus_dir(bundle_dir, relative_to=project_root)
+
+    # The ARIEL qmd mirror, for the same reasons: the sidecar binds it
+    # read-only, so a missing directory would be created root-owned by the
+    # runtime and the host exporter could never write it; and in a multi-user
+    # deployment every entitled web terminal's exporter writes into it too, so
+    # it needs the shared-group mode the bundle has.
+    mirror_dir = resolve_ariel_mirror_dir(config, project_root)
+    if mirror_dir is not None:
+        ensure_shared_corpus_dir(mirror_dir, relative_to=project_root)
 
     logger.debug(f"Ensured agent data structure exists at: {agent_data_path}")
 

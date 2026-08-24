@@ -223,8 +223,11 @@ services:
                           # (default 127.0.0.1); no per-service bind_address.
     ttl_path: ./data/demo_machine.ttl
                           # Corpus to seed the store from, resolved against this
-                          # file's directory (the same rule as
-                          # `facility_knowledge.bundle_path`). This is the demo
+                          # file's directory — the render — unlike
+                          # `facility_knowledge.bundle_path` and every other
+                          # config-relative path, which resolve against the
+                          # project root: the store is seeded from the `data/`
+                          # the build assembled here. This is the demo
                           # machine — the same corpus the control-assistant
                           # preset seeds, so every OSPREY demo describes one
                           # facility. Point it at your own TTL to seed that
