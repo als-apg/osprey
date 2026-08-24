@@ -16,7 +16,8 @@ every project.
    - Building behind a proxy — including one that re-signs TLS with a site CA
      — and staging model files for the search sidecar
    - Path relocation with ``osprey build --runtime-root``
-   - Air-gapped images, the non-root requirement, and Kubernetes notes
+   - The root-to-``osprey`` privilege split, air-gapped images, and
+     Kubernetes notes
 
    **Prerequisites:** Docker (or Podman) installed; a project built with
    ``osprey build``.
@@ -332,13 +333,132 @@ than from the repository root. ``osprey build --runtime-root PATH`` is the same
 mechanism exposed directly, for a render whose output will run somewhere other
 than where it was made.
 
-Why Non-Root
-============
+.. _containerize-privilege-split:
 
-The image creates and switches to an unprivileged ``osprey`` user because
-**the agent CLI refuses to run in bypassPermissions mode as root**. The CLI
-itself is installed as a pinned global npm package, so it is runnable
-by any user — keep the non-root user if you customize the recipe.
+The Privilege Split
+===================
+
+The agent never runs as root: **the agent CLI refuses to run in
+bypassPermissions mode as root**, and running it there would in any case put
+the whole project within its own reach. The image satisfies that in a way that
+still lets the container fix itself at startup — it *starts* as root, does the
+few things only root can do, and drops to an unprivileged ``osprey`` user
+before the command that serves requests exists.
+
+Two areas of the project, two owners:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 16 58
+
+   * - Area
+     - Owned by
+     - What lives there
+   * - The render — ``build/``, including ``config.yml``, ``.mcp.json`` and
+       the ``.claude/`` artifacts
+     - ``root``
+     - Everything that decides what the agent may do: the permission lists,
+       the hook wiring, the approval policy, the limits table. An agent that
+       could rewrite these could rewrite its own limits, and no deny list or
+       approval prompt would outlive that
+   * - The state zone — ``var/``
+     - ``osprey``
+     - What the running deployment legitimately writes: agent data and
+       API-call logs (``var/agent_data/``), the config backups every config
+       write takes first (``var/agent_data/config-backups/``), and the
+       protected-write audit ledger (``var/audit/``). The facility-knowledge
+       bundle under ``build/data/`` joins them when the deployment has one,
+       because the agent drafts into it
+
+The ``osprey`` user's uid and gid are pinned to ``1000:1000`` rather than left
+to whatever the base image hands out, and the image states the pair in
+``OSPREY_RUNTIME_UID``. Anything outside the container that has to agree with
+it — the multi-user stack's per-user volume seeding, for one — reads it out of
+the image instead of guessing.
+
+What the entrypoint does
+------------------------
+
+There is no ``USER`` instruction. ``ENTRYPOINT`` is the ``build/entrypoint.sh``
+that ``osprey build`` renders beside ``config.yml``, and it runs as root:
+
+#. **Re-renders drifted agent artifacts**, and only those that actually
+   drifted, so a container whose ``config.yml`` has not changed rewrites
+   nothing.
+#. **Restores your own artifact bodies** from the durable store, so a
+   recreated container comes back with the artifacts you saved rather than the
+   ones the image shipped. In a container that store is always the per-user
+   volume — the profile baked into the image is never treated as an editable
+   source, whatever its permissions look like — so this step really does put
+   your claimed bodies back into a render nothing else can write. A store
+   record naming a protected path is skipped and recorded instead, under the
+   surface name ``scaffold_restore``; see :doc:`protected-set`.
+#. **Hands the state zone back** to the ``osprey`` user — only the paths root
+   actually left behind — because both steps above wrote into ``var/`` as
+   root, including the protected-write audit ledger the running server has to
+   keep appending to.
+#. **Drops privileges** with ``exec gosu osprey "$@"``. Because it execs the
+   arguments it was handed, overriding the command on ``docker run`` still
+   goes through the drop.
+
+Both maintenance steps fail open and say so: a container running slightly
+stale artifacts and reporting it in its logs beats one that will not boot. The
+privilege drop is the opposite — a missing ``gosu``, or an image with no
+``osprey`` user, is fatal, because continuing would run the agent as root.
+
+Two environment variables carry the consequences:
+
+- ``OSPREY_RENDER_ZONE_READONLY=1`` tells the server the render is not
+  writable by this process, so it skips the startup regen and restore the
+  entrypoint has already done, and logs what a regen *would* have changed
+  instead of failing on a tree it cannot write.
+- ``OSPREY_RUNTIME_UID=1000:1000`` states the user the entrypoint drops to.
+
+.. note::
+
+   **Run the image with** ``--user`` **and both maintenance steps are
+   skipped.** They cannot write a root-owned render from an unprivileged
+   process, and ``gosu`` cannot drop to a user it is not root to become — so
+   the entrypoint says so loudly in the log and runs the command directly. The
+   agent artifacts are then whatever the image was built with. That is a valid
+   way to run it; it is not the way to run it if you expect a configuration
+   change to be picked up at start.
+
+One tier gets one more file
+---------------------------
+
+A deployment can grant a single persona the ability to edit its own
+configuration — the agent's ``setup_patch`` tool and the browser's Config
+panel. The image reads that grant off the render's own permissions: where the
+setup tool is left out of the deny list, and only there, ``build/config.yml``
+is handed to the ``osprey`` user, which is also what lets the Config panel's
+write land. Every other render leaves the file root-owned, which is what makes
+the boundary a fact of the filesystem rather than a permission list the agent
+is asked to respect. Grant the two surfaces together, the way the bundled
+tiers do — a persona handed the panel alone would find the file it has to
+write still owned by root. See :doc:`multi-user` for the tiers this exists
+for.
+
+On a bare host it is ownership you set up
+-----------------------------------------
+
+Run the same project with ``osprey web`` on a host instead of in a container
+and the split is **not** there. There is no second user: the server runs as
+you, and it keeps the self-healing startup behaviour the container moved into
+its entrypoint — it re-renders drifted artifacts and restores your saved
+artifact bodies in-process, because there is no root step ahead of it to have
+done so.
+
+The parts that are code rather than file ownership do carry over. The restore
+refuses a protected path on a bare host exactly as it does under the
+entrypoint, because both call the same function — a private copy for the
+container would be a second gate to keep in step, and the one running as root
+is the worst place to discover a drift.
+
+The rest is worth saying plainly: on a bare host the render is only as
+protected as the file ownership you give it. If that matters for your
+deployment, run the container image, or own the render as a user other than
+the one the server runs as.
 
 Runtime State and Volumes
 =========================
@@ -352,7 +472,12 @@ Two kinds of state are worth persisting across container restarts:
      -v my-project-home:/home/osprey \
      my-project
 
-- ``var/agent_data/`` — API call logs and generated data artifacts.
+- ``var/agent_data/`` — API call logs, generated data artifacts, and the
+  backup every config write takes before it writes
+  (``config-backups/<name>.bak``). The backup anchors on the project root, so
+  it lands in the same place whether the project is flat, a deployment
+  repository, or this image — unless the deployment relocates
+  ``agent_data.base_dir``, which moves the backups with it.
 - ``/home/osprey`` — the agent CLI's per-user state (sessions, credentials);
   set ``CLAUDE_CONFIG_DIR`` if you want it somewhere more explicit.
 
@@ -362,8 +487,13 @@ Kubernetes notes
 - Give each user/instance a PVC for ``/home/osprey`` (or
   ``CLAUDE_CONFIG_DIR``) and one for ``var/agent_data/`` — session state does
   not survive pod rescheduling otherwise.
-- The container already runs as a non-root user, so a restricted
-  ``securityContext`` (``runAsNonRoot: true``) works out of the box.
+- The image has no ``USER``: it starts as root and drops to uid 1000 itself
+  (see `The Privilege Split`_). A ``securityContext`` with
+  ``runAsNonRoot: true`` therefore refuses the pod, and one pinning
+  ``runAsUser: 1000`` starts it but makes the entrypoint skip the startup
+  regen and restore, exactly as ``--user`` does. Let the entrypoint do the
+  drop, or accept that the agent artifacts are whatever the image was built
+  with.
 - Expose port ``8087`` (or override the ``CMD`` with ``--port``).
 
 Troubleshooting
@@ -389,14 +519,71 @@ The file is yours — common edits:
   ``FROM`` it in a small site Dockerfile that adds credentials helpers,
   enterprise settings, or extra processes.
 - **Change the entrypoint**: the default ``CMD`` runs
-  ``osprey web --host 0.0.0.0 --port 8087 --project /app/<project>``;
-  override it to run a process supervisor if you add sidecars.
+  ``osprey web --host 0.0.0.0 --port 8087`` (the deployment is discovered
+  from the working directory); override it to run a process supervisor if you
+  add sidecars.
 - **Carry the edit in the profile**: put your Dockerfile in the profile's
   ``project/`` mirror (above) so every rebuild lands it again.
 - **Template-level override**: an app bundle can ship its own
   ``apps/<bundle>/Dockerfile.j2``, which takes precedence over the framework
   template at build time — use this when every project built from a bundle
   needs the same customization.
+
+.. warning::
+
+   **A Dockerfile you forked keeps the recipe you forked.** A copy in your
+   deployment's ``project/`` mirror is laid over the render on every build,
+   and no regeneration ever rewrites it — that is what the mirror is for, and
+   it is also why your copy never picks up anything the framework's recipe
+   gained afterwards. `The Privilege Split`_ is exactly such a gain: a forked
+   Dockerfile still creates the ``osprey`` user, hands it the *whole* project
+   with a blanket ``chown``, and switches to it with ``USER`` — so the render
+   it is meant to protect stays writable by the agent.
+
+   Seven changes port the split into a forked recipe. Or delete your fork,
+   rebuild, and re-apply your customization on top of the current one, which is
+   usually the smaller job.
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 36 64
+
+      * - Change
+        - What it looks like
+      * - Install ``gosu``
+        - Add it to the ``apt-get install`` line in the layer that already
+          installs ``curl``, ``git`` and Node — not in a layer of its own near
+          the end, or every render change re-runs ``apt``
+      * - Pin the runtime uid and gid
+        - ``groupadd --gid 1000 osprey && useradd --uid 1000 --gid 1000 …``,
+          so the pair ``OSPREY_RUNTIME_UID`` declares is the pair the
+          container really runs as. The multi-user stack's per-user volume
+          seeding chowns each volume to the declared value, so a recipe that
+          lets ``useradd`` pick the next free id hands the volume to the wrong
+          user
+      * - Narrow the ownership change
+        - ``chown -R osprey:osprey`` on ``var/`` only, plus
+          ``build/data/facility_knowledge`` when the deployment renders one.
+          Not the project root — that blanket chown is what hands the render
+          away
+      * - Hand over ``config.yml`` for one tier only
+        - ``chown osprey:osprey .../build/config.yml``, and only in the image
+          for a persona allowed to edit the deployment. Every other image
+          leaves it root-owned
+      * - Remove ``USER osprey``
+        - The container has to start as root for the entrypoint's two writes;
+          leaving ``USER`` in place makes the entrypoint skip both — it warns
+          and runs the command anyway, so the image's own artifacts are what
+          you get
+      * - Point ``ENTRYPOINT`` at the rendered script
+        - ``ENTRYPOINT ["/app/<project>/build/entrypoint.sh"]``. It ships
+          inside the render, so name it at that path rather than copying it
+          somewhere else. Keep the existing ``CMD``: the entrypoint execs it
+      * - Add the two ``ENV`` lines
+        - ``ENV OSPREY_RUNTIME_UID=1000:1000`` and
+          ``ENV OSPREY_RENDER_ZONE_READONLY=1``. Without the second, the
+          server retries the writes the entrypoint already made and logs
+          failures it cannot act on
 
 .. seealso::
 

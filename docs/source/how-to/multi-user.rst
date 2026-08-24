@@ -18,9 +18,9 @@ host, brought up with a single ``osprey up``.
    - The three ideas behind the multi-user stack: one container per user,
      personas as capability tiers, and one nginx front door
    - The ``modules.web_terminals`` config block that switches it on
-   - Standing the preset's full stack up — two control-room tiers plus a
-     standalone ARIEL terminal — and watching the write boundary refuse — and
-     approve — a real write
+   - Standing the preset's full stack up — its read-only, read-write and admin
+     logins plus a standalone ARIEL terminal — and watching the write boundary
+     refuse — and approve — a real write
    - Day-to-day operations: adding, reseeding, and removing users
    - How to require a login — passwords OSPREY manages, or your facility's
      single sign-on
@@ -83,11 +83,15 @@ configuration volume automatically — no per-user setup steps.
 *personas*, and each persona is its own rendered OSPREY project with its own
 ``config.yml``, permissions, skills, and tool servers. Because permissions are
 a property of a project, the tiers are genuinely different agents — not one
-agent with a UI toggle. The ``control-assistant`` preset ships two: a
-*read-only* tier and a *read-write* tier — the same agent and tool surface,
-differing on exactly one config key (``control_system.writes_enabled``).
+agent with a UI toggle. The ``control-assistant`` preset ships three of them.
+Two are control-room tiers carrying the same agent and the same tool surface,
+separated by one config key (``control_system.writes_enabled``): a *read-only*
+tier and a *read-write* tier. The third, *admin*, is separated on a different
+axis — not what the session may do to the machine, but what it may do to the
+deployment. :ref:`The table below <multi-user-tiers>` lays out what each tier
+carries.
 
-It also ships a third persona that is not a tier of that agent at all.
+It also ships a fourth persona that is not a tier of that agent at all.
 ``ariel`` is the standalone logbook research assistant: no control-system tool
 servers, no Python sandbox, no plan queue — a different product, reached from
 its own card. Nothing special makes that possible. A persona is already a
@@ -146,6 +150,10 @@ The config block
                index: 2
                persona: ariel
                display_name: "ARIEL Logbook Research"
+             - name: carol
+               index: 3
+               persona: admin
+               display_name: "Deployment Admin (Carol)"
              personas:
                readonly:
                  project: control-assistant-readonly
@@ -155,6 +163,10 @@ The config block
                  project: control-assistant-readwrite
                  project_path: build/control-assistant-readwrite
                  build_profile: personas/readwrite.yml
+               admin:
+                 project: control-assistant-admin
+                 project_path: build/control-assistant-admin
+                 build_profile: personas/admin.yml
                ariel:
                  project: control-assistant-ariel
                  project_path: build/control-assistant-ariel
@@ -173,7 +185,7 @@ The config block
       The ``users`` list is the roster — the single source of truth for who
       exists. A name becomes a URL path segment and an environment-variable
       suffix, so it has to match ``[a-z0-9][a-z0-9_-]*``; that is checked in
-      every auth mode, not only behind a login wall. A bare name (``- carol``)
+      every auth mode, not only behind a login wall. A bare name (``- dave``)
       resolves to ``default_persona`` —
       read-only, so a hastily added user lands on the safe side; an entry with
       an explicit ``persona`` picks its tier, and an optional ``display_name``
@@ -181,7 +193,8 @@ The config block
       ``base + index`` in every port family — one family per companion panel
       (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
       terminal itself — so alice (index 0) serves her terminal on ``9091``,
-      bob (index 1) on ``9092``, and ariel (index 2) on ``9093``. A panel
+      bob (index 1) on ``9092``, ariel (index 2) on ``9093`` and carol
+      (index 3) on ``9094``. A panel
       whose ``*_base_port`` you don't set falls back to its built-in default,
       so the block above lists them only to make the layout visible.
 
@@ -305,7 +318,8 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 #. **The build renders the persona projects.** ``osprey build`` renders one
    project per **delta** in ``personas/``, into the build zone beside the main
    render (``build/control-assistant-readonly``,
-   ``build/control-assistant-readwrite`` and ``build/control-assistant-ariel``).
+   ``build/control-assistant-readwrite``, ``build/control-assistant-admin`` and
+   ``build/control-assistant-ariel``).
    Because each delta merges over
    ``profile.yml``, every persona shares its data tree, secrets and artifacts,
    and inherits the choices recorded there (provider, model): edit the profile
@@ -322,7 +336,8 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 #. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
    serves the landing page on ``http://127.0.0.1:9080``, and one Web Terminal
    container comes up per user — ``ca-web-alice`` on host port ``9091``,
-   ``ca-web-bob`` on ``9092`` and ``ca-web-ariel`` on ``9093`` — each reached
+   ``ca-web-bob`` on ``9092``, ``ca-web-ariel`` on ``9093`` and
+   ``ca-web-carol`` on ``9094`` — each reached
    through the landing page. (The
    ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
    site.)
@@ -360,8 +375,9 @@ each labelled with the persona it resolves to:
    readonly, and the ariel card opens the standalone logbook terminal. Click
    a card to open that session.
 
-The two operator cards name their persona explicitly — alice the readwrite
-tier, bob the readonly one. (A bare roster entry would fall back to the
+Each operator card names its persona explicitly — alice the readwrite tier,
+bob the readonly one; the preset's roster adds carol on the admin tier, last
+so the operator cards keep their ports. (A bare roster entry would fall back to the
 preset's ``default_persona``, readonly, so an implicit user always lands on
 the safe side.) The ariel card sits apart, in the accent-edged panel its
 persona's ``landing_group`` names — and carries no persona badge, because the
@@ -415,47 +431,138 @@ showing a gap.
    already edit your deployment's configuration. The ``footer`` is a plain
    string and is always escaped.
 
-Two sessions, two write postures
---------------------------------
+.. _multi-user-tiers:
+
+What each tier carries
+----------------------
 
 Each persona is a self-contained OSPREY project with its **own** permissions,
-because permissions are a property of a project's ``config.yml`` — the two
-tiers are genuinely different agents, not one agent with a UI toggle. The
-enforcement boundary is exactly **one** config key, the reference monitor's
-master write switch; the tiers additionally differ in presentation — the
-write-armed terminal gets the full expert workspace with the EVENTS and
-BLUESKY control panels, the read-only one a chat-first simple surface without
-them:
+because permissions are a property of a project's ``config.yml`` — the tiers
+are genuinely different agents, not one agent with a UI toggle.
+
+Two separate questions decide a tier. The first is about the *machine*: may
+this session move hardware at all? That is the reference monitor's master
+write switch, ``control_system.writes_enabled``. The second is about the
+*deployment*: may this session change the configuration every tier runs under?
+The preset's base profile takes that second capability away from every tier
+built on it, and hands it back to exactly one.
 
 .. list-table::
    :header-rows: 1
-   :widths: 14 30 56
+   :widths: 16 24 26 34
 
-   * - User
-     - ``control_system.writes_enabled``
-     - What that means in the session
-   * - **alice**
-     - ``true``
-     - Write-capable — and supervised, not unguarded. A channel write still
-       passes the writes-check hook, per-channel min/max limits, and a human
-       approval prompt before the connector executes it.
-   * - **bob**
-     - ``false``
-     - Read-only. Channel reads, the channel finder, the archiver, and logbook
-       search all work — but every write surface refuses: channel writes,
-       read-write Python execution, all of it, from the single switch.
+   * - Tier (user)
+     - Control-system writes
+     - Deployment editing
+     - Session surface
+   * - **readonly** (bob)
+     - ``writes_enabled: false``. Every write surface refuses — channel
+       writes, read-write Python execution, all of it, from the single switch
+     - None. ``setup_patch`` is denied, the Config panel is off, and the
+       scaffold gallery is readable but not writable
+     - Chat-first ``simple`` layout, without the EVENTS and BLUESKY panels
+   * - **readwrite** (alice)
+     - ``writes_enabled: true``. Write-capable *and supervised*: a channel
+       write still passes the writes-check hook, per-channel min/max limits,
+       and a human approval prompt before the connector executes it
+     - None — the same floor as readonly
+     - Full ``expert`` workspace with the EVENTS and BLUESKY panels
+   * - **admin** (carol)
+     - ``writes_enabled: true``, on exactly the supervised terms above
+     - Yes, and only here: the ``setup-mode`` skill, the ``setup_patch`` tool,
+       the web Config panel, and the gallery's edit, create and delete
+       surfaces
+     - Full ``expert`` workspace, with the Config panel and without the
+       EVENTS and BLUESKY panels
+   * - **ariel**
+     - No control system behind it at all, so there is no write posture to
+       compare
+     - None — it inherits the same floor as the operator tiers
+     - The standalone logbook terminal, opening on its ARIEL panel
 
-This compares the two control-system tiers. The standalone ariel terminal is
-outside the comparison: it has no control system behind it at all, so there is
-no write posture to contrast.
+Read the write column one row at a time rather than as a single statement
+about the deployment. The posture is a property of the **session**, not of the
+person holding it: which teammates get a write-capable login is your roster's
+call, and the point is that the framework provisions genuinely different
+postures out of one deployment.
 
-The posture is a property of the **session**, not a statement about the
-person: which teammates get a write-capable tier is your roster's call, and
-the point is that the framework provisions genuinely different postures from
-one deployment.
+That the admin login has no EVENTS or BLUESKY panels looks like an oversight
+and is not one. Those two panels are declared only in the read-write delta
+(``personas/readwrite.yml``), so they reach that tier and no other — the admin
+delta never inherits them in the first place. It also suits what the admin
+card is for: queueing plans and watching the event dispatcher is operator
+work, done from an operator card.
 
-The boundary is enforced, not asserted — so you can watch it act. Open each
-user's terminal and ask both agents to do the same two things:
+**The default stays on the safe side.** ``default_persona`` is ``readonly``,
+so a roster entry added in a hurry with no ``persona`` of its own gets the
+read-only tier.
+
+.. note::
+
+   This is checked, not merely conventional. ``osprey profile validate`` and
+   ``osprey build`` refuse any ``login: false`` entry that resolves to a
+   persona holding either deployment-editing surface — the agent's
+   ``setup_patch`` tool or the web Config panel — naming the user. That
+   refusal does not ask whether your profile drew a tier split: a profile that
+   floors neither surface hands both of them to every persona it has, so an
+   open terminal there is the most exposed version of this rather than an
+   exempt one. What the split changes is the remedy the message can honestly
+   offer. Where an unprivileged tier exists you are told to point the entry at
+   it (or to give the entry a login); where none does, you are told to write
+   the floor first — a ``claude_code.permissions.deny`` carrying
+   ``mcp__osprey_workspace__setup_patch``, and
+   ``web.config_panel.enabled: false``, in the profile's ``config:`` block —
+   and to lift both only in the persona meant to hold them.
+
+   A privileged ``default_persona`` is refused too, in a deployment that draws
+   a privilege split at all — one whose profile floors those surfaces and lets
+   a single persona lift them, which is what this preset ships. On a floorless
+   profile that rule has no unprivileged tier to send the default to, so it
+   stays quiet there and the entries actually exposed are the ones named. A
+   persona named by either check that the command cannot read at all — a
+   ``build_profile`` pointing outside ``personas/``, say — is refused rather
+   than taken to hold nothing, naming the persona, the value it was given and
+   the remedy — plus the path it tried, where the value resolved to one; where
+   the unreadable persona is an open terminal's, that refusal too stands
+   whatever the profile floors, so long as the deployment has a login wall for
+   the entry to have opted out of.
+
+   With ``auth.method: none`` there is no wall for an entry to be exempt from,
+   so the exposure belongs to the deployment rather than to any one entry: it
+   is reported as an advisory naming every privileged terminal instead of
+   failing the build, and it is the one of these rules measured against the
+   profile's own floor — a deployment that never drew a split would otherwise
+   hear about every terminal it has, every time, for a posture it has always
+   had. Both commands print advisories like this one with a ``⚠``, above their
+   success line.
+
+   ``osprey scaffold web-terminals lint`` asks the same questions of what was
+   last *rendered*, and so does the render step itself. A ``login: false``
+   exposure is an error there too; the message adds that this is what the last
+   ``osprey build`` rendered, so a render made before the floor existed is
+   refused until a rebuild puts the floor into it. A persona whose project has
+   not been rendered yet is refused the same way where it is exposed, with
+   ``osprey build`` as the remedy — or ``login: true`` for an entry that
+   opted out of the wall — while behind a login it stays the plain warning it
+   always was. A deployment that pulls its images from a registry has no
+   persona render to read at all, so there only an open terminal is refused;
+   its inherited default is judged where the deltas live, by ``osprey
+   validate`` and ``osprey build``. A privileged ``default_persona`` in a
+   render is advisory, because the entries it actually exposes are named by
+   the rule that does block.
+
+   ``osprey up`` asks the door question once more before it starts anything.
+   A stack whose render serves an open privileged terminal, or one whose
+   persona cannot be read there, does not come up — the refusal arrives with
+   the other start-time problems, so one attempt reports them all — and the
+   two advisories are printed beside it. Nothing else the lint finds stops a
+   start: a duplicate port or a missing certificate belongs to the commands
+   that author the render, and may already have been fixed by hand in it,
+   while the open door is the one question those commands cannot answer for a
+   tree that is about to be served.
+
+The boundary is enforced, not asserted — so you can watch it act. Open alice's
+and bob's terminals and ask both agents to do the same two things:
 
 **Read.** Ask either agent about a channel — a corrector setpoint, a BPM
 reading. Both sessions answer identically: reads are ungated on both tiers.
@@ -473,6 +580,44 @@ to demonstrate to a control room: the boundary holds at the enforcement layer,
 not at the menu. (The readonly terminal's leaner look — no EVENTS/BLUESKY
 tabs, chat-first layout — is presentation for the viewer tier, not the
 boundary itself: the refusal above fires with or without it.)
+
+What the admin tier really buys
+-------------------------------
+
+Being able to edit the deployment is not the same as being able to change
+anything, and it is worth being concrete about how much of an edit takes
+effect while the stack is running.
+
+**The protected set still refuses the admin login.** The keys that gate
+writes, approval and limits — and the artifacts rendered from them — are
+refused for every tier, this one included. Admin lifts a *tier floor*; it does
+not open the safety layer. See :doc:`protected-set` for what is protected and
+where a refusal is recorded.
+
+**Most edits land on the next build.** The safety hook scripts run as a fresh
+process per tool call, so each one reads ``config.yml`` as it stands at that
+moment. Everything else — the terminal server, the tool servers, the agent's
+rendered artifacts — reads its configuration once and caches it for the life
+of the process, and nothing watches the file. So an edit outside those
+hook-read keys takes effect on the next build and restart. The honest summary
+is that the Config panel prepares a change; it is not a live control.
+
+**A run-time edit is invisible to the drift check.** ``osprey up`` compares
+``build/`` against ``profile.yml`` and the files that profile names — it never
+fingerprints the rendered ``build/config.yml``. An edit the admin login makes
+in the running deployment therefore leaves the drift check reading *in sync*,
+because as far as it is concerned nothing about the profile changed. What does
+record the edit is the copy every config write takes before it writes
+anything, kept in the state zone at ``var/agent_data/config-backups/``: a copy
+of the file as it stood immediately before the last write, one slot per file,
+overwritten on each save — so it is a way back from the last change rather
+than a history of them. Carry a change you want to keep back into
+``profile.yml`` and rebuild, or the next build renders it away.
+
+So the admin tier's real distinction is not a wider set of live knobs. It is
+having the deployment-editing surfaces at all — ``setup-mode``, ``setup_patch``
+and the Config panel — and being the login that drives the rebuild and restart
+that make an edit real.
 
 Logging out and switching users
 -------------------------------
@@ -515,8 +660,9 @@ it.
 
 The ``control-assistant`` preset ships with password login switched on, in its
 demo posture: each roster user's password is seeded into the repository's
-``.env`` by ``osprey init`` (``alice``/``alice``, ``bob``/``bob`` — change them
-there, or rotate with ``osprey users passwd``), the ARIEL entry stays public
+``.env`` by ``osprey init`` (``alice``/``alice``, ``bob``/``bob``,
+``carol``/``carol`` — change them there, or rotate with
+``osprey users passwd``), the ARIEL entry stays public
 via ``login: false`` (see below), and ``allow_insecure_http: true`` keeps the
 demo on plain HTTP. Those passwords authenticate a demo, not a facility: for
 any reachable host, set real passwords and serve TLS as described here.
@@ -664,6 +810,17 @@ up — and lint reports a non-boolean value. The key is inert while
 Opting out is for entries whose *content* is public by design. Anything that
 can reach a control system, write anywhere, or spend provider tokens belongs
 behind the wall.
+
+For the capability it would be worst to leave open, that is a check rather
+than advice: a ``login: false`` entry resolving to a persona holding either
+deployment-editing surface — the agent's ``setup_patch`` tool or the web
+Config panel — fails ``osprey profile validate`` and ``osprey build`` with the
+user named, and ``osprey up`` refuses to start a stack whose render still
+carries one. It holds whether or not your profile floors those surfaces for
+its other tiers; see :ref:`the tier table <multi-user-tiers>` for what the
+check reads and what it tells you to do about it. The
+preset's own admin card sits behind the wall for exactly that reason, and is
+last in the roster so the operator cards keep their ports.
 
 .. _multi-user-https:
 

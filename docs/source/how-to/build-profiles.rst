@@ -184,6 +184,8 @@ renders in its place.
    unrecognized top-level entries in a profile for exactly this reason — read
    that warning rather than wondering why an artifact never arrived.
 
+.. _profile-reserved-paths:
+
 Paths the profile may not write
 -------------------------------
 
@@ -216,6 +218,12 @@ channel:
 
 A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).
+
+This table is about *build channels* — which part of the profile is allowed to
+produce a file. A separate question is which files the running agent may not
+rewrite, whatever channel produced them; that is
+:doc:`the protected set <protected-set>`, and it is neither a subset nor a
+superset of this one.
 
 ``hook_config.json`` is the one worth understanding: the write-safety hook reads
 it to decide what counts as a hardware write. A hand-written copy would be
@@ -478,10 +486,12 @@ sharing the deployment. For those presets (``control-assistant``),
      personas/
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
+       admin.yml          # the one terminal that may edit the deployment
        ariel.yml          # the standalone ARIEL logbook terminal
 
 Each file holds only that persona's **differences** — for the read-only persona,
-chiefly ``control_system.writes_enabled: false``. Sitting in ``personas/`` beside
+chiefly ``control_system.writes_enabled: false``; for the admin one, the
+privileges the profile below it deliberately withholds. Sitting in ``personas/`` beside
 ``profile.yml`` is what makes it a persona: the build merges it over that profile
 automatically. There is no ``extends:`` line to maintain, and no second data tree
 or set of convention directories — everything else comes from the profile above
@@ -982,8 +992,10 @@ are overridable per facility from ``config:``, using dotted keys:
    * - Key
      - Effect
    * - ``remove_deny``
-     - Remove entries from the built-in deny defaults. Removing a write-capable
-       tool that nothing else gates fails the build — see below
+     - Remove entries from the deny list. Matches an entry **exactly** — the
+       string has to be the one being denied, character for character.
+       Removing a write-capable tool that nothing else gates fails the build —
+       see below
    * - ``deny``
      - Add facility-specific deny entries
    * - ``allow``
@@ -1021,6 +1033,67 @@ are overridable per facility from ``config:``, using dotted keys:
    bare tool name, a ``|`` alternation, any regex that matches the name
    (unanchored), or ``*``/``.*``/empty for every tool.
 
+.. _profile-deny-assembly:
+
+How the deny list is assembled
+------------------------------
+
+The ``permissions.deny`` array in the rendered ``.claude/settings.json`` is
+built from three sources, in this order:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Source
+     - How it is treated
+   * - The framework's deny defaults
+     - Minus anything the profile lists under ``remove_deny``
+   * - The profile's own ``deny``
+     - Minus anything the profile lists under ``remove_deny`` — a profile may
+       subtract what a profile added
+   * - The write kill switch
+     - Appended last and **never** filtered
+
+The third source is the one to know about. Setting
+``control_system.writes_enabled: false`` does not merely stop the write path
+at run time; it also puts the write tools into the rendered deny list. Those
+entries are generated, not authored, and no ``remove_deny`` reaches them. A
+profile that sets ``writes_enabled: false`` and also writes
+``remove_deny: ["mcp__controls__channel_write"]`` still renders that deny —
+which is the point. A read-only posture that a later edit could quietly lift
+would not be a posture at all.
+
+.. admonition:: Permission lists grow across ``extends``; they never shrink
+   :class: important
+
+   The permission lists under ``config:`` — ``deny``, ``ask`` and their
+   ``remove_*`` companions — **union** with the ones they inherit. A child
+   profile or a persona delta can add to an inherited permission list, but it
+   has no way to take an entry out of it: ``exclude:`` subtracts from the
+   convention lists (``skills``, ``agents``, ``web_panels`` and their
+   siblings — see :ref:`profile-exclude`) and does not reach inside ``config:``
+   at all.
+
+   That is why a preset that wants to withhold a privilege from every tier and
+   grant it back to one writes the floor as ``deny``, and lets the privileged
+   tier lift it with ``remove_deny``. Writing the floor the other way round —
+   putting the tool under ``ask`` at the base and expecting a child to
+   ``remove_ask`` it — does the opposite of what it looks like: the base's
+   ``remove_ask`` would union into *every* child, including the one meant to
+   keep the approval prompt, and strip that prompt away. ``deny`` is
+   subtractable per tier, which is the direction a floor has to work in.
+
+   The bundled ``control-assistant`` preset is built exactly this way: its
+   base denies the agent's own deployment-editing tool, and the ``admin``
+   persona is the single delta that removes that deny. Writing the floor is
+   not only a convention. A web terminal served without a login by a persona
+   that can edit the deployment is refused by ``osprey validate``, ``osprey
+   build`` and ``osprey up`` alike, wherever the deployment has a login wall
+   at all — with ``auth.method: none`` there is no wall to be exempt from, and
+   the same exposure is reported as an advisory instead. On a profile that
+   wrote no floor at all, where every persona holds everything, the only
+   remedy that refusal can offer is to write one. See :doc:`multi-user`.
 
 .. _profile-services:
 

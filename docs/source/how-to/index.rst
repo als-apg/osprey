@@ -112,6 +112,13 @@ Run & Operate the Agent
       Let your team ask the Osprey agent questions from Nextcloud Talk or Google
       Chat and get answers, plots, and files back in the same conversation.
 
+   .. grid-item-card:: The Protected Set
+      :link: protected-set
+      :link-type: doc
+
+      The files and config keys the agent may not rewrite, which surfaces
+      refuse them, and where a refused attempt is recorded.
+
    .. grid-item-card:: Monitor the Agent
       :link: monitor-agent
       :link-type: doc
@@ -225,6 +232,7 @@ Bundled Services & Tutorials
    non_interactive_query
    event-dispatch
    chat-bridges/index
+   protected-set
    monitor-agent
    configure-health-checks
    health-json-contract
