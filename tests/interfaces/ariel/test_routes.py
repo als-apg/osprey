@@ -706,3 +706,189 @@ def test_capabilities_advertises_default_mode(client, mock_ariel_service):
 
     assert response.status_code == 200
     assert response.json()["default_mode"] == "keyword"
+
+
+def test_put_config_backs_up_into_the_state_zone(client, tmp_path):
+    """ARIEL's config save copies the old file into the agent-data state zone.
+
+    Not beside ``config.yml``. That file lives in the render, which the container
+    split makes root-owned: creating a *new* file next to it needs write
+    permission on the render directory that the admin image will not have, and
+    the backup runs before a byte of the save is written -- so the old sibling
+    scheme would have turned every ARIEL config save in that image into a 500.
+    Anchored on the directory the route already resolves its config path in.
+    """
+    from osprey.utils.config_writer import config_backup_path
+
+    config_path = tmp_path / "config.yml"
+    original = "project_name: original\n"
+    config_path.write_text(original)
+    client.app.state.config_path = config_path
+
+    response = client.put("/api/config", json={"content": "project_name: updated\n"})
+
+    assert response.status_code == 200
+    assert config_path.read_text() == "project_name: updated\n"
+
+    backup = config_backup_path(config_path)
+    assert backup.read_text() == original
+    assert backup.parent.name == "config-backups"
+    # The point of the move: nothing new lands next to the config itself.
+    assert not (tmp_path / "config.yml.bak").exists()
+    assert [f.name for f in tmp_path.iterdir() if f.suffix == ".bak"] == []
+
+
+def test_put_config_backup_follows_a_relocated_agent_data_root(client, tmp_path):
+    """The zone is read from the config being written, never assumed.
+
+    Resolved from the *pre-write* file, which is the only reading that makes
+    sense: the backup is a copy of what is there now, so it belongs in the zone
+    that config names now.
+
+    The saved document carries ``agent_data`` through unchanged, because it has
+    to: ``agent_data.*`` is in the protected set, so a body that dropped it
+    would be refused before the backup ran and this would stop being a test of
+    where the backup lands.
+    """
+    from osprey.utils.config_writer import config_backup_path
+
+    relocated = tmp_path / "elsewhere" / "state"
+    config_path = tmp_path / "config.yml"
+    original = f"agent_data:\n  base_dir: {relocated}\nproject_name: original\n"
+    config_path.write_text(original)
+    expected = config_backup_path(config_path)
+    assert expected == relocated / "config-backups" / "config.yml.bak"
+    client.app.state.config_path = config_path
+
+    response = client.put(
+        "/api/config",
+        json={"content": original.replace("project_name: original", "project_name: updated")},
+    )
+
+    assert response.status_code == 200
+    assert expected.read_text() == original
+    assert not (tmp_path / "var").exists()
+
+
+# --------------------------------------------------------------------------
+# PUT /api/config and the protected set
+#
+# ARIEL's Raw YAML save replaces the whole document, so it is the widest write
+# surface onto the file that carries the write gate, the approval gate and the
+# paths the safety layers derive their zones from. It is gated exactly the way
+# the Web Terminal's ``PUT /api/config`` is -- same protected set, same 403,
+# same ``protected-writes.jsonl`` record -- because the protected set is
+# consulted by *every* framework writer, not just the terminal's.
+# --------------------------------------------------------------------------
+
+_PROTECTED_DOC = (
+    "agent_data:\n"
+    "  base_dir: {state}\n"
+    "control_system:\n"
+    "  writes_enabled: false\n"
+    "project_name: original\n"
+)
+
+
+@pytest.fixture
+def audit_zone(tmp_path, monkeypatch):
+    """Redirect the audit zone. ``audit_dir`` is the module's one documented seam."""
+    from osprey.services.python_executor import refusal_audit
+
+    zone = tmp_path / "audit-zone" / "var" / "audit"
+    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: zone)
+    return zone
+
+
+def _audit_records(zone):
+    import json
+
+    from osprey.services.python_executor.refusal_audit import PROTECTED_WRITES_LOG_FILENAME
+
+    path = zone / PROTECTED_WRITES_LOG_FILENAME
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+@pytest.fixture
+def gated_config(client, tmp_path):
+    """A config.yml carrying protected keys, wired into the ARIEL app state."""
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(_PROTECTED_DOC.format(state=tmp_path / "state"))
+    client.app.state.config_path = config_path
+    return config_path
+
+
+def test_put_config_refuses_a_removed_protected_key(client, gated_config, audit_zone):
+    """Dropping ``agent_data`` on the way past is a protected-key change, not a save."""
+    before = gated_config.read_bytes()
+
+    response = client.put(
+        "/api/config",
+        json={"content": "control_system:\n  writes_enabled: false\nproject_name: updated\n"},
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert "agent_data.base_dir" in detail
+    assert "config.yml is unchanged" in detail
+    # The operator is pointed at the channel that *can* carry the change.
+    assert "`config:` block" in detail
+    # Byte-identical: no write, and no backup either -- a backup is a copy of a
+    # file this request may turn out not to be allowed to replace.
+    assert gated_config.read_bytes() == before
+    assert not (gated_config.parent / "state").exists()
+
+    records = _audit_records(audit_zone)
+    assert len(records) == 1
+    assert records[0]["surface"] == "http_config"
+    assert records[0]["target_file"] == "config.yml"
+    assert records[0]["key_or_path"] == "agent_data.base_dir"
+    assert records[0]["reason"] == "protected_key"
+
+
+def test_put_config_refuses_a_changed_protected_value(client, gated_config, audit_zone):
+    """Flipping the write gate through the YAML editor is the write that must not land."""
+    before = gated_config.read_bytes()
+    flipped = _PROTECTED_DOC.format(state=gated_config.parent / "state").replace(
+        "writes_enabled: false", "writes_enabled: true"
+    )
+
+    response = client.put("/api/config", json={"content": flipped})
+
+    assert response.status_code == 403
+    assert "control_system.writes_enabled" in response.json()["detail"]
+    assert gated_config.read_bytes() == before
+
+    records = _audit_records(audit_zone)
+    assert [r["key_or_path"] for r in records] == ["control_system.writes_enabled"]
+
+
+def test_put_config_refusal_leaks_no_value(client, gated_config, audit_zone):
+    """Config values are secrets; a refusal reports the key, never the value."""
+    import json as _j
+
+    sentinel = "qqzzSENTINELvalue77"
+    planted = _PROTECTED_DOC.format(state=sentinel)
+
+    response = client.put("/api/config", json={"content": planted})
+
+    assert response.status_code == 403
+    assert sentinel not in response.text
+    assert sentinel not in _j.dumps(_audit_records(audit_zone))
+
+
+def test_put_config_allows_an_unprotected_edit(client, gated_config, audit_zone):
+    """An edit that leaves every protected key alone still saves, and still backs up."""
+    from osprey.utils.config_writer import config_backup_path
+
+    before = gated_config.read_text()
+    updated = before.replace("project_name: original", "project_name: updated")
+
+    response = client.put("/api/config", json={"content": updated})
+
+    assert response.status_code == 200
+    assert gated_config.read_text() == updated
+    assert config_backup_path(gated_config).read_text() == before
+    assert _audit_records(audit_zone) == []

@@ -1,8 +1,7 @@
 /**
  * Unit tests for config-render-helpers.js's `_renderHookEvents` -- the
- * per-event hooks tree shared by the read-only settings.json renderer
- * (config-renderers.js) and the editor's read-only Hooks section
- * (settings-editor.js). Pins the DOM contract both consumers rely on:
+ * per-event hooks tree used by the read-only settings.json renderer
+ * (config-renderers.js). Pins the DOM contract that renderer relies on:
  *
  *   - one `.config-hook-event` per event, header with chevron + event name +
  *     count badge (total hooks across matcher groups)

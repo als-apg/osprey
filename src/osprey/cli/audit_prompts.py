@@ -51,10 +51,31 @@ Every `channel_write` call passes through three hooks in sequence:
 2. **limits** — Checks the value is within configured bounds
 3. **approval** — Requires explicit human confirmation
 
+### Execution Mode and Session Posture
+`OSPREY_EXECUTION_MODE` carries the run's write posture, by value and never by \
+presence: only the exact string `readonly` sandboxes. It reaches an agent two \
+ways — the `execute` tool's own `execution_mode` argument for one run, and the \
+Web Terminal's per-session sandbox toggle, which respawns that session's agent \
+with `OSPREY_EXECUTION_MODE=readonly` so every process it launches inherits it. \
+The posture is env-only and is never written to `config.yml`; it can only \
+narrow what the deployment permits, never widen it.
+
+Under a readonly posture each write route is refused by the layer that owns it: \
+`channel_write` by the connector, a `readwrite` `execute` by the executor's \
+gate, and the remaining writes-check-gated tools by the writes_check hook \
+(best-effort — it is the first hook in the chain). Independently of the \
+posture, executed Python may not write into the render zone (`build/`), the \
+profile sources, or the audit ledger (`var/audit/`) in ANY mode; that runtime \
+guard is defense in depth, and the enforcing boundary is the container's \
+privilege split.
+
 ### Known Dangerous Patterns
 - Writes without the limits hook (bounds checking bypassed)
 - Removed or empty deny entries in permissions
 - Missing approval hooks on write operations
+- A write-capable MCP tool registered with no writes_check hook — for tools \
+outside the controls and python servers, that hook is the only layer aware of \
+the session posture at all
 - Profile-supplied artifacts that shadow safety-critical hooks or settings — a \
 file in a convention directory (`rules/`, `skills/`, `agents/`, `commands/`, \
 `output-styles/`) that displaces a framework artifact of the same name, or a \

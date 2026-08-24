@@ -14,6 +14,12 @@ module is that channel table, plus the validation that keeps it honest:
   mirror may not write, each naming the channel that *does* own them. These
   enforce pipeline coherence (exactly one writer per artifact), not sandboxing:
   the profile is operator-trusted.
+* :func:`is_reserved_write` and :func:`is_protected_key` — the *protected set*:
+  the paths and config keys a running agent may not rewrite, consulted by every
+  framework writer. A separate question from the reservations above, which ask
+  which build channel owns a path (see :func:`is_reserved_write`).
+* :func:`is_setup_patch_capable` — the posture read shared by every gate that
+  has to know whether a rendered persona can still reach the setup tool.
 * :func:`plan_convention_copies` — the pure source → destination plan a build
   carries out.
 * :func:`ownership_name` — the destination → ``scaffold.user_owned`` name rule,
@@ -25,15 +31,24 @@ errors. Nothing writes into a project.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Sequence
+import posixpath
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
+
+# Free at module level: ``osprey.utils.logger`` above already pulls
+# ``osprey_connectors.config`` into this module's import closure, so naming it
+# here adds no load time to the CLI's lazy-command budget. Imported rather than
+# restated — see :data:`PROTECTED_CONFIG_KEYS`.
+from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
 
 logger = get_logger("build")
 
@@ -336,6 +351,150 @@ RESERVED_PATH_CHANNELS: dict[str, str] = {r.path: r.channel for r in RESERVED_PR
 #: first place — so a rule applying them would refuse the whole channel.
 RESERVED_EXACT_PATHS: frozenset[str] = frozenset(RESERVED_PATH_CHANNELS)
 
+#: The same exact reservations keyed by their casefolded path, for
+#: :func:`is_reserved_write`'s lookup only. Private, and derived rather than
+#: authored, because the exported tables above are read verbatim by the
+#: ownership rules and the ``project/`` mirror: those consumers compare real
+#: path strings and must keep the shipped spelling. Case folding belongs to the
+#: *question* "may an agent write here", which has to answer the same for
+#: ``.claude/Settings.json`` on a case-insensitive filesystem.
+#: Pinned by test_reserved_exact_table_is_unchanged_by_the_pattern_table and
+#: test_case_variants_of_an_exact_reservation_are_refused.
+_RESERVED_CHANNELS_BY_FOLDED_PATH: dict[str, str] = {
+    path.casefold(): channel for path, channel in RESERVED_PATH_CHANNELS.items()
+}
+
+
+@dataclass(frozen=True)
+class ReservedPattern:
+    """A protected project path matched by shape rather than by exact name.
+
+    Attributes:
+        pattern: Project-relative posix glob, written in lower case and
+            matched by :func:`fnmatch.fnmatchcase` against a *casefolded* path.
+            ``*`` spans path separators, so ``.claude/skills/**`` covers a
+            whole subtree. Both sides are casefolded rather than left to
+            :func:`fnmatch.fnmatch`'s platform rules, which gets the two
+            properties this set needs at once: the answer is the same on every
+            host (``fnmatch`` alone would differ between Linux and macOS), and
+            it is closed over case on the hosts where it has to be — on a
+            case-insensitive filesystem ``.CLAUDE/Skills/x`` opens the very
+            file ``.claude/skills/x`` names.
+        channel: The channel that *does* write it, phrased for a refusal.
+    """
+
+    pattern: str
+    channel: str
+
+
+#: Project paths no agent-side writer may touch, matched by shape. These are
+#: whole classes of artifact rather than named files, which is why they cannot
+#: live in :data:`RESERVED_PROJECT_PATHS` — that table is the exact set the
+#: ownership rules and the ``project/`` mirror validation read, and widening it
+#: would refuse the very channels that author these artifacts in the first place.
+#:
+#: Each entry answers the question "may a running agent rewrite this?", not
+#: "which build channel owns it?". The two differ in both directions: an agent
+#: may still author ``.claude/agents/`` and ``.claude/commands/`` material even
+#: though the mirror may not, and it may not touch a settings overlay or a
+#: limits table that the mirror is free to ship.
+#:
+#: Pinned by test_pattern_reserved_write_names_its_channel and
+#: test_unreserved_writes_stay_writable.
+RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
+    ReservedPattern(
+        ".claude/hooks/osprey_*.py",
+        "the profile's `hooks/` convention directory — the `osprey_` hooks are the "
+        "write-safety layer itself, and an agent editing one would be disarming the "
+        "check that guards its own writes",
+    ),
+    ReservedPattern(
+        ".claude/skills/**",
+        "the profile's `skills/` convention directory — a skill is instruction text "
+        "the agent would otherwise be rewriting for itself",
+    ),
+    ReservedPattern(
+        ".claude/rules/**",
+        "the profile's `rules/` convention directory — a rule is instruction text "
+        "the agent would otherwise be rewriting for itself",
+    ),
+    ReservedPattern(
+        ".claude/settings.local.json",
+        "the profile's `config:` keys (`claude_code.permissions`, `claude_code.hooks`) — "
+        "a local settings overlay silently widens the permissions the build rendered",
+    ),
+    ReservedPattern(
+        "data/channel_limits.json",
+        "the profile's `data/` directory — this is the limits table every setpoint "
+        "is checked against before it reaches the control system",
+    ),
+)
+
+
+#: Config keys no agent-side writer may set, keyed by the file that carries
+#: them. A key belongs here when it does any of the following: gates writes,
+#: approval, or limits; anchors a filesystem path the safety layers derive their
+#: allow and deny areas from; or is rendered into ``.claude/settings.json`` or
+#: ``.mcp.json``, where it becomes the agent's own permission surface.
+#:
+#: A pattern is a dotted key path in which a ``*`` segment stands for exactly
+#: one level, and a trailing ``*`` covers the family prefix itself along with
+#: everything below it — see :func:`is_protected_key` for the full rule.
+#:
+#: :data:`~osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` is *imported and
+#: unpacked*, never restated: that tuple is already the single list of keys
+#: whose value names a path something writes at run time, and a second copy here
+#: would drift the moment a key is added there. Those keys qualify under the
+#: second clause of the inclusion rule — repointing one moves the area a safety
+#: layer treats as writable. Pinned by test_every_runtime_write_path_key_is_protected.
+PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
+    "config.yml": (
+        "control_system.*",
+        "approval.*",
+        "hooks.*",
+        "claude_code.permissions.*",
+        "claude_code.hooks.*",
+        "claude_code.servers.*",
+        "artifacts.hooks",
+        "agent_data.*",
+        "file_paths.*",
+        "artifacts.*",
+        *RUNTIME_WRITE_PATH_KEYS,
+    ),
+    ".mcp.json": (
+        "mcpServers.*.command",
+        "mcpServers.*.args",
+        "mcpServers.*.env.*",
+    ),
+}
+
+#: Exact keys a family pattern in :data:`PROTECTED_CONFIG_KEYS` covers but that
+#: do not belong in the protected set. Consulted *after* family matching, so an
+#: entry can only ever subtract.
+#:
+#: The inclusion rule a protected key has to meet is that setting it changes
+#: what the agent may do: it gates writes, approval or limits; or it anchors a
+#: filesystem path a safety layer derives an allow or deny zone from; or it is
+#: rendered into ``.claude/settings.json`` or ``.mcp.json``. ``hooks.debug``
+#: meets none of the three -- it toggles diagnostic verbosity in the hook
+#: scripts and nothing else, is rendered into no artifact, and moves no zone.
+#: The ``hooks.*`` family is there for the hook *wiring*, and it over-matched
+#: this one key, which is a shipped operator control: the Web Terminal's Hook
+#: Debug switch sets it through ``PATCH /api/config``.
+#:
+#: Keys are segment tuples, not dotted strings, for the same reason everything
+#: else in this module is (see :func:`is_protected_key_path`), and membership is
+#: exact: no wildcards, no prefixes, no ancestor rule. That asymmetry is
+#: deliberate. A typo in a *pattern* can only over-protect, which is safe; a
+#: typo in an exemption that behaved like a pattern could un-protect a whole
+#: family, so an exemption is allowed to name one key and nothing else. In
+#: particular, exempting ``("hooks", "debug")`` does not exempt ``("hooks",)``:
+#: replacing the whole block still rewrites the wiring, so it stays protected.
+#: Pinned in both directions by test_profile_conventions.py.
+PROTECTED_KEY_EXEMPTIONS: dict[str, frozenset[tuple[str, ...]]] = {
+    "config.yml": frozenset({("hooks", "debug")}),
+}
+
 
 @dataclass(frozen=True)
 class ConventionCopy:
@@ -451,6 +610,442 @@ def reserved_path_channel(dest_rel: str) -> str | None:
         return FRAMEWORK_RENDER_CHANNEL
 
     return None
+
+
+#: What a refusal says when the path it was handed is not project-relative at
+#: all — it is absolute, or it still climbs above the project root once
+#: normalized (``foo/../../etc/passwd``). Such a path names a file the
+#: protected set has no way to reason about, so the answer is a refusal rather
+#: than ``None``: a writer must never be able to turn "outside the project"
+#: into "not protected, go ahead". Pinned by
+#: test_a_path_that_climbs_out_of_the_project_is_refused.
+NOT_PROJECT_RELATIVE_CHANNEL = (
+    "nothing here — the path is not project-relative (it is absolute, or it climbs "
+    "above the project root); pass the path relative to the project root"
+)
+
+
+def is_reserved_write(project_rel: str) -> str | None:
+    """Return the channel owning ``project_rel``, or ``None`` if a writer may write it.
+
+    The protected set every framework writer consults before it puts bytes into
+    a built project — the scaffold gallery, the Claude-setup panel, the
+    ``setup_patch`` tool. It answers a different question from
+    :func:`reserved_path_channel`, and the two must not be conflated:
+
+    * :func:`reserved_path_channel` asks *which build channel owns this path*,
+      so that the profile's ``project/`` mirror cannot become a second writer on
+      an artifact some convention directory already produces. It covers every
+      ``.claude/`` subtree that has a channel.
+    * This function asks *may a running agent rewrite this*. It is narrower
+      under ``.claude/`` — authoring a subagent or a slash command is the point
+      of the panel, so those subtrees stay open — and wider outside it, because
+      a settings overlay, an ``osprey_`` hook or the limits table can change
+      what the agent is allowed to do even when no build channel is involved.
+
+    Two normalizations make the answer depend on which *file* is named rather
+    than on how the writer spelled it:
+
+    * The path is run through :func:`posixpath.normpath` first, so ``./x``,
+      ``a//b`` and ``foo/../.claude/skills/x`` all ask the same question as
+      their plain spellings. Without it a writer dodges the whole set by
+      spelling a path the long way round. A path that is absolute, or that
+      still starts with ``..`` after normalization, is not project-relative;
+      it is refused with :data:`NOT_PROJECT_RELATIVE_CHANNEL` rather than
+      allowed, because "not a path I can judge" must not read as "writable".
+    * Both the path and the patterns are casefolded before matching. The
+      framework runs on case-insensitive filesystems, where
+      ``.CLAUDE/Skills/x`` and ``.claude/settings.LOCAL.json`` open exactly the
+      protected files, so a case-sensitive match would be a protected set only
+      on Linux. Folding both sides keeps the answer identical on every host.
+
+    Args:
+        project_rel: Project-relative posix path the writer would write.
+
+    Returns:
+        A phrase naming the owning channel, suitable for a refusal message, or
+        ``None`` when the path is not protected. A channel rather than a bare
+        boolean, so a refusal can tell an operator the way in.
+    """
+    normalized = posixpath.normpath(PurePosixPath(project_rel).as_posix())
+    if normalized.startswith("/") or normalized == ".." or normalized.startswith("../"):
+        return NOT_PROJECT_RELATIVE_CHANNEL
+    folded = normalized.casefold()
+
+    # ORDER IS LOAD-BEARING: the exact table answers first. Its entries carry
+    # the precise channel ("the profile's `config:` block"); a pattern widened
+    # onto one of them would answer with a coarser phrase and send an operator
+    # to the wrong place. Pinned by test_exact_reservation_beats_the_pattern_table.
+    exact = _RESERVED_CHANNELS_BY_FOLDED_PATH.get(folded)
+    if exact is not None:
+        return exact
+
+    for reserved in RESERVED_PATH_PATTERNS:
+        if fnmatchcase(folded, reserved.pattern.casefold()):
+            return reserved.channel
+
+    return None
+
+
+def _key_path_matches(pattern: str, key_path: Sequence[str]) -> bool:
+    """Whether ``key_path`` is covered by one :data:`PROTECTED_CONFIG_KEYS` pattern.
+
+    ``key_path`` is one entry per key *segment*, never a dotted string: a raw
+    key may legitimately contain a ``.`` (an MCP server named ``evil.srv``) and
+    splitting it again would turn one segment into two. The *pattern* is still
+    split on ``.``, which is sound because patterns are authored in this module
+    and no segment of one contains a dot.
+
+    Segment-wise:
+
+    * a literal segment must match exactly, and a ``*`` segment matches any one
+      segment (``mcpServers.*.command`` covers every server's command line);
+    * a *trailing* ``*`` matches the rest of the key, including nothing at all,
+      so ``control_system.*`` covers ``control_system`` itself as well as
+      everything below it — a writer that replaced the whole block with a scalar
+      would otherwise slip past a rule that only guarded its children;
+    * a key that is a strict *ancestor* of a pattern is covered too, because
+      writing the ancestor rewrites the protected descendant. Only prefixes of
+      the pattern qualify, never unrelated siblings under the same root:
+      ``services`` is protected because a runtime-write path lives beneath it,
+      while ``services.orbit.enabled`` is not.
+    """
+    pattern_parts = pattern.split(".")
+    wildcard_tail = pattern_parts[-1] == "*"
+    if wildcard_tail:
+        pattern_parts = pattern_parts[:-1]
+    key_parts = tuple(key_path)
+
+    shared = min(len(pattern_parts), len(key_parts))
+    for index in range(shared):
+        if pattern_parts[index] != "*" and pattern_parts[index] != key_parts[index]:
+            return False
+    if len(key_parts) <= len(pattern_parts):
+        return True  # the pattern itself, or an ancestor of it
+    return wildcard_tail
+
+
+def is_protected_key_path(target_file: str, key_path: Sequence[str]) -> bool:
+    """Whether the key at ``key_path`` is one an agent-side writer may not set.
+
+    The sound form of :func:`is_protected_key`, and the one every *document*
+    walk uses. Because the key arrives already split into segments, a raw key
+    containing a literal ``.`` stays one segment: an ``.mcp.json`` server named
+    ``evil.srv`` is ``("mcpServers", "evil.srv", "command")``, which
+    ``mcpServers.*.command`` covers. Re-splitting a dotted rendering of that
+    same key would produce four segments, and the pattern — whose ``*`` stands
+    for exactly one segment — would match nothing at all.
+
+    Args:
+        target_file: The file the key lives in. Given as a name or a path — only
+            the final component is consulted, so a writer that already holds an
+            absolute target does not have to shorten it first.
+        key_path: The key as a sequence of segments, e.g.
+            ``("control_system", "writes_enabled")``.
+
+    Returns:
+        ``True`` when some pattern in :data:`PROTECTED_CONFIG_KEYS` covers the
+        key and :data:`PROTECTED_KEY_EXEMPTIONS` does not name it exactly. A
+        file with no table protects nothing: the writers that consult this are
+        already restricted to the two files that have one, and inventing
+        protection for a third would refuse writes no rule describes.
+    """
+    name = PurePosixPath(target_file).name
+    patterns = PROTECTED_CONFIG_KEYS.get(name)
+    if not patterns:
+        return False
+    key_parts = tuple(key_path)
+    if not any(_key_path_matches(pattern, key_parts) for pattern in patterns):
+        return False
+    # Exemptions are consulted last, and only subtract: a key the families do
+    # not cover is already unprotected, so an exemption for it would be dead
+    # rather than dangerous. Exact membership -- see PROTECTED_KEY_EXEMPTIONS
+    # for why an exemption deliberately has none of a pattern's reach.
+    return key_parts not in PROTECTED_KEY_EXEMPTIONS.get(name, frozenset())
+
+
+def is_protected_key(target_file: str, dotted: str) -> bool:
+    """Whether ``dotted`` is a key an agent-side writer may not set in ``target_file``.
+
+    The dotted front door, for a caller that holds a key path already written
+    the way an operator or a ``config:`` block writes it. ``dotted`` is split on
+    ``.``, so it cannot express a raw key that *contains* a dot — for that, and
+    for anything walking a parsed document, use :func:`is_protected_key_path`
+    (which :func:`protected_view` does).
+
+    Args:
+        target_file: The file the key lives in (see :func:`is_protected_key_path`).
+        dotted: Dotted key path, e.g. ``control_system.writes_enabled``.
+
+    Returns:
+        ``True`` when some pattern in :data:`PROTECTED_CONFIG_KEYS` covers the key.
+    """
+    return is_protected_key_path(target_file, dotted.split("."))
+
+
+def flatten_key_paths(doc: Mapping[str, Any]) -> dict[tuple[str, ...], Any]:
+    """Flatten a nested document to ``key path -> value``, one tuple per leaf.
+
+    Mappings are descended; everything else is a leaf, lists included — a list
+    is compared whole because its *contents* are the privilege (a widened
+    ``control_system.write_tools`` is a bigger change than any one element).
+    An empty mapping is kept as a leaf rather than descended into nothing, so
+    emptying a block reads as the change it is instead of vanishing silently.
+
+    Keys are tuples of segments, not dotted strings, and that is the whole
+    point: a document's own key may contain a ``.``, and a dotted rendering
+    makes two different documents look identical (a server named ``evil.srv``
+    versus a nested ``evil`` → ``srv``). The tuple form is injective, so it is
+    what protection and the PUT diff are built on.
+
+    Args:
+        doc: Parsed document (a loaded ``config.yml`` or ``.mcp.json``).
+
+    Returns:
+        One entry per leaf, keyed by its segment path.
+    """
+    flat: dict[tuple[str, ...], Any] = {}
+
+    def _walk(node: Mapping[str, Any], prefix: tuple[str, ...]) -> None:
+        for key, value in node.items():
+            key_path = (*prefix, str(key))
+            if isinstance(value, Mapping) and value:
+                _walk(value, key_path)
+            else:
+                flat[key_path] = value
+
+    _walk(doc, ())
+    return flat
+
+
+def flatten_dotted(doc: Mapping[str, Any]) -> dict[str, Any]:
+    """The dotted rendering of :func:`flatten_key_paths` — for display, not for matching.
+
+    Use it to *show* an operator which keys a document carries. Do not decide
+    anything on it: joining segments with ``.`` is lossy whenever a raw key
+    contains a dot, and two distinct leaves can collapse onto one entry.
+    :func:`protected_view` and :func:`is_protected_key_path` work on segment
+    paths for exactly that reason.
+
+    Args:
+        doc: Parsed document (a loaded ``config.yml`` or ``.mcp.json``).
+
+    Returns:
+        One entry per leaf, keyed by its dotted path.
+    """
+    return {".".join(key_path): value for key_path, value in flatten_key_paths(doc).items()}
+
+
+def protected_view(target_file: str, doc: Mapping[str, Any]) -> dict[tuple[str, ...], Any]:
+    """The protected keys of ``doc``, flattened — the primitive a whole-file PUT diffs.
+
+    A writer that replaces a whole file cannot be judged key by key: it has no
+    patch to inspect. Comparing this view of the old bytes against the same view
+    of the new ones catches every class of change at once, because the view is a
+    flat mapping and mappings compare by both keys and values — an added key, a
+    deleted one, a changed value, a changed list, and a subtree reshaped into a
+    scalar (the flattened children disappear while the parent appears as a leaf).
+    Anything outside the protected set is absent from both views, so an ordinary
+    edit compares equal and is not refused.
+
+    Keyed by *segment path* (see :func:`flatten_key_paths`), never by dotted
+    string. A dotted view would let a writer hide a privilege change behind a
+    key that contains a dot: an ``.mcp.json`` server named ``evil.srv`` renders
+    as ``mcpServers.evil.srv.command``, which no pattern covers and which can
+    collide with a genuinely nested key — the added launcher would drop out of
+    the view and the PUT would compare equal. Join the segments with ``.`` when
+    a refusal has to name the key to an operator.
+
+    Args:
+        target_file: The file the document was loaded from (see
+            :func:`is_protected_key_path`).
+        doc: The parsed document.
+
+    Returns:
+        The flattened document restricted to its protected keys, keyed by
+        segment path.
+    """
+    return {
+        key_path: value
+        for key_path, value in flatten_key_paths(doc).items()
+        if is_protected_key_path(target_file, key_path)
+    }
+
+
+#: The workspace MCP tool that patches a built project's ``config.yml`` and
+#: ``.mcp.json`` — the one write surface that can change what the agent itself
+#: is allowed to do. A persona keeps or loses the setup capability by whether
+#: the render leaves this name outside ``permissions.deny``; see
+#: :func:`is_setup_patch_capable`.
+SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
+
+
+def permission_entries(value: Any) -> list[str]:
+    """The string entries of a permissions list — read only when it *is* a list.
+
+    Anything else yields no entries, **a bare string included**. A lone
+    ``deny: mcp__…`` reads like "one entry spelled without its list", but the
+    render does not read it that way and neither may this: ``settings.json.j2``
+    iterates the value, so a bare-string deny renders one deny entry per
+    *character* and names no tool at all, while the render's subtraction
+    (``d not in remove_deny``) against a bare-string ``remove_deny`` is
+    *substring* containment, which lifts denies nobody wrote. Guessing "one
+    entry" would diverge from the render in both directions at once.
+
+    Reading a loose spelling as nothing is safe here only because no such
+    document can reach a render:
+    :func:`osprey.cli.build_profile_load._reject_permission_list_shapes`
+    refuses at profile-parse time any ``claude_code.permissions.*`` value that
+    is not a list of non-empty strings, in either spelling. So every list this
+    sees on the build path is list-shaped, and this and the render agree entry
+    for entry. The tolerance that remains is for documents that never came from
+    a profile at all — a hand-assembled dict, a settings.json read off disk.
+    """
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    return [entry for entry in value if isinstance(entry, str)]
+
+
+def _deny_entries(config: Any) -> list[str]:
+    """The *effective* deny list ``config`` carries, however its document spells it.
+
+    Two shapes reach this, and they are told apart by which block is present:
+
+    * a **persona config** (``config.yml``-shaped), whose deny lives under
+      ``claude_code.permissions.deny`` — the shape the render context and the
+      persona-roster guard hold, and the primary input. This shape is NOT yet
+      composed: a profile delta cannot subtract from an inherited list, so a
+      tier that lifts a base deny carries the inherited ``deny`` and its own
+      ``claude_code.permissions.remove_deny`` side by side, and the
+      subtraction happens when ``settings.json`` is rendered. So it is
+      performed here too, the same way and for the same reason: reading the
+      raw ``deny`` alone would report a lifted tier as denied while its
+      rendered ``settings.json`` lets the tool through — a *disagreement with
+      the render*, which is the one thing this must not have. Which consumer
+      that would hurt depends on the consumer (see
+      :func:`is_setup_patch_capable`); that it is wrong does not;
+    * a rendered ``.claude/settings.json``, which has no ``claude_code:``
+      wrapper and carries ``permissions.deny`` at the top level. Read only when
+      no ``claude_code`` block is present, which a persona config always has
+      when it says anything about permissions at all. Without this branch a
+      settings document handed here would find nothing and read as *capable*
+      while the tool is in fact denied — a mis-call must not fail open. This
+      shape is already composed, so no subtraction is applied to it and a
+      stray top-level ``remove_deny`` is ignored.
+
+    The subtraction mirrors the render exactly — that is its whole
+    justification, not a lean in a safe direction. See
+    :func:`osprey.cli.templates.claude_code._rendered_deny_list`, which builds
+    the rendered array as ``[d for d in deny_defaults if d not in remove_deny]``
+    plus the same filter over the facility deny: membership is **exact**, not
+    glob. So a wildcard deny (``mcp__osprey_workspace__*``) is NOT lifted by an
+    exact ``remove_deny`` of one tool name — the render leaves that wildcard in
+    the deny array, and so does this.
+
+    Kill-switch entries cannot be lifted here, and not merely by convention:
+    they are generated at render time from ``writes_enabled: false`` into their
+    own context key and never appear in a ``config.yml`` deny list, so there is
+    nothing for this subtraction to reach. The render keeps them out of the
+    filtered lists for exactly that reason.
+
+    Anything not shaped like a mapping yields no entries; see
+    :func:`permission_entries` for how each list is read, and for why a list
+    spelled as a bare string is read as no entries here rather than as one —
+    the render does not read it as one either, and a profile that spells it
+    that way is refused before it can be built.
+    """
+    root = config if isinstance(config, Mapping) else {}
+    claude_code = root.get("claude_code")
+    persona_shaped = isinstance(claude_code, Mapping)
+    if persona_shaped:
+        permissions = claude_code.get("permissions")
+    elif claude_code is None:
+        permissions = root.get("permissions")
+    else:
+        permissions = None
+    if not isinstance(permissions, Mapping):
+        return []
+    deny = permission_entries(permissions.get("deny"))
+    if not persona_shaped:
+        return deny
+    lifted = set(permission_entries(permissions.get("remove_deny")))
+    return [entry for entry in deny if entry not in lifted]
+
+
+def is_setup_patch_capable(config: Any) -> bool:
+    """Whether ``config``'s render leaves the setup capability in the agent's hands.
+
+    The posture question every later gate asks about a persona: can this render
+    still reach :data:`SETUP_PATCH_TOOL`? Consumed by the container's render
+    context, by the persona-roster guard, and by the lint belt, so that all
+    three answer it the same way instead of each re-reading the deny list.
+
+    ``config`` is a **rendered persona config** — the ``config.yml``-shaped
+    document whose deny list lives at ``claude_code.permissions.deny``, read
+    together with the ``remove_deny`` beside it so that a tier which lifts an
+    inherited deny reports as capable. A rendered ``.claude/settings.json``
+    (deny at the top level, already composed) is read too; see
+    :func:`_deny_entries` for how the two are told apart, how the subtraction
+    mirrors the render, and why a kill-switch deny is out of its reach.
+
+    The deny is what *removes* the capability, so every way of not having one —
+    no ``claude_code`` block, no ``permissions``, no ``deny`` key, an empty or
+    null deny — leaves the persona capable. This is not a permissive default
+    dressed up as a rule: an unwritten deny is exactly the state of a project
+    that never gated the tool, and the readonly tier expresses itself by
+    *adding* the entry.
+
+    Entries are matched with :func:`fnmatch.fnmatchcase`, which covers the exact
+    literal the presets write and also a wildcard deny (``mcp__osprey_workspace__*``)
+    that takes the tool away just as completely. The asymmetry against the exact
+    ``remove_deny`` subtraction is not a lean in a safe direction but a pair of
+    mirrors, each held against the thing it has to agree with: the glob **match**
+    mirrors Claude Code's own deny matching, where a deny pattern gates every
+    tool name it matches; the exact **subtraction** mirrors the render's
+    ``d not in remove_deny``
+    (:func:`osprey.cli.templates.claude_code._rendered_deny_list`).
+
+    **Parity is the criterion, not conservatism**, because the two consumers
+    pull in opposite directions. The container's Dockerfile *grants* the
+    ``build/config.yml`` chown on ``True``; the persona-roster guard *refuses*
+    a ``default_persona`` or ``login: false`` on ``True``. So there is no safe
+    direction to lean: an answer biased toward ``False`` waves a capable
+    persona past the roster guard, and one biased toward ``True`` hands an
+    image's ``config.yml`` to an agent that cannot in fact patch it. The only
+    answer that serves both consumers is the render's own, which is why every
+    reading rule here is stated as a mirror of the render rather than as a
+    fail-safe. The parity itself is pinned by
+    ``test_the_predicate_matches_the_rendered_deny_list``.
+
+    Args:
+        config: The rendered persona config (see above). Tolerant of a missing
+            or misshapen block — an unreadable document reports no deny, and an
+            unreadable ``remove_deny`` lifts nothing.
+
+    Returns:
+        ``True`` when nothing in the effective deny list names the tool.
+
+    Pinned in ``tests/cli/test_profile_conventions.py`` by
+    ``test_setup_patch_capable_is_false_when_the_tool_is_denied``,
+    ``…_is_true_when_another_tool_is_denied``,
+    ``…_is_true_with_no_deny_block``,
+    ``…_is_true_with_no_claude_code_block``,
+    ``…_is_true_for_an_empty_or_null_deny``,
+    ``…_is_false_under_a_wildcard_deny``,
+    ``…_reads_a_rendered_settings_json_shape``,
+    ``…_tolerates_a_misshapen_document``; for the subtraction by
+    ``…_is_true_when_remove_deny_lifts_the_tool``,
+    ``…_is_false_when_remove_deny_lifts_another_tool``,
+    ``test_a_misshapen_remove_deny_lifts_nothing``,
+    ``test_an_exact_remove_deny_does_not_lift_a_wildcard_deny`` and
+    ``test_a_settings_shaped_document_ignores_a_stray_remove_deny``; for the
+    bare-string spellings by ``test_a_bare_string_deny_is_no_deny_at_all`` and
+    ``test_a_bare_string_remove_deny_lifts_nothing``, each of which also names
+    the profile-time refusal that keeps those spellings off the build path; and
+    for the parity the whole docstring rests on by
+    ``test_the_predicate_matches_the_rendered_deny_list``.
+    """
+    return not any(fnmatchcase(SETUP_PATCH_TOOL, entry) for entry in _deny_entries(config))
 
 
 def convention_slot_for(dest_rel: str) -> str | None:

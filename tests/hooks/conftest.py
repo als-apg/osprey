@@ -68,6 +68,12 @@ _HOOK_VARS = (
     "OSPREY_HOOK_CONFIG",
     "OSPREY_HOOK_DEBUG",
     "OSPREY_DISPATCH_RUN",
+    # Session posture. Forwarded so a test can put a hook subprocess in the
+    # sandbox posture with ``monkeypatch.setenv``; without it here the curated
+    # environment drops the variable and a posture test passes for the wrong
+    # reason. Blanked by default in :func:`_no_session_posture` so the value
+    # can only ever arrive from the test that asked for it.
+    "OSPREY_EXECUTION_MODE",
     "OSPREY_WEB_PORT",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
@@ -228,6 +234,20 @@ def _isolated_home(hook_home, monkeypatch):
     # ``$HOME/.claude`` path is what the tests exercise; a test that wants the
     # container layout sets it explicitly.
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _no_session_posture(monkeypatch):
+    """Run every hook test outside a session posture unless it asks for one.
+
+    Leak guarded, the same way ``CLAUDE_CONFIG_DIR`` is: ``OSPREY_EXECUTION_MODE``
+    is forwarded to hook subprocesses, so a developer running the suite from
+    inside a sandboxed session would otherwise put every hook under a posture no
+    test asked for. Tests that want a posture set it with ``monkeypatch.setenv``
+    in the test body, which runs after this fixture.
+    """
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     yield
 
 

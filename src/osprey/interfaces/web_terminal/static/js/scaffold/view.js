@@ -29,6 +29,7 @@
 
 import { el as _el, debounce } from '/design-system/js/dom.js';
 import { CATEGORY_HELP } from './utils.js';
+import { scaffoldWritesEnabled } from './write-gate.js';
 import { createScaffoldGalleryCards } from './cards.js';
 
 /**
@@ -266,19 +267,27 @@ export function createScaffoldGalleryView(gallery) {
 
       const actions = _el('div', 'prompts-untracked-actions');
 
-      const registerBtn = document.createElement('button');
-      registerBtn.className = 'prompts-untracked-btn prompts-untracked-register';
-      registerBtn.textContent = 'Register';
-      registerBtn.title = 'Add to project config so this file is managed by OSPREY';
-      registerBtn.addEventListener('click', () => gallery.registerUntracked(file.canonical_name));
-      actions.appendChild(registerBtn);
+      // Register rewrites config.yml and Delete removes the file — both are
+      // writes, and both answer 403 with `web.scaffold_gallery.write_enabled:
+      // false`, so neither is offered where writes are withdrawn. The banner
+      // itself stays: naming files that are reaching the agent unmanaged is
+      // information a read-only tier still needs, even when acting on them is
+      // somebody else's call.
+      if (scaffoldWritesEnabled()) {
+        const registerBtn = document.createElement('button');
+        registerBtn.className = 'prompts-untracked-btn prompts-untracked-register';
+        registerBtn.textContent = 'Register';
+        registerBtn.title = 'Add to project config so this file is managed by OSPREY';
+        registerBtn.addEventListener('click', () => gallery.registerUntracked(file.canonical_name));
+        actions.appendChild(registerBtn);
 
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'prompts-untracked-btn prompts-untracked-delete';
-      deleteBtn.textContent = 'Delete';
-      deleteBtn.title = 'Remove this file from disk — it will no longer reach the agent';
-      deleteBtn.addEventListener('click', () => gallery.deleteUntracked(file.canonical_name));
-      actions.appendChild(deleteBtn);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'prompts-untracked-btn prompts-untracked-delete';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.title = 'Remove this file from disk — it will no longer reach the agent';
+        deleteBtn.addEventListener('click', () => gallery.deleteUntracked(file.canonical_name));
+        actions.appendChild(deleteBtn);
+      }
 
       row.appendChild(actions);
       list.appendChild(row);
@@ -512,7 +521,10 @@ export function createScaffoldGalleryView(gallery) {
         'agents', 'rules', 'hooks', 'skills', 'output-styles'
       ]);
       const originalCat = groups[cat][0]?.category || cat;
-      if (creatableCategories.has(originalCat.toLowerCase())) {
+      // POST /api/scaffold/create is gated server-side, so a deployment that
+      // withdrew gallery writes gets no "+" — the dialog behind it could only
+      // end in a 403.
+      if (creatableCategories.has(originalCat.toLowerCase()) && scaffoldWritesEnabled()) {
         const addBtn = document.createElement('button');
         addBtn.className = 'prompts-category-add';
         addBtn.textContent = '+';

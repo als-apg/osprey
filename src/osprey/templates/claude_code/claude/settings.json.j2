@@ -89,11 +89,25 @@
     artifact, not this file: test_claude_code_integration and test_claude_regen
     assert the framework defaults are present in a built project's
     permissions.deny, on the create_project and regenerate paths respectively. -#}
+{#- Three parts, in this order:
+      1. deny_defaults  - remove_deny
+      2. facility deny  - remove_deny   (profile-authored; a profile may
+                                         subtract what a profile added)
+      3. killswitch_deny                (writes-off kill switch; appended LAST
+                                         and NEVER filtered)
+    Part 3 is the whole reason the kill switch renders through its own context
+    key rather than through facility_permissions.deny: remove_deny is authored
+    in the profile, so anything it can reach is something a profile can lift.
+    A writes-off deny must not be liftable that way. -#}
+{%- set remove_deny = facility_permissions.get('remove_deny', []) -%}
 {%- set deny_entries = [] -%}
-{%- for d in deny_defaults if d not in facility_permissions.get('remove_deny', []) -%}
+{%- for d in deny_defaults if d not in remove_deny -%}
 {%- set _ = deny_entries.append(d) -%}
 {%- endfor -%}
-{%- for d in facility_permissions.get('deny', []) -%}
+{%- for d in facility_permissions.get('deny', []) if d not in remove_deny -%}
+{%- set _ = deny_entries.append(d) -%}
+{%- endfor -%}
+{%- for d in killswitch_deny | default([]) -%}
 {%- set _ = deny_entries.append(d) -%}
 {%- endfor -%}
     "deny": [

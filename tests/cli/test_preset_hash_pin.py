@@ -32,8 +32,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:71c5399c9ff3f181c1998f2e35d2cdb65a29efc499dcbae73f0d4a0982544f3a"
     ),
     # A digest here is the resolved content of the preset AND of every preset
-    # that extends it, so a change in a base moves all four control-assistant
-    # entries together. Last moved when the bluesky-web sidecar shed its
+    # that extends it, so a change in the base moves every control-assistant
+    # entry with it. Last moved when the bluesky-web sidecar shed its
     # panels-era name, a deploy-visible change (the panel's backing service
     # and its config keys are renamed). Comment rewrites cannot move a digest
     # (`_hash_resolved_profile` hashes resolved canonical JSON and says so);
@@ -44,7 +44,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # signal, not noise.
     # Moved when the control-assistant preset turned password login on for its
     # web terminals (auth stanza, ariel's `login: false`, demo passwords under
-    # `env.defaults`). All four moved together, as the note above predicts.
+    # `env.defaults`). Every control-assistant entry moved together, as the
+    # note above predicts.
     # Moved again when pymongo became a core OSPREY dependency and the preset
     # dropped its `dependencies: [pymongo>=4.0]` line. Behavior-neutral for a
     # rebuilt project — pymongo still lands in its venv, now from the base
@@ -77,9 +78,42 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # content now, so every digest below (bar channel-finder-standalone, on
     # whose resolved content both lines already agreed) is the merged value,
     # not either branch's own.
-    "control-assistant": "sha256:9d4a065ffa814c34921f9ab1d1f53c7d2a9e86c69ca783dea1b4e7c4bae00f9c",
+    #
+    # Moved again — and the family grew a fifth member — when the base gained
+    # its TIER FLOOR and the admin tier shipped. Two deploy-visible deltas,
+    # both landing on the base and therefore on all four presets that extend
+    # it:
+    #
+    #   * The floor itself. The base now denies
+    #     `mcp__osprey_workspace__setup_patch` and pins
+    #     `web.config_panel.enabled: false` and
+    #     `web.scaffold_gallery.write_enabled: false`, so a rebuilt project's
+    #     settings.json grows a deny entry and its config.yml flips two keys
+    #     from the app template's permissive defaults to false:
+    #     the agent loses its deployment-editing tool and the browser loses the
+    #     Config panel and the gallery's editors.
+    #   * The roster. A third login (`carol`, persona `admin`) and its
+    #     `OSPREY_AUTH_PW_CAROL` default join the base's web-terminals block,
+    #     alongside the `admin` persona catalog entry — so a rebuilt hosting
+    #     project grows a landing card, a terminal container and a per-user
+    #     port in every family.
+    #
+    # `control-assistant-admin` is the new entry, not a moved one: it is the
+    # single tier that lifts the floor back off (`remove_deny` for the tool,
+    # both web keys back to true) and adds the `setup-mode` skill.
+    # Re-recorded again where the render-zone/posture branch met main: the
+    # tier floor, the admin tier, the `target-state` hook and the
+    # facility-knowledge-graph agent all sit in the resolved content now, so
+    # the five control-assistant digests below are the merged value. The admin
+    # digest moved once more when the persona gained the `services.graphdb.port_host`
+    # pin its two siblings already carried — the graph paradigm's build rule
+    # requires it on every attached render.
+    "control-assistant": "sha256:cb3ea6aecf66e90326c0be0dcead918c98a30fb3fe606ada26e07187ac2f2f64",
+    "control-assistant-admin": (
+        "sha256:ec9c084fec32f0eb749b167d070a847c7510956a421b0b3ea28d3fabd49b3bac"
+    ),
     "control-assistant-ariel": (
-        "sha256:18d48c8612ed1bf5846df559692d929d6158269edf11bcdb67d9393860c23280"
+        "sha256:1543570519193a43675a6caf97fcae47dd02d8db51d2c1b08db7f58e13332479"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -99,10 +133,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the merged preset actually hashes to. Deploy-visible for both reasons at
     # once, which is what the advisory should say.
     "control-assistant-readonly": (
-        "sha256:6b9c8309e48cf1ee2cda1d6366730e710e22aecfff04325af2dc1a5a836d49b9"
+        "sha256:510040faaf8f74b06fdec79fd074802f267d72778149415c028faaa94fc9aff2"
     ),
     "control-assistant-readwrite": (
-        "sha256:86355a4b061f85a5c78b2f47d780d06033c85a8f34c7b50d4cc8e6090d36e966"
+        "sha256:d89ba4a562bb0281afd6215f8ce8b8031c24f0f3567730883ea8aba4e251a6e3"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

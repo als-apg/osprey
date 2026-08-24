@@ -9,6 +9,7 @@ import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
+import { initPostureBadge } from './posture-badge.js';
 import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { stripQueryMode } from '/design-system/js/frame-params.js';
@@ -45,6 +46,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeaderContrib();
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
+  // After the selector: the badge mounts to its left, and the header is the
+  // node dock-tab.js adopts into the tile strip, so the badge travels with it.
+  initPostureBadge();
   initStatusBar();
   // Dock the terminal + workspace panels into the dockview shell (replaces the
   // old fixed resize-handle split). Guarded so a dock init failure can't break

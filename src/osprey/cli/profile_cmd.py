@@ -677,6 +677,82 @@ def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str)
     )
 
 
+def _privileged_persona_problems(
+    config: Mapping[str, Any],
+    privileges: Mapping[str, tuple[str, ...]],
+    absolute_privileges: Mapping[str, tuple[str, ...]],
+) -> list[str]:
+    """Why this profile's roster must not deploy as written, from the tiers it names.
+
+    The build-time half of the deployment-editing guard, run where the persona
+    presets have just been resolved and their privileges are therefore known
+    exactly (see
+    :func:`~osprey.deployment.web_terminals.personas.persona_privileges`). Two
+    rules, both owned by that module so the lint belt behind this reports the
+    same thing in the same words:
+
+    * ``default_persona`` must not be a privileged tier — it is what every entry
+      that names no tier inherits;
+    * no entry served without a login may resolve to one.
+
+    **The two rules read two different maps**, and handing one map to both is
+    what left this surface exempt on a floorless host preset: every persona
+    there sits at the baseline, so the relative map is empty for all of them and
+    the login rule had nothing to report about a terminal holding everything.
+    See
+    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
+    for why the ``default_persona`` rule keeps the relative reading.
+
+    Args:
+        config: The host profile's ``config:`` block, from which the roster and
+            the ``auth`` stanza are folded out — and the baseline both the
+            relative map and the remedy are measured against.
+        privileges: Persona name → what it holds BEYOND that baseline, for the
+            personas whose presets resolved. A persona absent from this mapping
+            contributes nothing — its entry already failed to resolve and is
+            reported as such.
+        absolute_privileges: Persona name → what it holds outright, same
+            personas. What the login rule is judged on.
+
+    Returns:
+        One message per problem, ``default_persona`` first, then roster order.
+    """
+    from osprey.deployment.web_terminals.personas import (
+        persona_privileges,
+        privileged_default_persona_problem,
+        resolve_personas,
+        unauthenticated_privileged_terminal_problems,
+    )
+
+    from .build_profile_emit import effective_web_terminals
+
+    web_terminals = effective_web_terminals(config)
+    problems: list[str] = []
+    default_persona = web_terminals.get("default_persona")
+    default_problem = privileged_default_persona_problem(
+        default_persona,
+        privileges.get(default_persona, ()) if isinstance(default_persona, str) else (),
+    )
+    if default_problem is not None:
+        problems.append(default_problem)
+
+    # Lenient resolution: an entry naming a persona that is not in the catalog
+    # is a different mistake, reported by the deploy lint that owns it, and
+    # raising here would replace that report with a worse one.
+    resolved = resolve_personas(web_terminals, {}, "", strict=False)
+    problems.extend(
+        unauthenticated_privileged_terminal_problems(
+            resolved,
+            absolute_privileges,
+            # The host profile's own posture, which decides which remedy is
+            # honest: a profile that floors nothing has no unprivileged tier to
+            # point the entry at, so it is told how to create one instead.
+            baseline_privileges=persona_privileges(config),
+        )
+    )
+    return problems
+
+
 def _persona_profile_texts(
     resolved: BuildProfile,
     profile_name: str,
@@ -705,9 +781,22 @@ def _persona_profile_texts(
     ``control-assistant``) is rejected rather than approximated — see
     :func:`_off_chain_problem`.
 
+    One thing beyond emission is decided here, because this is the only moment
+    the resolved persona tiers are all in hand: whether the roster hands
+    deployment editing to a terminal that must not have it (see
+    :func:`_privileged_persona_problems`). Refusing at materialization is what
+    keeps the bad roster from reaching a repo at all.
+
     Raises:
-        click.UsageError: With every unusable catalog entry named at once.
+        click.UsageError: With every unusable catalog entry named at once — or,
+            once they all resolve, with every privileged-terminal problem named
+            at once.
     """
+    from osprey.deployment.web_terminals.personas import (
+        persona_privileges,
+        privileges_beyond_baseline,
+    )
+
     from .build_profile import resolve_build_profile
     from .build_profile_emit import emit_persona_delta_yaml, persona_catalog
     from .build_profile_presets import _normalize_preset_name
@@ -715,6 +804,16 @@ def _persona_profile_texts(
     catalog = persona_catalog(resolved.config)
     texts: dict[str, str] = {}
     problems: list[str] = []
+    # What each persona can edit, recorded as its preset resolves — this is the
+    # one moment the whole composed tier is in hand, and the emitted delta
+    # deliberately drops the `extends:` that produced it. Recorded BOTH ways,
+    # because the two rules in `_privileged_persona_problems` read two different
+    # answers: relative to the host for the inherited `default_persona`,
+    # absolute for the `login: false` key an author typed on purpose. See
+    # `privileges_beyond_baseline`.
+    host_privileges = persona_privileges(resolved.config)
+    privileges: dict[str, tuple[str, ...]] = {}
+    absolute: dict[str, tuple[str, ...]] = {}
     for persona_name in sorted(catalog):
         preset_ref = catalog[persona_name].get("build_profile")
         # `..` needs naming explicitly: `Path("..").name` is `".."`, not the
@@ -758,6 +857,12 @@ def _persona_profile_texts(
         if off_chain is not None:
             problems.append(off_chain)
             continue
+        held = persona_privileges(persona_resolved.config)
+        if held:
+            absolute[persona_name] = held
+        lifted = privileges_beyond_baseline(held, host_privileges)
+        if lifted:
+            privileges[persona_name] = lifted
         texts[persona_name] = emit_persona_delta_yaml(
             preset_name=persona_preset,
             profile_name=f"{profile_name} ({persona_name})",
@@ -769,6 +874,15 @@ def _persona_profile_texts(
         raise click.UsageError(
             "Cannot materialize the persona profiles this profile's web-terminal "
             "catalog calls for:\n  - " + "\n  - ".join(problems)
+        )
+    # Reported only once every entry resolved: a capability verdict drawn from a
+    # catalog half of which did not resolve would name the wrong tiers, and the
+    # failure above is the one the operator has to fix first anyway.
+    privilege_problems = _privileged_persona_problems(resolved.config, privileges, absolute)
+    if privilege_problems:
+        raise click.UsageError(
+            "This profile's web-terminal roster would hand deployment editing to a "
+            "terminal that must not have it:\n  - " + "\n  - ".join(privilege_problems)
         )
     return texts
 

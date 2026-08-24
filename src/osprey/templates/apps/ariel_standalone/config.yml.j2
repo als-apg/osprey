@@ -614,6 +614,33 @@ web:
   # route to the public site.
   docs_url: https://als-apg.github.io/osprey
 
+  # Whether the web terminal's Config panel may edit this deployment's own
+  # config.yml and .claude/ setup files. `false` withdraws the panel's whole
+  # SERVER surface, not just its tab: /api/config and /api/claude-setup refuse
+  # every verb with 403, and GET /api/panels stops advertising the panel. That
+  # is the difference that matters — these files are what the agent's
+  # permission surface is rendered from, so hiding the tab alone would leave
+  # anyone who types the URL able to re-render the agent that runs here.
+  # Leave it true for a single-user deployment: the panel is that operator's
+  # own config editor. Set it false for the read-only tiers of a multi-user
+  # deployment, where a separate admin persona owns configuration.
+  config_panel:
+    enabled: true
+
+  # Whether this deployment's Scaffold gallery may WRITE. `false` closes the
+  # gallery's whole server surface for writes — create, claim, save, reset,
+  # register and delete all answer 403 — while every read stays open, so a
+  # read-only tier can still see exactly what the agent is running. This is a
+  # privilege boundary, not a UI preference: what the gallery authors is
+  # .claude/rules, .claude/skills and .claude/agents content, which the agent
+  # loads at project scope and obeys on every turn. Hiding the buttons alone
+  # would leave anyone who types the URL able to author what the agent reads.
+  # Leave it true for a single-user deployment: the gallery is that operator's
+  # own editor. Set it false for the read-only tiers of a multi-user
+  # deployment, where a separate admin persona owns the agent's setup.
+  scaffold_gallery:
+    write_enabled: true
+
   # Where the Feedback dialog's two outbound channels send a user. Nothing is
   # ever posted for them: the browser opens a prefilled GitHub issue form or a
   # prefilled mail draft, and the user decides whether to send it. Every

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal.ownership import (
     OwnershipMode,
@@ -32,6 +33,7 @@ from osprey.interfaces.web_terminal.ownership import (
     refuse_generated_path,
     refuse_unstorable_path,
     rehydrate,
+    reserved_write_channel,
     resolve_ownership,
 )
 from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
@@ -42,6 +44,7 @@ from osprey.services.build_artifacts.ownership import (
     update_manifest_add_user_owned,
     update_manifest_remove_user_owned,
 )
+from osprey.services.python_executor.refusal_audit import record_protected_refusal
 from osprey.utils.config import resolve_env_vars
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, annotation only
@@ -54,6 +57,31 @@ logger = logging.getLogger(__name__)
 #: skill directory *is* its ``SKILL.md`` as far as Claude Code is concerned —
 #: without one there is nothing to load.
 DIRECTORY_ENTRY_FILE = "SKILL.md"
+
+
+#: Surface name this module records its refusals under, so an operator reading
+#: ``protected-writes.jsonl`` can tell a gallery refusal from a config-route one.
+REFUSAL_SURFACE = "scaffold_gallery"
+
+
+class ProtectedArtifactError(PermissionError):
+    """A gallery write or delete aimed at the protected set, refused.
+
+    Its own type rather than a :class:`ValueError`, because the route layer has
+    to map it to 403 and publish it as agent activity, and neither is the right
+    answer for the other refusals this service raises (a framework artifact, a
+    missing file). :class:`PermissionError` as the base so a caller that only
+    handles ``OSError`` still fails closed.
+
+    Attributes:
+        channel: The channel that *does* write the target, phrased for a human.
+        output_path: Project-relative path the refused operation named.
+    """
+
+    def __init__(self, message: str, *, channel: str, output_path: str) -> None:
+        super().__init__(message)
+        self.channel = channel
+        self.output_path = output_path
 
 
 def restore_scaffold_bodies(project_dir: Path) -> list[str]:
@@ -333,7 +361,7 @@ class ScaffoldGalleryService:
             "  this artifact, and try again."
         )
 
-    def _write_body(self, output_path: str, content: str, name: str | None = None) -> None:
+    def _write_body(self, output_path: str, content: str, name: str | None = None) -> bool:
         """Write an artifact body to whichever surfaces must carry it.
 
         The profile's copy is the source of truth where there is one. Otherwise
@@ -348,6 +376,25 @@ class ScaffoldGalleryService:
         would sit on the volume that outlived the container and never be put
         back. Saving an artifact you already own is a claim on it by any honest
         reading.
+
+        The protected-set check sits here, above the branch, rather than inside
+        each of the two write branches: both of them carry the same artifact,
+        and :meth:`_reserved_channel` answers a question about the artifact's
+        owning channel, not about the surface the bytes land on. Judging the
+        project-relative ``output_path`` is right for the profile branch too —
+        an artifact claimed into the profile is still the ``.claude/rules/…``
+        file the next build renders from it. Asked before either surface is
+        touched, so a refusal cannot leave one written and the other not.
+
+        Returns:
+            Whether the project tree refused the write and the body is held on
+            the volume alone. The degrade itself is old; saying so is not. An
+            operator who edits an artifact in a container with a read-only
+            image tree gets a save that succeeded, a gallery that shows their
+            text, and an agent still reading the framework's — until the next
+            container start reconciles them. That gap is survivable and
+            invisible, which is the wrong combination, so the caller is handed
+            the fact and can put it in front of them.
         """
         if self._is_directory_artifact(name):
             raise ValueError(
@@ -355,10 +402,13 @@ class ScaffoldGalleryService:
                 "Edit the files inside it instead."
             )
 
+        canonical = name if name is not None else self._path_to_canonical(output_path)
+        self._require_writable(canonical, output_path, outcome="NOTHING WAS WRITTEN")
+
         profile_file = self._profile_file(name)
         if profile_file is not None:
             profile_file.write_text(content, encoding="utf-8")
-            return
+            return False
 
         if self._store is not None:
             if name is not None:
@@ -378,6 +428,8 @@ class ScaffoldGalleryService:
                 self.project_dir,
                 output_path,
             )
+            return True
+        return False
 
     def _read_body(self, output_path: str, name: str | None = None) -> str | None:
         """Read an artifact body from the surface that owns it.
@@ -474,6 +526,7 @@ class ScaffoldGalleryService:
                         "output_path": art.output_path,
                         "status": "user-owned" if is_owned else "framework",
                         "custom": False,
+                        "read_only": self._is_read_only(art.canonical_name, art.output_path),
                         "language": self._infer_language(art.output_path),
                     }
                 )
@@ -497,6 +550,7 @@ class ScaffoldGalleryService:
                             "output_path": rel_path,
                             "status": "user-owned",
                             "custom": True,
+                            "read_only": self._is_read_only(canonical, rel_path),
                             "language": self._infer_language(rel_path),
                         }
                     )
@@ -521,6 +575,7 @@ class ScaffoldGalleryService:
                     "output_path": held.output_path,
                     "status": "user-owned",
                     "custom": art is None,
+                    "read_only": self._is_read_only(name, held.output_path),
                     "language": self._infer_language(held.output_path),
                 }
             )
@@ -603,6 +658,27 @@ class ScaffoldGalleryService:
         """Claim an artifact for in-place editing."""
         art = self._get_artifact(name)
 
+        # The generated-path rule answers first, and deliberately: it is the
+        # more specific answer for the handful of paths that carry one ("this
+        # file is generated, not authored — change what generates it"), and it
+        # is the answer ``osprey scaffold claim`` gives in the two modes that
+        # delegate. Running it here as well is what keeps one path to one
+        # answer across all four modes, rather than a refusal whose wording
+        # depends on where the project happens to keep its ownership.
+        refuse_generated_path(name, art.output_path)
+
+        # Ahead of every other answer a claim can give, and ahead of both
+        # modes: a claim is a write on either path — it renders the artifact
+        # into the project tree and records ownership (VOLUME/CONFIG), or it
+        # moves the file into the profile (PROFILE/DEGRADED). The CLI the
+        # delegating modes call refuses only the exactly-reserved paths, so a
+        # subtree reserved by SHAPE — ``.claude/rules/**``, ``.claude/skills/**``
+        # — would otherwise be claimable here on every mode, and taking
+        # authorship of instruction text is the thing the protected set exists
+        # to refuse. Asked before the ownership check so the refusal names the
+        # channel rather than doubling as "somebody already owns this".
+        self._require_writable(name, art.output_path, outcome="NOTHING WAS CLAIMED")
+
         if name in self._user_owned:
             raise FileExistsError(f"'{name}' is already user-owned")
 
@@ -677,6 +753,10 @@ class ScaffoldGalleryService:
         name ownership records, and it writes a skill as a flat file that
         Claude Code does not load at all.
         """
+        # ``rules`` and ``skills`` stay in the set although the protected set
+        # closed both: a name in a reserved subtree should be refused with the
+        # 403 that names the channel that owns it, not a 400 that claims the
+        # category does not exist.
         allowed = {"agents", "rules", "hooks", "skills", "commands", "output-styles"}
         if category not in allowed:
             raise ValueError(f"Invalid category '{category}'. Must be one of: {sorted(allowed)}")
@@ -695,6 +775,18 @@ class ScaffoldGalleryService:
             if target.is_directory
             else target.project_rel
         )
+
+        # The creatable categories still name subtrees the protected set
+        # closed — ``rules`` and ``skills`` whole, ``hooks`` for the
+        # ``osprey_`` prefix — so without this the gallery would be the way to
+        # author exactly the instruction text and write-safety code an agent
+        # may not write. Judged on the RESOLVED path rather than the category,
+        # because that is what decides it: a skill resolves to a directory's
+        # ``SKILL.md`` and a hook carries its own suffix. Asked before the
+        # existence checks so a refusal names the owning channel instead of
+        # doubling as an answer to "is this name taken", and before either
+        # surface is touched so nothing is left behind.
+        self._require_writable(canonical_name, output_path, outcome="NOTHING WAS CREATED")
 
         if self._registry.get(canonical_name):
             raise ValueError(f"'{canonical_name}' is a framework artifact — use claim instead")
@@ -794,6 +886,10 @@ class ScaffoldGalleryService:
                 f'if __name__ == "__main__":\n    main()\n'
             )
         if category == "skills":
+            # Unreachable from ``create_artifact`` while ``.claude/skills/**``
+            # is reserved — kept deliberately: this function answers "what does
+            # a new <category> start as", and the answer for a skill does not
+            # stop being true because one caller may no longer ask.
             return (
                 f"---\nname: {name}\ndescription: {display}\n---\n\n"
                 f"# {display}\n\nDescribe this skill's purpose and workflow.\n"
@@ -815,9 +911,13 @@ class ScaffoldGalleryService:
         if name not in self._user_owned:
             raise FileNotFoundError(f"'{name}' is not user-owned — claim first")
 
-        self._write_body(out, content, name)
+        # The write happened either way; ``applies_on_restart`` says whether it
+        # reached the tree the agent reads or only the volume that outlives the
+        # container. Reported rather than logged, because the operator is the
+        # one who has to know their edit is not live yet.
+        applies_on_restart = self._write_body(out, content, name)
 
-        return {"status": "saved", "path": out}
+        return {"status": "saved", "path": out, "applies_on_restart": applies_on_restart}
 
     # ── Unclaim ──────────────────────────────────────────────────────
 
@@ -846,6 +946,16 @@ class ScaffoldGalleryService:
             }
 
         is_custom = self._registry.get(name) is None
+
+        if delete_file and is_custom:
+            # The one branch below that removes a file from disk. Refused here
+            # rather than at the unlink, because the release is already durable
+            # by then: a refusal raised after it would have dropped the
+            # ownership record and still promised that nothing happened.
+            # Releasing WITHOUT deleting stays open — it changes no file, and
+            # the protected set is about who writes the bytes.
+            out_rel = self._canonical_to_path(name)
+            self._require_writable(name, out_rel, outcome="NOTHING WAS DELETED")
 
         self._record_release(name)
 
@@ -882,8 +992,10 @@ class ScaffoldGalleryService:
         """Find files in .claude/ that are active in Claude Code but not managed.
 
         Scans .claude/{rules,agents,commands,skills}/ for .md files whose
-        output path doesn't match any registered artifact and whose derived
-        canonical name isn't already in ``scaffold.user_owned``.
+        output path doesn't match any registered artifact, whose derived
+        canonical name isn't already in ``scaffold.user_owned``, and which is
+        not in the protected set (:meth:`_reserved_channel`, the same gate the
+        two actions this list offers ask before they touch disk).
         """
         claude_dir = self.project_dir / ".claude"
         if not claude_dir.is_dir():
@@ -900,9 +1012,24 @@ class ScaffoldGalleryService:
                 if not fpath.is_file() or fpath.name.startswith("."):
                     continue
                 rel_path = str(fpath.relative_to(self.project_dir))
+                canonical = self._path_to_canonical(rel_path)
+                # Reserved artifacts are dropped before anything else looks at
+                # them: neither of the two actions this list offers is
+                # available on one — registering it would claim a file the
+                # build owns, and deleting it is refused outright — so
+                # surfacing it would advertise a choice that only ever fails.
+                # It is also what keeps the per-user skills the build seeds
+                # into the render out of an "orphaned files" list they would
+                # otherwise fill, now that they land inside the scan zone.
+                #
+                # Asked through the same gate the two actions ask, not through
+                # the bare lexical table: a link at an unreserved name onto a
+                # reserved file is exactly the entry whose every offered action
+                # would 403, and it is the one a lexical filter lists.
+                if self._reserved_channel(canonical, rel_path) is not None:
+                    continue
                 if rel_path in registered_outputs:
                     continue
-                canonical = self._path_to_canonical(rel_path)
                 if canonical in self._user_owned:
                     continue
                 preview = self._safe_preview(fpath)
@@ -917,13 +1044,24 @@ class ScaffoldGalleryService:
         return untracked
 
     def register_untracked(self, canonical_name: str) -> dict[str, Any]:
-        """Register an untracked file by adding it to ``scaffold.user_owned``."""
+        """Register an untracked file by adding it to ``scaffold.user_owned``.
+
+        Refuses the protected set (:meth:`_reserved_channel`) before it looks
+        at the filesystem, for the same two reasons the delete path does.
+        :meth:`scan_untracked` already drops reserved paths, so nothing the UI
+        offers reaches this — but the route takes a name straight from the
+        request body, and a name is not a menu choice. Left ungated, a climbing
+        name (``../../etc/x``) would be read off disk and its bytes carried
+        into the ownership store, and a reserved one would be claimed out from
+        under the channel that renders it.
+        """
         # Ownership is checked first: an artifact already claimed into the
         # profile is no longer in the project tree, and "already registered" is
         # the accurate answer to a second attempt — "file not found" is not.
         if canonical_name in self._user_owned:
             raise FileExistsError(f"'{canonical_name}' is already registered")
         output_path = self._canonical_to_path(canonical_name)
+        self._require_writable(canonical_name, output_path, outcome="NOTHING WAS REGISTERED")
         full_path = self.project_dir / output_path
         if not full_path.exists():
             raise FileNotFoundError(f"File not found on disk: {output_path}")
@@ -960,11 +1098,99 @@ class ScaffoldGalleryService:
         except (UnicodeDecodeError, PermissionError, OSError):
             return None
 
+    def _is_read_only(self, canonical_name: str, output_path: str) -> bool:
+        """Whether the gallery's write and delete gates would refuse this entry.
+
+        The same question :meth:`_reserved_channel` answers on the way into a
+        write, asked here for display: the panel greys out exactly what the
+        gates refuse, because a card offering an edit that the save will reject
+        is worse than a card that says plainly it is not yours to edit. This is
+        a rename of that answer, not a second copy of the policy.
+        """
+        return self._reserved_channel(canonical_name, output_path) is not None
+
+    def _reserved_channel(self, canonical_name: str, output_path: str) -> str | None:
+        """The channel owning *output_path*, or ``None`` when the gallery may touch it.
+
+        Three questions in the order that makes each one answerable:
+
+        1. Does the *name* leave the project — absolute, or carrying a ``..``
+           segment? Asked on the name rather than on ``output_path``, because
+           :meth:`_canonical_to_path` prefixes ``.claude/`` and
+           :func:`~posixpath.normpath` then eats the first climb: ``../x``
+           becomes the perfectly ordinary-looking ``x.md``, which no protected
+           pattern matches. The name is where the climb is still visible.
+        2. Is the path itself protected? That is
+           :func:`~osprey.cli.profile_conventions.is_reserved_write`, and any
+           non-``None`` answer is a refusal — including the one it gives for a
+           path it cannot judge.
+        3. Where do the bytes actually land once symlinks are resolved? A name
+           that is clean and unprotected can still address a different file
+           through a symlink, and every writer here follows the link: a write
+           opens the target, a delete removes what the link points at. Two
+           answers are refusals — the resolved path leaving the project, and
+           the resolved path being protected in its own right. The second is
+           what makes the set hold against a link planted inside the render
+           (``.claude/agents/x.md`` -> ``../rules/safety.md`` is lexically an
+           agent and physically a rule), and it is asked here rather than at
+           the six call sites because they all reach disk through this one
+           question.
+
+        Returns the owning channel for a refusal message, or ``None``.
+        """
+        name = PurePosixPath(canonical_name)
+        if name.is_absolute() or ".." in name.parts or Path(canonical_name).is_absolute():
+            return NOT_PROJECT_RELATIVE_CHANNEL
+
+        # Questions 2 and 3 are :func:`~...ownership.reserved_write_channel`,
+        # shared with the container-start restore rather than reimplemented
+        # here: the answer must not depend on whether a body arrived through
+        # the gallery or off the claude-config volume.
+        return reserved_write_channel(self.project_dir, output_path)
+
+    def _require_writable(self, canonical_name: str, output_path: str, *, outcome: str) -> None:
+        """Refuse *output_path* if the protected set owns it; return quietly if not.
+
+        The gate is one call rather than a lookup the caller then has to
+        remember to test, so a writer cannot half-implement it — every write
+        route asks this question in one statement and gets either a refusal or
+        permission to continue.
+
+        Audited before raising, so a refused attempt leaves a durable trace an
+        operator can find later rather than only the 403 the caller saw. The
+        message names the owning channel — the way in, if the operator has one
+        — and states plainly that nothing happened, because a refusal a reader
+        has to interpret is one they will assume was partially carried out.
+        """
+        channel = self._reserved_channel(canonical_name, output_path)
+        if channel is None:
+            return
+
+        record_protected_refusal(
+            surface=REFUSAL_SURFACE,
+            target_file=output_path,
+            key_or_path=output_path,
+            channel=channel,
+            reason="reserved path",
+        )
+        raise ProtectedArtifactError(
+            f"'{canonical_name}' belongs to {channel}. {outcome}.",
+            channel=channel,
+            output_path=output_path,
+        )
+
     def delete_untracked(self, canonical_name: str) -> dict[str, Any]:
-        """Delete an untracked file from disk."""
+        """Delete an untracked file from disk.
+
+        Refuses anything in the protected set (:meth:`_reserved_channel`)
+        before it looks at the filesystem at all: the check is about which
+        channel owns the path, and running it after the existence test would
+        make a refusal double as an answer to "does this file exist".
+        """
         if self._registry.get(canonical_name) is not None:
             raise ValueError(f"'{canonical_name}' is a framework artifact — use unoverride instead")
         output_path = self._canonical_to_path(canonical_name)
+        self._require_writable(canonical_name, output_path, outcome="NOTHING WAS DELETED")
         full_path = self.project_dir / output_path
         if not full_path.exists():
             raise FileNotFoundError(f"File not found on disk: {output_path}")

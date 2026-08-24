@@ -5,28 +5,25 @@
  * presents a structured, scannable view: Environment, Model, Permissions
  * (allow/deny/ask), Hooks.
  *
- * Also provides an interactive editor for settings.json that allows editing
- * model, permissions (tri-state allow/ask/deny per entry), and adding/removing
- * permission entries without touching raw JSON.
+ * The view is read-only by design: settings.json is written from the
+ * profile's `config:` keys, so the panel shows what the build produced
+ * rather than offering a field that edits it.
  *
- * Two sibling modules re-export back through this file so every import
- * site (e.g. scaffold-gallery.js) keeps the same `./config-renderers.js`
- * path regardless of which file actually implements a given export:
+ * A sibling module re-exports back through this file so every import site
+ * (e.g. scaffold-gallery.js) keeps the same `./config-renderers.js` path
+ * regardless of which file actually implements a given export:
  *
- *   - settings-editor.js: the interactive settings.json editor.
  *   - mcp-renderer.js: the .mcp.json renderer.
  *
- * Both re-exports are one-directional: `_section`/`_groupPermissions`/
- * `_renderHookEvents` (needed by this file, settings-editor.js, and
- * mcp-renderer.js alike) live in the neutral leaf module
- * config-render-helpers.js, so none of the three renderer modules need to
- * import from each other — no circular imports.
+ * The re-export is one-directional: `_section`/`_groupPermissions`/
+ * `_renderHookEvents` (needed by this file and mcp-renderer.js alike) live
+ * in the neutral leaf module config-render-helpers.js, so neither renderer
+ * module needs to import from the other — no circular imports.
  */
 
 import { el as _el } from '/design-system/js/dom.js';
 import { _section, _groupPermissions, _renderHookEvents } from './config-render-helpers.js';
 
-export { renderSettingsJsonEditor } from './settings-editor.js';
 export { renderMcpJson } from './mcp-renderer.js';
 
 // ---------------------------------------------------------------------------

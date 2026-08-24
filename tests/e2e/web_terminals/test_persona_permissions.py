@@ -145,6 +145,12 @@ def test_persona_configs_differ_by_exactly_one_permission_entry(
     blocks differ by exactly the one swing-tool ``deny`` entry, so the two
     behavioral tests below are actually isolating a single-tool permission
     difference rather than an incidental drift between the two builds.
+
+    Stated as a difference rather than as persona A's whole ``deny`` list: a
+    build also renders the tier's own deny floor, which both personas carry
+    identically and neither test is about. Pinning the absolute list would
+    make this fixture guard fail every time that floor gains a member, which
+    says nothing about whether the two builds still differ by one tool.
     """
     config_a = yaml.safe_load((render_dir(persona_a_denied_repo) / "config.yml").read_text())
     config_b = yaml.safe_load((render_dir(persona_b_permitted_repo) / "config.yml").read_text())
@@ -152,11 +158,15 @@ def test_persona_configs_differ_by_exactly_one_permission_entry(
     perms_a = config_a.get("claude_code", {}).get("permissions", {}) or {}
     perms_b = config_b.get("claude_code", {}).get("permissions", {}) or {}
 
-    assert perms_a.get("deny", []) == [_DENIED_TOOL_ENTRY], (
-        f"Persona A should deny exactly [{_DENIED_TOOL_ENTRY!r}], got {perms_a.get('deny')!r}"
+    deny_a = set(perms_a.get("deny", []) or [])
+    deny_b = set(perms_b.get("deny", []) or [])
+
+    assert deny_a - deny_b == {_DENIED_TOOL_ENTRY}, (
+        f"Persona A should deny exactly [{_DENIED_TOOL_ENTRY!r}] beyond what persona B "
+        f"denies, got {sorted(deny_a - deny_b)!r} (A={sorted(deny_a)!r}, B={sorted(deny_b)!r})"
     )
-    assert not perms_b.get("deny"), (
-        f"Persona B should have no explicit deny entries, got {perms_b.get('deny')!r}"
+    assert not deny_b - deny_a, (
+        f"Persona B denies something persona A does not: {sorted(deny_b - deny_a)!r}"
     )
 
 

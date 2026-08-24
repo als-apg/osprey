@@ -281,7 +281,9 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
 #: deployment's — the defect that made persona deltas invisible to their own
 #: MCP servers. ``ariel`` is the standalone logbook terminal: not a control tier
 #: at all, and it pins the key off for the same reason the read-only tier does.
-PERSONA_WRITES = {"ariel": False, "readonly": False, "readwrite": True}
+#: ``admin`` is the deployment-editing tier: it pins writes ON because admin is
+#: a superset of readwrite, not a third posture beside it.
+PERSONA_WRITES = {"admin": True, "ariel": False, "readonly": False, "readwrite": True}
 
 
 @pytest.fixture(scope="module")

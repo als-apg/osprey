@@ -441,9 +441,17 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
                 "token exchange returned no Set-Cookie"
             )
 
+            # `hooks.debug`, not `control_system.writes_enabled`: the latter is
+            # a protected key now, refused for every caller whatever credential
+            # it carries. Written here it would refuse the admitted operator in
+            # step 3 and refuse the forged Origin in step 4 for the same reason,
+            # leaving the CSRF assertion passing without ever exercising the
+            # Origin check. `hooks.debug` is the Hook Debug switch the Web
+            # Terminal ships, reached by exactly this call, and exempt from the
+            # protected set — so a refusal below can only come from the credential.
             configured = client.patch(
                 f"{base_url}/api/config",
-                json={"updates": {"control_system.writes_enabled": True}},
+                json={"updates": {"hooks.debug": True}},
                 headers={"Origin": base_url},
             )
             assert configured.status_code == 200, (
@@ -451,10 +459,23 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
                 f"admitted 200 (got {configured.status_code}): {configured.text[:200]}"
             )
 
+            # -- 3b. Authentication is not authorisation. The same admitted
+            #    operator may not rewrite the safety surface itself. ----------
+            protected = client.patch(
+                f"{base_url}/api/config",
+                json={"updates": {"control_system.writes_enabled": True}},
+                headers={"Origin": base_url},
+            )
+            assert protected.status_code == 403, (
+                "a fully authenticated operator with a matching Origin was allowed "
+                f"to PATCH a protected key (got {protected.status_code}): "
+                f"{protected.text[:200]}"
+            )
+
             # -- 4. CSRF defence: the same cookie with a foreign Origin is refused. --
             forged = client.patch(
                 f"{base_url}/api/config",
-                json={"updates": {"control_system.writes_enabled": False}},
+                json={"updates": {"hooks.debug": False}},
                 headers={"Origin": "http://evil.example.com"},
             )
             assert forged.status_code == 403, (

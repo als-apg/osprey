@@ -25,7 +25,9 @@ that module is probed by these tests on the day it is added rather than the
 day someone remembers to widen them.
 
 ``PATH`` and ``OSPREY_WEB_PORT`` are asserted present in every child
-environment as negative controls. Without them a bug that handed a child an
+environment as negative controls — except the python-executor sandbox child,
+which deliberately drops ``OSPREY_WEB_PORT`` (executor-local drop; the PTY
+child keeps it) and therefore uses ``PATH`` alone. Without them a bug that handed a child an
 empty environment would make every absence assertion below pass while proving
 nothing at all.
 
@@ -135,7 +137,7 @@ def _assert_no_sensitive_names(env_keys, probe: dict[str, str], where: str) -> N
     assert not leaked, f"{where}: sensitive credential(s) reached the child: {leaked}"
 
 
-def _assert_negative_controls(env_keys, where: str) -> None:
+def _assert_negative_controls(env_keys, where: str, *, controls=_NEGATIVE_CONTROLS) -> None:
     """Assert the operational variables survived the strip in ``env_keys``.
 
     Args:
@@ -143,7 +145,7 @@ def _assert_negative_controls(env_keys, where: str) -> None:
         where: Human-readable name of the spawn path, used in failure messages.
     """
     keys = set(env_keys)
-    missing = [name for name in _NEGATIVE_CONTROLS if name not in keys]
+    missing = [name for name in controls if name not in keys]
     assert not missing, (
         f"{where}: negative control(s) {missing} were stripped too — this child got a "
         "gutted environment, so the absence assertions above prove nothing"
@@ -290,7 +292,14 @@ async def test_executor_sandbox_subprocess_sees_no_sensitive_credential(
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
     env_keys = _extract_env_keys(result.stdout)
     _assert_no_sensitive_names(env_keys, sensitive_parent_env, "python_executor sandbox")
-    _assert_negative_controls(env_keys, "python_executor sandbox")
+    # The executor child deliberately drops OSPREY_WEB_PORT (executor-local web-env
+    # drop; the PTY child keeps it — pinned in test_env_drop.py), so PATH alone is
+    # the negative control here, and the drop itself is pinned as expected behavior.
+    _assert_negative_controls(env_keys, "python_executor sandbox", controls=("PATH",))
+    assert "OSPREY_WEB_PORT" not in set(env_keys), (
+        "python_executor sandbox: OSPREY_WEB_PORT must be dropped from the executor "
+        "child env (see _WEB_TERMINAL_ENV_NAMES_TO_DROP in executor.py)"
+    )
     for secret in sensitive_parent_env.values():
         assert secret not in result.stdout
         assert secret not in result.stderr

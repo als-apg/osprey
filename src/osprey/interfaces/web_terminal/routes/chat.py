@@ -97,7 +97,11 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
 
     try:
         session, was_reused = await registry.get_or_create_chat_session(
-            chat_id, cwd, build_operator_child_env(cwd)
+            chat_id,
+            cwd,
+            # The chat pool is keyed on chat_id, so that is this surface's
+            # session identity and the key its runtime posture hangs on.
+            build_operator_child_env(cwd, session_key=chat_id, app=request.app),
         )
     except ChatCapacityError:
         raise HTTPException(

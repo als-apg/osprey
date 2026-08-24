@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import warnings
+from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -14,7 +15,7 @@ from typing import Any
 import yaml
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
-from osprey.cli.profile_conventions import ownership_name
+from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
@@ -340,6 +341,14 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
         "deny_defaults": list(DENY_DEFAULTS),
+        # The writes-off kill switch's own deny entries, kept OUT of
+        # `facility_permissions['deny']` so that `remove_deny` — which a profile
+        # authors — can never subtract them. settings.json.j2 appends this list
+        # last and unfiltered. Empty here and overwritten by
+        # build_claude_code_context's kill-switch block when writes are off; the
+        # create_project path never runs that block, so the empty default is
+        # what it renders (and must render: writes state is not settled there).
+        "killswitch_deny": [],
     }
 
 
@@ -604,9 +613,27 @@ def build_claude_code_context(
         from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 
         facility_perms = dict(ctx["facility_permissions"])
-        deny = list(facility_perms.get("deny", []))
+        # Kill-switch denies land in their OWN context key, never in
+        # facility_permissions['deny']. `remove_deny` is profile-authored and
+        # subtracts from profile-authored deny sources only; if these matchers
+        # sat in the facility list, a profile could name one under remove_deny
+        # and lift a writes-off deny. settings.json.j2 appends killswitch_deny
+        # last and never filters it.
+        killswitch_deny = list(ctx.get("killswitch_deny") or [])
         remove_ask = list(facility_perms.get("remove_ask", []))
         allow = list(facility_perms.get("allow", []))
+        # Matchers the earlier (filtered) deny parts already render. Skipping
+        # them keeps the rendered array duplicate-free and byte-identical to the
+        # pre-split render for every profile that does not both deny and
+        # remove_deny the same entry. A matcher the profile denies AND removes
+        # is filtered out up there, so it is NOT in this set and the kill switch
+        # re-adds it below — which is the whole point of the split.
+        _remove_deny = list(facility_perms.get("remove_deny", []))
+        already_denied = {
+            d
+            for d in list(ctx.get("deny_defaults") or []) + list(facility_perms.get("deny", []))
+            if d not in _remove_deny
+        }
         # Approval-gated tools an enabled agent hard-requires (e.g. the
         # pyat-specialist's only compute path, mcp__python__execute) must stay
         # reachable even with writes off, or the agent declares a tool absent
@@ -643,8 +670,8 @@ def build_claude_code_context(
                 if template in _MIXED_READ_WRITE_TEMPLATES:
                     if matcher not in remove_ask:
                         remove_ask.append(matcher)
-                elif matcher not in deny:
-                    deny.append(matcher)
+                elif matcher not in killswitch_deny and matcher not in already_denied:
+                    killswitch_deny.append(matcher)
         # Re-grant, via `allow`, any mixed read/write tool an enabled agent
         # hard-requires that the kill-switch just pulled from `ask`. `allow`
         # (not `ask`) keeps it off the approval-prompt path the writes-check
@@ -654,10 +681,10 @@ def build_claude_code_context(
         for tool in sorted(required_ask):
             if tool in remove_ask and tool not in allow:
                 allow.append(tool)
-        facility_perms["deny"] = deny
         facility_perms["remove_ask"] = remove_ask
         facility_perms["allow"] = allow
         ctx["facility_permissions"] = facility_perms
+        ctx["killswitch_deny"] = killswitch_deny
 
     return ctx
 
@@ -1200,20 +1227,29 @@ _WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
 def _rendered_deny_list(ctx: dict) -> list[str]:
     """Reproduce the ``permissions.deny`` array ``settings.json.j2`` will render.
 
-    Mirrors the template's own construction exactly: the ``deny_defaults`` floor
-    (the hoisted :data:`DENY_DEFAULTS` constant, minus anything a facility lists
-    under ``permissions.remove_deny``) followed by the facility ``permissions.deny``
-    entries. Reproduced in Python from the same context keys the template reads —
-    never regex-parsed out of the rendered JSON — so the lint and the template
-    share one source and cannot silently drift.
+    Mirrors the template's own three-part construction exactly:
+
+    1. the ``deny_defaults`` floor (the hoisted :data:`DENY_DEFAULTS` constant),
+       minus anything a facility lists under ``permissions.remove_deny``;
+    2. the profile-authored ``permissions.deny`` entries, minus ``remove_deny``
+       as well — a profile may subtract what a profile added;
+    3. the ``killswitch_deny`` entries, appended last and NEVER filtered.
+
+    Part 3 is why the split exists: the writes-off kill switch writes its
+    matchers into their own context key, so no ``remove_deny`` a profile authors
+    can lift a deny the kill switch imposed.
+
+    Reproduced in Python from the same context keys the template reads — never
+    regex-parsed out of the rendered JSON — so the lint and the template share
+    one source and cannot silently drift.
 
     A context that is missing ``deny_defaults`` yields an empty floor here, which
     is exactly the silent-empty-deny hazard :func:`_lint_write_tools_are_gated`
     guards against.
 
     Args:
-        ctx: The render context, read for ``deny_defaults`` and
-            ``facility_permissions``.
+        ctx: The render context, read for ``deny_defaults``,
+            ``facility_permissions`` and ``killswitch_deny``.
 
     Returns:
         The deny entries, in render order.
@@ -1221,7 +1257,8 @@ def _rendered_deny_list(ctx: dict) -> list[str]:
     facility = ctx.get("facility_permissions") or {}
     remove_deny = facility.get("remove_deny", []) or []
     deny = [d for d in (ctx.get("deny_defaults") or []) if d not in remove_deny]
-    deny.extend(facility.get("deny", []) or [])
+    deny.extend(d for d in (facility.get("deny", []) or []) if d not in remove_deny)
+    deny.extend(ctx.get("killswitch_deny") or [])
     return deny
 
 
@@ -1379,10 +1416,36 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         fw_pre_rules: The framework PreToolUse rules just computed for this
             render, before they are written into ``ctx``.
 
+    It also carries one guard that is not about the built-ins at all: the
+    container's setup-capability check reads the profile's deny and not this
+    floor, so the two must not swap roles (see the check itself, below). It
+    lives here because this is the build's one lint that already holds the
+    rendered floor in its hand.
+
     Raises:
         BuildProfileError: Naming the first write-capable built-in that is
-            neither hard-denied nor matched by any ``PreToolUse`` rule.
+            neither hard-denied nor matched by any ``PreToolUse`` rule — or
+            reporting that the setup tool has moved into :data:`DENY_DEFAULTS`,
+            where the container's capability check cannot see it.
     """
+    # The container's chown of `build/config.yml` is decided one step earlier,
+    # from the PROFILE's own deny/remove_deny alone (build_cmd.
+    # _profile_setup_patch_capable) — it never sees this floor. That parity
+    # holds only while the setup tool is denied by profiles and not by
+    # DENY_DEFAULTS, so moving the deny down into the floor would leave every
+    # persona reading as capable and hand every image's config.yml to the
+    # agent. Checked here rather than trusted: this is the one place that knows
+    # the floor's contents at build time.
+    if any(fnmatchcase(SETUP_PATCH_TOOL, entry) for entry in DENY_DEFAULTS):
+        raise BuildProfileError(
+            f"{SETUP_PATCH_TOOL!r} is denied by the DENY_DEFAULTS floor, which the "
+            "container's setup-capability check does not read: every rendered "
+            "Dockerfile would chown build/config.yml to the agent's user while "
+            "the tool that edits it is in fact denied. Keep the deny in the "
+            "presets (claude_code.permissions.deny), or teach "
+            "build_cmd._profile_setup_patch_capable about the floor."
+        )
+
     deny = _rendered_deny_list(ctx)
     matchers = _pretooluse_matchers(ctx, fw_pre_rules)
     for tool in _WRITE_CAPABLE_BUILTINS:

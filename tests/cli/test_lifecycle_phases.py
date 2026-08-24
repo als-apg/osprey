@@ -326,7 +326,10 @@ class TestBuildPhases:
         (tmp_path / "profile.yml").write_text("name: probe\n")
         monkeypatch.setattr(build_cmd, "find_repo_root", lambda repo=None: tmp_path)
         monkeypatch.setattr(build_profile, "resolve_build_document", lambda *a, **k: _Resolved())
-        monkeypatch.setattr(build_profile_deploy, "deploy_aware_config_errors", lambda *a: [])
+        monkeypatch.setattr(build_profile_deploy, "deploy_aware_config_errors", lambda *a, **k: [])
+        monkeypatch.setattr(
+            build_profile_deploy, "deploy_aware_config_warnings", lambda *a, **k: []
+        )
         monkeypatch.setattr(build_cmd, "TemplateManager", lambda *a, **k: object())
         monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: [])
 
