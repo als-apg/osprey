@@ -124,6 +124,8 @@ BENCH_ONLY_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:RB"
 BENCH_ONLY_AMPLITUDE_VALUE = 12.75
 MODE_STATE = bench.MODE_STATE
 MODE_STATE_VALUE = bench.MODE_STATE_VALUE
+MODE_STATE_LABEL = bench.MODE_STATE_LABEL
+MODE_STATE_LABELS = bench.MODE_STATE_LABELS
 SCALED_AMPLITUDE = bench.SCALED_AMPLITUDE
 SCALED_AMPLITUDE_VALUE = bench.SCALED_AMPLITUDE_VALUE
 
@@ -871,12 +873,13 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
     """Reads of a real IOC carry more than a number, and it survives the seam.
 
     Each of these is a property of stock EPICS record support rather than of
-    OSPREY: an ``mbbi`` reports its index, a ``calc`` reports what it computed,
-    and a value driven past ``HIHI`` alarms by name. What is under test is that
-    all three cross the connector-host boundary unflattened.
+    OSPREY: an ``mbbi`` reports its index *and* the states that index names, a
+    ``calc`` reports what it computed, and a value driven past ``HIHI`` alarms
+    by name. What is under test is that all three cross the connector-host
+    boundary unflattened.
     """
 
-    async def test_the_mbbi_reports_its_index_with_the_enum_type_intact(
+    async def test_the_mbbi_reports_its_index_and_the_state_that_index_names(
         self, make_manager, deployment
     ):
         manager = await started_on(make_manager, deployment, "live")
@@ -884,16 +887,25 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
         mode = await reading(manager, MODE_STATE)
         scaled = await reading(manager, SCALED_AMPLITUDE)
 
-        # The index, unconverted -- not "ACQUIRING". A client that received the
-        # string would have lost the machine-readable half of the reading.
+        # Both halves arrive, each in its own place. The value stays the index
+        # -- the machine-readable half, and the same type PVAccess reports for
+        # the same record -- while the state's name rides on the metadata, so
+        # nobody reading this channel has to know that 2 means ACQUIRING.
         assert mode.value == MODE_STATE_VALUE
         assert int(mode.value) == MODE_STATE_VALUE
         assert not isinstance(mode.value, str)
+        assert mode.metadata.enum_label == MODE_STATE_LABEL
+        # The whole state list, in index order: a reader can name any state the
+        # record could report, not only the one it happens to be in.
+        assert tuple(mode.metadata.enum_labels) == MODE_STATE_LABELS
         assert "enum" in str(mode.metadata.raw_metadata["type"])
         assert mode.metadata.alarm_status == "NO_ALARM"
-        # The contrast that makes the type assertion mean something: an
-        # analogue record on the same IOC is not typed as an enumeration.
+        # The contrast that makes both assertions mean something: an analogue
+        # record on the same IOC is not typed as an enumeration, and carries no
+        # labels at all rather than empty ones.
         assert "enum" not in str(scaled.metadata.raw_metadata["type"])
+        assert scaled.metadata.enum_label is None
+        assert scaled.metadata.enum_labels is None
 
     async def test_the_calc_record_reports_its_derived_value(self, make_manager, deployment):
         manager = await started_on(make_manager, deployment, "live")

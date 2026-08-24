@@ -345,6 +345,10 @@ def mock_channel_value():
         cv.metadata.description = "Test channel"
         cv.metadata.min_value = 0.0
         cv.metadata.max_value = 1000.0
+        # Not an enum channel. Spelled out because a bare MagicMock attribute is
+        # truthy, and the read tool ships these keys only when they are not None.
+        cv.metadata.enum_label = None
+        cv.metadata.enum_labels = None
         cv.metadata.raw_metadata = {}
         return cv
 

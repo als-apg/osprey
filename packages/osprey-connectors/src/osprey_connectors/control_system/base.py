@@ -34,6 +34,20 @@ class ChannelMetadata:
     and are the bounds OSPREY refuses to write past. Only the latter is enforced —
     a value inside the display range can still be refused, and a connector that
     reports no display range constrains nothing.
+
+    ``enum_labels`` / ``enum_label`` are present only for enum-typed records
+    (EPICS ``mbbi``/``mbbo``/``bi``/``bo``, PVAccess ``NTEnum``, and their
+    equivalents elsewhere) and are ``None`` on every other channel. They are the
+    *readable* half of an enum reading: ``ChannelValue.value`` stays the integer
+    index — one machine-readable type across every protocol — and the label for
+    that index rides here, resolved at read time. Either may be ``None`` even on
+    an enum channel: a control system reports the label list only when it has
+    one, and an index outside it resolves to nothing.
+
+    ``enum_labels`` is a ``list`` rather than a tuple because that is what
+    survives the connector-host IPC seam: :mod:`osprey_connectors.ipc.frames`
+    encodes sequences as JSON arrays and decodes them as lists, so a tuple set
+    here would compare unequal to the same field read through a proxy.
     """
 
     units: str = ""
@@ -43,6 +57,10 @@ class ChannelMetadata:
     description: str | None = None
     display_low: float | None = None
     display_high: float | None = None
+    #: Every state this enum-typed channel can report, in index order; None off enums.
+    enum_labels: list[str] | None = None
+    #: The label for the value of THIS reading; None off enums and when unresolvable.
+    enum_label: str | None = None
     raw_metadata: dict[str, Any] | None = field(default_factory=dict)
 
     def __post_init__(self):

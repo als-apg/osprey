@@ -88,9 +88,13 @@ WRITABLE_SP = "SR:MAG:HCM:01:CURRENT:SP"
 #: refused by the control system itself, not by any client-side check.
 PROTECTED_SP = "SR:MAG:VCM:02:CURRENT:SP"
 PROTECTED_VALUE = -3.5
-#: An mbbi reading its index unconverted (2 == "ACQUIRING").
+#: An mbbi: the value is the state index, the label names the state it is in.
 MODE_STATE = "SR:DIAG:STRIPLINE:01:MODE:STATE"
 MODE_STATE_VALUE = 2
+#: The label for MODE_STATE_VALUE, and the record's full state list in index
+#: order -- both spelled in ``docker/bench-ioc/bench.db`` as ZRST..THST.
+MODE_STATE_LABEL = "ACQUIRING"
+MODE_STATE_LABELS = ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
 #: A calc record seeded consistently with its inputs, so it is deterministic
 #: from boot rather than only after its first scan.
 SCALED_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:SCALED"

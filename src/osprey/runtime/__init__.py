@@ -435,7 +435,11 @@ def read_channel(channel_address: str, **kwargs) -> Any:
                   - timeout: Operation timeout in seconds
 
     Returns:
-        Current value of the channel
+        Current value of the channel. An enum-typed channel (EPICS mbbi/bi/bo
+        and equivalents) reads as its integer state index; the matching state
+        names ride on the reading's metadata as ``enum_label`` /
+        ``enum_labels``, which the channel_read tool reports and which this
+        value-only helper does not return.
 
     Raises:
         RuntimeError: If read operation fails

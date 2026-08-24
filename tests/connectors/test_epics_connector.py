@@ -692,6 +692,174 @@ class TestChannelAccessAlarmNames:
 
 
 # ---------------------------------------------------------------------------
+# Channel Access enum labels (read + subscribe)
+# ---------------------------------------------------------------------------
+
+
+def _enum_pv(*, value=2, labels=("OFFLINE", "STANDBY", "ACQUIRING", "FAULT"), pv_type="time_enum"):
+    """A fake pyepics PV for an mbbi: an index, and the labels it indexes into."""
+    pv = _connected_pv(value=value)
+    pv.type = pv_type
+    pv.enum_strs = labels
+    return pv
+
+
+class TestChannelAccessEnumLabels:
+    """An mbbi/bi/bo read answers with its index *and* the state that index means.
+
+    The index stays the value — the machine-readable half, and the same type
+    PVAccess reports for the same record — so the labels are carried beside it
+    rather than in place of it. Fetching them costs a ``get_ctrlvars`` round
+    trip to the IOC, so every failure mode of that fetch degrades to "no
+    labels" and never to a failed read: a reading with an index and no label is
+    still a correct answer, a raised read is not.
+    """
+
+    @pytest.mark.asyncio
+    async def test_enum_read_reports_the_index_and_its_labels(self):
+        epics = MagicMock()
+        epics.PV.return_value = _enum_pv(value=2)
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:MODE", timeout=1.0)
+
+        assert result.value == 2  # the index, not "ACQUIRING"
+        assert result.metadata.enum_label == "ACQUIRING"
+        assert result.metadata.enum_labels == ["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"]
+
+    @pytest.mark.asyncio
+    async def test_index_zero_resolves_to_its_label_not_to_nothing(self):
+        """A bi at 0 is a state, not a falsy miss."""
+        epics = MagicMock()
+        epics.PV.return_value = _enum_pv(value=0, labels=("OFF", "ON"))
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:SHUTTER", timeout=1.0)
+
+        assert result.value == 0
+        assert result.metadata.enum_label == "OFF"
+
+    @pytest.mark.asyncio
+    async def test_the_plain_enum_type_spelling_is_recognized_too(self):
+        """pyepics spells it "enum" or "time_enum" depending on the PV's form."""
+        epics = MagicMock()
+        epics.PV.return_value = _enum_pv(value=1, pv_type="enum")
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:MODE", timeout=1.0)
+
+        assert result.metadata.enum_label == "STANDBY"
+
+    @pytest.mark.asyncio
+    async def test_a_non_enum_read_leaves_both_fields_unset(self):
+        """The fields are how a consumer tells an enum channel from a numeric one."""
+        epics = MagicMock()
+        epics.PV.return_value = _connected_pv(value=7.25)
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:CURRENT", timeout=1.0)
+
+        assert result.value == 7.25
+        assert result.metadata.enum_labels is None
+        assert result.metadata.enum_label is None
+
+    @pytest.mark.asyncio
+    async def test_a_failed_label_fetch_still_returns_the_reading(self):
+        """get_ctrlvars is a round trip to the IOC, and it is allowed to fail."""
+        pv = _enum_pv(value=2)
+        type(pv).enum_strs = property(
+            lambda self: (_ for _ in ()).throw(TimeoutError("ctrlvars timed out"))
+        )
+        epics = MagicMock()
+        epics.PV.return_value = pv
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:MODE", timeout=1.0)
+
+        assert result.value == 2  # the read is not lost with the labels
+        assert result.metadata.enum_labels is None
+        assert result.metadata.enum_label is None
+
+    @pytest.mark.asyncio
+    async def test_unreported_labels_leave_the_fields_unset(self):
+        """A PV whose ctrlvars have never been fetched reports enum_strs as None."""
+        epics = MagicMock()
+        epics.PV.return_value = _enum_pv(value=2, labels=None)
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:MODE", timeout=1.0)
+
+        assert result.value == 2
+        assert result.metadata.enum_labels is None
+        assert result.metadata.enum_label is None
+
+    @pytest.mark.asyncio
+    async def test_an_index_past_the_label_list_keeps_the_list(self):
+        """An unresolvable index loses its label, not the states it could not name."""
+        epics = MagicMock()
+        epics.PV.return_value = _enum_pv(value=9, labels=("OFF", "ON"))
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:MODE", timeout=1.0)
+
+        assert result.value == 9
+        assert result.metadata.enum_labels == ["OFF", "ON"]
+        assert result.metadata.enum_label is None
+
+    @pytest.mark.asyncio
+    async def test_subscribe_callback_reports_the_label_from_its_kwargs(self, monkeypatch):
+        """pyepics hands the monitor callback the PV's whole arg set, enum_strs included."""
+        monkeypatch.setattr(
+            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            lambda: __import__("zoneinfo").ZoneInfo("UTC"),
+        )
+        epics = MagicMock()
+        epics.PV.return_value = MagicMock()
+        connector = _connector(epics=epics)
+        received = []
+
+        await connector.subscribe("SR:MODE", received.append)
+        epics_callback = epics.PV.call_args.kwargs["callback"]
+        epics_callback(
+            pvname="SR:MODE",
+            value=3,
+            timestamp=1_750_000_000.0,
+            enum_strs=("OFFLINE", "STANDBY", "ACQUIRING", "FAULT"),
+        )
+        await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
+
+        assert received[0].value == 3
+        assert received[0].metadata.enum_label == "FAULT"
+        assert received[0].metadata.enum_labels == [
+            "OFFLINE",
+            "STANDBY",
+            "ACQUIRING",
+            "FAULT",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_subscribe_callback_without_labels_delivers_the_update_anyway(self, monkeypatch):
+        """Until ctrlvars are fetched pyepics passes enum_strs=None; the update still lands."""
+        monkeypatch.setattr(
+            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            lambda: __import__("zoneinfo").ZoneInfo("UTC"),
+        )
+        epics = MagicMock()
+        epics.PV.return_value = MagicMock()
+        connector = _connector(epics=epics)
+        received = []
+
+        await connector.subscribe("SR:MODE", received.append)
+        epics_callback = epics.PV.call_args.kwargs["callback"]
+        epics_callback(pvname="SR:MODE", value=1, timestamp=1_750_000_000.0, enum_strs=None)
+        await asyncio.sleep(0.01)
+
+        assert received[0].value == 1
+        assert received[0].metadata.enum_label is None
+        assert received[0].metadata.enum_labels is None
+
+
+# ---------------------------------------------------------------------------
 # write_channel — readback alarm reporting and failure classification
 # ---------------------------------------------------------------------------
 

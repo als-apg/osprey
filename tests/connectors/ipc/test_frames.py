@@ -138,6 +138,34 @@ def test_channel_value_result_round_trips_as_a_real_dataclass():
     assert frame.value.metadata.precision == 3
     assert frame.value.metadata.display_high == 500.0
     assert frame.value.metadata.raw_metadata == {"egu": "mA", "count": 1}
+    # Not an enum channel: both enum fields survive as None rather than as
+    # something the far side has to interpret.
+    assert frame.value.metadata.enum_labels is None
+    assert frame.value.metadata.enum_label is None
+
+
+def test_enum_metadata_crosses_the_seam_as_a_list_of_labels():
+    """An mbbi reading keeps both halves across the connector-host boundary.
+
+    The labels arrive as a ``list``: frames are JSON, which has no tuple, so the
+    field is declared a list in :class:`ChannelMetadata` precisely so that what
+    a proxy hands back compares equal to what the connector built.
+    """
+    value = ChannelValue(
+        value=2,
+        timestamp=TS,
+        metadata=ChannelMetadata(
+            alarm_status="NO_ALARM",
+            timestamp=TS,
+            enum_labels=["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"],
+            enum_label="ACQUIRING",
+        ),
+    )
+    frame = _round_trip(frames.encode_result("req-enum", value))
+
+    assert frame.value.value == 2
+    assert frame.value.metadata.enum_label == "ACQUIRING"
+    assert frame.value.metadata.enum_labels == ["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"]
 
 
 def test_batched_read_result_dict_round_trips():
