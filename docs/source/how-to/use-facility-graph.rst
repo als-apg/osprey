@@ -440,9 +440,12 @@ directly:
 
 Two consequences worth knowing before you move anything:
 
-* **Move the port on the hosting deployment and you must move the same number
-  in both persona presets.** They carry their own copy; nothing derives it for
-  them.
+* **Move the port on the hosting deployment and every persona follows.** A
+  persona built beside its deployment is told the store's bolt port from the
+  deployment's own render — the same way it is told the qmd sidecar's port,
+  the Postgres the logbook lives in and the rest (:doc:`build-profiles`) — so
+  nothing in a persona preset restates it, and a persona that restates it
+  with a different number is refused at build time.
 * A ``deployment.bind_address`` pinned to a specific non-loopback interface
   publishes the store there and not on ``localhost``, so the personas would no
   longer reach it. URL-backed panels have the same shape — they name

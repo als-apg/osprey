@@ -177,6 +177,63 @@ Compatibility is documented in release notes, not encoded in the version string.
   theme outside the main family fell back to the dark palette. HTML and table
   artifacts without styling of their own now take the theme's colors too, and
   the print view is always light.
+- Web-terminal personas now reach every service the hosting deployment runs.
+  `osprey build` copies each client-facing fact — the qmd sidecar's port, the
+  graph store's bolt port, the Postgres the logbook lives in, the telemetry
+  store's port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — from the
+  deployment's own render into every persona built beside it, so a service
+  moved on the hosting profile moves every persona with it and the persona
+  presets pin nothing. A persona whose `config:` contradicts one of these
+  facts is refused, naming both values; one built alone is told what its app
+  template deploys. Fixes hybrid logbook search failing in every persona with "no qmd
+  sidecar is configured", and `osprey build` now refuses any consumer switched
+  on with nothing to dial instead of rendering it. **Upgrading:** persona files
+  written by an earlier `osprey init` (`personas/*.yml`) pin these facts
+  themselves (`services.graphdb.port_host`, `web.panels.events.*`,
+  `web.panels.bluesky.*`); `osprey build` refuses each such line by name —
+  delete them, the build supplies the values.
+- The qmd sidecar indexes the logbook mirror again: `qmd_export` wrote the
+  mirror under `build/var/ariel_mirror` while the sidecar mounted
+  `var/ariel_mirror`, so a live deployment searched an empty corpus.
+  Config-relative paths (`mirror_path`, `facility_knowledge.bundle_path`,
+  `ariel.vocabulary.path`) now resolve against the project root, the one
+  anchor the compose mounts already use; `services.graphdb.ttl_path` alone
+  stays relative to the render, because the corpus it names is read from the
+  `data/` tree the build assembles for the project. A deployment
+  with files under the legacy `build/var/ariel_mirror` regenerates the mirror
+  with `osprey ariel qmd-resync`.
+- Agent telemetry from per-user web-terminal containers is delivered again:
+  the exporter posted to `http://openobserve:5080`, a name a host-networked
+  container cannot resolve, and to the store's listen port rather than the
+  port the deployment publishes. Per-user containers now post to the loopback
+  address on `services.openobserve.port`.
+- `osprey health`'s ARIEL rows probe the port the interface actually listens
+  on (`OSPREY_ARIEL_PORT` in multi-user deployments), as the panel rows already
+  did.
+- Persona containers mount the hosting deployment's logbook mirror, so an
+  entry created from a persona is indexed by the sidecar rather than written
+  into the container's writable layer; each user's Python-executor refusal
+  audit is kept on the host under `var/audit/<user>/` instead of being lost on
+  recreate.
+- The Bluesky MCP server and the virtual-accelerator connector follow a
+  bridge or CA port moved on the hosting profile (`services.bluesky.port`,
+  `services.virtual_accelerator.port`) instead of dialing compiled-in defaults.
+- The BLUESKY tab works in web-terminal personas: the bluesky-web sidecar now
+  accepts each user's own operator secret (the one their terminal proxies
+  with) beside the deployment-wide one, for every user whose persona shows the
+  tab — no user's container is handed the deployment secret, and no other
+  process (the host's own `osprey web` included) accepts roster secrets.
+- The EVENTS tab's label and health endpoint are written by the build where
+  its URL is derived, so the tab health-gates itself on the host and in every
+  persona; a web-terminal persona is told exactly the tabs it selects, and is
+  refused rather than rendered tabless when the deployment it was told about
+  runs no such sidecar.
+- The graph channel finder follows the graph store like the graph MCP server
+  does: a persona that switches that server off but keeps the channel finder
+  is still told the store's address.
+- `osprey up` refuses a persona that runs a logbook mirror export the
+  deployment does not write (or writes elsewhere), instead of letting that
+  persona's mirror land in its container's writable layer.
 - The graph channel finder no longer mistakes its own row limit for the whole
   answer: `read_cypher` now warns when a result exactly fills the query's own
   `LIMIT`, the example catalogue gained a census query (count before listing
@@ -313,6 +370,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey health` gained a `reach` category, also shown in the system-health
+  tab inside each user's container: one row per shared service a client is
+  switched on for, knocked on at the address the client itself resolves. A
+  closed port or a client with nothing to dial warns and names the config key.
 - `osprey init` now prints a composition card under its report: who can sign
   in (each user's persona, rights, login method and port), what the agent runs
   on (model, MCP servers, bundled toolkit), what machine it talks to
