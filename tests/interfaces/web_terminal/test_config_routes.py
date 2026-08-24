@@ -199,7 +199,7 @@ def _flip_write_gate(doc):
 
 def _switch_pipeline(doc):
     """Change one unprotected key that still shapes the render."""
-    doc[RENDER_SHAPING_KEY[0]][RENDER_SHAPING_KEY[1]] = "vector"
+    doc[RENDER_SHAPING_KEY[0]][RENDER_SHAPING_KEY[1]] = "in_context"
 
 
 def _add_protected_key(doc):
@@ -497,7 +497,7 @@ class TestRenderZoneReadonlyRegen:
         # The config write itself is untouched by any of this -- it is only the
         # derived render that waits for the restart.
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
-        assert cfg[RENDER_SHAPING_KEY[0]][RENDER_SHAPING_KEY[1]] == "vector"
+        assert cfg[RENDER_SHAPING_KEY[0]][RENDER_SHAPING_KEY[1]] == "in_context"
 
     def test_patch_render_readonly_skips_regen_and_reports_restart(
         self, client, built_project, monkeypatch
@@ -657,7 +657,7 @@ class TestPutProtectedDocument:
 
         assert resp.status_code == 200
         doc = yaml.safe_load((built_project / "config.yml").read_text())
-        assert doc["channel_finder"]["pipeline_mode"] == "vector"
+        assert doc["channel_finder"]["pipeline_mode"] == "in_context"
         assert any("settings.json" in f for f in resp.json()["regenerated"])
 
     def test_put_verbatim_rewrite_passes_the_protected_gate(self, client, built_project):
