@@ -175,7 +175,7 @@ dependencies = [
     # the aioca Channel Access backend the EPICS substrate devices need.
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
-    "tiled[client]>=0.2.14",
+    "tiled[client]>=0.2.15",
     # Bluesky's own client view of a Tiled catalog: `BlueskyRun` /
     # `BlueskyEventStream`, which know how a run's documents are laid out in the
     # catalog so the bridge's read path does not have to. Exact-pinned, like the
