@@ -149,3 +149,118 @@ def test_audit_dir_sits_under_the_state_zone(monkeypatch, tmp_path):
 
     assert refusal_audit.audit_dir() == tmp_path / AUDIT_DIR_RELPATH
     assert refusal_audit.refusal_log_path().name == refusal_audit.REFUSAL_LOG_FILENAME
+
+
+# --- protected-write refusals (framework writers) ---------------------------
+#
+# A second, separate log in the same audit zone: the executor's readonly
+# refusals answer "did an agent try to move the machine", these answer "did an
+# agent try to rewrite the framework that constrains it". Different questions,
+# different files, one zone.
+
+
+def test_protected_refusal_lands_in_its_own_log(audit_root):
+    written = refusal_audit.record_protected_refusal(
+        surface="http_config",
+        target_file="config.yml",
+        key_or_path="control_system.writes_enabled",
+        channel="the write-posture toggle",
+        reason="protected key",
+    )
+
+    assert written == audit_root / refusal_audit.PROTECTED_WRITES_LOG_FILENAME
+    assert written.is_file()
+    # The executor's log is untouched — the two trails do not share a file.
+    assert not (audit_root / refusal_audit.REFUSAL_LOG_FILENAME).exists()
+
+
+def test_protected_refusal_record_carries_every_field(audit_root):
+    refusal_audit.record_protected_refusal(
+        surface="claude_setup",
+        target_file=".claude/settings.json",
+        key_or_path=".claude/settings.json",
+        channel="the profile",
+        reason="reserved path",
+    )
+
+    (record,) = _records(audit_root / refusal_audit.PROTECTED_WRITES_LOG_FILENAME)
+    assert record["surface"] == "claude_setup"
+    assert record["target_file"] == ".claude/settings.json"
+    assert record["key_or_path"] == ".claude/settings.json"
+    assert record["channel"] == "the profile"
+    assert record["reason"] == "reserved path"
+    assert record["ts"].endswith("Z")
+
+
+def test_protected_refusal_log_is_append_only(audit_root):
+    for index in range(3):
+        refusal_audit.record_protected_refusal(
+            surface="scaffold_gallery",
+            target_file=f".claude/rules/{index}.md",
+            key_or_path=f".claude/rules/{index}.md",
+            channel="the profile",
+            reason="reserved path",
+        )
+
+    records = _records(audit_root / refusal_audit.PROTECTED_WRITES_LOG_FILENAME)
+    assert [r["target_file"] for r in records] == [
+        ".claude/rules/0.md",
+        ".claude/rules/1.md",
+        ".claude/rules/2.md",
+    ]
+
+
+def test_protected_refusal_survives_an_unwritable_audit_zone(monkeypatch):
+    """A refused write must never become a traceback because the log failed."""
+
+    def _explode():
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(refusal_audit, "audit_dir", _explode)
+
+    assert (
+        refusal_audit.record_protected_refusal(
+            surface="scaffold_restore",
+            target_file=".claude/rules/evil.md",
+            key_or_path=".claude/rules/evil.md",
+            channel="the profile",
+            reason="reserved path",
+        )
+        is None
+    )
+
+
+def test_protected_refusal_reaches_the_server_log_without_a_file(monkeypatch, caplog):
+    """The durable record is the goal; the log line is the floor under it."""
+
+    def _explode():
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(refusal_audit, "audit_dir", _explode)
+
+    with caplog.at_level("WARNING"):
+        refusal_audit.record_protected_refusal(
+            surface="setup_patch",
+            target_file="config.yml",
+            key_or_path="agent_data.base_dir",
+            channel="the profile",
+            reason="protected key",
+        )
+
+    assert "setup_patch" in caplog.text
+    assert "agent_data.base_dir" in caplog.text
+
+
+def test_protected_refusal_path_rides_the_shared_audit_seam(monkeypatch, tmp_path):
+    """Derived from audit_dir(), not re-spelled — one seam redirects both logs."""
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+
+    monkeypatch.setattr(
+        "osprey.utils.workspace.resolve_project_root", lambda *_args, **_kwargs: tmp_path
+    )
+    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda *_a, **_k: {})
+
+    path = refusal_audit.protected_writes_log_path()
+    assert path.parent == tmp_path / AUDIT_DIR_RELPATH
+    assert path.name == refusal_audit.PROTECTED_WRITES_LOG_FILENAME
+    assert path.name != refusal_audit.REFUSAL_LOG_FILENAME
