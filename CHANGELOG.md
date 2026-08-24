@@ -431,6 +431,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey-connectors` now versions with the framework's calendar stream —
+  both wheels are built from one checkout and carry one number, so the
+  independent `0.x` line (and the question of what counts as a minor) is
+  gone.
 - Docs site: the root now always shows the latest release; development docs
   moved to `/latest/` with a development banner.
 
