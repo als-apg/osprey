@@ -161,6 +161,10 @@
     {
       "path": "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
       "reason": "Runs the claude CLI with a deliberately bogus API key and reads only the pre-model stream-json init record's skills list — no model is ever contacted."
+    },
+    {
+      "path": "tests/e2e/test_target_switch_agentic.py",
+      "reason": "Docker-bound two-container fixture, bespoke pinned init."
     }
   ],
   "baseline_expected_run_min": 15
