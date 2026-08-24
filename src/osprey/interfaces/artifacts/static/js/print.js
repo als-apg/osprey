@@ -146,8 +146,11 @@ function openBlobAndPrint(html) {
 /** @param {any} a */
 function printIframe(a) {
   // openUrl() owns the type -> URL mapping (rendered endpoints for
-  // markdown/notebook, raw file URL otherwise).
-  const url = openUrl(a);
+  // markdown/notebook, raw file URL otherwise). The theme is pinned to
+  // light, not the gallery's: printed output stays light-on-white (see
+  // PRINT_STYLES), and the `@media print` body repaint below cannot undo
+  // colors a themed Plotly page has already written into its SVG.
+  const url = openUrl(a, "light");
 
   const w = window.open(url, "_blank", "width=900,height=700");
   if (!w) {

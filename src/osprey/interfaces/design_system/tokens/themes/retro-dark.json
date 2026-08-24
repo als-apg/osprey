@@ -136,6 +136,8 @@
     "plot-bg": { "$value": "{color.slate.1000}", "$type": "color" },
     "grid": { "$value": "rgba(139, 154, 181, 0.1)", "$type": "color", "$description": "text.secondary base (#8b9ab5) at 10% alpha — tuning's exact dark-mode grid value." },
     "axis-text": { "$value": "{color.slate.600}", "$type": "color" },
+    "pane-bg": { "$value": "{color.slate.850}", "$type": "color", "$description": "3D scene axis panes (Plotly scene.*axis.backgroundcolor): bg.secondary, one step off the plot canvas." },
+    "axis-line": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color", "$description": "Axis and legend lines (Plotly *.linecolor, legend.bordercolor): border.default, slate at 12% alpha." },
     "series": {
       "$description": "Canonical 6-slot categorical palette = tuning's COLORS.bo_palette verbatim (all 6 steps already existed as ramp aliases). Artifacts' own 8-color array (which adds #d4a574 and an unratified pink #e879f9 not in any of the 7 approved ramp families) is NOT carried forward; artifacts' migration (Task 3.1, out of this task's scope) maps down to these 6 slots.",
       "1": { "$value": "{color.teal.100}", "$type": "color" },

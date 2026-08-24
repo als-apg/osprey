@@ -47,6 +47,11 @@ async def create_interactive_plot(
     You MUST call ``save_artifact(fig, "title")`` on your Plotly figure to
     produce output — figures are not auto-captured.
 
+    Leave backgrounds, font colors, and grid colors unset (no ``template=``,
+    ``paper_bgcolor``, ``plot_bgcolor`` or ``font.color``): the gallery
+    re-themes every interactive plot to the operator's active theme, and
+    hand-picked page colors fight that. Trace colors are kept as you set them.
+
     Args:
         code: Python code using Plotly to create interactive charts.
         title: Human-readable title for the chart.

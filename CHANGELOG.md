@@ -113,6 +113,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   control system turned it down, and that no value was written, so the
   operator is not sent to check OSPREY's own write settings for access the
   control system grants.
+- Interactive plot artifacts now follow the active theme everywhere: opened in
+  their own tab ("Open in new tab"), on first visit with a deployment-pinned
+  `web.theme`, and under every theme family — not just light/dark inside the
+  gallery. Previously a standalone plot page always rendered dark, and any
+  theme outside the main family fell back to the dark palette. HTML and table
+  artifacts without styling of their own now take the theme's colors too, and
+  the print view is always light.
 - The graph channel finder no longer mistakes its own row limit for the whole
   answer: `read_cypher` now warns when a result exactly fills the query's own
   `LIMIT`, the example catalogue gained a census query (count before listing

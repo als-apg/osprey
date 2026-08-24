@@ -44,9 +44,24 @@
  * @module artifact-viewport
  */
 
+import { getTheme } from "/design-system/js/theme-manager.js";
 import { fileUrl } from "./state.js";
-import { escapeHtml, hasTimeseriesData } from "./types.js";
+import { escapeHtml, hasTimeseriesData, withTheme } from "./types.js";
 import { renderMarkdownView, renderJsonView } from "./preview-content.js";
+
+/**
+ * The src for an embedded artifact page: the URL stamped with the theme the
+ * gallery is showing right now, so the page first-paints in it (its own
+ * theme-boot.js honors `?theme=` first). Without this a freshly mounted
+ * preview resolves a theme of its own -- from storage this follower never
+ * writes, or the OS -- and can boot dark inside a light gallery until the
+ * next theme change reaches it.
+ * @param {string} url
+ * @returns {string}
+ */
+function embedSrc(url) {
+  return withTheme(url, getTheme());
+}
 
 /**
  * Build the viewport markup for one artifact.
@@ -74,9 +89,9 @@ export function artifactViewportHtml(a) {
     case "table_html":
     case "dashboard_html":
     case "html":
-      return `<iframe src="${fileUrl(a)}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      return `<iframe src="${embedSrc(fileUrl(a))}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
     case "notebook":
-      return `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      return `<iframe src="${embedSrc(`/api/notebooks/${encodeURIComponent(a.id)}/rendered`)}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
     case "plot_png":
     case "image":
       return `<img src="${fileUrl(a)}" alt="${escapeHtml(a.title)}" />`;

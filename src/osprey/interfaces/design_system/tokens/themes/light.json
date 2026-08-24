@@ -139,6 +139,8 @@
     "plot-bg": { "$value": "{color.gray.100}", "$type": "color" },
     "grid": { "$value": "rgba(110, 110, 119, 0.1)", "$type": "color", "$description": "text.secondary base (#6e6e77) at 10% alpha, mirroring dark's grid formula." },
     "axis-text": { "$value": "{color.gray.500}", "$type": "color" },
+    "pane-bg": { "$value": "{color.gray.150}", "$type": "color", "$description": "3D scene axis panes (Plotly scene.*axis.backgroundcolor): bg.secondary, one step off the plot canvas." },
+    "axis-line": { "$value": "{color.gray.200}", "$type": "color", "$description": "Axis and legend lines (Plotly *.linecolor, legend.bordercolor): border.default." },
     "series": {
       "1": { "$value": "{color.teal.400}", "$type": "color" },
       "2": { "$value": "{color.amber.600}", "$type": "color" },

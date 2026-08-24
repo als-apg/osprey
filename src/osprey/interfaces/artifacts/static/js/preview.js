@@ -52,6 +52,9 @@ import {
 import { artifactViewportHtml, mountArtifactViewport } from "./artifact-viewport.js";
 import { injectLogbookButtons } from "./logbook.js";
 import { injectPrintButton } from "./print.js";
+// Only for the "Open in new tab" link, which carries the theme in force —
+// the standalone page it opens has no hub to follow (see openUrl()).
+import { getTheme } from "/design-system/js/theme-manager.js";
 
 /**
  * Nudge the preview's embedded media to re-measure after a fullscreen
@@ -149,7 +152,7 @@ export function createPreviewRenderer(callbacks) {
           <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
           </button>
-          <a href="${openUrl(a)}" target="_blank" class="btn-action-icon" title="Open in new tab">
+          <a href="${openUrl(a, getTheme())}" data-theme-link target="_blank" class="btn-action-icon" title="Open in new tab">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
           </a>
           <button class="btn-action-icon btn-action-danger" id="preview-delete" title="Delete artifact">
