@@ -425,9 +425,6 @@ removes both the allowlist entry and the pattern new components inherit.
 | `scaffold/10-prompt-gallery.css` | Prompt gallery |
 | `scaffold/20-memory-gallery.css` | Memory gallery ("Lab Notebook") |
 | `scaffold/30-config-structured-renderers.css` | Structured renderers for `settings.json`/`.mcp.json` |
-| `scaffold/40-settings-json-interactive-editor.css` | Interactive `settings.json` editor |
-| `scaffold/50-interactive-drag-and-drop-permission-entries.css` | Drag-and-drop permission entries |
-| `scaffold/60-ownership-warning-modal.css` | Ownership warning modal |
 
 ## 8. Preview
 

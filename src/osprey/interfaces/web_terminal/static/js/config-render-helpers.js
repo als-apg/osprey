@@ -2,15 +2,11 @@
 /* OSPREY Web Terminal — shared config-renderer helpers
  *
  * A small neutral leaf module for the helpers `renderSettingsJson`
- * (config-renderers.js), `renderSettingsJsonEditor` (settings-editor.js),
- * and `renderMcpJson` (mcp-renderer.js) need: a section-header builder, the
- * permission-entry grouping logic, and the per-event hooks tree renderer.
- * Keeping these in a neutral leaf dissolves what would otherwise be two
- * circular imports (config-renderers.js <-> settings-editor.js and
- * config-renderers.js <-> mcp-renderer.js) into plain one-directional
- * dependencies: this module has no dependency on any of its three
- * consumers, so none of them need to import from each other to share this
- * logic.
+ * (config-renderers.js) and `renderMcpJson` (mcp-renderer.js) share: a
+ * section-header builder, the permission-entry grouping logic, and the
+ * per-event hooks tree renderer. Living in a leaf of its own keeps the two
+ * consumers independent: neither renderer imports from the other to reach
+ * this logic, and this module imports from neither.
  *
  * @module config-render-helpers
  */
@@ -101,10 +97,9 @@ function _countHooks(hookGroups) {
  * Render the collapsible per-event hooks tree: one `.config-hook-event` per
  * event with a chevron + name + count-badge header (click toggles
  * `expanded`), matcher groups, and per-hook script-name/timeout entries.
- * Shared by the read-only settings.json renderer (config-renderers.js) and
- * the editor's read-only Hooks section (settings-editor.js); each caller
- * wraps the fragment in its own titled section. Text lands via textContent
- * only — no HTML sink.
+ * Used by the read-only settings.json renderer (config-renderers.js),
+ * which wraps the fragment in its own titled section. Text lands via
+ * textContent only — no HTML sink.
  *
  * @param {Record<string, HookGroup[]>} hooks
  * @returns {DocumentFragment}
