@@ -21,6 +21,7 @@ carries one handle. A repo has three zones the helpers resolve internally:
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import shutil
@@ -928,6 +929,11 @@ class HookEvent:
     tool_input: dict
     decision: str  # "allow" or "deny"
     reason: str | None = None
+    # The hook's own ``permissionDecisionReason``, as the SDK reports it on the
+    # permission context. ``reason`` above records what the *test policy* did;
+    # this records what the *hook* said, which is what a test asserting on hook
+    # wording needs.
+    decision_reason: str | None = None
 
 
 @dataclass
@@ -937,11 +943,59 @@ class HookObservedResult(SDKWorkflowResult):
     hook_events: list[HookEvent] = field(default_factory=list)
 
 
+def _bind_approval_policy(
+    policy: Callable[..., bool],
+) -> Callable[[str, dict[str, Any], Any], bool]:
+    """Normalise a custom approval policy to one uniform three-argument shape.
+
+    A policy may be written either as ``(tool_name, tool_input) -> bool`` or as
+    ``(tool_name, tool_input, context) -> bool``. Which one it is, is decided
+    here by explicit signature inspection, once, before any tool call — never by
+    catching ``TypeError`` from a call, which would silently swallow a
+    ``TypeError`` raised *inside* a three-argument policy and turn a real bug
+    into a mysterious approval.
+
+    A policy whose signature cannot be inspected (a C-level callable, say) is
+    treated as the two-argument form, which is the shape every policy predating
+    the context argument has. A third positional parameter counts as the
+    context slot even when it carries a default.
+    """
+    try:
+        parameters = list(inspect.signature(policy).parameters.values())
+    except (TypeError, ValueError):
+        parameters = []
+
+    takes_context = any(
+        parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters
+    ) or (
+        len(
+            [
+                parameter
+                for parameter in parameters
+                if parameter.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+        )
+        >= 3
+    )
+
+    if takes_context:
+        return policy
+
+    def _call_without_context(tool_name: str, tool_input: dict[str, Any], context: Any) -> bool:
+        return policy(tool_name, tool_input)
+
+    return _call_without_context
+
+
 async def run_sdk_query_with_hooks(
     repo: Path,
     prompt: str,
     *,
-    approval_policy: Callable[[str, dict[str, Any]], bool] | str = "auto_approve",
+    approval_policy: Callable[..., bool] | str = "auto_approve",
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
     model: str | None = None,
@@ -957,9 +1011,14 @@ async def run_sdk_query_with_hooks(
     The ``approval_policy`` controls what happens when a hook returns "ask":
     - ``"auto_approve"`` — always approve (hooks still run, but "ask" → allow)
     - ``"auto_deny"`` — always deny (test that denial propagates correctly)
-    - callable — custom ``(tool_name, tool_input) -> bool`` for fine-grained control
+    - callable — custom fine-grained control, written either as
+      ``(tool_name, tool_input) -> bool`` or, when it needs to see why the hook
+      asked, as ``(tool_name, tool_input, context) -> bool``. Which form a
+      policy has is decided from its signature, so both work unchanged.
 
-    Every callback invocation is recorded in ``hook_events`` for observability.
+    Every callback invocation is recorded in ``hook_events`` for observability,
+    including the hook's own ``permissionDecisionReason`` as
+    ``HookEvent.decision_reason``.
 
     Args:
         repo: Deployment repo root (what :func:`init_project` returns). The
@@ -983,6 +1042,8 @@ async def run_sdk_query_with_hooks(
     """
     hook_events: list[HookEvent] = []
     stderr_lines: list[str] = []
+    # Inspect the policy's arity once, here, rather than on every tool call.
+    policy_call = _bind_approval_policy(approval_policy) if callable(approval_policy) else None
 
     async def _can_use_tool(
         tool_name: str,
@@ -994,8 +1055,8 @@ async def run_sdk_query_with_hooks(
             should_allow = True
         elif approval_policy == "auto_deny":
             should_allow = False
-        elif callable(approval_policy):
-            should_allow = approval_policy(tool_name, tool_input)
+        elif policy_call is not None:
+            should_allow = policy_call(tool_name, tool_input, context)
         else:
             raise ValueError(f"Invalid approval_policy: {approval_policy!r}")
 
@@ -1007,6 +1068,7 @@ async def run_sdk_query_with_hooks(
             reason=f"approval_policy={approval_policy!r}"
             if isinstance(approval_policy, str)
             else "custom_policy",
+            decision_reason=context.decision_reason,
         )
         hook_events.append(event)
 
