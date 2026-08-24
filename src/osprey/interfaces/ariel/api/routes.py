@@ -912,8 +912,13 @@ async def update_config(request: Request, req: ConfigUpdateRequest) -> dict:
     except yaml.YAMLError as e:
         raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}") from e
 
-    bak = path.with_suffix(".yml.bak")
-    bak.write_text(path.read_text())
+    # Into the agent-data state zone, not beside the config: this file lives in
+    # the render, which the container split makes root-owned, and creating a new
+    # file there would fail before a byte of the save was written. See
+    # osprey.utils.config_writer.CONFIG_BACKUP_DIRNAME.
+    from osprey.utils.config_writer import write_config_backup
+
+    write_config_backup(path)
 
     # fsync for crash safety
     fd = os.open(str(path), os.O_WRONLY | os.O_TRUNC | os.O_CREAT)

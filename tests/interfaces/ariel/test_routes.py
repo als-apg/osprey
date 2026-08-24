@@ -706,3 +706,58 @@ def test_capabilities_advertises_default_mode(client, mock_ariel_service):
 
     assert response.status_code == 200
     assert response.json()["default_mode"] == "keyword"
+
+
+def test_put_config_backs_up_into_the_state_zone(client, tmp_path):
+    """ARIEL's config save copies the old file into the agent-data state zone.
+
+    Not beside ``config.yml``. That file lives in the render, which the container
+    split makes root-owned: creating a *new* file next to it needs write
+    permission on the render directory that the admin image will not have, and
+    the backup runs before a byte of the save is written -- so the old sibling
+    scheme would have turned every ARIEL config save in that image into a 500.
+    Anchored on the directory the route already resolves its config path in.
+    """
+    from osprey.utils.config_writer import config_backup_path
+
+    config_path = tmp_path / "config.yml"
+    original = "project_name: original\n"
+    config_path.write_text(original)
+    client.app.state.config_path = config_path
+
+    response = client.put("/api/config", json={"content": "project_name: updated\n"})
+
+    assert response.status_code == 200
+    assert config_path.read_text() == "project_name: updated\n"
+
+    backup = config_backup_path(config_path)
+    assert backup.read_text() == original
+    assert backup.parent.name == "config-backups"
+    # The point of the move: nothing new lands next to the config itself.
+    assert not (tmp_path / "config.yml.bak").exists()
+    assert [f.name for f in tmp_path.iterdir() if f.suffix == ".bak"] == []
+
+
+def test_put_config_backup_follows_a_relocated_agent_data_root(client, tmp_path):
+    """The zone is read from the config being written, never assumed.
+
+    Resolved from the *pre-write* file, which is the only reading that makes
+    sense: the backup is a copy of what is there now, so it belongs in the zone
+    that config names now. This request happens to drop ``agent_data`` on its
+    way past, and the copy of the old file still lands where the old file said.
+    """
+    from osprey.utils.config_writer import config_backup_path
+
+    relocated = tmp_path / "elsewhere" / "state"
+    config_path = tmp_path / "config.yml"
+    original = f"agent_data:\n  base_dir: {relocated}\nproject_name: original\n"
+    config_path.write_text(original)
+    expected = config_backup_path(config_path)
+    assert expected == relocated / "config-backups" / "config.yml.bak"
+    client.app.state.config_path = config_path
+
+    response = client.put("/api/config", json={"content": "project_name: updated\n"})
+
+    assert response.status_code == 200
+    assert expected.read_text() == original
+    assert not (tmp_path / "var").exists()
