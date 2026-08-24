@@ -609,3 +609,200 @@ class TestEnvironmentValidation:
             profile.validate(tmp_path)
         assert "environment.python not found" in str(excinfo.value)
         assert "inherit_exclude" not in str(excinfo.value)
+
+
+# ── config: claude_code.permissions — refused shapes and spellings ────
+#
+# The build composes these lists in three places (the settings.json render,
+# `build_cmd._profile_setup_patch_capable`, and
+# `profile_conventions.is_setup_patch_capable`), and a value that is not a list
+# of strings makes them disagree in BOTH directions at once. So the profile is
+# refused rather than guessed at, and each reader may then assume a list.
+
+
+SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
+
+
+def _profile_with_config(config: dict) -> dict:
+    return {"name": "x", "config": config}
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(SETUP_PATCH, "bare string", id="bare_string"),
+        pytest.param({"tool": SETUP_PATCH}, "dict", id="mapping"),
+        pytest.param(7, "int", id="int"),
+        pytest.param(None, "NoneType", id="null"),
+        pytest.param([SETUP_PATCH, 7], "7", id="list_with_an_int"),
+        pytest.param([SETUP_PATCH, ""], "''", id="list_with_an_empty_string"),
+    ],
+)
+def test_a_misshapen_permission_list_is_refused(value: object, expected: str) -> None:
+    """Every non-list spelling is named, with the key that carries it."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(_profile_with_config({"claude_code.permissions.deny": value}))
+
+    message = str(excinfo.value)
+    assert "claude_code.permissions.deny" in message
+    assert expected in message
+    # And it says what shape was wanted, not merely that this one is wrong.
+    assert "list of non-empty tool-matcher strings" in message
+
+
+def test_the_bare_string_refusal_says_why_the_render_cannot_take_it() -> None:
+    """The reason is the render's, not a style rule: it ITERATES the value."""
+    with pytest.raises(BuildProfileError, match="one entry per character"):
+        _parse_profile(_profile_with_config({"claude_code.permissions.deny": SETUP_PATCH}))
+
+
+@pytest.mark.parametrize("key", ["allow", "ask", "deny", "remove_ask", "remove_deny"])
+def test_every_permissions_list_key_is_checked(key: str) -> None:
+    """All five, not only the two the setup-capability check reads — each one is
+    rendered by iterating it, so each one has the same failure mode."""
+    with pytest.raises(BuildProfileError, match=f"claude_code.permissions.{key}"):
+        _parse_profile(_profile_with_config({f"claude_code.permissions.{key}": "Bash"}))
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"claude_code": {"permissions": {"deny": SETUP_PATCH}}}, id="nested_block"),
+        pytest.param(
+            {"claude_code.permissions": {"deny": SETUP_PATCH}}, id="dotted_permissions_mapping"
+        ),
+    ],
+)
+def test_the_nested_spellings_are_refused_equally(config: dict) -> None:
+    """`config_update_fields` takes all three spellings to the same rendered
+    leaf, so a check that saw only the flattest one would wave the others
+    through to the render."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(_profile_with_config(config))
+
+    message = str(excinfo.value)
+    assert "claude_code.permissions.deny" in message
+    assert "nested under" in message
+
+
+def test_a_well_shaped_permission_list_parses() -> None:
+    """The refusal is about shape alone — a list of strings is untouched."""
+    profile = _parse_profile(
+        _profile_with_config(
+            {
+                "claude_code.permissions.deny": [SETUP_PATCH, "Bash"],
+                "claude_code.permissions.remove_deny": [],
+                "claude_code.permissions.allow": ["Read"],
+            }
+        )
+    )
+    assert profile.config["claude_code.permissions.deny"] == [SETUP_PATCH, "Bash"]
+
+
+def test_a_config_block_spelling_claude_code_both_ways_is_refused() -> None:
+    """The privilege bug this closes.
+
+    `config_update_fields` sets each dotted path verbatim, so a bare
+    `claude_code` key applied after a dotted one REPLACES the whole subtree: this
+    profile renders a config.yml carrying the deny and NO remove_deny — its
+    settings.json denies the tool — while `_profile_setup_patch_capable` unions
+    both spellings, reads the lift, and chowns build/config.yml to the agent.
+    """
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(
+            _profile_with_config(
+                {
+                    "claude_code.permissions.remove_deny": [SETUP_PATCH],
+                    "claude_code": {"permissions": {"deny": [SETUP_PATCH]}},
+                }
+            )
+        )
+
+    message = str(excinfo.value)
+    # Both keys named: an operator must be able to see which two lines collide.
+    assert "'claude_code'" in message
+    assert "'claude_code.permissions.remove_deny'" in message
+    assert "discarded silently" in message
+
+
+def test_the_mixed_spelling_refusal_names_every_dotted_key() -> None:
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(
+            _profile_with_config(
+                {
+                    "claude_code.provider": "anthropic",
+                    "claude_code.permissions.deny": [SETUP_PATCH],
+                    "claude_code": {"default_model": "opus"},
+                }
+            )
+        )
+
+    message = str(excinfo.value)
+    assert "'claude_code.permissions.deny'" in message
+    assert "'claude_code.provider'" in message
+
+
+def test_a_middle_split_key_beside_a_dotted_one_is_refused() -> None:
+    """The split point the original refusal did not cover.
+
+    `claude_code.permissions:` holding a `deny` list is neither the bare nested
+    mapping nor a leaf key, so the old rule (bare key + any dotted key) let it
+    through — while `config_update_fields` renders whichever of the two comes
+    last, measured. Same hazard, same refusal.
+    """
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile(
+            _profile_with_config(
+                {
+                    "claude_code.permissions": {"deny": [SETUP_PATCH]},
+                    "claude_code.permissions.deny": ["Bash"],
+                }
+            )
+        )
+
+    message = str(excinfo.value)
+    assert "'claude_code.permissions'" in message
+    assert "'claude_code.permissions.deny'" in message
+    assert "discarded silently" in message
+
+
+def test_sibling_claude_code_keys_are_not_a_collision() -> None:
+    """Only a PREFIX pair is ambiguous — two leaves side by side render both."""
+    profile = _parse_profile(
+        _profile_with_config(
+            {
+                "claude_code.permissions.deny": [SETUP_PATCH],
+                "claude_code.permissions.allow": ["Read"],
+            }
+        )
+    )
+    assert profile.config["claude_code.permissions.deny"] == [SETUP_PATCH]
+
+
+def test_either_claude_code_spelling_alone_is_fine() -> None:
+    """Only the MIX is ambiguous. Both spellings remain individually valid —
+    the presets write dotted keys, and nothing forbids a nested block."""
+    dotted = _parse_profile(_profile_with_config({"claude_code.provider": "anthropic"}))
+    assert dotted.config["claude_code.provider"] == "anthropic"
+    nested = _parse_profile(
+        _profile_with_config({"claude_code": {"permissions": {"deny": [SETUP_PATCH]}}})
+    )
+    assert nested.config["claude_code"]["permissions"]["deny"] == [SETUP_PATCH]
+
+
+@pytest.mark.parametrize(
+    "preset",
+    [
+        "control-assistant",
+        "control-assistant-readonly",
+        "control-assistant-readwrite",
+        "control-assistant-ariel",
+        "control-assistant-admin",
+        "hello-world",
+    ],
+)
+def test_the_shipped_presets_pass_both_refusals(preset: str) -> None:
+    """The refusals must not cost anything the project already ships. Resolved
+    through the real path, so an `extends` parent's spelling counts too."""
+    profile, _ = bp.resolve_build_profile(None, preset=preset)
+    assert profile.name

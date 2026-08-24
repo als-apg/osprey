@@ -87,6 +87,7 @@ EXEMPLAR_DIRNAME = "als-exemplar"
 #: logbook terminal the stack runs beside them.
 EXEMPLAR_PRESET = "control-assistant"
 PERSONA_PRESETS: Mapping[str, str] = {
+    "admin": "control-assistant-admin",
     "ariel": "control-assistant-ariel",
     "readonly": "control-assistant-readonly",
     "readwrite": "control-assistant-readwrite",
@@ -200,7 +201,8 @@ rules:
 skills:
   - diagnose        # Run a structured fault-diagnosis workflow
   # setup-mode is left out on purpose: it can edit config.yml and .mcp.json,
-  # which is admin work. Add it to an admin-facing profile to turn it on.
+  # which is admin work. The `control-assistant-admin` persona adds it back,
+  # which is where an admin-facing profile of your own should start too.
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
@@ -290,6 +292,33 @@ config:
   # write and launch plans, and run read-only health checks.
   claude_code.servers.bluesky.enabled: true
   claude_code.servers.health.enabled: true
+  # ── Tier floor ─────────────────────────────────────────────────────────────
+  # The privileges every tier built from this preset starts WITHOUT. Each key
+  # here is off at the bottom and lifted back on by exactly the tier that is
+  # meant to have it, so a new persona inherits the restricted posture by
+  # default and a privilege is something a profile has to ask for by name.
+  #
+  # The agent's own deployment-editing tool. It rewrites this repo's profile
+  # and config, which is administration, not control-room work — so the base
+  # takes it away and the admin tier lifts it back with
+  # `claude_code.permissions.remove_deny`.
+  #
+  # Deliberately a `deny` and NOT a base-level `remove_ask`. String lists UNION
+  # across `extends`: a child can add to an inherited list but never subtract
+  # from it, so a `remove_ask` written here would leak into EVERY tier —
+  # including admin — and strip the approval prompt the admin tier relies on to
+  # keep the tool supervised. `deny` inverts that: it is subtractable per tier
+  # via `remove_deny`, which is the direction a floor has to work in.
+  claude_code.permissions.deny:
+    - mcp__osprey_workspace__setup_patch
+  # The web Config panel edits the running deployment's configuration from the
+  # browser. Same reasoning as the tool above: administration, so it is off
+  # here and turned back on by the admin tier alone.
+  web.config_panel.enabled: false
+  # The scaffold gallery stays READABLE at every tier — browsing the prompt and
+  # skill library is ordinary work. What this turns off is writing to it: the
+  # gallery's edit, create and delete surfaces are shared deployment state.
+  web.scaffold_gallery.write_enabled: false
   # system.timezone: America/Los_Angeles
   # Your facility's name, used in the agent's prompts and on the web landing
   # page. Defaults to the deployment name.
@@ -379,6 +408,15 @@ config:
         display_name: "ARIEL Logbook Research"
         # Read-only research service, open without a login on purpose.
         login: false
+      # The one login that can change this deployment's configuration — the web
+      # Config panel, the scaffold gallery's editors, and the agent's own setup
+      # tool. Behind the login wall like every other person on this page: an
+      # admin card without one would hand deployment edits to anyone who opens
+      # it. Last in the roster so the operator cards stay where they are.
+      - name: carol
+        index: 3
+        persona: admin
+        display_name: "Deployment Admin (Carol)"
     personas:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
@@ -390,6 +428,10 @@ config:
         project: als-exemplar-readwrite
         project_path: build/als-exemplar-readwrite
         build_profile: personas/readwrite.yml
+      admin:
+        project: als-exemplar-admin
+        project_path: build/als-exemplar-admin
+        build_profile: personas/admin.yml
       ariel:
         project: als-exemplar-ariel
         project_path: build/als-exemplar-ariel
@@ -424,6 +466,7 @@ env:
   defaults:
     OSPREY_AUTH_PW_ALICE: alice
     OSPREY_AUTH_PW_BOB: bob
+    OSPREY_AUTH_PW_CAROL: carol
 data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.9.0'
@@ -780,6 +823,67 @@ config:
   web.panels.bluesky.path: /bluesky/
 """
 
+PERSONA_ADMIN_YML = """\
+# Als Exemplar (admin) — settings for one web login
+#
+# Only the differences from profile.yml belong here. The build merges this
+# file over that one, picking up any edit you make there. To see the combined
+# result:
+#   osprey validate personas/admin.yml
+#
+# Made from the bundled `control-assistant-admin` preset.
+#
+#   emitted by OSPREY @OSPREY_VERSION@
+#   preset content hash: @PRESET_HASH:control-assistant-admin@
+
+name: Als Exemplar (admin)
+
+# Attached render: this persona builds per-user terminal images only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the injector blocks inherited from the base are
+# all gated on this flag and skip cleanly.
+deploy_services: false
+
+# The guided configuration workflow, left out of the base on purpose because it
+# edits config.yml and .mcp.json. Skill lists UNION over the base, so this is
+# added to the inherited selection rather than replacing it.
+skills:
+  - setup-mode      # Inspect the deployment's configuration and patch it
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The admin tier sits above readwrite: it keeps the write-armed control
+  # posture and adds deployment editing on top. Pinned here, like the two
+  # tiers beneath it pin their own side, so the boundary cannot drift if the
+  # base's default ever changes.
+  control_system.writes_enabled: true
+  # The axis this tier is defined by: the three privileges the base floors, all
+  # lifted here and nowhere else.
+  #
+  # The deployment-editing tool. `remove_deny` subtracts the base's deny for
+  # this render alone — the direction a floor has to be lifted in, since string
+  # lists only ever union across `extends`. What is left is the `ask` entry the
+  # workspace server declares, which routes the call through the approval hook.
+  claude_code.permissions.remove_deny:
+    - mcp__osprey_workspace__setup_patch
+  # The same capability from the browser: the web Config panel edits the
+  # running deployment's configuration.
+  web.config_panel.enabled: true
+  # The gallery is readable at every tier; this turns its edit, create and
+  # delete surfaces back on. Its contents are shared deployment state, which is
+  # exactly what this tier is for.
+  web.scaffold_gallery.write_enabled: true
+  # Full split-pane terminal + workspace layout: the Config panel and the
+  # gallery editors need the panel area. Pinned rather than left to the server
+  # default, for the same reason the other tiers pin theirs.
+  web.ui_mode: expert
+  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
+  # containers). Without this override the inherited roster would make this
+  # render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false
+"""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — dispatch triggers
@@ -972,6 +1076,7 @@ DISPATCH_WORKER_TOKEN=
 # your facility needs a different value.
 OSPREY_AUTH_PW_ALICE=alice
 OSPREY_AUTH_PW_BOB=bob
+OSPREY_AUTH_PW_CAROL=carol
 
 # Runtime overrides (optional - for advanced use cases)
 #LOCAL_PYTHON_VENV=/path/to/your/venv/bin/python
@@ -1368,6 +1473,7 @@ if wants web; then
   probe_http 'terminal (alice)'  http://localhost:9091/health
   probe_http 'terminal (bob)'    http://localhost:9092/health
   probe_http 'terminal (ariel)'  http://localhost:9093/health
+  probe_http 'terminal (carol)'  http://localhost:9094/health
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────
@@ -1691,6 +1797,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "personas/ariel.yml": PERSONA_ARIEL_YML,
     "personas/readonly.yml": PERSONA_READONLY_YML,
     "personas/readwrite.yml": PERSONA_READWRITE_YML,
+    "personas/admin.yml": PERSONA_ADMIN_YML,
     "web-terminal-context/alice/.gitkeep": "",
     "web-terminal-context/ariel/.gitkeep": "",
     "web-terminal-context/bob/.gitkeep": "",

@@ -26,8 +26,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
     # A digest here is the resolved content of the preset AND of every preset
-    # that extends it, so a change in a base moves all four control-assistant
-    # entries together. Last moved when the bluesky-web sidecar shed its
+    # that extends it, so a change in the base moves every control-assistant
+    # entry with it. Last moved when the bluesky-web sidecar shed its
     # panels-era name, a deploy-visible change (the panel's backing service
     # and its config keys are renamed). Comment rewrites cannot move a digest
     # (`_hash_resolved_profile` hashes resolved canonical JSON and says so);
@@ -38,7 +38,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # signal, not noise.
     # Moved when the control-assistant preset turned password login on for its
     # web terminals (auth stanza, ariel's `login: false`, demo passwords under
-    # `env.defaults`). All four moved together, as the note above predicts.
+    # `env.defaults`). Every control-assistant entry moved together, as the
+    # note above predicts.
     # Moved again when pymongo became a core OSPREY dependency and the preset
     # dropped its `dependencies: [pymongo>=4.0]` line. Behavior-neutral for a
     # rebuilt project — pymongo still lands in its venv, now from the base
@@ -52,15 +53,41 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # deploy-visible, so the staleness advisory firing on already-deployed
     # projects is correct. `control-assistant-ariel` excludes the skill by
     # name, so only the notices moved its digest.
-    "control-assistant": "sha256:5ef6bbfb2b06cdba889a5c0484eedb9d885a89c5148c00f6f89bca31034beceb",
+    #
+    # Moved again — and the family grew a fifth member — when the base gained
+    # its TIER FLOOR and the admin tier shipped. Two deploy-visible deltas,
+    # both landing on the base and therefore on all four presets that extend
+    # it:
+    #
+    #   * The floor itself. The base now denies
+    #     `mcp__osprey_workspace__setup_patch` and pins
+    #     `web.config_panel.enabled: false` and
+    #     `web.scaffold_gallery.write_enabled: false`, so a rebuilt project's
+    #     settings.json grows a deny entry and its config.yml flips two keys
+    #     from the app template's permissive defaults to false:
+    #     the agent loses its deployment-editing tool and the browser loses the
+    #     Config panel and the gallery's editors.
+    #   * The roster. A third login (`carol`, persona `admin`) and its
+    #     `OSPREY_AUTH_PW_CAROL` default join the base's web-terminals block,
+    #     alongside the `admin` persona catalog entry — so a rebuilt hosting
+    #     project grows a landing card, a terminal container and a per-user
+    #     port in every family.
+    #
+    # `control-assistant-admin` is the new entry, not a moved one: it is the
+    # single tier that lifts the floor back off (`remove_deny` for the tool,
+    # both web keys back to true) and adds the `setup-mode` skill.
+    "control-assistant": "sha256:c2580d4cba3d75bde82b48253ca868183613a72bc07ea7cd2a32892a6727d35d",
+    "control-assistant-admin": (
+        "sha256:1d62d699542857cf35b73d79f3415e90f6410fa10072622f5580ddba8d3cbf28"
+    ),
     "control-assistant-ariel": (
-        "sha256:db36e1df06e55b0fd47d9e93ccb84101f2b9868152ba922d2827c8fa133a9db5"
+        "sha256:c7e3ab5cb33a1a776fb0895f7fa6e02e000b541381aca12d8a8c2755f63419d4"
     ),
     "control-assistant-readonly": (
-        "sha256:23caeed80df2874008f26cbc6f06712f230fa11f9e8666e77590dac7729c2640"
+        "sha256:1ebaf50379bffe7c793ba412aa2f70b2e8492675ebc9e1edff8e7eb198e4fb9d"
     ),
     "control-assistant-readwrite": (
-        "sha256:51b7fcc7e5889888ca2cfadbb2c3dbfc1dff625ab780f9ae9cfd3f453c766bf4"
+        "sha256:970293711ea716c55aa0ede7d9ffba11dbad86d57022c8b58e36a50fbb681ef1"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

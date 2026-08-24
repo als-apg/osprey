@@ -9,6 +9,10 @@ These tests lock down the translation from profile inputs into rendered
 3. Overlay agent frontmatter survival through ``regenerate_claude_code``.
 4. The crown-jewel invariant: every ``mcp__`` tool an agent declares must have
    a matching entry in the project's ``permissions.allow``.
+5. The tier floor: the privileges the ``control-assistant`` base takes away
+   from every tier built on it, and the ``remove_deny`` that gives them back to
+   the admin tier alone — asserted on the rendered artifacts, since a profile
+   pin is only worth what the build writes out.
 """
 
 from __future__ import annotations
@@ -825,3 +829,246 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
         f"build should name the violation; got records:\n"
         f"{[record.getMessage()[:120] for record in caplog.records]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Deny-source split: remove_deny subtracts profile-authored denies only
+# ---------------------------------------------------------------------------
+
+
+def _rendered_deny(project: Path) -> list[str]:
+    return json.loads((project / ".claude" / "settings.json").read_text())["permissions"]["deny"]
+
+
+def _killswitch_project(tmp_path, name: str, fields: dict) -> Path:
+    """A built project regenerated with ``fields`` applied to config.yml.
+
+    The regen path is required here: ``create_project`` never runs the
+    writes-off kill-switch block, so only a re-render reflects a
+    ``writes_enabled`` setting.
+    """
+    from osprey.utils.config_writer import config_update_fields
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name=name,
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+    )
+    config_update_fields(project / "config.yml", fields)
+    manager.regenerate_claude_code(project)
+    return project
+
+
+def test_killswitch_deny_survives_profile_remove_deny(tmp_path):
+    """A writes-off kill-switch deny is NOT liftable through ``remove_deny``.
+
+    ``remove_deny`` is authored in the profile, so anything it can reach is
+    something a profile can switch off. The writes-off denies must not be in
+    that set: a facility that names ``mcp__controls__channel_write`` under
+    ``claude_code.permissions.remove_deny`` while running writes-off would
+    otherwise hand its agent back the control-system write tool — the exact
+    hole the deny-source split closes.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "killswitch-remove-deny",
+        {
+            "control_system.writes_enabled": False,
+            "claude_code.permissions.remove_deny": ["mcp__controls__channel_write"],
+        },
+    )
+    deny = _rendered_deny(project)
+    assert "mcp__controls__channel_write" in deny, (
+        "remove_deny must not be able to lift a writes-off kill-switch deny; "
+        f"rendered deny was {deny}"
+    )
+    # Rendered once, not twice: the kill switch skips a matcher the earlier
+    # (filtered) deny parts already render.
+    assert deny.count("mcp__controls__channel_write") == 1, f"duplicate deny entry in {deny}"
+
+
+def test_remove_deny_still_subtracts_profile_authored_deny(tmp_path):
+    """The other half of the split: what a profile ADDED, a profile may remove.
+
+    Both profile-authored deny sources — the ``deny_defaults`` floor and the
+    facility's own ``permissions.deny`` — stay subtractable through
+    ``remove_deny``. Without this the split would have made ``remove_deny``
+    inert rather than merely kill-switch-proof.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "remove-deny-subtracts",
+        {
+            "control_system.writes_enabled": False,
+            "claude_code.permissions.deny": ["mcp__nonframework__facility_authored"],
+            "claude_code.permissions.remove_deny": [
+                "WebSearch",
+                "mcp__nonframework__facility_authored",
+            ],
+        },
+    )
+    deny = _rendered_deny(project)
+    assert "WebSearch" not in deny, f"remove_deny must subtract from deny_defaults; got {deny}"
+    assert "mcp__nonframework__facility_authored" not in deny, (
+        f"remove_deny must subtract from the facility's own deny list; got {deny}"
+    )
+    # The rest of the floor is untouched, and the kill switch still fires.
+    assert "Bash" in deny and "Edit" in deny
+    assert "mcp__controls__channel_write" in deny
+
+
+def test_killswitch_deny_absent_when_writes_enabled(tmp_path):
+    """With writes ON there is no kill-switch deny to protect, and none renders.
+
+    Guards the split against the opposite failure: a ``killswitch_deny`` key
+    that leaked entries into a writes-enabled render would deny the control
+    system's write tool on a deployment that is supposed to have it.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "killswitch-writes-on",
+        {
+            "control_system.writes_enabled": True,
+            "claude_code.permissions.remove_deny": ["mcp__controls__channel_write"],
+        },
+    )
+    assert "mcp__controls__channel_write" not in _rendered_deny(project)
+
+
+def test_killswitch_dedupe_when_profile_also_denies(tmp_path):
+    """A profile that itself denies a kill-switch matcher renders it exactly once.
+
+    Pins the ``already_denied`` dedupe path: the facility-authored deny renders
+    the matcher (filtered part 2), so the kill switch must skip its own append.
+    If either side's filter logic drifted, this would render twice (dedupe
+    lost) or zero times (deny silently absent) — both must fail here.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "killswitch-profile-denies",
+        {
+            "control_system.writes_enabled": False,
+            "claude_code.permissions.deny": ["mcp__controls__channel_write"],
+        },
+    )
+    deny = _rendered_deny(project)
+    assert deny.count("mcp__controls__channel_write") == 1, (
+        f"expected exactly one deny entry for the kill-switch matcher; got {deny}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tier floor: what a preset's config: layer does to the rendered project
+# ---------------------------------------------------------------------------
+
+#: The agent's deployment-editing tool. The ``control-assistant`` base denies it
+#: for every tier built on it; ``control-assistant-admin`` is the one profile
+#: that subtracts the deny back off with ``permissions.remove_deny``.
+SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
+
+
+def _render_preset_project(tmp_path_factory, preset: str) -> Path:
+    """A project rendered the way a real build of ``preset`` renders one.
+
+    The module's other fixtures build straight from a ``data_bundle``, which is
+    the template layer alone — a preset's ``config:`` block never reaches them.
+    That layer is exactly what the tier floor lives in, so pinning it needs the
+    second half of the pipeline as well: apply the resolved ``config:``
+    overrides to the project's config.yml (through ``config_update_fields``,
+    the same writer ``_apply_config_overrides`` calls) and re-render
+    ``.claude/`` from the result.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    profile, _profile_dir = resolve_build_profile(None, preset=preset)
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name=f"{preset}-floor",
+        output_dir=tmp_path_factory.mktemp("floor_build"),
+        data_bundle=profile.data_bundle,
+        context={"channel_finder_mode": "hierarchical"},
+    )
+    config_update_fields(project / "config.yml", profile.config)
+    manager.regenerate_claude_code(project)
+    return project
+
+
+@pytest.fixture(scope="module")
+def tier_floor_projects(tmp_path_factory) -> dict[str, Path]:
+    """The base and admin renders, built once for the whole module.
+
+    Both halves of the floor contract need a real render — the base to show the
+    privilege is gone, the admin tier to show it comes back — and neither is
+    readable off the profile alone.
+    """
+    return {
+        name: _render_preset_project(tmp_path_factory, name)
+        for name in ("control-assistant", "control-assistant-admin")
+    }
+
+
+def _rendered_config(project: Path) -> dict:
+    return yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+
+
+def test_tier_floor_denies_setup_patch_in_the_base_render(tier_floor_projects):
+    """The base preset's floor reaches settings.json as a real deny entry.
+
+    The tool stays in ``permissions.ask`` — the workspace server declares it
+    there, and the osprey_approval hook matches on it — so the ask entry alone
+    proves nothing about whether the tier may call it. The deny is what closes
+    the path, and deny outranks ask, so both are asserted together: a render
+    that lost the deny would still look supervised and would in fact be open.
+    """
+    settings = json.loads(
+        (tier_floor_projects["control-assistant"] / ".claude" / "settings.json").read_text()
+    )
+    permissions = settings["permissions"]
+    assert SETUP_PATCH_TOOL in permissions["deny"]
+    assert SETUP_PATCH_TOOL in permissions["ask"]
+    assert SETUP_PATCH_TOOL not in permissions.get("allow", [])
+
+
+def test_admin_render_lifts_the_setup_patch_deny(tier_floor_projects):
+    """``remove_deny`` in the admin profile subtracts the floor in the render.
+
+    The other half of the same contract: the deny is gone from the admin
+    project's settings.json while the ``ask`` entry survives untouched. That
+    surviving ask is the point — lifting the floor gives the tier the path, not
+    an unsupervised one, so every ``setup_patch`` call still stops at the
+    approval prompt.
+
+    Deliberately overlaps test_preset_render.py's admin render assertions:
+    that family pins a real ``osprey init`` + ``osprey build``; this one pins
+    the ``regenerate_claude_code`` half of the pipeline this module owns.
+    """
+    settings = json.loads(
+        (tier_floor_projects["control-assistant-admin"] / ".claude" / "settings.json").read_text()
+    )
+    permissions = settings["permissions"]
+    assert SETUP_PATCH_TOOL not in permissions["deny"]
+    assert SETUP_PATCH_TOOL in permissions["ask"]
+
+
+def test_tier_floor_web_keys_render_into_config(tier_floor_projects):
+    """The browser-side half of the floor lands in the rendered config.yml.
+
+    The web tier reads these two keys at runtime, so a profile that pins them
+    is only as good as the config.yml the build writes. Both renders are
+    asserted in one place because the pair is the contract: the base off, the
+    admin tier on, from the same base preset.
+
+    Deliberately overlaps test_preset_render.py's tier-floor assertions: that
+    family pins a real ``osprey init`` + ``osprey build``; this one pins the
+    ``config_update_fields`` half of the pipeline this module owns.
+    """
+    base_web = _rendered_config(tier_floor_projects["control-assistant"])["web"]
+    assert base_web["config_panel"]["enabled"] is False
+    assert base_web["scaffold_gallery"]["write_enabled"] is False
+
+    admin_web = _rendered_config(tier_floor_projects["control-assistant-admin"])["web"]
+    assert admin_web["config_panel"]["enabled"] is True
+    assert admin_web["scaffold_gallery"]["write_enabled"] is True

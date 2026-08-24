@@ -219,7 +219,7 @@ def test_readonly_preset_emits_one_web_terminals_key_holding_enabled_false() -> 
     # The rest of the inherited subtree survives the fold — it is what the
     # hosting project's roster is built from.
     assert subtree["default_persona"] == "readonly"
-    assert set(subtree["personas"]) == {"readonly", "readwrite", "ariel"}
+    assert set(subtree["personas"]) == {"readonly", "readwrite", "ariel", "admin"}
 
 
 def test_the_collapsed_key_keeps_the_section_header_it_was_holding() -> None:

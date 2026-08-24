@@ -77,7 +77,8 @@ rules:
 skills:
   - diagnose        # Run a structured fault-diagnosis workflow
   # setup-mode is left out on purpose: it can edit config.yml and .mcp.json,
-  # which is admin work. Add it to an admin-facing profile to turn it on.
+  # which is admin work. The `control-assistant-admin` persona adds it back,
+  # which is where an admin-facing profile of your own should start too.
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
@@ -162,6 +163,33 @@ config:
   # write and launch plans, and run read-only health checks.
   claude_code.servers.bluesky.enabled: true
   claude_code.servers.health.enabled: true
+  # ── Tier floor ─────────────────────────────────────────────────────────────
+  # The privileges every tier built from this preset starts WITHOUT. Each key
+  # here is off at the bottom and lifted back on by exactly the tier that is
+  # meant to have it, so a new persona inherits the restricted posture by
+  # default and a privilege is something a profile has to ask for by name.
+  #
+  # The agent's own deployment-editing tool. It rewrites this repo's profile
+  # and config, which is administration, not control-room work — so the base
+  # takes it away and the admin tier lifts it back with
+  # `claude_code.permissions.remove_deny`.
+  #
+  # Deliberately a `deny` and NOT a base-level `remove_ask`. String lists UNION
+  # across `extends`: a child can add to an inherited list but never subtract
+  # from it, so a `remove_ask` written here would leak into EVERY tier —
+  # including admin — and strip the approval prompt the admin tier relies on to
+  # keep the tool supervised. `deny` inverts that: it is subtractable per tier
+  # via `remove_deny`, which is the direction a floor has to work in.
+  claude_code.permissions.deny:
+    - mcp__osprey_workspace__setup_patch
+  # The web Config panel edits the running deployment's configuration from the
+  # browser. Same reasoning as the tool above: administration, so it is off
+  # here and turned back on by the admin tier alone.
+  web.config_panel.enabled: false
+  # The scaffold gallery stays READABLE at every tier — browsing the prompt and
+  # skill library is ordinary work. What this turns off is writing to it: the
+  # gallery's edit, create and delete surfaces are shared deployment state.
+  web.scaffold_gallery.write_enabled: false
   # system.timezone: America/Los_Angeles
   # Your facility's name, used in the agent's prompts and on the web landing
   # page. Defaults to the deployment name.
@@ -253,6 +281,15 @@ config:
         display_name: "ARIEL Logbook Research"
         # Read-only research service, open without a login on purpose.
         login: false
+      # The one login that can change this deployment's configuration — the web
+      # Config panel, the scaffold gallery's editors, and the agent's own setup
+      # tool. Behind the login wall like every other person on this page: an
+      # admin card without one would hand deployment edits to anyone who opens
+      # it. Last in the roster so the operator cards stay where they are.
+      - name: carol
+        index: 3
+        persona: admin
+        display_name: "Deployment Admin (Carol)"
     personas:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
@@ -264,6 +301,10 @@ config:
         project: control-assistant-readwrite
         project_path: build/control-assistant-readwrite
         build_profile: control-assistant-readwrite
+      admin:
+        project: control-assistant-admin
+        project_path: build/control-assistant-admin
+        build_profile: control-assistant-admin
       ariel:
         project: control-assistant-ariel
         project_path: build/control-assistant-ariel
@@ -298,3 +339,4 @@ env:
   defaults:
     OSPREY_AUTH_PW_ALICE: alice
     OSPREY_AUTH_PW_BOB: bob
+    OSPREY_AUTH_PW_CAROL: carol

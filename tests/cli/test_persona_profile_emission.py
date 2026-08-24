@@ -245,7 +245,14 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
         for inherited_key in ("app_template", "provider", "model", "requires_osprey_version"):
             assert inherited_key not in parsed, (persona_file.name, inherited_key)
         postures[persona_file.stem] = parsed["config"]["control_system.writes_enabled"]
-    assert postures == {"ariel": False, "readonly": False, "readwrite": True}
+    # admin joined the catalog with the tier floor: it sits above readwrite
+    # and keeps the write-armed posture.
+    assert postures == {
+        "admin": True,
+        "ariel": False,
+        "readonly": False,
+        "readwrite": True,
+    }
 
 
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)

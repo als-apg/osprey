@@ -1,0 +1,72 @@
+# control-assistant-admin.yml
+# Admin persona — the deployment-editing tier of the control-assistant
+# multi-user stack.
+#
+# The other tiers differ on what they may do to the MACHINE. This one differs
+# on what it may do to the DEPLOYMENT: it is the single tier that can change
+# the configuration the other tiers run under. The base preset takes three
+# privileges away from every tier built on it — the `setup_patch` tool, the web
+# Config panel, and writes to the scaffold gallery — and this file is the one
+# place they are lifted back, by name.
+#
+# Lifting the deny does not make the tool unsupervised. `setup_patch` sits in
+# the rendered settings.json `ask` list and is matched by the osprey_approval
+# PreToolUse hook, so every edit still stops for a human. The tier difference is
+# whether the path exists at all, not whether it is watched.
+#
+# One consequence is a filesystem fact rather than a permission list: because
+# this render is setup-patch capable, its image hands `build/config.yml` to the
+# agent's user (Dockerfile.j2). No other tier's image does, so no other tier can
+# write the file that says what it may do.
+#
+# The control-system tiers are `control-assistant-readonly` and
+# `control-assistant-readwrite`; the standalone one is `control-assistant-ariel`.
+
+name: Control Assistant (Admin)
+
+extends: control-assistant
+
+# Attached render: this persona builds per-user terminal images only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the injector blocks inherited from the base are
+# all gated on this flag and skip cleanly.
+deploy_services: false
+
+# The guided configuration workflow, left out of the base on purpose because it
+# edits config.yml and .mcp.json. Skill lists UNION over the base, so this is
+# added to the inherited selection rather than replacing it.
+skills:
+  - setup-mode      # Inspect the deployment's configuration and patch it
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The admin tier sits above readwrite: it keeps the write-armed control
+  # posture and adds deployment editing on top. Pinned here, like the two
+  # tiers beneath it pin their own side, so the boundary cannot drift if the
+  # base's default ever changes.
+  control_system.writes_enabled: true
+  # The axis this tier is defined by: the three privileges the base floors, all
+  # lifted here and nowhere else.
+  #
+  # The deployment-editing tool. `remove_deny` subtracts the base's deny for
+  # this render alone — the direction a floor has to be lifted in, since string
+  # lists only ever union across `extends`. What is left is the `ask` entry the
+  # workspace server declares, which routes the call through the approval hook.
+  claude_code.permissions.remove_deny:
+    - mcp__osprey_workspace__setup_patch
+  # The same capability from the browser: the web Config panel edits the
+  # running deployment's configuration.
+  web.config_panel.enabled: true
+  # The gallery is readable at every tier; this turns its edit, create and
+  # delete surfaces back on. Its contents are shared deployment state, which is
+  # exactly what this tier is for.
+  web.scaffold_gallery.write_enabled: true
+  # Full split-pane terminal + workspace layout: the Config panel and the
+  # gallery editors need the panel area. Pinned rather than left to the server
+  # default, for the same reason the other tiers pin theirs.
+  web.ui_mode: expert
+  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
+  # containers). Without this override the inherited roster would make this
+  # render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false
