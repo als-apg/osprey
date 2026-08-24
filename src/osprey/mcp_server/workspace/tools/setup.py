@@ -9,9 +9,11 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import NoReturn
 
 from fastmcp.exceptions import ToolError
 
+from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_key
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
@@ -41,6 +43,17 @@ _HOT_CHANGE_PATHS = {
 
 # Key paths reported to the activity feed with a safety marker
 _SAFETY_KEY_PREFIX = "control_system."
+
+# The `error_type` a protected-key refusal carries on the wire, and the `reason`
+# recorded beside it in `protected-writes.jsonl`. One constant because the two
+# are read together: an operator who finds a refusal in the audit log looks for
+# the error the agent reported, and two spellings would make them look unrelated.
+_PROTECTED_KEY_REASON = "protected_key"
+
+# What a refusal says when the file it was handed is patchable but the key is
+# not in the table above — every `_PATCHABLE_FILES` entry has a reserved channel,
+# so this is a guard against the tables drifting apart, not an expected answer.
+_UNKNOWN_CHANNEL = "the build profile this project was rendered from"
 
 # Cold keys whose generic "restart the MCP server" note would understate what is
 # actually required. `writes_enabled` is enforced at three layers and only the
@@ -216,23 +229,32 @@ def _classify_change(file: str, key_path: str) -> str:
     return "cold — requires an MCP server restart (start a new agent session)"
 
 
-def _activity_detail(file: str, key_path: str) -> str:
+def _activity_detail(file: str, key_path: str, *, blocked: bool = False) -> str:
     """Describe a patch for the activity feed — file and key only, never values.
 
     Config values are secrets: ``.mcp.json`` carries API keys and tokens, and
     the activity ring is persistent and served over HTTP, so neither the old
-    nor the new value may appear here. ``control_system.*`` paths get a marker
-    so a safety-relevant change is distinguishable at a glance; the prefix
-    match is exact-case, like the hot/cold lookups in :func:`_classify_change`.
+    nor the new value may appear here. That exclusion is why the refusal path
+    composes its detail here too rather than formatting its own: one function
+    decides what may reach the feed, whether the patch landed or was refused.
+
+    ``control_system.*`` paths get a marker so a safety-relevant change is
+    distinguishable at a glance; the prefix match is exact-case, like the
+    hot/cold lookups in :func:`_classify_change`. A refused patch carries no
+    such marker — it is already the loudest line in the feed, and a second
+    qualifier in front of it would only bury the file and key.
 
     Args:
         file: Target file name, already validated against ``_PATCHABLE_FILES``.
-        key_path: Dot-notation path that was patched.
+        key_path: Dot-notation path that was patched, or attempted.
+        blocked: True when the patch was refused rather than applied.
 
     Returns:
         Feed detail string naming the file and key path.
     """
     label = f"{file}: {key_path}"
+    if blocked:
+        return f"BLOCKED a protected config key — {label}"
     if key_path.startswith(_SAFETY_KEY_PREFIX):
         return f"safety config — {label}"
     return label
@@ -243,7 +265,9 @@ async def _notify_patch(file: str, key_path: str) -> None:
 
     Call only once the file has been rewritten — every refusal in
     :func:`setup_patch` raises out of ``make_error`` before reaching the call
-    site, so nothing is reported for a patch that did not land.
+    site, so nothing is reported here for a patch that did not land. The one
+    refusal that *is* reported reports itself, from
+    :func:`_refuse_protected_key`, and says so in its detail.
 
     Args:
         file: Target file name.
@@ -251,6 +275,64 @@ async def _notify_patch(file: str, key_path: str) -> None:
     """
     await notify_agent_activity_async(
         "setup_patch", "config", detail=_activity_detail(file, key_path)
+    )
+
+
+async def _refuse_protected_key(file: str, key_path: str) -> NoReturn:
+    """Record, report, and then refuse a patch aimed at a protected key.
+
+    Ordering is the readonly gate's, for the same reason
+    (:func:`osprey.mcp_server.python_executor.tools._execution_gates.record_and_alert_refusal`):
+    the durable record is written before the alert, so a CLI-only session —
+    where the emit reaches nothing — still leaves the attempt on disk.
+
+    Both reporting steps are guarded, and the refusal itself sits outside the
+    guards. Reporting is best-effort; refusing is not. An unwritable audit zone
+    or an unreachable Web Terminal must degrade the trail, never turn the
+    refusal into the ``internal_error`` that :func:`setup_patch`'s outer handler
+    would otherwise produce — an error that reads like the tool malfunctioned is
+    exactly the shape a caller could mistake for a gate that failed open.
+
+    Args:
+        file: Target file name, already validated against ``_PATCHABLE_FILES``.
+        key_path: Dot-notation path the caller tried to set.
+
+    Raises:
+        ToolError: Always — carrying the ``protected_key`` envelope.
+    """
+    channel = RESERVED_PATH_CHANNELS.get(file, _UNKNOWN_CHANNEL)
+
+    try:
+        from osprey.services.python_executor.refusal_audit import record_protected_refusal
+
+        record_protected_refusal(
+            surface="setup_patch",
+            target_file=file,
+            key_or_path=key_path,
+            channel=channel,
+            reason=_PROTECTED_KEY_REASON,
+        )
+    except Exception:
+        logger.warning("Could not record the protected-key refusal for audit", exc_info=True)
+
+    try:
+        await notify_agent_activity_async(
+            "setup_patch", "config", detail=_activity_detail(file, key_path, blocked=True)
+        )
+    except Exception:
+        logger.warning("Could not report the protected-key refusal to the feed", exc_info=True)
+
+    make_error(
+        _PROTECTED_KEY_REASON,
+        f"`{key_path}` is a protected key in {file}: it is part of the safety "
+        f"surface this agent runs under, so no agent-side writer may set it. "
+        f"{file} is unchanged. The change belongs to {channel} — make it there, "
+        f"then re-run `osprey build` to re-render the project.",
+        [
+            f"Edit {channel}, then re-run `osprey build` and start a new agent session.",
+            "Ask the operator to make this change — it is outside what an agent may set.",
+            f"`setup_inspect` still reports the current value of `{key_path}`.",
+        ],
     )
 
 
@@ -308,6 +390,19 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
                 f"Invalid key_path: {key_error}",
                 ["Use dot-notation like 'control_system.writes_enabled'."],
             )
+
+        # The protected set is consulted here — after the key path is known to be
+        # a key path at all, and before anything on disk is touched. Deliberately
+        # ahead of the project-root resolution and the existence check below: what
+        # makes a key protected is the key, so the answer must not depend on
+        # whether the render happens to exist or parse. A gate placed after those
+        # would answer `not_found` for a protected key on an unbuilt render, which
+        # is both a file-existence oracle and a refusal that reads like a
+        # different problem. Dotted matching (rather than the segment API) is the
+        # exact semantics of this tool: `key_path` is applied by splitting on
+        # dots, so what is matched is precisely what would be written.
+        if is_protected_key(file, key_path):
+            await _refuse_protected_key(file, key_path)
 
         project_root = resolve_config_path().parent
         file_path = project_root / file
