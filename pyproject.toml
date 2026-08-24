@@ -234,7 +234,7 @@ dev = [
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
     # disagree about what "formatted" means.
-    "ruff>=0.16.2,<0.17",
+    "ruff>=0.16.3,<0.17",
     "testcontainers[postgres]>=4.15.0",  # Real PostgreSQL for integration tests
     "testcontainers[mongodb]>=4.15.0",  # Real MongoDB for archiver integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
