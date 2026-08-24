@@ -31,7 +31,8 @@ on:
       revalidate_secret_lanes:
         description: >-
           Run the API-key-dependent lanes (agentic flows, dispatch stacks,
-          Nextcloud/Google Chat bridges) against this ref. Dependabot's own
+          the build+deploy pipeline, Nextcloud/Google Chat bridges) against
+          this ref. Dependabot's own
           runs are treated as fork runs and receive only the Dependabot
           secret store, so ALS_APG_API_KEY is empty and those lanes skip on
           its pull requests. After reading the dependency diff, a maintainer
@@ -396,6 +397,14 @@ jobs:
 
     - name: Set up Python
       run: uv python install 3.11
+
+    - name: Lockfile is current with pyproject
+      # pyproject.toml and uv.lock must move together. Every other lane runs
+      # a plain `uv sync`, which silently re-locks a stale lockfile in the
+      # runner and goes green — so a split pair (e.g. a floor bump without a
+      # re-lock) is invisible everywhere except here. Ordering is
+      # load-bearing: this must run BEFORE `uv sync` rewrites the lock.
+      run: uv lock --check
 
     - name: Install dependencies
       run: uv sync --extra dev
@@ -1361,8 +1370,17 @@ jobs:
     name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Only run on PRs from same repo (secrets unavailable on forks)
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: `osprey up`'s .env preflight requires
+    # ALS_APG_API_KEY, so this skips on fork PRs (no secrets) and on
+    # Dependabot PRs (Dependabot secret store, not the Actions one — the
+    # same-repo check alone does NOT cover Dependabot, whose branches live
+    # in this repo). Revalidate with the `revalidate_secret_lanes` dispatch
+    # input, like every other secret-gated lane.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -4470,6 +4488,7 @@ jobs:
             echo "Dependabot secret store, so \`ALS_APG_API_KEY\` is unavailable and these"
             echo "lanes skipped rather than executed:"
             echo
+            echo "- Deploy E2E Test (build + deploy pipeline)"
             echo "- Tier 3 — Agentic flow (both presets)"
             echo "- E2E Tests"
             echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"

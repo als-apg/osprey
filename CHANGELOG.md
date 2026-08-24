@@ -95,6 +95,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Dependabot pull requests no longer fail CI: the Deploy E2E lane now skips on
+  Dependabot runs (which get no Actions secrets) like every other secret-gated
+  lane, and the run summary names it among the lanes to revalidate. Dependency
+  updates switched to the `uv` ecosystem — one grouped weekly PR bumping
+  `uv.lock` (what CI actually tests) instead of ten PRs bumping the
+  `pyproject.toml` floors, which stay as hand-maintained compatibility
+  promises. A new lint step (`uv lock --check`) fails CI when the two files
+  drift apart.
 - Control-system failure envelopes now name the machine they happened on: a
   connect failure, a timeout, a limits refusal or a denied write carries the
   active target's name, label and endpoint (`details.active_target`, plus an
