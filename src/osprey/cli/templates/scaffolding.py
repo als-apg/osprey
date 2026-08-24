@@ -151,6 +151,15 @@ def create_project_structure(
     # Copy static files
     static_files = [
         # requirements.txt moved to rendered templates to handle {{ framework_version }}
+        #
+        # The container entrypoint. Copied rather than rendered: it derives the
+        # render it maintains from its own location, so there is nothing
+        # project-specific to substitute — and a file with no Jinja in it is one
+        # fewer thing that can be broken by a context key going missing. It
+        # lands in the render, beside the Dockerfile that installs it, because
+        # that is what makes it part of the deployment the image copies in
+        # rather than a sidecar the build has to remember to carry.
+        ("entrypoint.sh", "entrypoint.sh"),
     ]
 
     for template_file, output_file in files_to_render:

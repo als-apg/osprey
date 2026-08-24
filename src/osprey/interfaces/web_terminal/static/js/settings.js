@@ -2,6 +2,8 @@
 
 import { fetchJSON, apiRequest } from './api.js';
 import { restartTerminal, startTerminal } from './terminal.js';
+import { showSettingsNotice } from './settings-notice.js';
+import { mountOverlay, fadeOutOverlay } from './modal-overlay.js';
 
 /**
  * The config document returned by GET /api/config.
@@ -229,20 +231,14 @@ function showSettingsWarning(serverSession) {
     `;
 
     overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-
-    // Animate in
-    requestAnimationFrame(() => overlay.classList.add('visible'));
+    mountOverlay(overlay);
 
     // Unconditional on every dismissal path (Cancel, Proceed, Escape) — leaves
     // no stale `keydown` listener behind and always clears the pending gate.
     const cleanup = () => {
       document.removeEventListener('keydown', onKey);
       warningGatePending = false;
-      overlay.classList.remove('visible');
-      overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
-      // Fallback removal if transition doesn't fire
-      setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+      fadeOutOverlay(overlay);
     };
 
     // Cancel/Escape decline the gate; Proceed acknowledges + accepts. The gate
@@ -664,12 +660,14 @@ async function applySettings() {
   if (status) status.textContent = 'Saving...';
 
   let configSaved = false;
+  /** @type {any} */
+  let result = null;
   try {
     if (currentMode === 'raw') {
       // Raw mode: send the full YAML text as-is (user is responsible for content)
       const textarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
       const yamlContent = textarea ? textarea.value : '';
-      await apiRequest('/api/config', {
+      result = await apiRequest('/api/config', {
         method: 'PUT',
         json: { raw: yamlContent },
         errorPrefix: 'Save failed',
@@ -683,13 +681,20 @@ async function applySettings() {
         if (applyBtn) applyBtn.disabled = false;
         return;
       }
-      await apiRequest('/api/config', {
+      result = await apiRequest('/api/config', {
         method: 'PATCH',
         json: { updates },
         errorPrefix: 'Patch failed',
       });
     }
     configSaved = true;
+
+    // A write can succeed and still leave the operator with something they must
+    // know. `detail` is how the server says so -- today, a read-only render zone
+    // where config.yml took the edit but the artifacts derived from it wait for
+    // the container restart. Shown, not awaited: it acknowledges what already
+    // happened, and the terminal restart below must not queue behind a dialog.
+    if (result && typeof result.detail === 'string' && result.detail) showSettingsNotice(result.detail);
 
     isDirty = false;
     updateSaveBar();
