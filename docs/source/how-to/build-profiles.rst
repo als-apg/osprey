@@ -733,7 +733,7 @@ Profile YAML reference
      - string
      - ``control_assistant``
      - App template (data bundle) to render. Valid: ``control_assistant``,
-       ``hello_world``, ``ariel_standalone``.
+       ``hello_world``, ``ariel_standalone``, ``channel_finder_standalone``.
    * - ``data``
      - string
      - ``None``
@@ -756,12 +756,15 @@ Profile YAML reference
      - string
      - ``None``
      - Channel finder pipeline (``hierarchical``, ``middle_layer``,
-       ``in_context``).
+       ``in_context``, ``graph``). ``graph`` searches the deployment's graph
+       store instead of a channel database, so it needs a ``services.graphdb``
+       block (see :ref:`profile-graph-mode`).
    * - ``tier``
      - int
      - derived
      - Channel-database tier (1 or 3). Defaults from the channel finder mode;
-       tier 1 is ``in_context``-only.
+       tier 1 is ``in_context``-only. ``graph`` has no tiered artifacts at all —
+       leave ``tier`` unset there.
    * - ``connector``
      - string
      - *from preset*
@@ -971,9 +974,9 @@ are overridable per facility from ``config:``, using dotted keys:
 .. code-block:: yaml
 
    config:
-     claude_code.permissions.remove_deny: ["Bash", "WebSearch"]  # drop from the deny list
-     claude_code.permissions.allow: ["WebSearch"]                # then allow outright
-     claude_code.permissions.ask: ["Bash"]                       # or route to human approval
+     claude_code.permissions.remove_deny: ["WebSearch", "WebFetch"]  # drop from the deny list
+     claude_code.permissions.allow: ["WebSearch"]                    # then allow outright
+     claude_code.permissions.ask: ["WebFetch"]                       # or route to human approval
 
 .. list-table::
    :header-rows: 1
@@ -982,7 +985,8 @@ are overridable per facility from ``config:``, using dotted keys:
    * - Key
      - Effect
    * - ``remove_deny``
-     - Remove entries from the built-in deny defaults
+     - Remove entries from the built-in deny defaults. Removing a write-capable
+       tool that nothing else gates fails the build — see below
    * - ``deny``
      - Add facility-specific deny entries
    * - ``allow``
@@ -997,7 +1001,28 @@ are overridable per facility from ``config:``, using dotted keys:
 
    Permissions resolve as **deny > ask > allow**, and a static ``deny`` entry
    cannot be overridden during a session — an in-session "allow once" will not
-   unblock it. Use ``ask`` for tools you want gated but still reachable.
+   unblock it. Use ``ask`` for tools you want gated but still reachable. For the
+   same reason, listing a tool under ``ask`` or ``allow`` does nothing until you
+   also remove it from the deny list.
+
+.. admonition:: You cannot un-gate a tool that can write
+   :class: warning
+
+   ``Bash``, ``Edit``, ``Write``, ``MultiEdit`` and ``NotebookEdit`` can write
+   files or shell out, so ``osprey build`` refuses a profile in which one of
+   them is neither in ``permissions.deny`` nor matched by a ``PreToolUse`` hook
+   matcher. A ``remove_deny: ["Bash"]`` with nothing put in its place is
+   therefore a build failure, not a silent widening. (The shipped presets gate
+   the three file-writing tools with the ``memory-guard`` hook rather than
+   denying them, so ordinary memory and notebook writes still work.)
+
+   The build checks that a covering rule *exists*, not that the hook behind it
+   refuses anything: a ``PreToolUse`` hook that exits 0 without a
+   ``permissionDecision`` allows the call. A tool whose only cover is a matcher
+   your own profile declares therefore builds with a warning — check that hook
+   really denies. Matchers are read the way the agent runtime reads them: the
+   bare tool name, a ``|`` alternation, any regex that matches the name
+   (unanchored), or ``*``/``.*``/empty for every tool.
 
 
 .. _profile-services:
@@ -1035,6 +1060,61 @@ declares ``network: host`` whose render does not carry it. See
 :ref:`deployment-network-attachment` for what host mode changes and for
 ``dispatch.network``, the single knob that covers the event dispatcher and its
 workers.
+
+.. _profile-graph-mode:
+
+Graph-mode channel finding
+==========================
+
+``channel_finder_mode: graph`` points the channel finder at the deployment's
+graph store: the agent searches the facility knowledge graph for channels
+instead of reading a channel database. The store *is* the database, so the
+profile ships no channel-database inputs and pins no ``tier`` — what it does
+need is a ``services.graphdb`` block, and the paradigm works with either shape
+that block comes in.
+
+A deployment that runs its own store already has one. The ``control_assistant``
+app template renders ``graphdb`` into ``services`` and ``deployed_services``,
+and ``osprey up`` starts, bootstraps and seeds it — see :doc:`deploy-project`:
+
+.. code-block:: yaml
+
+   name: control-room
+   app_template: control_assistant
+   provider: anthropic
+   channel_finder_mode: graph     # no `tier` — graph has no tiered artifacts
+
+To search a store the facility already runs, name it instead of deploying one.
+That takes three things: an explicit ``uri`` on the block, the store's password
+in the project ``.env`` as ``GRAPHDB_PASSWORD`` (nothing is minted for a store
+this deployment does not own), and ``graphdb`` off the ``deployed_services``
+list — otherwise the build still stands up a local Neo4j nobody queries.
+``deployed_services`` is a list, so the override replaces it whole; write out
+the services you *do* want rather than the one you are removing.
+
+.. code-block:: yaml
+
+   channel_finder_mode: graph
+   config:
+     services.graphdb.uri: bolt://graph.facility.org:7687
+     services.graphdb.username: neo4j    # default `neo4j`
+     # Whole-list replacement: the template's default is
+     # [postgresql, openobserve, qmd, graphdb].
+     deployed_services: [postgresql, openobserve, qmd]
+
+An external store has to already hold a corpus for the mode to answer anything:
+generate one with ``osprey knowledge build-ttl`` and load it with ``osprey
+knowledge seed-graph`` (see :doc:`use-facility-graph`). A store this deployment
+runs gets that during ``osprey up``; a store it only connects to does not.
+
+A profile whose app template carries no ``services.graphdb`` block at all — the
+channel-finder app template carries none — is refused at build time, naming the
+missing block, rather than rendering a channel finder with nothing to read. An
+attached project (``deploy_services: false``) is refused the same way unless it
+names an external store, because it renders ``services: {}`` whatever its app
+template says. For what the mode changes about the agent's answers, see
+:doc:`use-channel-finder`; for the corpus behind them,
+:doc:`use-facility-graph`.
 
 .. _profile-va-archiver:
 

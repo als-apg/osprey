@@ -300,16 +300,12 @@ class PhaseReporter:
         every subclass that intercepts ``emit`` (the ``--verbose`` swallower,
         the tests' recorders) seeing one seam, and keeps the bytes a pipe reads
         exactly what they always were. With color on, the styles ride on the
-        Text's own spans — never on a ``style=`` argument, which Rich would
-        apply to a mounted live region repainted in the same call.
+        Text's own spans — see :meth:`_print_styled`.
         """
         if not self.color:
             self.emit("".join(part for part, _ in segments))
             return
-        text = Text()
-        for part, style in segments:
-            text.append(part, style=style or "")
-        self.out().print(text, soft_wrap=True)
+        self._print_styled(segments)
 
     def echo(self, text: str) -> None:
         """Print one line of a verb's OWN output, rather than of the phase record.
@@ -328,6 +324,34 @@ class PhaseReporter:
         style tags).
         """
         self.out().print(text, markup=False, highlight=False, soft_wrap=True)
+
+    def echo_segments(self, segments: Sequence[tuple[str, str | None]]) -> None:
+        """Print one echo-class line assembled from ``(text, style)`` segments.
+
+        :meth:`emit_segments`'s shape with :meth:`echo`'s altitude: for the
+        lines of a verb's own output that carry more than one style — the
+        profile card's rows, say — and must print under every reporter. With
+        color off the segments ARE their joined text and go through
+        :meth:`echo`, so a pipe reads the same bytes a styled terminal would
+        strip to and every interceptor of ``echo`` sees the line.
+        """
+        if not self.color:
+            self.echo("".join(part for part, _ in segments))
+            return
+        self._print_styled(segments)
+
+    def _print_styled(self, segments: Sequence[tuple[str, str | None]]) -> None:
+        """Print the segments as one line, styles riding on the Text's spans.
+
+        The spans are the point: a ``style=`` argument would be applied by Rich
+        to a mounted live region repainted in the same call. The colored half of
+        both segment printers, which differ only in the plain line they fall
+        back to when color is off.
+        """
+        text = Text()
+        for part, style in segments:
+            text.append(part, style=style or "")
+        self.out().print(text, soft_wrap=True)
 
     def phase(self, title: str) -> Phase:
         """Start a phase, printing a blank line and its opening line.

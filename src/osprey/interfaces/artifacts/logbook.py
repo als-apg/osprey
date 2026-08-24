@@ -300,11 +300,12 @@ def _build_user_prompt(ctx: ComposedContext) -> str:
         for evt in ctx.audit_trail[-10:]:
             tool = evt.get("tool", evt.get("type", "?"))
             ts = evt.get("timestamp", "")[:19]
-            args = evt.get("arguments", {})
             result = evt.get("result_summary", "")
+            # Tool arguments are deliberately left out: they are the part of
+            # a session most likely to carry values the operator did not mean
+            # to publish, and this prompt leaves the deployment for an
+            # external LLM provider (same policy as the feedback composer).
             line = f"  {ts} {tool}"
-            if args:
-                line += f" args={json.dumps(args, default=str)}"
             if result:
                 line += f" → {result[:200]}"
             trail_lines.append(line)

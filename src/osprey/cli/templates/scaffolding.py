@@ -12,6 +12,7 @@ import logging
 import shutil
 from pathlib import Path
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates._rendering import render_template
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -71,9 +72,11 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
         "arms the plan-launch endpoint of the second Bluesky lane, the one serving the live "
         "machine (only on a deployment with `bluesky.second_lane`)"
     ),
+    "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
     "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "MONGO_ROOT_PASSWORD": "archiver store root password (the seeder, recorder and agent all authenticate with it)",
+    "GRAPHDB_PASSWORD": "graph store password (the seeder, health check and deploy staging all authenticate with it)",
 }
 
 
@@ -361,7 +364,10 @@ def copy_template_data(
             return
 
 
-_ALL_PARADIGMS: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
+#: Alias of the paradigm registry in :mod:`osprey.build.build_tiers`, kept
+#: under the local name this module's guard reads. Adding a paradigm to the
+#: registry admits it here with no edit.
+_ALL_PARADIGMS: tuple[str, ...] = VALID_CHANNEL_FINDER_MODES
 
 
 def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode: str) -> None:
@@ -381,6 +387,14 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
     - prunes both the ``tiers/`` and ``benchmarks/cross_paradigm/`` subtrees
       so only the active artifacts remain.
 
+    ``graph`` takes the query file and nothing else: its store is a seeded
+    graph service, so the preset ships no ``tiers/tier{N}/graph.json`` and the
+    build materializes no channel database for it. The queries still land,
+    because the graph benchmark lane scores the same tier-3 ground truth as
+    the file-database paradigms. Graph only ever reaches this function at the
+    derived tier 3 — :func:`osprey.build.build_tiers.tier_mode_conflict`
+    rejects an explicit ``tier`` paired with it.
+
     Facility profiles overlaying their own DB files don't care which tier
     was selected — their overlay overwrites the preset DB after this step.
     Tier itself is build-time only and is NOT written into ``config.yml``.
@@ -391,13 +405,15 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
             ships only the ``in_context`` paradigm; the build-profile validator
             rejects tier 1 paired with a non-in_context channel_finder_mode
             before this step, so a missing tier1/<paradigm>.json here is a bug.
+            For ``graph`` the tier selects the query file only.
         channel_finder_mode: Paradigm selector from the build profile. Must
-            be one of ``"in_context"``, ``"hierarchical"``, ``"middle_layer"``.
+            be one of the paradigms in
+            :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`.
 
     Raises:
-        ValueError: If ``channel_finder_mode`` is not one of the three valid
-            paradigms (the build-profile validator and ``manager.py`` should
-            catch this earlier, but this is a defensive guard).
+        ValueError: If ``channel_finder_mode`` is not a registered paradigm
+            (the build-profile validator and ``manager.py`` should catch this
+            earlier, but this is a defensive guard).
         FileNotFoundError: If a required source artifact is missing. Raised
             BEFORE any destination file is overwritten or any directory is
             removed, so the project tree is left untouched on failure.
@@ -415,7 +431,10 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
             f"Unknown channel_finder_mode {channel_finder_mode!r}; "
             f"expected one of {sorted(_ALL_PARADIGMS)!r}"
         )
-    paradigms: set[str] = {channel_finder_mode}
+    # The paradigms that have a channel database to flatten. ``graph`` is
+    # backed by a seeded graph service rather than a database file, so it
+    # contributes no (src, dst) DB pair — only the query file below.
+    paradigms: set[str] = set() if channel_finder_mode == "graph" else {channel_finder_mode}
 
     tier_dir = tiers_root / f"tier{tier}"
     flat_root = project_dir / "data" / "channel_databases"
@@ -455,8 +474,9 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
         shutil.rmtree(queries_src_root)
 
     logger.debug(
-        "Materialized tier%s artifacts (channel DB + queries) for %r to %s",
+        "Materialized tier%s artifacts for %r (channel DBs: %r) to %s",
         tier,
+        channel_finder_mode,
         sorted(paradigms),
         project_dir / "data",
     )
@@ -468,8 +488,8 @@ def prune_csv_build_artifacts(project_dir: Path, channel_finder_mode: str) -> No
     The bundled ``osprey channel-finder build-database`` tool consumes a flat
     CSV (``data/raw/address_list.csv``) and emits a flat in_context-format
     JSON. Hierarchical and middle_layer databases have a nested structure
-    that the CSV format cannot express, so the ``raw/`` directory is dead
-    weight in those projects.
+    that the CSV format cannot express, and a graph build has no database file
+    at all, so the ``raw/`` directory is dead weight in those projects.
 
     Args:
         project_dir: Root directory of the rendered project.

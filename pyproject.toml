@@ -105,6 +105,14 @@ dependencies = [
     # ARIEL Web Interface (FastAPI server)
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.1",
+    # The web-terminal panel proxy's WebSocket leg. Reaches us transitively via
+    # uvicorn[standard] and tiled, but the proxy imports it directly and, more
+    # to the point, depends on a specific guarantee: `connect().process_redirect`
+    # (websockets >= 14) is what lets the handshake refuse to follow a redirect
+    # while it is carrying the operator secret. An install resolving an older
+    # websockets would still import, still connect, and silently follow that
+    # redirect off loopback — so the floor is declared here rather than inherited.
+    "websockets>=14",
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
     # transitive dependency — the sidecar imports it directly.
@@ -135,6 +143,10 @@ dependencies = [
     # (simulation.apply, deployment.container_lifecycle, services.archiver_recorder)
     # import pymongo directly rather than through a connector.
     "pymongo>=4.17.0",
+    # Neo4j driver for the graph store (osprey.services.graphdb). Pure Python,
+    # no build step, so it carries none of the platform-wheel concerns that
+    # justify keeping other clients optional. Core rather than an extra.
+    "neo4j>=5.20",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -225,6 +237,7 @@ dev = [
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
+    "rdflib>=7.0",  # TTL generator tests (semantic round-trip); runtime use stays in the knowledge extra
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)

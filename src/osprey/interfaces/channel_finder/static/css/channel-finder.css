@@ -1898,3 +1898,43 @@ html[data-ui-mode="simple"] .filter-input {
   font-size: var(--cf-text-sm);
   line-height: 1.5;
 }
+
+/* Static explore pane: the box the unknown-pipeline notice and the graph
+   paradigm's notice share.  The base is the error posture, because the only
+   pane that is bare `.explore-unknown` is the one reporting a configuration
+   the server rejected. */
+.explore-unknown {
+  max-width: 720px;
+  margin: var(--cf-space-8) auto;
+  background: var(--error-tint-08);
+  border: 1px solid var(--error-tint-30);
+  border-left: 3px solid var(--color-error);
+  border-radius: var(--cf-radius-md);
+  padding: var(--cf-space-4) var(--cf-space-5);
+}
+
+.explore-unknown-title {
+  color: var(--color-error);
+  font-size: var(--cf-text-base);
+  font-weight: 600;
+}
+
+.explore-unknown-body {
+  margin-top: var(--cf-space-2);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-sm);
+  line-height: 1.5;
+}
+
+/* Informational posture: nothing is wrong.  The graph paradigm ships no
+   channel browser by design, so its pane keeps the box and drops the error
+   tint — an operator must not read a working deployment as a broken one. */
+.explore-unknown--info {
+  background: var(--accent-tint-08);
+  border-color: var(--accent-tint-30);
+  border-left-color: var(--color-accent);
+}
+
+.explore-unknown--info .explore-unknown-title {
+  color: var(--text-accent);
+}

@@ -15,6 +15,13 @@ The ``direct`` backend is *not* a third option for hierarchical or
 middle_layer; those paradigms expose multi-tool surfaces that require
 SDK or ReAct to orchestrate.
 
+The ``graph`` paradigm runs on ``sdk`` only. Its surface is agentic Cypher --
+the agent writes and refines queries across turns -- which the SDK's tool-use
+loop drives and the manual ReAct loop does not; nothing about that path is
+benchmarked or claimed, so ``react`` refuses it outright rather than producing
+numbers nobody should trust. ``auto`` already lands on ``sdk`` for every
+non-ollama provider, so a graph benchmark needs no backend flag.
+
 Backends are constructed from a LiteLLM-form ``provider/wire_id`` model
 string. Each backend splits that into provider + wire id and formats the
 wire id into the grammar its consumer expects (bare wire id for the Claude
@@ -79,7 +86,7 @@ def create_backend(
 
     Raises:
         ValueError: For unknown backend names or invalid combinations
-            (e.g. SDK + ollama).
+            (SDK + ollama; ReAct + the ``graph`` paradigm).
     """
     provider = model.split("/", 1)[0]
 
@@ -99,6 +106,15 @@ def create_backend(
         return SdkBackend(project_dir, model, max_turns, max_budget_usd)
 
     if name == "react":
+        # The graph paradigm is SDK-only (see the module docstring). Refusing
+        # here — rather than in the ReAct loop, which would happily produce
+        # meaningless scores — is the explicit exemption.
+        if _read_pipeline_mode(project_dir) == "graph":
+            raise ValueError(
+                "ReAct backend does not support the 'graph' paradigm: its agentic-Cypher "
+                "surface is only exercised through the sdk backend. Run the graph benchmark "
+                f"with backend='sdk' and a non-ollama provider (model={model!r})."
+            )
         return ReactBackend(project_dir, model, max_turns)
 
     raise ValueError(f"Unknown backend: {name!r}")

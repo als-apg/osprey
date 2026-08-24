@@ -50,6 +50,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
+from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
 
@@ -181,6 +182,14 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
 
     env = dict(os.environ)
     env[DECLARED_BIND_ENV] = "127.0.0.1"
+    # Declaring the bind host declares the multi-user shape, where the
+    # deployment — not the app — owns the operator secret: an app that minted
+    # its own would refuse every request nginx forwards, so it refuses to start
+    # instead. The compose this setup mirrors supplies the per-user secret
+    # alongside the bind host, so supplying one here keeps the pair honest.
+    # Without it the server exits before binding and the bind assertions below
+    # never run.
+    env[OPERATOR_SECRET_ENV] = "loopback-chokepoint-operator-secret"
     # `osprey web` publishes OSPREY_CONFIG for its children rather than reading
     # it, but a CONFIG_FILE/OSPREY_CONFIG exported in the developer's shell is
     # still read by everything downstream of the launch and would point this run

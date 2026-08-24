@@ -143,6 +143,16 @@ hooks:
 # Natural language channel finding service. Pipeline mode: {{ channel_finder_mode }}
 # The active pipeline and its enable flags are derived at build time from the
 # profile's `channel_finder_mode` (in_context | hierarchical | middle_layer).
+#
+# The fourth paradigm, `graph`, is deliberately not among them: it answers from
+# a graph store rather than a channel-database file, and this template renders
+# no `services.graphdb` block for one to live in. So the build-profile
+# validator refuses `channel_finder_mode: graph` on this app template, naming
+# the missing block, rather than letting the build render a channel finder with
+# nothing behind it. A channel-finder deployment that wants graph search either
+# builds on an app template that deploys a store (control_assistant,
+# ariel_standalone) or names a store the facility already runs by adding
+# `services.graphdb.uri` through the profile's `config:` overlay.
 
 channel_finder:
   # Active pipeline mode

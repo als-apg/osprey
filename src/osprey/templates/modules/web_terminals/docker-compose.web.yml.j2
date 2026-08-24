@@ -173,9 +173,29 @@
       the username->env-var mapping has exactly one definition, and a template
       that re-derived it could key a subject differently from the password hash
       keyed by the same user.
+    services[].terminal_secret_env: str, required
+      The env-var NAME this user's operator secret travels in
+      (`OSPREY_TERMINAL_SECRET_<SUFFIX>`), pre-resolved by render.py through
+      terminal_secret_env_var(). A NAME, never a value — see the OPERATOR
+      SECRET section below for the whole carrier. Pre-resolved for the same
+      reason `oidc_subject_env` is: the username->env-var mapping has exactly
+      one definition, and a template that re-derived it could read a secret
+      back under a spelling it was never minted under.
+    services[].external_origin: str, required (may be "" only on a roster-less
+      render, which emits no per-user service at all)
+      The one origin browsers reach this deployment on -> each per-user
+      service's OSPREY_TERMINAL_EXTERNAL_ORIGIN. The app inside the container
+      checks a mutating request's `Origin` against it (the CSRF half of the
+      carrier). Deployment-wide, so it always equals `landing_url` and the
+      file-level `external_origin` below; carried per service only because
+      that is where it is read.
+
     external_origin: str -> OSPREY_AUTH_EXTERNAL_ORIGIN
       The one origin browsers reach nginx on; the OIDC `redirect_uri` is built
-      from it. Same derivation the landing link uses (render.py::_external_origin).
+      from it. Same derivation the landing link uses (render.py::_external_origin)
+      — `modules.web_terminals.external_origin` when the operator set it (the
+      shape where a load balancer in front of this nginx is what browsers
+      reach), and `deploy.fqdn` + scheme/port otherwise.
     tls_enabled: bool -> OSPREY_AUTH_TLS_ENABLED
       Whether that origin is HTTPS. The sidecar terminates no TLS itself (nginx
       does) — this only decides the `Secure` attribute on the cookies it issues,
@@ -204,11 +224,17 @@
      and every secret VALUE must be free of `$`. Both halves are load-bearing.
 
      Keeping secrets out of `environment:` keeps them out of the rendered
-     compose file (and out of `docker inspect` output for the per-user
-     services). But do NOT read that as "an env_file value is passed through
-     literally" — it is not. Every compose implementation interpolates `${...}`
-     in env_file values too, and Docker Compose additionally replaces every `$`
-     followed by an identifier character with the empty string. That is why the stored hash is separated by `.` rather
+     compose file AND out of `docker inspect` for the service that reads them —
+     compose interpolates an `environment:` value at container-create time and
+     stores the result in the container's own Config.Env, while an `env_file`
+     value is handed to the runtime without being baked into the definition. The
+     per-user operator secret is the ONE knowing exception to this rule; the
+     OPERATOR SECRET section below states exactly what it costs and why
+     `env_file` cannot express it. But do NOT read that as "an env_file value is
+     passed through literally" — it is not. Every compose implementation
+     interpolates `${...}` in env_file values too, and Docker Compose
+     additionally replaces every `$` followed by an identifier character with
+     the empty string. That is why the stored hash is separated by `.` rather
      than the conventional `$` (osprey.services.auth_sidecar.passwords
      `FIELD_SEP`): a `$`-separated hash arrives here with its salt and key
      eaten, verifies against nothing, and refuses every login — silently, and
@@ -220,6 +246,83 @@
      (method, lifetime, roster, origin, OIDC issuer and per-user subject
      mapping) come from the template variables above and stay in
      `environment:`.
+
+  ----------------------------------------------------------------------------
+  OPERATOR SECRET (the per-user carrier, and why no VALUE is rendered here)
+
+  Every request nginx proxies to a per-user terminal carries that user's own
+  secret as the `X-Osprey-Terminal-Secret` header, and the terminal refuses any
+  request arriving without it. That is what makes nginx the only way in: the
+  per-user apps bind loopback, but loopback is visible to every process sharing
+  the host netns (see NETWORKING below), so the bind alone stops nothing that is
+  already on the box — a neighbouring container included.
+
+  One secret PER USER, so a value leaked from one container cannot be replayed
+  against another user's terminal. Both ends of one user's carrier name the same
+  variable, `svc.terminal_secret_env` (`OSPREY_TERMINAL_SECRET_<SUFFIX>`,
+  pre-resolved by render.py::terminal_secret_env_var):
+
+    * the per-user service reads it into the container-shape `OSPREY_TERMINAL_SECRET`
+      (`interfaces.web_auth.OPERATOR_SECRET_ENV`) — the app pops it at construction,
+    * the nginx service exports it under its own name, and nginx's entrypoint
+      substitutes it into that user's snippet at container start.
+
+  NO SECRET VALUE APPEARS IN THIS FILE, in any other rendered artifact, or in
+  any image layer. Every reference is `${VAR:-}`, which compose interpolates at
+  container-create time from the pinned deploy `.env` (--env-file; see
+  provision.web_stack_compose_cmd) — the same file `ensure_terminal_secrets`
+  mints into during preflight. The `:-` default only suppresses compose's
+  unset-variable warning; it does NOT half-authenticate, because a blank value
+  fails closed at app construction rather than at compose parse — which is where
+  an operator can still read the error.
+
+  WHAT `${VAR:-}` DOES AND DOES NOT BUY, precisely — because the rule at
+  SECRETS ISOLATION above says secrets travel only as `env_file` entries, and
+  this carrier is a deliberate exception to it.
+
+  It keeps the value out of: this rendered file, `git status`, and every image
+  layer. It does NOT keep it out of `docker inspect` or `docker compose config`:
+  compose interpolates `environment:` values at container-create time and stores
+  the result in the container's own `Config.Env`, so the per-user secret is
+  readable there for the nginx service (the whole roster) and for each `web-*`
+  service (its own). An `env_file` entry is what avoids that, and it is not
+  available here: the value has to arrive at nginx under a per-user NAME and at
+  that user's own container under the fixed name `OSPREY_TERMINAL_SECRET`, and
+  `env_file` carries a file's variables verbatim — it cannot rename one. Writing
+  per-service env files instead would put the secret VALUES on disk in `build/`,
+  which is the thing this carrier exists to avoid and the strictly worse trade.
+
+  So the exception is accepted knowingly, and it costs less than it looks:
+  reading `docker inspect` means already holding the container runtime's socket,
+  which is root-equivalent on this host and can read the deploy `.env` (and
+  everything else) directly. The isolation the carrier does establish — one
+  secret per user, so a value leaked from one container cannot be replayed
+  against a neighbour's terminal — is unaffected by any of this.
+
+  ENVSUBST, and the three settings that must travel together:
+
+    NGINX_ENVSUBST_FILTER=^OSPREY_TERMINAL_SECRET_
+      The base image's entrypoint otherwise substitutes EVERY variable in its
+      environment into every template. Restricting it to this prefix keeps any
+      other credential that happens to be in nginx's environment from being
+      written into a file under the output directory.
+    NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/osprey
+      NOT the entrypoint's default of `/etc/nginx/conf.d`, which the base image
+      globs into its `http{}` block: a `proxy_set_header` spliced in at http
+      level would send one user's secret to EVERY upstream, the auth sidecar
+      included. `/etc/nginx/osprey` is read only by the per-user `include`
+      nginx.conf.j2 emits inside each authenticated `location`.
+    ./build/nginx/templates:/etc/nginx/templates:ro
+      The source directory render.py writes `secret-<user>.conf.template` into
+      and `clear_nginx_templates_dir` empties before every render, so a
+      decommissioned user's snippet cannot survive. Render output, hence
+      build-relative (see MOUNT PATHS below). Read-only: nothing in the stack
+      has any reason to write it.
+
+  All three are emitted whatever the roster size. They describe where this
+  service reads templates from and writes them to, which is not a function of
+  how many users happen to be configured — and leaving OUTPUT_DIR unset for the
+  0-user case would put the dangerous conf.d default one roster edit away.
 
   ----------------------------------------------------------------------------
   NETWORKING
@@ -269,12 +372,34 @@ services:
       com.osprey.repo-id: "{{ repo_id }}"
     environment:
       - TZ={{ facility_timezone | default("UTC") }}
+      {#- Where the base image's entrypoint writes the envsubst'd snippets, and
+         which variables it may substitute. Both are spelled out in the OPERATOR
+         SECRET section of the header; the short version is that the default
+         output directory (conf.d) would splice a per-user `proxy_set_header`
+         into `http{}` and leak one user's secret to every upstream, and an
+         unfiltered pass would substitute unrelated credentials into files on
+         disk. #}
+      - NGINX_ENVSUBST_FILTER=^OSPREY_TERMINAL_SECRET_
+      - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/osprey
+{%- for svc in services %}
+      {#- One roster user's operator secret, under the SAME variable name the
+         user's own service reads (svc.terminal_secret_env) and the same one
+         that user's snippet references. A NAME here, never a value: compose
+         interpolates it at container-create time from the deploy .env. #}
+      - {{ svc.terminal_secret_env }}=${{ "{" }}{{ svc.terminal_secret_env }}:-}
+{%- endfor %}
     volumes:
       {#- Render output, so it is addressed under build/ — see the MOUNT PATHS
          note in the header for why these are build-relative while the env
          files below are repo-root-relative. #}
       - ./build/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./build/nginx/landing.html:/usr/share/nginx/html/landing.html:ro
+      {#- The per-user secret snippets, as nginx TEMPLATES — their `${...}` is
+         resolved by the entrypoint at container start, not by Jinja2 at render
+         time, which is what keeps the values off disk. Cleared and rewritten
+         whole by every render (render.clear_nginx_templates_dir), so this
+         directory holds exactly the current roster and nothing else. #}
+      - ./build/nginx/templates:/etc/nginx/templates:ro
 {%- if tls_host_cert_dir and tls_mount_target %}
       {#- The operator's certificate directory, read-only, landing at the
          directory `tls.cert` names so nginx's ssl_certificate finds it. Emitted
@@ -285,6 +410,46 @@ services:
          directory, so one mount is known to deliver both files. #}
       - {{ tls_host_cert_dir }}:{{ tls_mount_target }}:ro
 {%- endif %}
+    {#- The envsubst OUTPUT directory (NGINX_ENVSUBST_OUTPUT_DIR, above),
+       provided as a tmpfs so it EXISTS and is WRITABLE before the base image's
+       entrypoint runs. The entrypoint's 20-envsubst-on-templates.sh does not
+       create its own output directory — a bare `-w` guard makes it skip the
+       whole substitution when the directory is not already writable — and the
+       base image ships no `/etc/nginx/osprey`. Without this the per-user secret
+       snippets are never rendered, and nginx then dies at start on the
+       unconditional `include /etc/nginx/osprey/secret-<user>.conf` every
+       authenticated location carries (nginx.conf.j2). A tmpfs, not a bind or a
+       named volume: the content is regenerated from the mounted templates on
+       every start and must never outlive the container or touch disk — the
+       secret VALUES are what land here after substitution. Emitted at every
+       roster size, alongside the NGINX_ENVSUBST_* environment it backs.
+
+       WHY THE MODE, AND WHY THIS SPELLING OF IT. A tmpfs mounted without a mode
+       lands at 1777, world-writable and world-readable, and the envsubst'd files
+       inside it are 0644: every roster user's operator secret, in plaintext,
+       readable by any process in this container. 0700 with a root-owned
+       directory is what the two readers actually need — the base image's
+       entrypoint runs as root and writes the files there, and nginx's MASTER
+       process (also root) is what reads the `include`s at startup and on reload.
+       The unprivileged workers never open a config file, so nothing is lost by
+       shutting them out.
+
+       The mode rides as a MOUNT OPTION on the service-level `tmpfs:` short form,
+       `<path>:mode=0700`, and NOT as the long-form `volumes:` entry
+       (`{type: tmpfs, target: ..., tmpfs: {mode: 0700}}`) that would express the
+       same thing to Docker Compose alone. OSPREY supports podman-compose as a
+       first-class provider, and the two forms do not survive it equally. In the
+       long form `0700` is YAML octal, so it parses to the INTEGER 448: Docker
+       Compose sends that to the daemon as a numeric filemode and the directory
+       comes up `drwx------`, but podman-compose formats the same value straight
+       into `--tmpfs <path>:mode=448`, and podman passes tmpfs options through to
+       the kernel verbatim — where `mode=` is parsed as OCTAL, so 448 is rejected
+       and the container never starts. Quoting it (`mode: "0700"`) does not
+       reconcile them either: Docker Compose refuses a string there outright. The
+       option string below has no such ambiguity — both providers hand
+       `mode=0700` to the kernel unchanged. #}
+    tmpfs:
+      - /etc/nginx/osprey:mode=0700
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:{{ nginx_port }}/ || exit 1"]
       interval: 15s
@@ -418,6 +583,43 @@ services:
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
+      {#- This user's operator secret, in the container-shape variable the app
+         pops at construction (web_auth.OPERATOR_SECRET_ENV). The per-user
+         variable it is interpolated FROM is the same one nginx exports and this
+         user's snippet substitutes, so the two ends of the carrier cannot be
+         minted under one spelling and read under another — see the OPERATOR
+         SECRET section in the header.
+
+         `${VAR:-}` rather than a rendered value, exactly as ZO_INGEST_SA_TOKEN
+         above and for the same reason: the secret stays in the deploy .env and
+         out of this file, out of `git status`, and out of every image layer. It
+         is NOT out of `docker inspect` — compose interpolates this at
+         container-create time and the result is stored in the container's
+         Config.Env — which is the accepted exception the OPERATOR SECRET
+         section of the header spells out, along with why `env_file` cannot
+         express this particular carrier. The `:-` default suppresses compose's
+         unset warning only — an empty value fails closed at app construction,
+         which is a startup error naming the variable rather than a terminal
+         that quietly trusts everything. #}
+      - OSPREY_TERMINAL_SECRET=${{ "{" }}{{ svc.terminal_secret_env }}:-}
+      {#- The origin this deployment is reached on, which the app checks a
+         mutating request's `Origin` against (common_middleware.EXTERNAL_ORIGIN_ENV)
+         — the CSRF half of the carrier: without it a page on any other origin
+         could drive this terminal using the browser's own credentials.
+
+         Baked in here rather than derived per request from nginx's `$host`,
+         because a container reads its environment once at start and because
+         `$host` carries no port — a deployment behind a non-443 plain-HTTP
+         nginx would then check against an origin no browser ever sends.
+         Deployment-wide, so it equals `landing_url`: a service believing in a
+         different origin would reject the very links the landing page hands
+         out. A deployment fronted by a TLS-terminating load balancer sets
+         `modules.web_terminals.external_origin` to the address that balancer
+         answers on, and it lands here — the browser's origin is that host, and
+         nothing derivable from this config could name it. Not quoted, for the
+         same reason OSPREY_TERMINAL_LANDING_URL above is not — a URL holds no
+         `": "` and so is a plain YAML scalar. #}
+      - OSPREY_TERMINAL_EXTERNAL_ORIGIN={{ svc.external_origin }}
       {#- The telemetry ingest identity's SECRET. Every persona's rendered
          config.yml carries `password: ${ZO_INGEST_SA_TOKEN}` verbatim (the
          build defers it — the store mints the token, so no build can resolve
@@ -528,6 +730,30 @@ services:
          same fail-closed outcome as never emitting this line at all. #}
       - BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}
 {%- endif %}
+{%- if svc.wants_graphdb %}
+      {#- The graph store's Neo4j password, for a persona that configures one.
+         The consumer is the `graph` MCP server in this container, which resolves
+         what to dial and with which password through
+         deployment.graphdb_service.resolve_graphdb_connection — from
+         `services.graphdb` plus this variable. Without it the server
+         authenticates with the shipped default while the store holds the
+         password `osprey up` minted, and every graph query fails on auth.
+
+         Per-user for the same reason as the credentials above: a shared
+         `.env.users` cannot say "the personas that configure a graph store".
+         Read-only personas ARE among them, unlike the launch token: Neo4j has a
+         single write-capable account, so read-only-ness is enforced by the
+         graph server's read transactions rather than by withholding this.
+
+         `:-ospreygraph` mirrors the graphdb service template's own
+         `NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-ospreygraph}"`, so a deployment
+         that minted no password behaves identically inside this container and
+         outside it. An empty value would NOT — `resolve_graphdb_connection`
+         reads the variable with a `.get` default, which falls back only on an
+         UNSET variable and would otherwise authenticate with the empty
+         string. #}
+      - GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}
+{%- endif %}
 {%- if svc.archiver_password_env %}
       {#- The archiver store's password, for a persona whose archiver connector
          authenticates with one. The consumer is the connector inside this
@@ -538,7 +764,7 @@ services:
          control-assistant preset spells it MONGO_ROOT_PASSWORD (minted by
          `osprey up`), a facility-run store may spell it anything.
 
-         Per-user for the same reason as the three credentials above: a
+         Per-user for the same reason as the four credentials above: a
          shared `.env.users` cannot say "the personas whose archiver reads
          this", and it excludes service tokens by design.
 

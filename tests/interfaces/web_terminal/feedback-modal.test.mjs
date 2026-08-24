@@ -29,11 +29,12 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/palette.js', () =
 const {
   ARTIFACT_WINDOW_DISCLOSURE,
   CHANNEL_HINTS,
-  CONTEXT_PASTE_HINT,
   FEEDBACK_DISCLOSURE,
   FEEDBACK_DISCLOSURE_PARAGRAPHS,
   FeedbackModal,
   NO_SESSION_HINT,
+  PASTE_STEP_COPY,
+  PASTE_STEP_OPEN,
   isFeedbackModalOpen,
 } = await import('../../../src/osprey/interfaces/web_terminal/static/js/feedback-modal.js');
 
@@ -372,10 +373,17 @@ function pickChannel(channel) {
   setChecked(input(`input[name="feedback-channel"][value="${channel}"]`), true);
 }
 
-/** @returns {HTMLButtonElement|null} */
+/** @returns {HTMLButtonElement|null} the inline copy button on the context row */
 function copyButton() {
   const el = document.querySelector('.feedback-copy-context');
   return el instanceof HTMLButtonElement ? el : null;
+}
+
+/** @returns {string[]} the visible two-step statement, [] while hidden */
+function pasteSteps() {
+  const panel = document.querySelector('.feedback-paste-steps');
+  if (!(panel instanceof HTMLElement) || panel.hasAttribute('hidden')) return [];
+  return Array.from(panel.querySelectorAll('li')).map((li) => li.textContent ?? '');
 }
 
 afterEach(() => {
@@ -405,16 +413,31 @@ describe('feedback modal state — defaults and channel switching', () => {
   test('state: the local action row is a single Send button', () => {
     openForm();
     expect(qs(document, '.feedback-send', HTMLButtonElement).textContent).toBe('Send');
-    expect(copyButton()).toBeNull();
+    expect(document.querySelector('.feedback-actions .feedback-copy-context')).toBeNull();
     expect(document.querySelector('.feedback-open-channel')).toBeNull();
   });
 
-  test('state: the GitHub row copies, opens an issue, and warns about the account', () => {
+  test('state: the copy affordance lives on the context row, on every channel', () => {
+    openForm();
+    // A utility beside the checkbox, never a step of sending — so it must not
+    // sit in the action row, and it must not vanish on the Local channel.
+    for (const channel of /** @type {const} */ (['local', 'github', 'email'])) {
+      pickChannel(channel);
+      const copy = copyButton();
+      expect(copy?.textContent).toBe('Copy');
+      expect(copy?.closest('.feedback-check-line')).not.toBeNull();
+      // Beside the label, never inside it — a click must not reach the checkbox.
+      expect(copy?.closest('label')).toBeNull();
+      expect(copy?.closest('.feedback-actions')).toBeNull();
+    }
+  });
+
+  test('state: the GitHub row opens an issue and warns about the account', () => {
     openForm();
     pickChannel('github');
 
     expect(document.querySelector('.feedback-send')).toBeNull();
-    expect(copyButton()?.textContent).toBe('Copy session context');
+    expect(document.querySelector('.feedback-actions .feedback-copy-context')).toBeNull();
     expect(qs(document, '.feedback-open-channel').textContent).toBe('Open GitHub issue');
     expect(qs(document, '.feedback-channel-hint').textContent).toBe(CHANNEL_HINTS.github);
     expect(CHANNEL_HINTS.github).toBe('Requires a GitHub account');
@@ -424,7 +447,7 @@ describe('feedback modal state — defaults and channel switching', () => {
     openForm();
     pickChannel('email');
 
-    expect(copyButton()?.textContent).toBe('Copy session context');
+    expect(document.querySelector('.feedback-actions .feedback-copy-context')).toBeNull();
     expect(qs(document, '.feedback-open-channel').textContent).toBe('Open email draft');
     expect(qs(document, '.feedback-channel-hint').textContent).toBe(CHANNEL_HINTS.email);
     expect(CHANNEL_HINTS.email).toBe('If nothing opens, use Local instead');
@@ -469,16 +492,20 @@ describe('feedback modal state — defaults and channel switching', () => {
 });
 
 describe('feedback modal state — context availability', () => {
-  test('state: Copy is disabled until the context box is ticked', () => {
+  test('state: Copy follows the session, not the checkbox', () => {
+    // Copying is an explicit act of its own: with a session to read from it is
+    // available whatever the checkbox or channel says, and without one it can
+    // only fail, so it is greyed rather than removed.
     openForm();
-    pickChannel('github');
-    expect(copyButton()?.disabled).toBe(true);
+    expect(copyButton()?.disabled).toBe(false);
 
     setChecked(input('.feedback-context-check'), true);
     expect(copyButton()?.disabled).toBe(false);
-
     setChecked(input('.feedback-context-check'), false);
-    expect(copyButton()?.disabled).toBe(true);
+    expect(copyButton()?.disabled).toBe(false);
+
+    pickChannel('github');
+    expect(copyButton()?.disabled).toBe(false);
   });
 
   test('state: without a session the context box is disabled and hinted', () => {
@@ -497,29 +524,47 @@ describe('feedback modal state — context availability', () => {
     expect(qs(document, '.feedback-context-hint').textContent).toBe('');
   });
 
-  test('state: ticking context on an outbound channel explains the paste step', () => {
+  test('state: ticking context on an outbound channel states the two steps', () => {
     openForm();
     pickChannel('email');
     setChecked(input('.feedback-context-check'), true);
-    expect(qs(document, '.feedback-context-hint').textContent).toBe(CONTEXT_PASTE_HINT);
+    expect(pasteSteps()).toEqual([PASTE_STEP_COPY, PASTE_STEP_OPEN.email]);
 
     pickChannel('github');
-    expect(qs(document, '.feedback-context-hint').textContent).toBe(CONTEXT_PASTE_HINT);
+    expect(pasteSteps()).toEqual([PASTE_STEP_COPY, PASTE_STEP_OPEN.github]);
 
     // Local sends the context inline with the record — nothing to paste.
     pickChannel('local');
-    expect(qs(document, '.feedback-context-hint').textContent).toBe('');
+    expect(pasteSteps()).toEqual([]);
 
     pickChannel('email');
     setChecked(input('.feedback-context-check'), false);
-    expect(qs(document, '.feedback-context-hint').textContent).toBe('');
+    expect(pasteSteps()).toEqual([]);
   });
 
-  test('state: Copy stays disabled with no session even if context was ticked', () => {
+  test('state: the two-step statement is pinned and plainly worded', () => {
+    expect(PASTE_STEP_COPY).toBe('Your full report is copied to your clipboard.');
+    expect(PASTE_STEP_OPEN.github).toBe(
+      'A GitHub issue draft opens — paste the report into the issue body.'
+    );
+    expect(PASTE_STEP_OPEN.email).toBe(
+      'An email draft opens — paste the report into the message body.'
+    );
+  });
+
+  test('state: no session means no two-step statement, whatever was ticked', () => {
+    openForm({ getSessionId: () => null });
+    pickChannel('github');
+    // Force the flag past the disabled control — there is still no session to
+    // compose context from, so promising a copy would be false.
+    setChecked(input('.feedback-context-check'), true);
+
+    expect(pasteSteps()).toEqual([]);
+  });
+
+  test('state: Copy is disabled with no session even if context was ticked', () => {
     const m = openForm({ getSessionId: () => null });
     pickChannel('github');
-    // Force the flag past the disabled control — the action row must still
-    // refuse, because the bundle request has no session to compose from.
     setChecked(input('.feedback-context-check'), true);
 
     expect(copyButton()?.disabled).toBe(true);
@@ -570,7 +615,8 @@ describe('feedback modal state — disclosure popover', () => {
     // false privacy claim, and would contradict the "Always sent" paragraph.
     const metadata = FEEDBACK_DISCLOSURE_PARAGRAPHS[1];
     expect(metadata).toBe(
-      'Deployment metadata (on by default): the OSPREY version and the application name.'
+      'Deployment metadata (on by default): the OSPREY version, the application ' +
+        'name, and your browser.'
     );
     expect(metadata).not.toContain('identity');
     expect(metadata).not.toContain('username');
@@ -640,6 +686,18 @@ describe('feedback modal state — action events', () => {
     expect(onCopy.mock.calls[0][0].channel).toBe('github');
   });
 
+  test('state: clicking Copy never toggles the checkbox it sits beside', () => {
+    // The button lives inside the checkbox row's <label>; a label forwards
+    // activation to its control unless the click target is itself interactive.
+    const onCopy = vi.fn();
+    openForm({ onCopy });
+
+    expect(input('.feedback-context-check').checked).toBe(false);
+    copyButton()?.click();
+    expect(input('.feedback-context-check').checked).toBe(false);
+    expect(onCopy).toHaveBeenCalledTimes(1);
+  });
+
   test('state: Open emits open carrying the selected channel', () => {
     const onOpenChannel = vi.fn();
     openForm({ onOpenChannel });
@@ -653,8 +711,7 @@ describe('feedback modal state — action events', () => {
 
   test('state: a disabled Copy emits nothing', () => {
     const onCopy = vi.fn();
-    openForm({ onCopy });
-    pickChannel('github');
+    openForm({ getSessionId: () => null, onCopy });
 
     copyButton()?.click();
 

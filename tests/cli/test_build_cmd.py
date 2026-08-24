@@ -19,6 +19,7 @@ from osprey.cli.build_profile import (
     McpServerDef,
     load_profile,
 )
+from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey.errors import BuildProfileError
 
 # ---------------------------------------------------------------------------
@@ -1695,6 +1696,10 @@ def _build_for_web_panels(
         "data_bundle": "control_assistant",
         "provider": "cborg",
         "model": "haiku",
+        # Ship the memory-guard hook the real control_assistant preset ships:
+        # without it the built profile leaves Write/MultiEdit/NotebookEdit
+        # ungated and the build-time write-tool lint (correctly) refuses it.
+        "hooks": ["memory-guard"],
     }
     if web_panels is not None:
         profile_data["web_panels"] = web_panels
@@ -1885,7 +1890,13 @@ def _render(repo: Path):
     return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
-_PARADIGMS_FOR_BUILD: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
+# Every paradigm whose store is a channel-database file, derived from the
+# registry so a new paradigm cannot be added without landing here. ``graph`` is
+# excluded by the same subtraction the CLI's ``click.Choice`` lists use: its
+# store is a graph service, so a graph build materializes no
+# ``channel_databases/<paradigm>.json`` for these tests to byte-compare against
+# a preset tier source. See tests/build/test_mode_registry_single_source.py.
+_PARADIGMS_FOR_BUILD: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
 
 # Tier selection is restricted to {1, 3}, and tier 1 is in_context-only
@@ -2214,6 +2225,275 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
         "mcp__phoebus2__phoebus_drive" in r.message and "approval-gated" in r.message
         for r in caplog.records
     ), f"expected approval-overlap warning; got: {[r.message for r in caplog.records]}"
+
+
+# ---------------------------------------------------------------------------
+# Build lint: no ungated write-capable built-in (Write/MultiEdit/NotebookEdit)
+# ---------------------------------------------------------------------------
+
+
+def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path) -> None:
+    """A profile whose PreToolUse layer no longer gates the write-capable
+    built-ins — e.g. the memory-guard hook dropped, leaving ``selected_hooks``
+    empty — must be refused at build time with a BuildProfileError naming the
+    ungated tool. Write/MultiEdit/NotebookEdit are not in DENY_DEFAULTS (denying
+    them outright would block legitimate memory writes), so with no memory-guard
+    PreToolUse rule they are gated by nothing at all: exactly the ship-able
+    ungated-writer the lint exists to stop."""
+    from osprey.cli.templates import claude_code
+    from osprey.cli.templates.manager import TemplateManager
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="lint-no-guard",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    config = yaml.safe_load((project / "config.yml").read_text())
+    ctx = claude_code.build_claude_code_context(
+        manager.template_root, manager.jinja_env, project, config
+    )
+    # Drop every framework hook, so the widened memory-guard's
+    # 'Write|MultiEdit|NotebookEdit' PreToolUse matcher is no longer rendered.
+    ctx["selected_hooks"] = []
+
+    with pytest.raises(claude_code.BuildProfileError) as excinfo:
+        claude_code.create_claude_code_integration(
+            manager.template_root, manager.jinja_env, project, ctx
+        )
+    message = str(excinfo.value)
+    # Names the first ungated write-capable built-in.
+    assert "Write" in message
+    assert "PreToolUse" in message
+
+
+def test_lint_passes_for_normal_build_with_memory_guard(tmp_path: Path) -> None:
+    """A normally-built profile ships the widened memory-guard hook, whose single
+    'Write|MultiEdit|NotebookEdit' PreToolUse matcher gates all three
+    write-capable built-ins — so the build lint passes and the rendered
+    settings.json actually carries that gate. Guards that the shipped presets do
+    not trip the lint."""
+    from osprey.cli.templates.manager import TemplateManager
+
+    manager = TemplateManager()
+    # create_project runs create_claude_code_integration, which runs the lint;
+    # a trip would raise here and fail the test.
+    project = manager.create_project(
+        project_name="lint-normal",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    pre_matchers = [rule["matcher"] for rule in settings["hooks"]["PreToolUse"]]
+    # The widened memory-guard matcher that satisfies the lint is present.
+    assert any({"Write", "MultiEdit", "NotebookEdit"} <= set(m.split("|")) for m in pre_matchers), (
+        f"expected a Write|MultiEdit|NotebookEdit PreToolUse matcher; got: {pre_matchers}"
+    )
+
+
+# --- Matcher spellings the lint must read the way Claude Code does ---------
+
+
+@pytest.mark.parametrize(
+    "matcher",
+    [
+        pytest.param("*", id="literal-star"),
+        pytest.param(".*", id="regex-dot-star"),
+        pytest.param("", id="empty-string"),
+        pytest.param(None, id="omitted-key"),
+    ],
+)
+def test_matcher_covers_every_match_all_spelling(matcher) -> None:
+    """All four "run on every tool" spellings gate every write-capable built-in.
+
+    Claude Code runs a PreToolUse hook on every call when the matcher is ``"*"``,
+    an empty string, or absent; ``".*"`` reaches the same place through the regex
+    path. A lint that recognised only the literal ``"*"`` would refuse builds
+    whose hooks genuinely do gate the tool.
+    """
+    from osprey.cli.templates.claude_code import _WRITE_CAPABLE_BUILTINS, _matcher_covers
+
+    for tool in _WRITE_CAPABLE_BUILTINS:
+        assert _matcher_covers(matcher, tool), f"{matcher!r} should cover {tool}"
+
+
+@pytest.mark.parametrize(
+    ("matcher", "tool", "covers"),
+    [
+        # Exact single name, and the pipe alternation the memory-guard ships.
+        ("Bash", "Bash", True),
+        ("Bash", "Edit", False),
+        ("Write|MultiEdit|NotebookEdit", "NotebookEdit", True),
+        ("Write|MultiEdit|NotebookEdit", "Bash", False),
+        # Regex spellings a facility may reasonably write.
+        ("Write.*", "Write", True),
+        ("^(Write|Edit)$", "Edit", True),
+        ("^(Write|Edit)$", "Bash", False),
+        # Unanchored, exactly like Claude Code: "Edit.*" really does fire on
+        # NotebookEdit, while the metacharacter-free "Edit" does not.
+        ("Edit.*", "NotebookEdit", True),
+        ("Edit", "NotebookEdit", False),
+        # A server rule must not be read as gating a built-in.
+        ("mcp__controls__.*", "Bash", False),
+        # Not a compilable regex: falls back to exact alternation, covers nothing.
+        ("Write(", "Write", False),
+    ],
+)
+def test_matcher_covers_regex_and_literal_spellings(matcher: str, tool: str, covers: bool) -> None:
+    """Regex matchers are compiled and searched; the rest compare literally."""
+    from osprey.cli.templates.claude_code import _matcher_covers
+
+    assert _matcher_covers(matcher, tool) is covers
+
+
+# --- Bash and Edit are gated by the lint, not only by the deny floor -------
+
+
+def test_write_capable_builtins_cover_the_shell_and_patch_escape_hatches() -> None:
+    """Bash and Edit are in the linted set.
+
+    DENY_DEFAULTS' own docstring calls them "the two that matter most — the
+    unmediated shell-out and unmediated file-patch escape hatches around every
+    other control the profile installs", yet their only gate is that they sit in
+    that deny floor, which `claude_code.permissions.remove_deny` can take away.
+    They belong to the linted set so removing them from the floor has to be
+    replaced by some other gate.
+    """
+    from osprey.cli.templates.claude_code import _WRITE_CAPABLE_BUILTINS, DENY_DEFAULTS
+
+    assert {"Bash", "Edit"} <= set(_WRITE_CAPABLE_BUILTINS)
+    # And they are still what the deny floor gates them with today.
+    assert {"Bash", "Edit"} <= set(DENY_DEFAULTS)
+
+
+def _project_with_permissions(tmp_path: Path, name: str, permissions: dict) -> tuple[object, Path]:
+    """A built project whose config carries ``claude_code.permissions``."""
+    from osprey.cli.templates.manager import TemplateManager
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name=name,
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+    config = yaml.safe_load((project / "config.yml").read_text())
+    config.setdefault("claude_code", {})["permissions"] = permissions
+    (project / "config.yml").write_text(yaml.dump(config))
+    return manager, project
+
+
+@pytest.mark.parametrize("tool", ["Bash", "Edit"])
+def test_lint_rejects_remove_deny_of_an_ungated_escape_hatch(tmp_path: Path, tool: str) -> None:
+    """`permissions.remove_deny: ["Bash"]` (or Edit) with nothing else gating it
+    must fail the build.
+
+    Before the lint covered these two, this exact config built clean: the tool
+    dropped out of permissions.deny, no PreToolUse matcher covered it, and the
+    generated profile shipped an unmediated shell (or file-patch) with no gate
+    of any kind — silently, unlike remove_ask, which at least warns.
+    """
+    manager, project = _project_with_permissions(
+        tmp_path, f"remove-deny-{tool.lower()}", {"remove_deny": [tool]}
+    )
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        manager.regenerate_claude_code(project)
+
+    message = str(excinfo.value)
+    assert tool in message
+    assert "remove_deny" in message
+
+
+def test_lint_still_allows_remove_deny_of_a_non_write_tool(tmp_path: Path) -> None:
+    """`remove_deny` itself is not refused — only removing a gate the lint covers.
+
+    WebSearch is in the deny floor but is not write-capable, so a facility that
+    wants it back still gets it. Guards the lint against over-reach.
+    """
+    manager, project = _project_with_permissions(
+        tmp_path, "remove-deny-websearch", {"remove_deny": ["WebSearch"]}
+    )
+
+    manager.regenerate_claude_code(project)
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    assert "WebSearch" not in settings["permissions"]["deny"]
+    assert "Bash" in settings["permissions"]["deny"]
+
+
+def _ship_declared_pre_hook(project: Path, filename: str, matcher: str) -> None:
+    """Put a facility hook in the project and declare it under PreToolUse.
+
+    Both halves are needed: `_vet_declared_hook` refuses a declaration whose
+    script the resolved profile does not ship (`scaffold.user_owned`) or that is
+    not present on disk, and the user-owned registration is also what keeps the
+    regen's prune pass from unlinking it.
+    """
+    hooks_dir = project / ".claude" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    (hooks_dir / filename).write_text("# facility gate\n", encoding="utf-8")
+
+    config = yaml.safe_load((project / "config.yml").read_text())
+    owned = config.setdefault("scaffold", {}).setdefault("user_owned", [])
+    owned.append(f"hooks/{filename}")
+    config.setdefault("claude_code", {}).setdefault("hooks", {})["PreToolUse"] = [
+        {"hook": filename, "matcher": matcher}
+    ]
+    (project / "config.yml").write_text(yaml.dump(config))
+
+
+def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
+    tmp_path: Path, caplog
+) -> None:
+    """A facility that takes Bash out of the deny floor and gates it with its own
+    PreToolUse hook builds — and is told, loudly, what the build did not check.
+
+    The lint verifies that a covering rule EXISTS; it cannot verify the hook
+    behind it ever refuses. A PreToolUse hook that exits 0 without a
+    permissionDecision falls through to the normal permission flow, i.e. allows.
+    So a tool whose only gate is a matcher the profile declared itself passes
+    with a warning rather than silently.
+    """
+    import logging
+
+    manager, project = _project_with_permissions(
+        tmp_path, "declared-bash-gate", {"remove_deny": ["Bash"]}
+    )
+    _ship_declared_pre_hook(project, "facility_bash_gate.py", "Bash")
+
+    with caplog.at_level(logging.WARNING):
+        manager.regenerate_claude_code(project)
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    assert "Bash" not in settings["permissions"]["deny"]
+    assert any(
+        "Bash" in record.message and "permissionDecision" in record.message
+        for record in caplog.records
+    ), f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
+
+
+def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -> None:
+    """The memory-guard hook is framework-wired, so the three file-writing
+    built-ins it covers pass the lint quietly — the warning is reserved for gates
+    the build cannot vouch for."""
+    import logging
+
+    from osprey.cli.templates.manager import TemplateManager
+
+    manager = TemplateManager()
+    with caplog.at_level(logging.WARNING):
+        project = manager.create_project(
+            project_name="framework-gate-quiet",
+            output_dir=tmp_path,
+            data_bundle="hello_world",
+        )
+
+    assert project.is_dir()
+    assert not [r.message for r in caplog.records if "permissionDecision" in r.message], (
+        "a framework-wired gate must not warn"
+    )
 
 
 def test_writes_disabled_hard_block_covers_extends_clones(tmp_path: Path) -> None:
@@ -2755,3 +3035,149 @@ class TestVAArchiverConfigDerivation:
         assert config["archiver"]["mongodb_archiver"]["port"] == 27100
         assert config["deployed_services"] == []
         assert not (project / "services" / "mongodb").exists()
+
+
+# ---------------------------------------------------------------------------
+# What the build hands `create_project` as `tier`
+# ---------------------------------------------------------------------------
+
+
+class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
+    """The `tier` `_render_project` hands `create_project`, per paradigm.
+
+    ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
+    not "the tier to use": given ``None`` it derives the paradigm-aware default
+    itself, and given a value it enforces ``tier_mode_conflict`` against the
+    paradigm (both boundaries pinned in ``tests/cli/test_templates.py``). So the
+    build has to hand it a tier only where the paradigm accepts one. ``graph``
+    is the paradigm that does not — it derives tier 3 like every
+    non-``in_context`` paradigm, but its store is a service rather than tiered
+    database files, so no tier selects anything for it and pinning one is a
+    rule error. A build that handed its own derived tier straight back as a pin
+    would be refused at the boundary it had just satisfied, and would render
+    nothing at all.
+
+    Two tests, one per side of that rule: dropped for the paradigm that refuses
+    a tier, and carried through unchanged — overriding the derivation — for the
+    paradigms that take one.
+    """
+
+    def _tiers_handed_over(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        **profile_keys: object,
+    ) -> tuple[Path, list[int | None]]:
+        """Build the control-assistant preset with *profile_keys* layered on.
+
+        Returns the render and the ``tier`` every render in the build handed
+        ``create_project``. A build renders more than once — the deployment's
+        own project, its personas, its container copy — and the whole list comes
+        back rather than the first entry, because one render disagreeing with
+        the others is the interesting failure.
+
+        The argument is read off the bound signature rather than out of
+        ``kwargs``, so a caller that ever passes it positionally is still
+        recorded rather than silently read as ``None`` — which would make this
+        spy agree with a build that had stopped passing a tier at all.
+        """
+        import inspect
+
+        from click.testing import CliRunner
+
+        from osprey.cli.build_cmd import build
+        from osprey.cli.init_cmd import init
+        from osprey.cli.templates.manager import TemplateManager
+
+        repo = tmp_path / name
+        override = tmp_path / f"{name}-override.yml"
+        override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
+
+        runner = CliRunner()
+        created = runner.invoke(
+            init, [str(repo), "--preset", "control-assistant", "--no-git", "-O", str(override)]
+        )
+        assert created.exit_code == 0, created.output
+
+        create_project = TemplateManager.create_project
+        signature = inspect.signature(create_project)
+        seen: list[int | None] = []
+
+        def spy(self: TemplateManager, *args: object, **kwargs: object) -> Path:
+            bound = signature.bind(self, *args, **kwargs)
+            bound.apply_defaults()
+            seen.append(bound.arguments["tier"])
+            return create_project(self, *args, **kwargs)
+
+        monkeypatch.setattr(TemplateManager, "create_project", spy)
+        rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        assert rendered.exit_code == 0, rendered.output
+        assert seen, "the build rendered no project at all"
+        return repo / "build", seen
+
+    def test_graph_mode_renders_and_pins_no_tier(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The graph paradigm builds, and nothing in the build pins its tier.
+
+        The exit code is half the claim: pinning the derived tier here is not a
+        subtle mis-selection but a hard refusal, so a regression shows up as a
+        build that cannot render the paradigm at all.
+        """
+        render, tiers = self._tiers_handed_over(
+            tmp_path, monkeypatch, "graphed", channel_finder_mode="graph"
+        )
+
+        assert set(tiers) == {None}, (
+            f"a render pinned a tier for the graph paradigm: {tiers}. graph has no "
+            "tiered artifacts, so create_project refuses an explicit tier."
+        )
+        # The paradigm reached the render: graph flattens no channel database,
+        # so the server it declares is the whole of the evidence.
+        servers = json.loads((render / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+        assert servers["channel-finder"]["args"] == [
+            "-m",
+            "osprey.mcp_server.channel_finder_graph",
+        ]
+
+    def test_an_explicit_tier_overrides_the_derivation_on_a_file_paradigm(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pinned tier still reaches the materializer, and still decides the DB.
+
+        ``in_context`` with an explicit ``tier: 3`` is the one legal pairing
+        where the pin and the paradigm's own default disagree — the derivation
+        would pick tier 1. So this is the case that can tell "the profile's
+        pin was passed through" from "``create_project`` derived the same
+        number anyway", which a ``hierarchical`` profile (deriving 3, pinning 3)
+        cannot.
+        """
+        render, tiers = self._tiers_handed_over(
+            tmp_path, monkeypatch, "pinned", channel_finder_mode="in_context", tier=3
+        )
+
+        assert set(tiers) == {3}, (
+            f"the build dropped the profile's explicit tier: {tiers}. Passing None "
+            "here would have let create_project derive tier 1 from in_context, "
+            "silently building a smaller channel database than the profile asked for."
+        )
+
+        preset_tier3 = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "osprey"
+            / "templates"
+            / "apps"
+            / "control_assistant"
+            / "data"
+            / "channel_databases"
+            / "tiers"
+            / "tier3"
+            / "in_context.json"
+        )
+        flat = render / "data" / "channel_databases" / "in_context.json"
+        assert flat.read_bytes() == preset_tier3.read_bytes(), (
+            "the render materialized a channel database that is not the preset's "
+            "tier-3 in_context source — the pinned tier did not decide the artifact"
+        )

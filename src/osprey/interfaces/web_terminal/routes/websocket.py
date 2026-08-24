@@ -13,7 +13,8 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 
-from osprey.agent_runner.clean_env import build_clean_env
+from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,20 @@ def _build_extra_env(
     ``OSPREY_SESSION_ID`` (session-scoped agent-data relocation and artifact
     session tagging) and stays unset for new sessions — because the telemetry
     locator must not carry those side effects.
+
+    The result also carries the **panel token**, and that is the one place the
+    PTY child gets it. :func:`~osprey.interfaces.web_auth._populate` pops the
+    token out of ``os.environ`` and
+    :func:`~osprey.agent_runner.clean_env.build_base_child_env` strips it, so
+    :func:`~osprey.interfaces.web_terminal.pty_manager.build_pty_env` — which
+    hands its result to ``Popen(env=...)`` as the child's *complete*
+    environment — would otherwise produce a child that holds no panel
+    credential at all, leaving the MCP panel tools and the panel/approval hooks
+    to send no bearer and be answered 401 in silence. ``extra_env`` is applied
+    after the strip, which is what makes this the seam for a deliberate
+    re-introduction. Only the panel token is re-introduced: it authorises the
+    narrow panel tier (:data:`~osprey.interfaces.web_auth.PANEL_TIER_ROUTES`)
+    and nothing else. The operator secret is never put back.
     """
     extra_env: dict[str, str] = {}
     # The PTY terminal IS the expert web surface — every session spawned here
@@ -106,6 +121,7 @@ def _build_extra_env(
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
+    extra_env[PANEL_TOKEN_ENV] = get_web_credentials(websocket.app).panel_token
     hooks_env = getattr(websocket.app.state, "hooks_env", {})
     if hooks_env:
         extra_env.update(hooks_env)
@@ -461,7 +477,7 @@ async def operator_ws(websocket: WebSocket):
     forward_task = None
 
     try:
-        env = build_clean_env(project_cwd=cwd)
+        env = build_operator_child_env(project_cwd=cwd)
         session = await registry.create_session(operator_key, cwd=cwd, env=env)
     except Exception as exc:
         logger.error("Failed to create operator session: %s", exc)

@@ -236,11 +236,88 @@ services:
                     # Raise it on a large corpus, where a no-op sweep is not
                     # free.
 
+  # Graph store — a Neo4j container holding a DISPOSABLE mirror of an
+  # RDF/Turtle corpus. The TTL on disk stays the source of truth and
+  # `osprey knowledge seed-graph` rebuilds the graph from it, so losing this
+  # container's volume costs a re-seed, not data. It answers the multi-hop
+  # relationship questions keyword and semantic search cannot: what a channel
+  # belongs to, what a subsystem contains, what depends on what.
+  #
+  # Deployed by default, and this block is what makes that legal: a `graphdb`
+  # entry in `deployed_services` without it is refused before compose runs —
+  # nothing else says which ports to publish. Comment out both or neither.
+  #
+  # No password key here, deliberately. The container reads GRAPHDB_PASSWORD
+  # from the project .env, which `osprey up` mints when it is unset; a password
+  # written into this file would be read by nobody and would silently lose to
+  # the minted value. Same convention as `postgresql:` above.
+  #
+  # EXTERNAL STORE: to talk to a graph store this deployment does not run, add
+  # an explicit `uri:` (e.g. bolt://graph.example.org:7687) plus an optional
+  # `username:` (default neo4j) here, and leave `graphdb` OUT of
+  # `deployed_services`. Nothing is minted on that path — set GRAPHDB_PASSWORD
+  # in the project .env yourself, or the store refuses the connection.
+  graphdb:
+    path: ./services/graphdb
+    image: neo4j:5.20-community  # Pinned to 5.20: neosemantics (n10s), the
+                                 # plugin that imports the RDF, publishes no
+                                 # build for 5.23+. Repoint it at a mirror or a
+                                 # pre-baked image on an air-gapped host.
+    port_host: 7687       # Bolt — the only protocol the neo4j driver speaks,
+                          # so this is what the seeder and the agent dial.
+    http_port_host: 7474  # HTTP — the Neo4j Browser an operator opens, and the
+                          # endpoint the container healthcheck probes.
+                          # `osprey health` does NOT use this port: it dials the
+                          # store over bolt on port_host (or an explicit `uri`),
+                          # which is what its remedies name. Both ports publish
+                          # on the project-wide `deployment.bind_address`
+                          # (default 127.0.0.1); no per-service bind_address.
+    ttl_path: ./data/demo_machine.ttl
+                          # Corpus to seed the store from, resolved against this
+                          # file's directory (the same rule as
+                          # `facility_knowledge.bundle_path`). This one is the
+                          # demo machine — the same devices and channels the
+                          # channel database in `data/` describes, rebuilt as a
+                          # graph, so the agent's graph answers and its channel
+                          # search agree. Regenerate it after editing the
+                          # channel database with:
+                          #   osprey knowledge build-ttl data/demo_machine.ttl
+                          # (in a four-zone repo the render under build/ is
+                          # disposable — regenerate into your profile's data
+                          # tree and rebuild). A build profile that ships its
+                          # own `data:` tree replaces this directory wholesale,
+                          # so it must set this key in its `config:` overlay.
+                          # The ALS corpus stays available at
+                          # ./services/graphdb/als_gtb.ttl — point this key
+                          # there, or at your own TTL, to seed that instead.
+                          # Comment it out to bring the store up bootstrapped
+                          # but empty.
+    # JVM memory. Neo4j sizes nothing automatically inside a container — left
+    # unset it reads the HOST's memory and picks numbers the container's own
+    # limit will not honour — so all three are spelled out. Budget roughly
+    # heap_max_size + pagecache_size + ~0.5G of JVM overhead. These values run
+    # the shipped corpus comfortably; a substantially larger graph wants more.
+    heap_initial_size: 512m   # Heap the server starts with
+    heap_max_size: 1G         # Ceiling the heap may grow to
+    pagecache_size: 512m      # Off-heap cache for graph data and indexes,
+                              # separate from the heap and NOT taken out of it
+    # Query bounds, read by the agent's `read_cypher` tool. Both cap a SINGLE
+    # question rather than the store: the timeout is handed to the server,
+    # which cancels the transaction itself, and the row cap decides how much of
+    # a broad match comes back. Raising them spends the agent's context window,
+    # not the store's memory — a few thousand rows crowd out the conversation
+    # long before they trouble Neo4j.
+    query_timeout_s: 15   # Server-side transaction timeout for one agent
+                          # query, in seconds.
+    query_max_rows: 200   # Rows returned per query before truncation; the tool
+                          # says when it cut.
+
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
   - qmd             # Comment out together with the `qmd:` block above.
+  - graphdb         # Comment out together with the `graphdb:` block above.
 {% else %}
 # Attached project (deploy_services: false): this project connects to a
 # services stack another OSPREY project deployed on the same host, so it
@@ -664,7 +741,7 @@ archiver:
 
 channel_finder:
   # Active pipeline mode
-  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
+  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", "middle_layer", or "graph"
 
   # osprey:panel-port channel_finder
   # CHANNELS tab: the channel-finder UI is a web server of its own, configured
@@ -691,7 +768,13 @@ channel_finder:
   #     max_tokens: 1000
   #   llm_batch_size: 10
 
-  # Pipeline-specific configurations
+  # Pipeline-specific configurations. Three of the four paradigms name the
+  # database file they read, and their block appears below. The fourth,
+  # `graph`, names nothing here: it answers from the Neo4j store declared under
+  # `services.graphdb` above — the one this project deploys, or a facility-
+  # hosted one named by an explicit `uri:` there. So `pipeline_mode: graph`
+  # plus that block is the whole of its configuration, and this section renders
+  # empty in graph mode.
   pipelines:
 {% if enable_in_context %}
     # In-Context Pipeline (Semantic Search)
@@ -753,9 +836,12 @@ channel_finder:
 
   # Benchmarking configuration
   # All paradigms share a single benchmark query set, tier-resolved at build
-  # time per channel_finder_mode (in_context → tier 1, hierarchical/middle_layer
-  # → tier 3; override with `osprey set tier=N`, then rebuild).  Query file is
-  # materialized to data/benchmarks/queries.json by the scaffolder.
+  # time per channel_finder_mode (in_context → tier 1; hierarchical,
+  # middle_layer and graph → tier 3; override with `osprey set tier=N`, then
+  # rebuild).  Query file is materialized to data/benchmarks/queries.json by
+  # the scaffolder.  Graph mode takes no tier override — it ships no tiered
+  # database, so the tier selects only this query set and `osprey build`
+  # refuses an explicit one.
   benchmark:
     # Single source of truth — all paradigms read the same query set.
     dataset_path: data/benchmarks/queries.json

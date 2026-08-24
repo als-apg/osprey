@@ -5,7 +5,7 @@ I" but "which roster users has this browser unlocked, and until when". That set
 lives in a single :mod:`itsdangerous`-signed cookie::
 
     {"v": 1, "sid": "<session id>", "iat": <epoch>, "users": {
-        "alice": {"exp": <epoch>, "tag": "0123456789abcdef"}
+        "alice": {"exp": <epoch>, "tag": "0123456789abcdef", "sub": ""}
     }}
 
 **Signed, not encrypted.** Anyone holding the cookie can read the payload; they
@@ -16,7 +16,14 @@ one-way digest the verify endpoint recomputes from the current stored hash so a
 rotated password invalidates that user's sessions without server-side state.
 OIDC entries carry no tag (there is no stored hash), which is why
 :func:`~osprey.services.auth_sidecar.passwords.verify_generation_tag` refuses an
-empty tag: a password-mode session must never authorise without one.
+empty tag: a password-mode session must never authorise without one. They carry
+the provider's subject instead — an opaque account identifier, not a
+credential — so a later request can tell which provider account is behind an
+unlocked user without re-contacting the provider.
+
+The ``"sub"`` key is read with a default rather than being made mandatory, and
+was added without a :data:`PAYLOAD_VERSION` bump: a cookie minted before it
+existed still decodes, with an empty subject.
 
 **The codec only signs and verifies.** Cookie attributes — ``SameSite=Lax``,
 ``HttpOnly`` always, ``Secure`` under TLS — are the caller's to set on the
@@ -94,11 +101,16 @@ class UnlockedUser:
         generation_tag: The credential-generation tag from
             :func:`~osprey.services.auth_sidecar.passwords.generation_tag`, or
             ``""`` for an OIDC entry, which has no stored hash behind it.
+        oidc_subject: The ``sub`` claim of the OIDC provider that unlocked this
+            entry, or ``""`` in password mode and for any session minted before
+            the subject was carried. An opaque account identifier, never a
+            credential — the cookie is signed, not encrypted.
     """
 
     username: str
     expires_at: float
     generation_tag: str = ""
+    oidc_subject: str = ""
 
     def is_expired(self, now: float) -> bool:
         """Whether this entry has reached its expiry at ``now``."""
@@ -165,18 +177,28 @@ class SessionState:
         return tuple(user.username for user in self.users if not user.is_expired(now))
 
     def with_user(
-        self, username: str, *, expires_at: float, generation_tag: str = ""
+        self,
+        username: str,
+        *,
+        expires_at: float,
+        generation_tag: str = "",
+        oidc_subject: str = "",
     ) -> SessionState:
         """Return this state with ``username`` unlocked until ``expires_at``.
 
-        Re-adding a user replaces that entry in place — a fresh login refreshes
-        the expiry and the tag without disturbing the order of the others.
+        Re-adding a user replaces that entry in place — a fresh login restates
+        the expiry, the tag and the subject without disturbing the order of the
+        others. Replacement is wholesale, not a merge: a login that omits the
+        subject clears the one the previous login carried, exactly as it already
+        does for the tag.
 
         Args:
             username: The roster user being unlocked.
             expires_at: Absolute epoch seconds at which the entry lapses.
             generation_tag: The credential-generation tag in password mode;
                 omitted for OIDC.
+            oidc_subject: The provider's ``sub`` claim in OIDC mode; omitted in
+                password mode, which has no provider account behind it.
 
         Raises:
             ValueError: If ``username`` is empty.
@@ -185,7 +207,10 @@ class SessionState:
             raise ValueError("username must not be empty")
 
         entry = UnlockedUser(
-            username=username, expires_at=float(expires_at), generation_tag=generation_tag
+            username=username,
+            expires_at=float(expires_at),
+            generation_tag=generation_tag,
+            oidc_subject=oidc_subject,
         )
         if self.entry(username) is None:
             return replace(self, users=(*self.users, entry))
@@ -287,7 +312,11 @@ class SessionCodec:
             "sid": state.session_id,
             "iat": state.issued_at,
             "users": {
-                user.username: {"exp": user.expires_at, "tag": user.generation_tag}
+                user.username: {
+                    "exp": user.expires_at,
+                    "tag": user.generation_tag,
+                    "sub": user.oidc_subject,
+                }
                 for user in state.users
             },
         }
@@ -349,6 +378,10 @@ class SessionCodec:
     def _decode_users(raw_users: Any) -> tuple[UnlockedUser, ...]:
         """Read the unlocked-user map out of a verified payload.
 
+        Both ``tag`` and ``sub`` default to ``""`` when absent, so a cookie
+        minted before either key existed decodes at the current payload version
+        instead of signing that browser out.
+
         Raises:
             InvalidSessionError: If the map or any entry is malformed.
         """
@@ -366,11 +399,17 @@ class SessionCodec:
             tag = entry.get("tag", "")
             if not isinstance(tag, str):
                 raise InvalidSessionError(f"session entry for {username!r} has a non-string tag")
+            subject = entry.get("sub", "")
+            if not isinstance(subject, str):
+                raise InvalidSessionError(
+                    f"session entry for {username!r} has a non-string subject"
+                )
             users.append(
                 UnlockedUser(
                     username=username,
                     expires_at=_as_epoch(entry.get("exp"), f"users[{username}].exp"),
                     generation_tag=tag,
+                    oidc_subject=subject,
                 )
             )
         return tuple(users)

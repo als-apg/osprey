@@ -13,10 +13,17 @@
 
 import { escapeHtml as esc } from '/design-system/js/dom.js';
 
-/** @type {Record<string, string>} */
+/** Keys are the server names the transcript reader emits (the segment
+ * between `mcp__` and the next `__`) — for framework servers, the registry
+ * names in registry/mcp.py. test_server_color_parity.py pins the set against
+ * the registry; a facility-declared custom server takes the neutral badge.
+ * @type {Record<string, string>} */
 const SERVER_COLORS = {
-  controls: 'srv-controls', python: 'srv-python', workspace: 'srv-workspace',
+  controls: 'srv-controls', python: 'srv-python', osprey_workspace: 'srv-workspace',
   ariel: 'srv-ariel', 'channel-finder': 'srv-channel-finder',
+  osprey_facility_knowledge: 'srv-facility-knowledge', graph: 'srv-graph',
+  phoebus: 'srv-phoebus',
+  bluesky: 'srv-bluesky', health: 'srv-health',
 };
 
 /**

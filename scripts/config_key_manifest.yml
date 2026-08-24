@@ -167,6 +167,99 @@ keys:
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.
 
+  # The graph store, shipped LIVE in the ariel-standalone and control-assistant
+  # templates (block and `deployed_services` entry always emitted together — a
+  # deployed graphdb without a block is refused pre-compose). Every regex below
+  # — except `path`, which cites the generic compose-generator read shared with
+  # its three neighbours, and the two query bounds at the end of the block —
+  # anchors on deployment/graphdb_service.py, the single resolver the compose
+  # render, the port-conflict sweep, the health category and the seeder all
+  # read through, so deleting it fails the guard rather than rotting quietly.
+  # The query bounds are the one pair the deploy path never sees: they shape a
+  # single agent query, so the graph MCP server reads them at query time and
+  # their evidence anchors there instead.
+  services.graphdb:
+    evidence: '_graphdb_block\(config\)'
+  services.graphdb.path:
+    evidence: 'service_config\["path"\]'
+    note: >-
+      Same generic compose-generator read as the openobserve/postgresql/qmd
+      `path` keys — it resolves any service's fragment directory, graphdb
+      included.
+  services.graphdb.image:
+    evidence: '_text\(block\.get\("image"\)'
+    note: >-
+      Pinned to neo4j:5.20-community by DEFAULT_IMAGE, and the pin is about the
+      neosemantics (n10s) plugin's release cadence rather than Neo4j's: without
+      n10s the store cannot import the RDF corpus at all, and it publishes no
+      build for 5.23+. Overridable per project for a mirror or a pre-baked
+      image; the compose fragment layers ${OSPREY_GRAPHDB_IMAGE} over it.
+  services.graphdb.port_host:
+    evidence: '_port\(block\.get\("port_host"\)'
+    note: >-
+      Published bolt port (7687), the only protocol the neo4j driver speaks.
+      `deployment/host_ports.py` cites GRAPHDB_PORT_CONFIG_KEY from this same
+      module, so the port-conflict remedy cannot drift from the schema.
+  services.graphdb.http_port_host:
+    evidence: 'block\.get\("http_port_host"\)'
+    note: >-
+      Published HTTP port (7474) for the Neo4j Browser and the container
+      healthcheck. NOT the health category, which dials the store over bolt on
+      `port_host` (or an explicit `uri`). Graphdb is the first single compose
+      service publishing two host ports, which is why the port-conflict remedy
+      resolves per container port — a conflict on 7474 that named `port_host`
+      would send the operator to edit the wrong number.
+  services.graphdb.ttl_path:
+    evidence: '_optional_text\(block\.get\("ttl_path"\)'
+    note: >-
+      Optional RDF/Turtle corpus the store is seeded from; unset brings the
+      store up bootstrapped but empty. Kept verbatim by
+      GraphdbServiceConfig.ttl_path and resolved against the config file's
+      directory by its consumers, per the `facility_knowledge.bundle_path` rule
+      — resolving it against the process cwd would give a deploy and a CLI verb
+      two different files from one config value.
+  services.graphdb.heap_initial_size:
+    evidence: 'block\.get\("heap_initial_size"\)'
+    note: >-
+      JVM heap the server starts with. Spelled explicitly because Neo4j sizes
+      nothing automatically inside a container: left unset it reads the host's
+      memory and picks numbers the container's own limit will not honour.
+  services.graphdb.heap_max_size:
+    evidence: 'block\.get\("heap_max_size"\)'
+    note: Ceiling the JVM heap may grow to. Same container-sizing reason as above.
+  services.graphdb.pagecache_size:
+    evidence: 'block\.get\("pagecache_size"\)'
+    note: >-
+      Off-heap cache for graph data and indexes. Separate from the heap and not
+      taken out of it: the container's memory budget is roughly heap max plus
+      this plus about half a gigabyte of JVM overhead.
+  services.graphdb.query_timeout_s:
+    evidence: '_setting\(QUERY_TIMEOUT_CONFIG_KEY'
+    note: >-
+      Transaction timeout the graph MCP server hands to the store for one
+      `read_cypher` call, so a runaway traversal is cancelled server-side
+      instead of being held open by a client that has already given up. Read in
+      mcp_server/graph/server_context.py rather than by the deploy resolver —
+      the value never reaches compose, so this is the first graphdb key whose
+      evidence sits outside deployment/graphdb_service.py.
+  services.graphdb.query_max_rows:
+    evidence: '_setting\(QUERY_MAX_ROWS_CONFIG_KEY'
+    note: >-
+      Rows one `read_cypher` call returns before the result is truncated; the
+      tool reports the truncation, so a partial answer is never mistaken for a
+      complete one. Bounds what a question costs the AGENT's context window
+      rather than what it costs the store, which is why it is a query-time key
+      and not a container one.
+  # `services.graphdb.bind_address` is deliberately absent for the same reason
+  # qmd's is — every service publishes on the project-wide
+  # `deployment.bind_address`, and graphdb reuses that one reading.
+  # `services.graphdb.uri` and `services.graphdb.username` are absent too, but
+  # for a different reason: they are read (by `resolve_graphdb_connection`, for
+  # an EXTERNAL store this deployment connects to but does not run) and simply
+  # rendered by no shipped template, so a manifest entry would fail the
+  # phantom-key check. There is deliberately no `password` key at any layer —
+  # the credential lives in the project .env as GRAPHDB_PASSWORD.
+
   # ── Safety / approval ───────────────────────────────────────────────
   approval:
     all-templates: true
@@ -246,7 +339,7 @@ keys:
   control_system.connector.epics: {covered-by: control_system.connector}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics}
   control_system.connector.epics.gateways: {evidence: 'gateways'}
-  control_system.connector.epics.gateways.read_only: {evidence: 'gateways\.get\("read_only", \{\}\)'}
+  control_system.connector.epics.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
   control_system.connector.epics.gateways.read_only.address: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.port: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.use_name_server: {evidence: 'use_name_server'}
@@ -258,7 +351,7 @@ keys:
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file'}
   control_system.connector.virtual_accelerator.gateways: {evidence: 'gateways'}
-  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'gateways\.get\("read_only", \{\}\)'}
+  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
   control_system.connector.virtual_accelerator.gateways.read_only.address: {covered-by: control_system.connector.virtual_accelerator.gateways.read_only}
   control_system.connector.virtual_accelerator.gateways.read_only.use_name_server:
     evidence: 'use_name_server'
@@ -984,7 +1077,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 298
+  expected_union_size: 309
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
@@ -1004,6 +1097,15 @@ render_contexts:
     re-derived by running the guard against the merged templates, not by
     adding the two increments — adding them gives 299, one high, so a counter
     reconciled by arithmetic across two branches is a counter that drifts.
+    Re-derived at 285 when the `services.graphdb` block landed: 9 of those 12
+    are the graphdb keys, the other 3 were drift that had accumulated since the
+    previous re-derivation. Re-derived again at 287 when the graph MCP server
+    added `services.graphdb.query_timeout_s` and `query_max_rows` to the same
+    block — exactly two keys, both in the two app templates that already
+    carried the block, so no other template's key set moved.
+    305 -> 309 when the target-switch branch merged main: re-derived by running
+    the guard on the merged templates, and this time the arithmetic agrees —
+    main's 305 plus the branch's four target-switch paths, nothing else moved.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no

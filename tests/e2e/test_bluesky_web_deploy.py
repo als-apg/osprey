@@ -190,6 +190,33 @@ def _minted_token(repo: Path) -> str:
     return token
 
 
+def _minted_sidecar_secret(repo: Path) -> str:
+    """The sidecar's operator secret, read from the same .env `osprey up` wrote.
+
+    The sidecar is gated by WebAuthMiddleware like every interface app, so this
+    suite authenticates the way any non-browser operator client does: the
+    minted ``OSPREY_TERMINAL_SECRET`` sent as the operator-secret header.
+    """
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env_path = repo / ".env"
+    assert env_path.is_file(), f"no .env written at {env_path} — secret was not minted"
+    env = parse_dotenv_file(env_path)
+    secret = env.get("OSPREY_TERMINAL_SECRET")
+    assert secret, "OSPREY_TERMINAL_SECRET missing/empty in the deployment repo's .env"
+    return secret
+
+
+#: Set by the ``deployed_stack`` fixture once the stack's .env exists; the
+#: sidecar helpers below attach it to every request. Module state rather than a
+#: fixture return so the plain helper functions need no threading-through.
+_sidecar_secret: str | None = None
+
+
+def _auth_headers() -> dict[str, str]:
+    return {"X-Osprey-Terminal-Secret": _sidecar_secret} if _sidecar_secret else {}
+
+
 def _wait_for_health(url: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last_err = "(no response yet)"
@@ -206,14 +233,20 @@ def _wait_for_health(url: str, timeout: float) -> None:
 
 
 def _request(
-    base: str, path: str, method: str, body: dict[str, Any] | None = None
+    base: str,
+    path: str,
+    method: str,
+    body: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, Any]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
+    all_headers = {"Content-Type": "application/json"} if data is not None else {}
+    all_headers.update(headers or {})
     req = urllib.request.Request(  # noqa: S310
         f"{base}{path}",
         data=data,
         method=method,
-        headers={"Content-Type": "application/json"} if data is not None else {},
+        headers=all_headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
@@ -231,11 +264,11 @@ def _request(
 
 
 def _sidecar_get(path: str) -> tuple[int, Any]:
-    return _request(BLUESKY_WEB_URL, path, "GET")
+    return _request(BLUESKY_WEB_URL, path, "GET", headers=_auth_headers())
 
 
 def _sidecar_post(path: str, body: dict[str, Any]) -> tuple[int, Any]:
-    return _request(BLUESKY_WEB_URL, path, "POST", body)
+    return _request(BLUESKY_WEB_URL, path, "POST", body, headers=_auth_headers())
 
 
 def _bridge_get(path: str) -> tuple[int, Any]:
@@ -258,7 +291,9 @@ def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> t
 
 
 def _get_html(path: str) -> tuple[int, str]:
-    req = urllib.request.Request(f"{BLUESKY_WEB_URL}{path}", method="GET")  # noqa: S310
+    req = urllib.request.Request(  # noqa: S310
+        f"{BLUESKY_WEB_URL}{path}", method="GET", headers=_auth_headers()
+    )
     try:
         with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
             return resp.status, resp.read().decode("utf-8", errors="replace")
@@ -482,6 +517,12 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
                 f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
+        # `osprey up` minted the sidecar's operator secret into the repo .env;
+        # arm the sidecar helpers with it before anything talks to the gate
+        # (the /health waits below are on the gate's exempt path).
+        global _sidecar_secret
+        _sidecar_secret = _minted_sidecar_secret(repo)
+
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         _wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace an
@@ -539,6 +580,18 @@ def test_panels_served_200(deployed_stack: DeployedStack) -> None:
     assert "<html" in body.lower(), f"GET /bluesky/ did not return HTML: {body[:200]!r}"
 
 
+@pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
+def test_sidecar_refuses_unauthenticated_requests(deployed_stack: DeployedStack) -> None:
+    """The deployed sidecar's gate refuses a request carrying no credential.
+
+    Every other test here authenticates with the minted operator secret; this
+    one pins the other half of the contract — that the deployed container
+    actually enforces the gate, rather than serving whoever reaches the port.
+    """
+    status, body = _request(BLUESKY_WEB_URL, "/plans", "GET")
+    assert status == 401, f"expected 401 for an unauthenticated GET /plans, got {status}: {body!r}"
+
+
 # ---------------------------------------------------------------------------
 # 3. HEADLINE: a run driven entirely through the sidecar's relays
 # ---------------------------------------------------------------------------
@@ -565,7 +618,12 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     # is a no-op that does NOT bump the revision, so a rerun (or a sibling test
     # staging the same plan) would pin an already-consumed revision and the
     # enqueue below would 409 draft_revision_already_launched.
-    _request(BLUESKY_WEB_URL, "/draft?client_id=panels-deploy-e2e", "DELETE")
+    _request(
+        BLUESKY_WEB_URL,
+        "/draft?client_id=panels-deploy-e2e",
+        "DELETE",
+        headers=_auth_headers(),
+    )
     status, patched = _request(
         BLUESKY_WEB_URL,
         "/draft",
@@ -575,6 +633,7 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
             "plan_args_patch": deployed_stack.plan_args,
             "client_id": "panels-deploy-e2e",
         },
+        headers=_auth_headers(),
     )
     assert status == 200, f"PATCH /draft (via sidecar) failed: {status} {patched}"
     _assert_no_token("draft response", patched)
@@ -696,7 +755,7 @@ def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> Non
     # No /runs/{id}/stop at all -- the path template isn't registered on the
     # sidecar for any method, so it 404s regardless of verb. (The halt lives on
     # the queue surface: POST /queue/stop and POST /queue/abort.)
-    status, body = _request(BLUESKY_WEB_URL, "/runs/not-a-real-run-id/stop", "GET")
+    status, body = _sidecar_get("/runs/not-a-real-run-id/stop")
     assert status == 404, f"expected no GET /runs/{{id}}/stop route, got {status}: {body}"
     status, body = _sidecar_post("/runs/not-a-real-run-id/stop", {})
     assert status == 404, f"expected no POST /runs/{{id}}/stop route, got {status}: {body}"

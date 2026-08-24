@@ -84,8 +84,16 @@ def hub_client(tmp_path, bluesky_url):
     """Hub app whose ``bluesky`` custom panel points at the live sidecar."""
     ws = tmp_path / "_agent_data"
     ws.mkdir()
-    custom = [{"id": "bluesky", "label": "Bluesky", "url": bluesky_url}]
+    # A config-declared loopback sidecar is the trusted shape the proxy re-issues
+    # the operator secret toward (see test_proxy.py's trusted panel); without the
+    # marker the proxy strips the credential and the now-gated sidecar refuses it.
+    custom = [{"id": "bluesky", "label": "Bluesky", "url": bluesky_url, "configDefined": True}]
     for _app, client in _make_client(ws, custom):
+        # Hub and sidecar are one deployment sharing one process credential. The
+        # sidecar app is imported at module scope, so it was seeded from a
+        # different holder than this per-test hub; pin them together so the
+        # secret the proxy forwards authenticates on the upstream hop.
+        bluesky_app.state.web_credentials = _app.state.web_credentials
         yield client
 
 

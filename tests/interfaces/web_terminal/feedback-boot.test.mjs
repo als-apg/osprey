@@ -564,6 +564,7 @@ describe('outbound channels', () => {
     clickFeedbackButton();
     typeReport('crash on resize');
     pickChannel('github');
+    tickContext();
 
     qs(document, '.feedback-open-channel').click();
 
@@ -572,9 +573,25 @@ describe('outbound channels', () => {
     expect(booted.windowOpen).toHaveBeenCalledTimes(1);
     const [url, target, features] = booted.windowOpen.mock.calls[0];
     expect(url).toContain(`https://github.com/${REPO}/issues/new?`);
-    expect(url).toContain('crash%20on%20resize');
+    // Pointer mode: the report travels on the clipboard, not in the URL.
+    expect(url).not.toContain('crash%20on%20resize');
     expect(target).toBe('_blank');
     expect(features).toBe('noopener');
+  });
+
+  test('a full-mode send opens the draft without touching the clipboard', async () => {
+    booted = await boot({ panels: { feedback_github_repo: REPO } });
+    clickFeedbackButton();
+    typeReport('crash on resize');
+    pickChannel('github');
+
+    qs(document, '.feedback-open-channel').click();
+    await vi.waitFor(() => expect(noticeText()).toContain('fb-1'));
+
+    expect(booted.windowOpen).toHaveBeenCalledTimes(1);
+    expect(booted.windowOpen.mock.calls[0][0]).toContain('crash%20on%20resize');
+    expect(booted.clipboard.write).not.toHaveBeenCalled();
+    expect(booted.clipboard.writeText).not.toHaveBeenCalled();
   });
 
   test('the email channel hands the draft to the browser, still in the turn', async () => {
@@ -677,9 +694,10 @@ describe('outbound channels', () => {
   });
 
   test('the lock never re-enables a button the dialog means to withhold', async () => {
-    // Copy session context is disabled while the context box is unticked.
-    booted = await boot();
+    // The inline copy button is disabled while there is no session to read.
+    booted = await boot({ sessionId: null });
     clickFeedbackButton();
+    typeReport('a report');
     pickChannel('github');
 
     qs(document, '.feedback-open-channel').click();
@@ -695,6 +713,7 @@ describe('outbound channels', () => {
     clickFeedbackButton();
     typeReport('a report');
     pickChannel('github');
+    tickContext();
 
     qs(document, '.feedback-open-channel').click();
     await vi.waitFor(() =>
@@ -714,6 +733,7 @@ describe('outbound channels', () => {
     clickFeedbackButton();
     typeReport('a report');
     pickChannel('github');
+    tickContext();
     qs(document, '.feedback-open-channel').click();
     await vi.waitFor(() =>
       expect(document.querySelector('.feedback-manual-copy')).not.toBeNull()

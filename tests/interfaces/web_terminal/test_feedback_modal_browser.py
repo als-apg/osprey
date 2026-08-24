@@ -244,19 +244,26 @@ def test_tab_cycles_through_every_control_and_wraps(tmp_path, chromium_browser):
             expect(dialog.locator('input[type="radio"][name="feedback-channel"]')).to_have_count(3)
             expect(dialog.locator("input.feedback-metadata-check")).to_be_enabled()
             expect(dialog.locator("input.feedback-context-check")).to_be_enabled()
+            expect(dialog.locator("button.feedback-copy-context")).to_be_enabled()
             expect(dialog.locator("button.feedback-help-toggle")).to_have_count(1)
             expect(dialog.locator("button.feedback-send")).to_have_count(1)
+            # Rendered-state claims only a real browser can make: the author
+            # `display` on these would beat the UA's `[hidden]` rule without
+            # the explicit guards in feedback-modal.css, and happy-dom cannot
+            # tell the difference.
+            expect(dialog.locator(".feedback-help-popover")).to_be_hidden()
+            expect(dialog.locator(".feedback-paste-steps")).to_be_hidden()
 
             expected = page.evaluate(_EXPECTED_TAB_STOPS)
             # Pinned against the inventory just asserted, not a floor. Both
             # sides of the set comparison below are read off the live DOM, so a
             # control that becomes untabbable (``tabindex="-1"``, or newly
             # disabled) would drop out of BOTH and pass unnoticed; the inventory
-            # catches deletion, and this count catches un-tabbing. The seven:
+            # catches deletion, and this count catches un-tabbing. The eight:
             # the close button, the textarea, the channel radios (one stop —
             # they share a name), the metadata checkbox, the context checkbox,
-            # the help toggle, and Send.
-            assert len(expected) == 7, f"tab order changed shape: {expected}"
+            # the inline Copy button, the help toggle, and Send.
+            assert len(expected) == 8, f"tab order changed shape: {expected}"
 
             start = _focus_probe(page)["key"]
             visited = [start]

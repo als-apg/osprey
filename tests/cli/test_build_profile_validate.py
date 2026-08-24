@@ -106,6 +106,25 @@ def test_tier_one_with_hierarchical_mode_is_rejected(tmp_path: Path) -> None:
     ]
 
 
+def test_explicit_tier_with_graph_mode_is_rejected(tmp_path: Path) -> None:
+    """``graph``'s store is a seeded service, so no tier selects anything for it.
+
+    The rule is checked ahead of the tier-1/in_context rule, so a ``tier: 1``
+    graph profile reports the graph message rather than being told to switch to
+    in_context — the fix is to drop ``tier``, not to change the paradigm.
+    """
+    for tier in (1, 3):
+        profile = BuildProfile(name="x", tier=tier, channel_finder_mode="graph")
+        assert _errors(profile, tmp_path) == [
+            f"channel_finder_mode: graph has no tiered artifacts; omit tier (got tier: {tier})"
+        ]
+
+
+def test_graph_mode_without_tier_validates(tmp_path: Path) -> None:
+    """Omitting ``tier`` is the supported way to build the graph paradigm."""
+    BuildProfile(name="x", channel_finder_mode="graph").validate(tmp_path)
+
+
 def test_unknown_channel_finder_mode_is_rejected(tmp_path: Path) -> None:
     """A channel_finder_mode outside the known paradigms is a typo, not a mode."""
     profile = BuildProfile(name="x", channel_finder_mode="in-context")
@@ -526,3 +545,160 @@ def test_virtual_accelerator_port_out_of_range_is_rejected(tmp_path: Path) -> No
     """The soft-IOC Channel Access port must be a usable TCP port."""
     profile = BuildProfile(name="x", virtual_accelerator=VAConfig(port=0))
     assert _errors(profile, tmp_path) == ["virtual_accelerator.port must be in 1..65535 (got 0)"]
+
+
+# --- graph mode's store prerequisite ---------------------------------------
+
+
+def test_graph_mode_on_a_store_deploying_app_template_validates(tmp_path: Path) -> None:
+    """The app templates that render a ``services.graphdb`` block need nothing else."""
+    for bundle in ("control_assistant", "ariel_standalone"):
+        BuildProfile(name="x", data_bundle=bundle, channel_finder_mode="graph").validate(tmp_path)
+
+
+def test_graph_mode_on_a_storeless_app_template_is_rejected(tmp_path: Path) -> None:
+    """``channel_finder_standalone`` renders no store, so graph has nothing to read.
+
+    The refusal names the missing block rather than the paradigm alone: the fix
+    is to configure a graph store, not to abandon the mode.
+    """
+    profile = BuildProfile(
+        name="x", data_bundle="channel_finder_standalone", channel_finder_mode="graph"
+    )
+    (error,) = _errors(profile, tmp_path)
+    assert "channel_finder_mode: graph" in error
+    assert "services.graphdb" in error
+    assert "channel_finder_standalone" in error
+
+
+def test_graph_mode_with_an_external_store_uri_validates(tmp_path: Path) -> None:
+    """Naming a store the facility runs is the other half of the rule.
+
+    ``services.graphdb.uri`` on the ``config:`` overlay creates the block the
+    app template omits, so a storeless template plus an external store passes —
+    no local Neo4j is deployed and none is required.
+    """
+    profile = BuildProfile(
+        name="x",
+        data_bundle="channel_finder_standalone",
+        channel_finder_mode="graph",
+        config={
+            "services.graphdb.uri": "bolt://graph.facility.org:7687",
+            "services.graphdb.username": "neo4j",
+        },
+    )
+    profile.validate(tmp_path)
+
+
+def test_graph_mode_on_an_attached_project_is_rejected(tmp_path: Path) -> None:
+    """``deploy_services: false`` renders ``services: {}`` whatever the template says.
+
+    So an attached project inherits no store from ``control_assistant``, and the
+    refusal says which knob emptied the block.
+    """
+    profile = BuildProfile(name="x", channel_finder_mode="graph", deploy_services=False)
+    (error,) = _errors(profile, tmp_path)
+    assert "services.graphdb" in error
+    assert "deploy_services: false" in error
+
+
+def test_graph_mode_on_an_attached_project_with_an_external_store_validates(
+    tmp_path: Path,
+) -> None:
+    """An attached project reaches a shared stack's store by naming its uri."""
+    profile = BuildProfile(
+        name="x",
+        channel_finder_mode="graph",
+        deploy_services=False,
+        config={"services.graphdb.uri": "bolt://127.0.0.1:7687"},
+    )
+    profile.validate(tmp_path)
+
+
+def test_graph_mode_with_the_template_block_overridden_away_is_rejected(tmp_path: Path) -> None:
+    """A bare ``services.graphdb:`` override deletes the block the template rendered."""
+    profile = BuildProfile(name="x", channel_finder_mode="graph", config={"services.graphdb": None})
+    (error,) = _errors(profile, tmp_path)
+    assert "services.graphdb" in error
+
+
+def test_graph_mode_with_a_profile_declared_graph_service_validates(tmp_path: Path) -> None:
+    """A profile that declares the service itself carries the block into the render."""
+    profile = BuildProfile(
+        name="x",
+        data_bundle="channel_finder_standalone",
+        channel_finder_mode="graph",
+        services={"graphdb": ServiceDef(template="osprey.graphdb")},
+    )
+    profile.validate(tmp_path)
+
+
+def test_a_malformed_graph_store_override_is_not_reported_as_a_missing_block(
+    tmp_path: Path,
+) -> None:
+    """A store named with a bad port is still a store this profile means to dial.
+
+    The resolver raises about the port where it can be acted on — the deploy
+    preflight — so this validator must not turn that into "no block at all".
+    """
+    profile = BuildProfile(
+        name="x",
+        data_bundle="channel_finder_standalone",
+        channel_finder_mode="graph",
+        config={"services.graphdb.port_host": "not-a-port"},
+    )
+    profile.validate(tmp_path)
+
+
+def test_non_graph_modes_need_no_graph_store(tmp_path: Path) -> None:
+    """The prerequisite belongs to graph alone; the file-database paradigms pass."""
+    for mode in ("in_context", "hierarchical", "middle_layer", None):
+        BuildProfile(
+            name="x", data_bundle="channel_finder_standalone", channel_finder_mode=mode
+        ).validate(tmp_path)
+
+
+def test_graph_mode_skips_the_store_rule_when_the_channel_finder_is_off(
+    tmp_path: Path,
+) -> None:
+    """A persona with no channel finder inherits the mode but not the rule.
+
+    The logbook persona of a graph deployment switches the channel-finder server
+    off and still inherits ``channel_finder_mode: graph`` from the profile it
+    narrows — the mode belongs to the deployment. With no channel finder in that
+    render there is no toolless agent to prevent, so the store is not required.
+    Both spellings of the switch are honoured: the dotted one the renderer
+    applies, and the nested one a hand-written profile can reach for.
+    """
+    dotted = {"claude_code.servers.channel-finder.enabled": False}
+    nested = {"claude_code": {"servers": {"channel-finder": {"enabled": False}}}}
+    mixed = {"claude_code.servers": {"channel-finder": {"enabled": False}}}
+    for overlay in (dotted, nested, mixed):
+        BuildProfile(
+            name="x",
+            channel_finder_mode="graph",
+            deploy_services=False,
+            config=overlay,
+        ).validate(tmp_path)
+
+
+def test_graph_mode_still_needs_a_store_when_the_channel_finder_is_on(
+    tmp_path: Path,
+) -> None:
+    """The carve-out is an explicit ``false``, not any mention of the key.
+
+    A persona that leaves the channel finder on — or spells the switch ``true``
+    — is exactly the render the rule protects, so it is still refused without a
+    store.
+    """
+    for overlay in (
+        {},
+        {"claude_code.servers.channel-finder.enabled": True},
+        {"claude_code": {"servers": {"channel-finder": {"enabled": True}}}},
+        {"claude_code.servers.controls.enabled": False},
+    ):
+        profile = BuildProfile(
+            name="x", channel_finder_mode="graph", deploy_services=False, config=overlay
+        )
+        (error,) = _errors(profile, tmp_path)
+        assert "services.graphdb" in error

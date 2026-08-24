@@ -163,7 +163,7 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 #     opus: claude-opus-4-6
 
 # How the agent searches for channels. `osprey set channel_finder_mode=...`
-# also accepts in_context or middle_layer.
+# also accepts in_context, middle_layer, or graph (the knowledge graph store).
 channel_finder_mode: hierarchical
 
 # ── What the agent can do ────────────────────────────────────────────────────
@@ -175,10 +175,10 @@ hooks:
   - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
-  - writes-check      # Pre-write safety check: confirm channel is writable
+  - writes-check      # Kill switch: refuse every write while writes_enabled is false
   - limits            # Enforce per-channel min/max limits before writes
   - error-guidance    # Post-error hook that surfaces remediation hints
-  - memory-guard      # Warn when context window approaches threshold
+  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - config-drift      # Warn at session start when the build is out of date
@@ -218,6 +218,7 @@ agents:
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis
   - facility-knowledge      # Look up facility documentation, procedures, and device specs
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
   - pyat-specialist         # Lattice/optics computation sub-agent (pyAT)
 
 output_styles:
@@ -316,6 +317,12 @@ config:
     enabled: true
 @WEB_TERMINALS_IMAGE_SOURCE@
     nginx_port: 9080            # the landing page everyone opens first
+    # Browsers reach this nginx directly here, so the address they open is
+    # derived from deploy.fqdn and the port above — and that is the address
+    # every terminal checks an action against. Put something in front of this
+    # nginx (a load balancer terminating TLS, a reverse proxy, a DNS alias) and
+    # add `external_origin: https://<what browsers open>` beside this line, or
+    # every action inside a terminal is refused while every page still loads.
     # User number i gets base + i in each family below, so removing a user
     # never shifts anyone else's ports. These all sit above this deployment's
     # own service ports (5064, 8020, 8090/8091/8095) to avoid collisions.
@@ -714,6 +721,14 @@ config:
   # per-user containers). Without this override the inherited roster would
   # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
+  # This persona is an attached render (`services: {}` — no graphdb block of
+  # its own), so the agent's graph tools need to be told which host-published
+  # bolt port the hosting deployment's `graphdb` store listens on. Per-user
+  # web-terminal containers run `network_mode: host`, so container
+  # `localhost` IS the deployment host. If an operator moves
+  # `services.graphdb.port_host` on the hosting deployment, this number must
+  # move with it here AND in control-assistant-readwrite.
+  services.graphdb.port_host: 7687
 """
 
 PERSONA_READWRITE_YML = """\
@@ -756,6 +771,14 @@ config:
   # per-user containers). Without this override the inherited roster would
   # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
+  # This persona is an attached render (`services: {}` — no graphdb block of
+  # its own), so the agent's graph tools need to be told which host-published
+  # bolt port the hosting deployment's `graphdb` store listens on. Per-user
+  # web-terminal containers run `network_mode: host`, so container
+  # `localhost` IS the deployment host. If an operator moves
+  # `services.graphdb.port_host` on the hosting deployment, this number must
+  # move with it here AND in control-assistant-readonly.
+  services.graphdb.port_host: 7687
   # EVENTS + BLUESKY: the write-oriented panels, declared HERE and not in the
   # base so the readonly persona is built without them (a persona can only add
   # config keys, never subtract inherited ones — see the note in the base's
@@ -985,9 +1008,11 @@ OSPREY_AUTH_PW_BOB=bob
 # BLUESKY_TILED_API_KEY=  # bluesky — the key the bridge presents to the co-deployed Tiled catalog
 # BLUESKY_VA_LAUNCH_TOKEN=  # bluesky_va — arms the plan-launch endpoint of the second Bluesky lane, the one serving the virtual accelerator (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
+# OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
+# GRAPHDB_PASSWORD=  # graphdb — graph store password (the seeder, health check and deploy staging all authenticate with it)
 """
 
 #: The committed half of the env chain, as `osprey init` authors it: every line
@@ -1354,12 +1379,16 @@ if wants services; then
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────
+# The landing page is nginx's own file, served before anything asks
+# the caller for a credential. A terminal is the application, which
+# answers an uncredentialed GET / with a 401 — so it is probed at
+# /health, the route its auth gate lets through.
 if wants web; then
   printf '\\n%s── Web terminal ──%s\\n\\n' "$BOLD" "$RESET"
   probe_http 'landing page'      http://localhost:9080/
-  probe_http 'terminal (alice)'  http://localhost:9091/
-  probe_http 'terminal (bob)'    http://localhost:9092/
-  probe_http 'terminal (ariel)'  http://localhost:9093/
+  probe_http 'terminal (alice)'  http://localhost:9091/health
+  probe_http 'terminal (bob)'    http://localhost:9092/health
+  probe_http 'terminal (ariel)'  http://localhost:9093/health
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────

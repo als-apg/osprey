@@ -164,6 +164,209 @@ def reset_state_between_tests():
 
 
 # ===================================================================
+# Web-auth test seam
+# ===================================================================
+#
+# ``WebAuthMiddleware`` is installed outermost on every interface app by
+# ``configure_interface_app``, so every request a ``starlette.testclient``
+# (a.k.a. ``fastapi.testclient``) ``TestClient`` — or an ``httpx.AsyncClient``
+# wrapping an ``ASGITransport`` — makes is 401'd unless it carries a live
+# operator credential. Hundreds of existing tests drive interface routes through
+# these clients and predate the gate; they assert the route's own behaviour, not
+# the absence of authentication. Rather than touch each of them, this seam makes
+# every such client present the operator credential by default.
+#
+# Mechanism — request-time operator-secret injection, *not* a construction-time
+# cookie. Two facts about the existing suite force this:
+#
+#   1. Some interface tests pin their own ``app.state.web_credentials`` (a fresh
+#      :class:`WebCredentials` with a known operator secret) *after* the client
+#      is constructed — ``tests/interfaces/web_terminal/test_proxy.py`` does. A
+#      credential minted at client-construction time lands in the holder that
+#      swap discards, so it never authenticates. Reading the holder on each
+#      request, instead, always sees the live one.
+#   2. The proxy-boundary tests attach *decoy* inbound headers (a wrong
+#      ``X-Osprey-Terminal-Secret``, a stale cookie, a bearer) to prove the
+#      proxy strips them. The gate checks the operator-secret header *first* and
+#      refuses a wrong one outright, so a session cookie added alongside a decoy
+#      secret header would never be reached. Overriding that header with the
+#      process's real secret is the only thing that authenticates such a request.
+#
+# So the seam force-sets ``X-Osprey-Terminal-Secret`` (``OPERATOR_SECRET_HEADER``)
+# to the operator secret held by the client's target app, per request, reading
+# ``app.state.web_credentials`` at send time. This is the header path the task
+# explicitly allows as the alternative to the cookie: the cookie path is the one
+# real browsers use, but it cannot serve these two shapes, and the Origin/CSRF
+# logic it would exercise is already covered directly by the raw-ASGI tests in
+# ``tests/interfaces/test_auth_middleware.py``. The operator-secret header is not
+# subject to the Origin check, so mutating and websocket requests pass too.
+#
+# The seam acts **only** on a client aimed at a gated interface app — one whose
+# ``app.state.web_credentials`` is a real :class:`WebCredentials` (the object the
+# gate reads, and the tell that ``configure_interface_app`` ran). A client aimed
+# at any other ASGI app, or at a real network host, is left untouched. Both
+# client shapes are covered: ``TestClient`` over HTTP *and* its
+# ``websocket_connect`` handshake, and ``httpx.AsyncClient`` over ``ASGITransport``.
+#
+# Install is session-scoped so it wraps client fixtures of every scope — a
+# module-scoped client is built before any function-scoped fixture would run.
+# Opt-out is a per-test flag (``@pytest.mark.no_auth_seam``) the injection hooks
+# read at send time, for the dedicated tests that assert an *unauthenticated*
+# refusal through such a client. The raw-ASGI auth tests never build one, so they
+# need no marker.
+
+#: Flipped off by :func:`_auth_seam_optout` for a ``no_auth_seam`` test. Read by
+#: the injection hooks at send time, so it governs even a client built by a
+#: higher-scoped fixture and shared across tests.
+_AUTH_SEAM_ON = True
+
+
+@pytest.fixture(autouse=True, scope="function")
+def reset_web_credentials_between_tests():
+    """Forget the process web credentials before and after every test.
+
+    The env-driven population path (``web_auth._populate``) is decided once per
+    process and is idempotent, so without this the first test in a worker would
+    pin the operator secret for every test after it, and a test that mints a
+    secret would leak it into its neighbours. Resetting both sides keeps the
+    population testable in isolation. It does not clear ``app.state`` on an app
+    built before the reset — such an app keeps the holder it cached. The root
+    TestClient seam reads its secret from ``app.state``, so that app stays
+    reachable through it; the browser and live-server seams in
+    ``tests/interfaces/conftest.py`` read the PROCESS holder instead, so a
+    module-level app must be re-pointed at it with
+    ``use_process_web_credentials(app)`` before those seams can authenticate.
+    """
+    from osprey.interfaces.web_auth import reset_web_credentials
+    from osprey.mcp_server.http import reset_panel_token_latch
+
+    # The MCP client latches the last panel token it saw (so an in-process
+    # companion launch scrubbing the carrier does not strip its bearer); that
+    # latch is process state for the same reason and is reset on both sides too.
+    reset_web_credentials()
+    reset_panel_token_latch()
+    yield
+    reset_web_credentials()
+    reset_panel_token_latch()
+
+
+def _gated_interface_app(client):
+    """Return the client's target app if it is a gated interface app, else None.
+
+    A ``TestClient`` records the app on ``self.app``; an httpx client wrapping an
+    ``ASGITransport`` carries it on the transport. The tell that the app installed
+    :class:`WebAuthMiddleware` is a real :class:`WebCredentials` on
+    ``app.state`` — seeded by ``configure_interface_app`` and read by the gate.
+    """
+    from osprey.interfaces.web_auth import WebCredentials
+
+    app = getattr(client, "app", None)
+    if app is None:
+        app = getattr(getattr(client, "_transport", None), "app", None)
+    credentials = getattr(getattr(app, "state", None), "web_credentials", None)
+    return app if isinstance(credentials, WebCredentials) else None
+
+
+def _current_operator_secret(app):
+    """The operator secret ``app``'s gate will accept right now, or None."""
+    from osprey.interfaces.web_auth import WebCredentials
+
+    credentials = getattr(getattr(app, "state", None), "web_credentials", None)
+    if isinstance(credentials, WebCredentials):
+        return credentials.operator_secret
+    return None
+
+
+def _install_client_auth(client) -> None:
+    """Arm one httpx client to present the operator secret to its gated app.
+
+    A no-op for a client not aimed at a gated interface app. Otherwise it appends
+    a request event hook (async for an ``AsyncClient``, sync otherwise) that
+    force-sets the operator-secret header per request, and — for a client that
+    speaks websockets — wraps ``websocket_connect`` to carry the same header on
+    the handshake, which the request hooks never see.
+    """
+    import httpx
+
+    app = _gated_interface_app(client)
+    if app is None:
+        return
+
+    from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
+
+    def _apply(request) -> None:
+        if not _AUTH_SEAM_ON:
+            return
+        secret = _current_operator_secret(app)
+        if secret:
+            request.headers[OPERATOR_SECRET_HEADER] = secret
+
+    async def _apply_async(request) -> None:
+        _apply(request)
+
+    hook = _apply_async if isinstance(client, httpx.AsyncClient) else _apply
+    client.event_hooks.setdefault("request", []).append(hook)
+
+    ws_connect = getattr(client, "websocket_connect", None)
+    if callable(ws_connect):
+
+        def _seamed_ws(url, *args, **kwargs):
+            if _AUTH_SEAM_ON:
+                secret = _current_operator_secret(app)
+                if secret:
+                    merged = dict(kwargs.get("headers") or {})
+                    merged.setdefault(OPERATOR_SECRET_HEADER, secret)
+                    kwargs["headers"] = merged
+            return ws_connect(url, *args, **kwargs)
+
+        client.websocket_connect = _seamed_ws
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _install_auth_seam():
+    """Patch the client constructors once so every client fixture is covered.
+
+    Session-scoped on purpose: a module- or class-scoped client fixture is built
+    before any function-scoped fixture runs, so a function-scoped patch would
+    miss it. The per-test opt-out lives in :data:`_AUTH_SEAM_ON`, which the
+    injection hooks read at send time.
+    """
+    import httpx
+    from starlette.testclient import TestClient
+
+    test_client_init = TestClient.__init__
+    async_client_init = httpx.AsyncClient.__init__
+
+    def _seamed_test_client_init(self, *args, **kwargs):
+        test_client_init(self, *args, **kwargs)
+        _install_client_auth(self)
+
+    def _seamed_async_client_init(self, *args, **kwargs):
+        async_client_init(self, *args, **kwargs)
+        _install_client_auth(self)
+
+    TestClient.__init__ = _seamed_test_client_init
+    httpx.AsyncClient.__init__ = _seamed_async_client_init
+    try:
+        yield
+    finally:
+        TestClient.__init__ = test_client_init
+        httpx.AsyncClient.__init__ = async_client_init
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _auth_seam_optout(request):
+    """Disable the auth seam for a ``@pytest.mark.no_auth_seam`` test."""
+    global _AUTH_SEAM_ON
+    previous = _AUTH_SEAM_ON
+    _AUTH_SEAM_ON = request.node.get_closest_marker("no_auth_seam") is None
+    try:
+        yield
+    finally:
+        _AUTH_SEAM_ON = previous
+
+
+# ===================================================================
 # Host-timezone leak guard
 # ===================================================================
 
@@ -446,6 +649,14 @@ _CI_DIAGNOSTICS: ci_diagnostics.DiagnosticsRecorder | None = None
 
 def pytest_configure(config):
     """Open the per-worker records and arm the stack dumper."""
+    # Registered here rather than in pyproject.toml so the seam and its opt-out
+    # marker live in one file; `--strict-markers` would otherwise reject it.
+    config.addinivalue_line(
+        "markers",
+        "no_auth_seam: opt this test out of the TestClient auth seam — for a "
+        "test that asserts an unauthenticated 401/403 through a TestClient.",
+    )
+
     global _CI_DIAGNOSTICS
     _CI_DIAGNOSTICS = ci_diagnostics.recorder_from_env()
     if _CI_DIAGNOSTICS is not None:
@@ -728,3 +939,20 @@ class TestRegistryProvider(RegistryConfigProvider):
     # to avoid state pollution between tests
 
     return config_file
+
+
+@pytest.fixture(scope="session")
+def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A directory holding neosemantics + APOC, resolved once per session.
+
+    Every lane that starts a real graph store mounts the same two jars, and the
+    expensive half of resolving them is a release download — so this is shared
+    across lanes even though the *stores* are not (two of them wipe the graph
+    between corpora and therefore run their own module-scoped container).
+
+    Skips, with the reason, on a host that could not start the container:
+    see :func:`tests._graphdb_container.resolve_plugin_dir`.
+    """
+    from tests._graphdb_container import resolve_plugin_dir
+
+    return resolve_plugin_dir(tmp_path_factory)

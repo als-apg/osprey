@@ -47,6 +47,11 @@ from osprey.deployment.errors import (
     DevModeUnavailableError,
     NoRenderedBuildError,
 )
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_SERVICE_NAME,
+    preflight_graphdb_config,
+)
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
@@ -154,6 +159,20 @@ logger = get_logger("deployment.lifecycle")
 # from an ambient environment.
 # NOTE: mongod, like postgres, reads its root credentials only when
 # initializing a fresh data volume — the same stale-volume caveat applies.
+#
+# graphdb is the Neo4j knowledge-graph store, and follows the openobserve
+# rationale with one wrinkle the other three do not have: its compose template
+# passes credentials as the COMPOSITE ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-…}"``,
+# so the minted value is only the password half. Left alone the store comes up
+# on the template's published default, guarding the facility knowledge graph
+# the agent answers from. The minted value reaches two readers from this one
+# ``.env`` entry — the container, via that composite, and the agent's
+# connection resolver, whose ``services.graphdb`` block names the variable
+# rather than carrying a value (the archiver's ``password_env`` pattern, not
+# the postgres embedded-DSN one, because the neo4j driver takes auth
+# separately as ``driver(uri, auth=(user, password))``).
+# NOTE: neo4j, like postgres and mongod, adopts its initial password only when
+# initializing a fresh data volume — the same stale-volume caveat applies.
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
@@ -165,9 +184,15 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # key: Tiled is the one shared component and lives on lane 1.
     "bluesky_va": ("BLUESKY_VA_LAUNCH_TOKEN",),
     "bluesky_live": ("BLUESKY_LIVE_LAUNCH_TOKEN",),
+    # The operator credential for the sidecar's WebAuthMiddleware gate. The
+    # sidecar container declares OSPREY_TERMINAL_BIND_HOST, so an empty secret
+    # refuses startup instead of minting a value nothing outside the container
+    # can learn — the mint here is what makes the deployed panel reachable.
+    "bluesky_web": ("OSPREY_TERMINAL_SECRET",),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     "postgresql": ("ARIEL_DB_PASSWORD",),
     "mongodb": ("MONGO_ROOT_PASSWORD",),
+    "graphdb": ("GRAPHDB_PASSWORD",),
 }
 
 # Non-secret settings written into ``.env`` for a deployed service, as
@@ -230,13 +255,31 @@ _SERVICE_DEFAULT_VARS: dict[str, tuple[tuple[str, str], ...]] = {
 # project's effective env, it is validated like any other var — never
 # fabricated when absent, never auto-minted when malformed, just rejected
 # with a named-var/no-value error.
-_VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
+#
+# GRAPHDB_PASSWORD earns its place on a SECOND ground, which is why this is a
+# set of two rather than a set of ARIEL_DSN-shaped vars. It does have a
+# _SERVICE_TOKEN_VARS entry — but only under the "graphdb" key, so the mint and
+# the validation above reach it only on a deploy that runs its own graph store.
+# The other supported shape is an EXTERNAL store: an explicit
+# `services.graphdb.uri` pointing at a Neo4j this deploy does not run, with
+# "graphdb" absent from `deployed_services`. On that path the operator writes
+# the password into the project `.env` themselves, and it is precisely the
+# operator-supplied values — never the minted ones — that the format constraint
+# exists to catch. Without this entry the var would be invisible to the deploy
+# boundary in exactly the configuration where it is most likely to be malformed.
+#
+# Membership in both sets is deliberate and costs nothing: on a deploy that
+# does run graphdb the validate-only loop re-checks an already-checked value
+# with the same pure validator and the same pure forbidden-value lookup. Both
+# loops ask both questions in the same order, so which one reaches a given
+# value first does not change the diagnosis the operator reads.
+_VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN", "GRAPHDB_PASSWORD"}
 
 
 class VolumeInitializedStore(NamedTuple):
     """Where one store's identity lives on the host, for the stale-volume check.
 
-    Four names that must agree with the service's compose template, which
+    Five names that must agree with the service's compose template, which
     ``TestRegistryAgreement`` in the per-store mint tests pins field by field:
 
     * ``service`` — the ``deployed_services`` key, and the name shown to the
@@ -248,15 +291,27 @@ class VolumeInitializedStore(NamedTuple):
       ``container_name``. The container is the only host-side record of the
       credential its volume was initialized with;
     * ``cred_env`` — what that credential is called *inside* the container,
-      which is not the ``.env`` var name for two of the three stores
+      which is not the ``.env`` var name for most of these stores
       (``MONGO_ROOT_PASSWORD`` arrives as ``MONGO_INITDB_ROOT_PASSWORD``,
-      ``ARIEL_DB_PASSWORD`` as ``POSTGRES_PASSWORD``).
+      ``ARIEL_DB_PASSWORD`` as ``POSTGRES_PASSWORD``);
+    * ``cred_prefix`` — the fixed text the template puts *in front of* the
+      ``.env`` value when it builds ``cred_env``, stripped back off on the way
+      in. Empty for every store whose container variable holds the credential
+      and nothing else; ``"neo4j/"`` for graphdb, whose ``NEO4J_AUTH`` is a
+      ``<user>/<password>`` composite. Without the strip, the harvested value
+      would carry the prefix while ``.env`` does not, and the two places that
+      consume it would both be wrong in the same direction: the staleness
+      comparison would call every healthy graphdb volume stale, and
+      ``--reuse-stores`` would then "restore" ``neo4j/<password>`` into
+      ``GRAPHDB_PASSWORD``, re-composing to ``neo4j/neo4j/<password>`` and
+      locking the operator out of a store that was working.
     """
 
     service: str
     volume: str
     container: str
     cred_env: str
+    cred_prefix: str = ""
 
 
 #: Minted vars a service reads ONLY when it initializes a fresh data volume.
@@ -289,6 +344,21 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
         volume="archiver_mongodb_data",
         container="-archiver-mongodb",
         cred_env="MONGO_INITDB_ROOT_PASSWORD",
+    ),
+    # Neo4j reads NEO4J_AUTH only while initializing an empty /data, and that
+    # volume carries the server's auth store — so it belongs here for the same
+    # reason the three above do. What is different is only the spelling: the
+    # template composes `neo4j/${GRAPHDB_PASSWORD:-…}`, so the container-side
+    # value is the bare password with a fixed user prefix on it, which
+    # `cred_prefix` takes back off. The plugins volume is deliberately NOT
+    # named: it holds a downloaded jar, carries no credential, and a store is
+    # listed here for the volume whose survival makes a credential unusable.
+    "GRAPHDB_PASSWORD": VolumeInitializedStore(
+        service="graphdb",
+        volume="graphdb_data",
+        container="-graphdb",
+        cred_env="NEO4J_AUTH",
+        cred_prefix="neo4j/",
     ),
 }
 
@@ -659,7 +729,8 @@ def _ensure_service_tokens(
     directory, one file, no second copy to keep in step.
 
     Independently of the above, every var in ``_VALIDATE_ONLY_VARS``
-    (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
+    (e.g. ``ARIEL_DSN``) is checked against both its ``_VAR_FORBIDDEN_VALUES``
+    entry and its ``_VAR_VALIDATORS`` constraint
     when present in the effective env — but never minted, and never required:
     this runs even when no deployed service pulls in any ``_SERVICE_TOKEN_VARS``
     entry at all, since a validate-only var's presence does not depend on
@@ -893,6 +964,15 @@ def _ensure_service_tokens(
         effective = _effective_value(name, post)
         if not effective:
             continue  # absent — never fabricated, never minted
+        # Same two checks in the same order as the required_vars loop above, and
+        # for a sharper reason here: a value reaching THIS loop was never minted,
+        # so it is operator-supplied by construction. Pinning a template's
+        # published default is exactly the mistake an operator wiring up an
+        # external store makes — they copy the fallback out of the compose file —
+        # and the forbidden map is the only check that can see it, since such a
+        # value is well-formed by every format rule its var registers.
+        if _is_forbidden_value(name, effective):
+            _raise_forbidden_var(name)
         if not _validate_var(name, effective):
             _raise_invalid_var(name, effective)
 
@@ -936,11 +1016,23 @@ def _harvest_original_credential(probe, project: str, store: VolumeInitializedSt
     ``None`` whenever the container is gone, carries no such variable, or holds
     an empty one — every case in which the volume cannot be reopened and the
     only way forward is to discard it.
+
+    The returned value is always in ``.env`` terms, never container terms:
+    ``store.cred_prefix`` is stripped here rather than at either call site,
+    because this is the single point both of them read the credential through —
+    the staleness comparison against the ``.env`` value, and the
+    ``--reuse-stores`` write back into it. Stripping in one place is what keeps
+    those two from disagreeing about what the credential is. A composite that
+    is nothing but its prefix (``"neo4j/"``, an empty password) reduces to the
+    empty string and is reported as unreadable, which is what it is.
     """
     env = probe.env_of_container(f"{project}{store.container}")
     if not env:
         return None
-    return env.get(store.cred_env) or None
+    raw = env.get(store.cred_env)
+    if not raw:
+        return None
+    return raw.removeprefix(store.cred_prefix) or None
 
 
 def _stale_store_volumes(
@@ -3698,6 +3790,125 @@ def _check_shared_disk_preflight(config: dict) -> None:
         )
 
 
+#: Podman networking backend the Bluesky stack requires.  The legacy ``cni``
+#: backend ships no aardvark-dns, and without it a dual-homed container gets
+#: only its *first* network's dnsmasq in ``resolv.conf``.
+_REQUIRED_PODMAN_NETWORK_BACKEND = "netavark"
+
+#: Cap on the ``podman info`` probe below.  Short on purpose: the answer is
+#: local configuration, and a probe that hangs must not become the reason a
+#: deploy stalls -- see :func:`_podman_network_backend` on why it stays silent.
+_NETWORK_BACKEND_PROBE_TIMEOUT_SECONDS = 10.0
+
+
+def _podman_network_backend(runtime: str) -> str | None:
+    """Report the host's podman network backend, or ``None`` if it can't be read.
+
+    Deliberately total: every failure mode -- a runtime that isn't podman, a
+    podman too old to carry ``.Host.NetworkBackend``, a probe that errors or
+    times out -- collapses to ``None``, which the caller reads as "no opinion"
+    and lets the deploy through. The check below exists to explain one specific
+    broken host; a preflight that refused because it could not interrogate the
+    host would be causing the outage it exists to prevent.
+
+    :param runtime: The resolved container runtime (``docker`` or ``podman``).
+    :returns: The lowercased backend name (e.g. ``netavark``, ``cni``), or
+        ``None`` when this host has no answer to give.
+    """
+    if runtime != "podman":
+        return None
+
+    try:
+        completed = subprocess.run(
+            [runtime, "info", "--format", "{{.Host.NetworkBackend}}"],
+            capture_output=True,
+            text=True,
+            timeout=_NETWORK_BACKEND_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if completed.returncode != 0:
+        return None
+
+    backend = completed.stdout.strip().lower()
+    # An older podman renders the missing field as `<no value>` rather than
+    # failing, so an empty-or-templated answer is the same "no opinion" as a
+    # probe that never ran.
+    if not backend or backend.startswith("<"):
+        return None
+    return backend
+
+
+def _preflight_bluesky_network_backend(config: dict) -> None:
+    """Refuse a Bluesky deploy on a podman host still using the ``cni`` backend.
+
+    The bundled Bluesky template puts the bridge, the RE Manager and Redis on an
+    ``internal: true`` network and dual-homes the queueserver. On rootless
+    podman with the legacy ``cni`` backend there is no aardvark-dns, so the
+    dual-homed queueserver receives only its first network's resolver and can
+    never resolve ``bluesky-redis``. It goes unhealthy, and ``osprey up`` aborts
+    before the web slice renders -- the whole deployment is down, on a DNS fact
+    that is invisible from anything osprey prints.
+
+    Refusing here turns that into one line naming the host setting to change.
+    Nothing is started when it fires, so the host is left exactly as it was.
+
+    Skipped unless ``bluesky`` is deployed: the failure is specific to the
+    multi-network shape that service brings, and every other stack in this
+    project runs fine on ``cni``.
+
+    :param config: Raw deploy config (``deployed_services`` membership).
+    :raises RuntimeError: ``bluesky`` is deployed on a podman host whose network
+        backend is ``cni``.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "bluesky" not in services:
+        return
+
+    try:
+        runtime = get_runtime_command(config)[0]
+    except RuntimeError:
+        # No usable runtime at all. verify_runtime_is_running says that far
+        # better than a networking preflight can; don't pre-empt it.
+        return
+
+    backend = _podman_network_backend(runtime)
+    if backend is None or backend == _REQUIRED_PODMAN_NETWORK_BACKEND:
+        return
+
+    if backend != "cni":
+        # A backend nobody here has seen. Say so rather than refuse: the known
+        # break is cni's missing aardvark-dns, and guessing that some future
+        # backend shares it would block a deploy on no evidence.
+        _warn_fact(
+            f"Unrecognised podman network backend: {backend}",
+            "The bundled Bluesky stack needs container-name DNS across two networks, "
+            f"which this project has only verified on {_REQUIRED_PODMAN_NETWORK_BACKEND}. "
+            "If bluesky-queueserver comes up unhealthy, resolving bluesky-redis is the "
+            "first thing to check.",
+            None,
+        )
+        return
+
+    raise RuntimeError(
+        "The Bluesky stack requires podman's netavark network backend; this host is "
+        "using the legacy cni backend.\n"
+        "Without aardvark-dns the dual-homed bluesky-queueserver cannot resolve "
+        "bluesky-redis, so it never becomes healthy and the deploy aborts before the "
+        "web slice renders.\n"
+        "Switch the host over by setting the following in containers.conf "
+        "(/etc/containers/containers.conf, or ~/.config/containers/containers.conf for "
+        "a rootless deployment), installing aardvark-dns, then re-running osprey up:\n"
+        "\n"
+        "    [network]\n"
+        '    network_backend = "netavark"\n'
+        "\n"
+        "Existing podman networks must be recreated after the switch "
+        "(podman system reset, or podman network rm for the project's own networks)."
+    )
+
+
 def _web_terminals_enabled(config: dict) -> bool:
     """True if ``modules.web_terminals.enabled`` is set on ``config``.
 
@@ -4477,6 +4688,305 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         _report_step(f"logbook seeded: {seeded} entries")
 
 
+# ---------------------------------------------------------------------------
+# Staged graph-store bring-up
+# ---------------------------------------------------------------------------
+
+# How long the staged graph store gets to accept a bolt connection. The same
+# budget ARIEL's store gets, and for the same reason: Neo4j opens its port only
+# once the store is recovered and the plugins the image fetches at every start
+# are loaded, so what this waits out is a refusal rather than a slow answer.
+_GRAPHDB_HEALTH_TIMEOUT_S = 90.0
+_GRAPHDB_HEALTH_POLL_S = 2.0
+
+# Trivial round-trip that proves the store is up, authenticated and answering
+# Cypher. Deliberately not a count of anything: the wait is about reachability,
+# and a query whose cost grows with the graph would make a big store look down.
+_GRAPHDB_PING_CYPHER = "RETURN 1 AS ok"
+
+# The one command that finishes the job by hand, named in every warning below
+# and by the graphdb health category's remedy text, so an operator reading
+# either is pointed at the same verb. Imported from the module both sides
+# already share their vocabulary through, rather than spelled here a second
+# time: two copies would agree only until one of them was edited.
+_GRAPHDB_RECOVERY_HINT = GRAPHDB_SEED_COMMAND
+
+
+def _graphdb_store_deployed(config: dict) -> bool:
+    """True when this deploy runs the graph store itself.
+
+    Membership in ``deployed_services`` is the whole test. A project pointed at
+    a Neo4j someone *else* runs (the explicit ``services.graphdb.uri`` case) must
+    never have that store bootstrapped or imported into by a local deploy — the
+    graph is a mirror, and rebuilding somebody else's mirror is not this deploy's
+    call to make.
+    """
+    return GRAPHDB_SERVICE_NAME in (config.get("deployed_services") or [])
+
+
+def _graphdb_connection(config: dict, project_dir: Path):
+    """Resolve what to dial, as whom, and with which password, for THIS project.
+
+    The password is read from ``<project_dir>/.env`` by name, never from the
+    ambient environment — the same rule :func:`_ariel_store_config` follows, and
+    for the same reason: a deploy is routinely driven from another directory,
+    where an exported ``GRAPHDB_PASSWORD`` belongs to somebody else's deployment.
+
+    :param config: Raw deploy config.
+    :param project_dir: Root of the built project (holds ``.env``).
+    :returns: The resolved
+        :class:`~osprey.deployment.graphdb_service.GraphdbConnection`.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_connection
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env_path = Path(project_dir) / ".env"
+    env = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    block = (config.get("services") or {}).get(GRAPHDB_SERVICE_NAME) or {}
+    return resolve_graphdb_connection(block, env=env)
+
+
+def _graphdb_config_dir(project_dir: Path) -> Path:
+    """The directory holding this project's ``config.yml``.
+
+    What a relative ``services.graphdb.ttl_path`` resolves against — see
+    :func:`_graphdb_ttl_text`. Derived from the project root the deploy was
+    handed rather than from :func:`osprey_connectors.workspace.resolve_config_path`,
+    which falls back to the process working directory: a deploy driven with
+    ``--repo`` from somewhere else would otherwise resolve the corpus against
+    whatever directory the operator happened to be standing in.
+
+    Both project shapes are covered by one rule, the same one
+    ``resolve_config_path`` applies to a working directory: the render one zone
+    down in ``build/`` when it is there, and the project root itself otherwise —
+    a container's project directory, or a legacy flat project, IS its own render.
+    """
+    from osprey.utils.workspace import rendered_config_path
+
+    rendered = rendered_config_path(project_dir)
+    return rendered.parent if rendered.is_file() else Path(project_dir)
+
+
+def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
+    """Read the configured TTL corpus, resolving its path the documented way.
+
+    ``ttl_path`` follows the ``facility_knowledge.bundle_path`` rule — ``~``
+    expanded, an absolute value used as written, a relative one resolved against
+    the ``config.yml`` directory — because ``osprey knowledge seed-graph`` reads
+    the same key by the same rule. Two resolutions of one key would mean the
+    deploy and the verb could seed a store from different files while both
+    reporting success.
+
+    :param ttl_path: The configured ``services.graphdb.ttl_path`` value.
+    :param project_dir: Root of the built project.
+    :returns: The resolved path and its text.
+    :raises OSError: If the corpus is not on disk or cannot be read — reported
+        by the caller's envelope, never fatal.
+    """
+    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+
+    resolved = resolve_bundle_path(ttl_path, _graphdb_config_dir(project_dir))
+    return resolved, resolved.read_text(encoding="utf-8")
+
+
+def _wait_for_graphdb_store(connection, deadline: float) -> None:
+    """Block until the staged store answers Cypher on these credentials, or give up.
+
+    Probes with the connection the bootstrap is about to use, so a rejected
+    password surfaces here — named, and beside the deploy step that owns it —
+    rather than as a bootstrap error that reads like a plugin problem.
+
+    :param connection: The resolved
+        :class:`~osprey.deployment.graphdb_service.GraphdbConnection`.
+    :param deadline: :func:`time.monotonic` instant to give up at.
+    :raises RuntimeError: if the store is still unreachable at ``deadline``.
+    """
+    from osprey.services.facility_knowledge.seeder import graph_seeder
+
+    last: Exception | None = None
+    while True:
+        try:
+            with graph_seeder.open_session(
+                connection.uri, connection.username, connection.password
+            ) as session:
+                session.run(_GRAPHDB_PING_CYPHER).consume()
+                return
+        except Exception as exc:  # noqa: BLE001 — every failure here is "not yet"
+            last = exc
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"the graph store did not accept a connection within "
+                    f"{_GRAPHDB_HEALTH_TIMEOUT_S:.0f}s: {last}"
+                ) from last
+            time.sleep(_GRAPHDB_HEALTH_POLL_S)
+
+
+def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> None:
+    """Bootstrap the staged store and, on a first bring-up only, import its corpus.
+
+    One session for the whole sequence, and each step gated on the one before:
+
+    * **bootstrap** — always, and idempotent. A store whose graph config is not
+      osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
+      is reported and left alone: n10s refuses to re-initialize a configured
+      store, so importing into it would load a corpus under assumptions about the
+      graph's shape that do not hold. Only ``--force`` can resolve that, and only
+      by wiping — which a deploy does not get to do to data it did not write.
+    * **seed** — only into an EMPTY graph (zero ``(:Resource)`` nodes, n10s's own
+      bookkeeping not counted), and only when a corpus is configured. A deploy may
+      fill a blank; it may not overwrite a graph somebody seeded.
+    * **marker** — only after the import reports success. n10s commits in batches,
+      so a failed import leaves triples behind; a marker written regardless would
+      label that half-graph a good seed and every later run would report it
+      unchanged and skip it forever.
+
+    :param config: Raw deploy config.
+    :param project_dir: Root of the built project.
+    :param connection: The resolved graph-store connection.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+    from osprey.services.facility_knowledge.seeder import graph_seeder
+
+    settings = resolve_graphdb_service_config(config)
+    ttl_path = settings.ttl_path if settings is not None else None
+
+    with graph_seeder.open_session(
+        connection.uri, connection.username, connection.password
+    ) as session:
+        bootstrapped = graph_seeder.bootstrap(session)
+        if not bootstrapped.ok:
+            logger.warning(
+                f"The graph store came up, but its {bootstrapped.message}. Nothing was "
+                f"imported, so its contents are whatever was already there. Run "
+                f"`{_GRAPHDB_RECOVERY_HINT} --force` from {project_dir} to wipe it and "
+                f"re-seed under osprey's settings."
+            )
+            return
+        _report_step("graph store bootstrapped")
+
+        if graph_seeder.resource_count(session) > 0:
+            # The normal second-deploy path: a graph that already carries a
+            # corpus is left exactly as it is, and silently — this is not a
+            # problem, and a warning here would cry wolf on every redeploy.
+            # The rendered agent prompt is NOT left as it is: this deploy's
+            # build reset it to the placeholder, so it is re-baked from the
+            # live store on every up — which is what keeps prompt and store in
+            # sync by construction rather than by convention.
+            _bake_graph_prompt_snapshot(session, project_dir)
+            return
+
+        if ttl_path is None:
+            _report_fact(
+                "graph store bootstrapped but not seeded: no services.graphdb.ttl_path "
+                f"is configured. Set one and run `{_GRAPHDB_RECOVERY_HINT}` to import a "
+                "corpus."
+            )
+            return
+
+        resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
+        imported = graph_seeder.import_ttl(session, text)
+        if not imported.ok:
+            logger.warning(
+                f"The graph store came up but importing {resolved} failed "
+                f"({imported.termination_status}: {imported.extra_info}), so graph queries "
+                f"will return little or nothing. Everything else in this deploy is "
+                f"unaffected. Fix the corpus and run `{_GRAPHDB_RECOVERY_HINT} --force` "
+                f"from {project_dir}."
+            )
+            return
+
+        graph_seeder.write_marker(session, graph_seeder.ttl_sha256(text))
+        _report_step(f"graph seeded: {imported.triples_loaded} triples")
+        _bake_graph_prompt_snapshot(session, project_dir)
+
+
+def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
+    """Bake the live store's schema into the rendered graph-agent prompts.
+
+    Runs on both staging outcomes — corpus just imported, and corpus already
+    present — because the render is fresh from this deploy's build either way.
+    Never fatal: an agent whose prompt kept the placeholder falls back to
+    calling ``get_schema``/``example_queries`` at run time, which is the same
+    behavior an unseeded render has.
+
+    :param session: The staging step's open driver session.
+    :param project_dir: Root of the built project.
+    """
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    try:
+        patched = prompt_snapshot.bake_snapshot(session, _graphdb_config_dir(project_dir))
+    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+        logger.warning(
+            f"The graph schema snapshot could not be baked into the agent prompt, so the "
+            f"agent will read the schema through its tools instead. Cause: {exc}"
+        )
+        return
+    if patched:
+        _report_step(f"graph schema baked into {len(patched)} agent prompt(s)")
+
+
+def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
+    """Start the graph store, bootstrap it, and seed it on a first bring-up.
+
+    The knowledge-graph counterpart of :func:`_stage_ariel_store`, and staged
+    ahead of the full bring-up for the same kind of reason: a store that comes up
+    unbootstrapped and empty answers every query with zero rows, which reads as
+    "the data is wrong" rather than "nothing was ever loaded". Doing it after the
+    consumers start would leave a stack that is only correct once somebody
+    restarts it.
+
+    Failure here warns and returns rather than aborting the deploy. The graph is
+    one search surface among many, and a control room whose channels, plan runs
+    and archive are all up should not be denied them because its graph could not
+    be provisioned — but every warning names
+    ``osprey knowledge seed-graph`` (see :data:`_GRAPHDB_RECOVERY_HINT`), so the
+    gap is never silent.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project (holds ``.env``).
+    :param provider: The compose provider this deploy resolved, so the staging
+        invocation is shaped like the ``up`` that follows it. ``None`` is the
+        docker shape.
+    """
+    if not _graphdb_store_deployed(config):
+        return
+
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    # The invocation contract, same as _stage_ariel_store: one provider-shaped
+    # base, anchored on the repo root, so the store this brings up joins the same
+    # compose project the `up` below it starts.
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+
+    _report_group("graphdb")
+    up_cmd = base_cmd + ["up", "-d", GRAPHDB_SERVICE_NAME]
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    run_captured(up_cmd, env=run_env, spool_name="graphdb-store-up", repo_root=project_dir)
+    _report_step("graph store started")
+
+    try:
+        connection = _graphdb_connection(config, project_dir)
+        _wait_for_graphdb_store(connection, time.monotonic() + _GRAPHDB_HEALTH_TIMEOUT_S)
+        _bootstrap_and_seed_graphdb(config, project_dir, connection)
+    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+        logger.warning(
+            f"The graph store could not be bootstrapped or seeded, so graph queries will "
+            f"return nothing. Everything else in this deploy is unaffected. Run "
+            f"`{_GRAPHDB_RECOVERY_HINT}` from {project_dir} once the store is reachable. "
+            f"Cause: {exc}"
+        )
+        return
+
+
 def _stage_openobserve_identity(config, compose_files, env, project_dir, *, provider=None) -> None:
     """Start the telemetry store, then provision the account that writes to it.
 
@@ -4851,10 +5361,26 @@ def _start_stack(
     # here, before the build the setting is meant to shorten.
     preflight_qmd_models_dir(config)
 
+    # And the same shape once more for the graph store: a `graphdb` in
+    # deployed_services with no `services.graphdb` block describes no store at
+    # all — no ports, no image, no corpus. Refused here, beside the other
+    # config-only preflights and before anything touches the host, rather than
+    # left to surface as a store that comes up on ports nothing was told about
+    # and answers every query with zero rows.
+    preflight_graphdb_config(config)
+
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
+
+    # With the runtime confirmed up, ask it one question about itself: a podman
+    # host on the legacy cni backend cannot run the Bluesky stack's dual-homed
+    # queueserver, and the failure that produces (unhealthy container, deploy
+    # aborted before the web slice renders) names nothing an operator can act
+    # on. Ahead of every container-touching command below, so the refusal
+    # leaves the host untouched.
+    _preflight_bluesky_network_backend(config)
 
     # Fail fast on a host-port collision (a foreign stack, or a second project
     # on the same host) with an actionable diagnosis, rather than letting
@@ -5062,6 +5588,12 @@ def _start_stack(
     # whose history is already in place — the two halves of one narrative, in the
     # order they document each other.
     _stage_ariel_store(config, compose_files, env, Path(repo_root), provider=provider)
+
+    # And the graph store, on the same placement and for the same reason: the
+    # corpus has to be in the graph before the surfaces that query it start, and
+    # both deploy paths need it. No-op unless this project deploys the store
+    # itself; never aborts (see _stage_graphdb_store).
+    _stage_graphdb_store(config, compose_files, env, Path(repo_root), provider=provider)
 
     # And the telemetry store, for a third reason: its ingest credential is one
     # the STORE issues, so the only moment it can be harvested is with the store

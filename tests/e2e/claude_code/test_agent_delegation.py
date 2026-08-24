@@ -268,8 +268,8 @@ class TestAgentDelegation:
         assert len(sa_traces) > 0, f"No sub-agent tool calls found. Tools: {result.tool_names}"
 
         # A channel-finder MCP tool was attempted. Substring match catches
-        # all three paradigm pipelines (hierarchical, middle_layer, in_context)
-        # because they share the ``mcp__channel-finder__`` prefix.
+        # every paradigm — in_context, hierarchical, middle_layer and graph —
+        # because all four ship under the ``mcp__channel-finder__`` prefix.
         cf_calls = result.tools_matching("mcp__channel-finder__")
         assert len(cf_calls) > 0, (
             "No channel-finder MCP tool was called. The orchestrator may have "

@@ -6,8 +6,10 @@ and the browser-opening helper are patched out.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlsplit
 
 import pytest
 from click.testing import CliRunner
@@ -88,7 +90,16 @@ class TestServing:
         assert mock_run.call_args.kwargs["port"] == 9123
         assert f"http://127.0.0.1:9123{THEME_LAB_PATH}" in result.output
 
-    def test_browser_opened_at_theme_lab_page_by_default(self, runner):
+    def test_browser_opened_at_the_root_token_url_not_the_theme_lab_page(self, runner):
+        """The login URL must land on ``/``, the one path the gate inspects.
+
+        ``THEME_LAB_PATH`` sits under the ``/design-system`` mount, which
+        ``is_exempt_path`` clears before a credential is looked at — so a
+        ``?token=`` appended there is never read and never exchanged, and the
+        page loads with no session behind it. ``/`` is gated, so the gate
+        performs the exchange and then the app's own root route forwards the
+        now-authenticated browser to the Theme Lab.
+        """
         with (
             mock.patch("uvicorn.run"),
             mock.patch(BROWSER_HELPER) as mock_browser,
@@ -96,7 +107,45 @@ class TestServing:
             result = runner.invoke(theme_lab, ["--port", "9124"])
 
         assert result.exit_code == 0
-        mock_browser.assert_called_once_with(f"http://127.0.0.1:9124{THEME_LAB_PATH}")
+        mock_browser.assert_called_once()
+        opened = mock_browser.call_args.args[0]
+        # The token is a freshly minted secret, so assert the shape, not a value.
+        assert opened.startswith("http://127.0.0.1:9124/?token=")
+        assert THEME_LAB_PATH not in opened
+
+    def test_announced_login_url_lands_on_a_gated_path(self, runner):
+        """The printed URL is exchangeable — its path is not an exempt one."""
+        from osprey.interfaces.common_middleware import TOKEN_EXCHANGE_PATHS, is_exempt_path
+
+        with (
+            mock.patch("uvicorn.run"),
+            mock.patch(BROWSER_HELPER) as mock_browser,
+        ):
+            runner.invoke(theme_lab, ["--port", "9126"])
+
+        opened = mock_browser.call_args.args[0]
+        path = urlsplit(opened).path
+        assert path in TOKEN_EXCHANGE_PATHS
+        assert not is_exempt_path(path)
+
+    def test_settled_port_is_published_for_the_cookie_name(self, runner):
+        """``OSPREY_WEB_PORT`` is set before the app is built.
+
+        The session cookie's name carries the port, because cookies ignore
+        ports and two OSPREY servers on one host would otherwise overwrite each
+        other's session. Without this publication the name falls back to the
+        bare base and they collide.
+        """
+        from osprey.interfaces.common_middleware import WEB_PORT_ENV, session_cookie_name
+
+        with (
+            mock.patch("uvicorn.run"),
+            mock.patch(BROWSER_HELPER),
+        ):
+            runner.invoke(theme_lab, ["--port", "9127", "--no-browser"])
+
+        assert os.environ.get(WEB_PORT_ENV) == "9127"
+        assert session_cookie_name() == session_cookie_name(9127)
 
     def test_browser_failure_still_serves_and_prints_url(self, runner):
         """A headless host must get a usable URL, not a dead command."""

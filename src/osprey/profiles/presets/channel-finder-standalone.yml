@@ -39,7 +39,9 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 # Channel-finder pipeline. The bundle ships a demo hierarchical database, so
 # hierarchical is the out-of-the-box default. Override for your data via
 # `--set channel_finder_mode=in_context|middle_layer` or a profile that
-# extends this preset.
+# extends this preset. The fourth paradigm, `graph`, answers from a knowledge
+# graph store instead of a database file; this bundle configures no such store,
+# so the build rejects it here.
 channel_finder_mode: hierarchical
 
 # Selects the channel-finder persona — "channel/PV address finder" instead of
@@ -57,7 +59,7 @@ hooks:
   - approval          # Enforce config.yml approval policy (fail-closed default for any write tool)
   - error-guidance    # Post-error hook that surfaces remediation hints
   - notebook-update   # Sync CLAUDE.md notebook after each session
-  - memory-guard      # Warn when context window approaches threshold
+  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt

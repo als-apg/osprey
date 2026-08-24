@@ -18,6 +18,11 @@
     .srv-workspace    { --srv: #60a5fa; }
     .srv-ariel        { --srv: #f472b6; }
     .srv-channel-finder { --srv: #22d3ee; }
+    .srv-facility-knowledge { --srv: #34d399; }
+    .srv-graph        { --srv: #818cf8; }
+    .srv-phoebus      { --srv: #fbbf24; }
+    .srv-bluesky      { --srv: #fb923c; }
+    .srv-health       { --srv: #a3e635; }
     .srv-unknown      { --srv: #64748b; }
     /* hygiene-allow-color-end */
 

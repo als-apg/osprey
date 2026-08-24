@@ -11,11 +11,14 @@ written, and what goes in it?* :func:`compute_channel_snapshot` returns one
 re-deriving the predicate, so the compose fragment, the mount, and the file on
 disk can never disagree about whether a snapshot exists.
 
-The decision fails soft in every direction. A project with no Channel Finder
-database, an empty one, one too large to be useful as a typeahead, or one that
-cannot be read at all simply gets no snapshot — the build itself is never
-blocked, because a missing autocomplete list is a degraded panel, not a broken
-deployment.
+The decision fails soft in almost every direction. A project with no Channel
+Finder database, an empty one, one too large to be useful as a typeahead, one
+that cannot be read at all, or one on the graph paradigm — whose channels live
+in a graph database rather than in a file on the build host — simply gets no
+snapshot. The build itself is never blocked, because a missing autocomplete list
+is a degraded panel, not a broken deployment. The one exception is a
+``pipeline_mode`` naming a paradigm that does not exist: that is a configuration
+mistake rather than a degraded panel, so it stops the build.
 
 Working-directory precondition: a relative ``database.path`` is resolved against
 the process working directory, which the build sets to the project root before
@@ -115,7 +118,7 @@ def _load_channel_records(pipeline_type: str, db_config: dict, db_path: Path) ->
         ``address``.
 
     Raises:
-        ValueError: If ``pipeline_type`` is not a known pipeline.
+        PipelineModeError: If ``pipeline_type`` is not a known paradigm.
     """
     database: Any
     if pipeline_type == "in_context":
@@ -138,7 +141,9 @@ def _load_channel_records(pipeline_type: str, db_config: dict, db_path: Path) ->
 
         database = MiddleLayerDatabase(str(db_path))
     else:
-        raise ValueError(f"Unknown channel finder pipeline '{pipeline_type}'")
+        from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+        raise PipelineModeError(f"Unknown channel finder pipeline '{pipeline_type}'")
 
     records: list[dict] = database.get_all_channels()
     return records
@@ -158,13 +163,21 @@ def compute_channel_snapshot(config: dict) -> SnapshotDecision:
     ``channel`` (the hierarchical and middle-layer pipelines synthesize an
     address from the channel name) contributes that instead.
 
+    The graph paradigm has no database file at all — its channels are served by
+    a graph database the browser cannot reach and the build cannot copy — so it
+    gets no snapshot and the typeahead stays quiet.
+
     Args:
         config: Full project configuration dictionary, as the build already
             holds it.
 
     Returns:
-        The decision. Never raises: an unreadable or malformed database is
-        logged as a warning and yields ``emit=False``.
+        The decision. An unreadable or malformed database is logged as a warning
+        and yields ``emit=False`` rather than raising.
+
+    Raises:
+        PipelineModeError: If ``channel_finder.pipeline_mode`` names a paradigm
+            that does not exist.
     """
     section = _suggestions_section(config)
 
@@ -175,6 +188,15 @@ def compute_channel_snapshot(config: dict) -> SnapshotDecision:
     from osprey.services.channel_finder.utils.detection import detect_pipeline_config
 
     pipeline_type, db_config = detect_pipeline_config(config)
+
+    if pipeline_type == "graph":
+        logger.warning(
+            "The graph paradigm serves its channels from a graph database rather than a "
+            "file on the build host, so there are no records to snapshot; the web "
+            "channel-suggestion typeahead is disabled for this project."
+        )
+        return SnapshotDecision(emit=False)
+
     if not pipeline_type or not db_config:
         logger.debug("No channel finder database is configured; not emitting a channel snapshot.")
         return SnapshotDecision(emit=False)

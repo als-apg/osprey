@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.virtual_accelerator.manifest import loaders
 from osprey.services.virtual_accelerator.manifest.build import (
     LIMITS_FILENAME,
@@ -34,13 +35,21 @@ from osprey.services.virtual_accelerator.manifest.paths import (
     ManifestPaths,
 )
 
+# The tiered paradigm databases the manifest expands, derived by subtracting
+# ``graph`` from the paradigm registry: a graph store is seeded from the corpus
+# TTL and ships no tier database, so it contributes no source file here (see
+# the exemption comment in manifest/build.py). Registering a file-backed
+# paradigm adds its database to this list without an edit.
+_PARADIGM_DB_FILES = tuple(
+    f"channel_databases/tiers/tier{DEFAULT_TIER}/{name}.json"
+    for name in sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"})
+)
+
 # The files a data tree must carry for a manifest to be generated from it,
 # relative to its data root. Copied (rather than the whole 2 MB bundle) so a
 # test can knock one out and watch the gate close.
 _SOURCE_FILES = (
-    f"channel_databases/tiers/tier{DEFAULT_TIER}/hierarchical.json",
-    f"channel_databases/tiers/tier{DEFAULT_TIER}/in_context.json",
-    f"channel_databases/tiers/tier{DEFAULT_TIER}/middle_layer.json",
+    *_PARADIGM_DB_FILES,
     "simulation/machine.json",
     "machine_state_channels.json",
     "channel_limits.json",

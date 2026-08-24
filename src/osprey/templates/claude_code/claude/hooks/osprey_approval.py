@@ -268,16 +268,30 @@ def build_allow_output() -> dict:
 def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     """Fire-and-forget POST to bring an artifact into focus in the gallery.
 
+    Carries ``Authorization: Bearer <OSPREY_PANEL_TOKEN>`` whenever that
+    variable holds a non-blank value in the hook's inherited environment — the
+    web terminal exports it into the agent it launches, so the hook picks it up
+    without reading a file or importing anything. When it is unset, empty or
+    whitespace-only no ``Authorization`` header is sent at all, which is the
+    unauthenticated loopback POST this call has always been, and which matches
+    how ``mcp_server.http._panel_auth_headers`` reads the same carrier.
+
     Non-fatal: silently swallows errors so focus failures never block approval.
+    A gallery that refuses the call — 401 included — is a focus failure like any
+    other and is swallowed the same way.
     """
     try:
         import urllib.request
 
         data = json.dumps({"artifact_id": artifact_id}).encode()
+        headers = {"Content-Type": "application/json"}
+        token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(
             f"{gallery_base_url}/api/focus",
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         urllib.request.urlopen(req, timeout=2)

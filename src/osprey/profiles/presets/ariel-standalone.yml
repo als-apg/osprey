@@ -50,7 +50,7 @@ hooks:
   - approval          # Gate logbook entry creation on user approval prompt
   - error-guidance    # Post-error hook that surfaces remediation hints
   - notebook-update   # Sync CLAUDE.md notebook after each session
-  - memory-guard      # Warn when context window approaches threshold
+  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
   - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
   - panels-context    # Inject the web terminal panel inventory into agent context
@@ -67,9 +67,11 @@ skills:
   - session-report          # Summarise session actions and outcomes to the logbook
   - logbook-deep-research   # Multi-phase logbook investigation (invoked by skill)
 
-# No subagents: the deep-research workflow is invoked as a skill from the
-# main agent, not as a separate subagent.
-agents: []
+# The deep-research workflow is invoked as a skill from the main agent, not as
+# a separate subagent. The one subagent here is the graph specialist: structural
+# machine questions delegate to it, mirroring the control-system presets.
+agents:
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
 
 output_styles:
   - control-operator  # Terse, actionable output style

@@ -37,6 +37,7 @@ names another one explicitly.
    osprey profile            # Validate and inspect build profiles
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
+   osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
@@ -140,6 +141,12 @@ setting through to ``build/``, then ``osprey up`` to deploy it.
 address the rendered config: ``config.control_system.type=epics`` writes that
 literal dotted entry into the profile's ``config:`` block. ``VALUE`` is read as
 YAML, so ``true``/``false`` become booleans and bare numbers become numbers.
+
+``channel_finder_mode`` names the channel-finder paradigm the build renders:
+``in_context``, ``hierarchical``, ``middle_layer`` or ``graph``. The first three
+search a channel database file; ``graph`` searches the graph store named by
+``services.graphdb`` -- deployed with the stack or facility-hosted -- instead of
+a database file.
 
 Two shorthands stand in for longer key paths: ``connector=`` writes
 ``config.control_system.type``, and ``epics_gateway=`` writes a known facility's
@@ -446,6 +453,11 @@ these verbs act on that roster, which lives in the profile. Every verb takes
      - Change one user's login password (password authentication only).
        Prompts without echoing, and ends that user's sessions.
      - —
+   * - ``login-url USER``
+     - Print the URL that opens that user's terminal. Only the URL goes to
+       stdout, so it can be piped or copied. Refuses for a user who signs in
+       through the login page.
+     - —
    * - ``env``
      - Render ``.env.users``, the env file every per-user container runs
        with.
@@ -458,6 +470,19 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``-y, --yes`` -- Assume yes to confirmation prompts.
 
 ``--dry-run`` -- Show what would happen without making changes.
+
+``osprey users login-url`` builds the URL from that user's operator secret in
+the repository's ``.env``, which ``osprey up`` mints for every roster user in
+every auth mode. Opening it once trades the token for a session cookie. It is
+how someone gets in when nginx authenticates nobody — ``auth.method: none``, or
+a roster entry with ``login: false`` — and it is a password: send each person
+only their own. Rotate one by deleting that user's ``OSPREY_TERMINAL_SECRET_*``
+line from ``.env`` and running ``osprey up`` again.
+
+For a user who *is* behind the login wall the command refuses and names their
+login page instead. The URL would not work for them — the authentication
+service turns the request away before the terminal can read the token — and
+printing it would put a live credential in someone's inbox for nothing.
 
 ``osprey users env`` renders the same subset a deploy would generate, from the
 same two inputs — the rendered deploy config and the repository root's env
@@ -476,6 +501,7 @@ CI, pass it: without ``--output`` the assembled secrets go to the job log.
    osprey users prune --dry-run
    osprey users seed alice
    osprey users passwd alice
+   osprey users login-url alice
    osprey users env --output .env.users
 
 See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
@@ -642,8 +668,9 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder build-database``
    Build a channel database from a CSV file.
 
-``osprey channel-finder validate``
-   Validate a channel database JSON file.
+``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
+   Validate a channel database JSON file. The paradigm is auto-detected from the
+   project's config; ``--pipeline`` overrides that.
 
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
@@ -660,6 +687,10 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder web``
    Launch the Channel Finder web interface.
 
+A graph-mode project has no channel database file: ``validate`` and ``preview``
+say so and point at ``osprey knowledge seed-graph`` and the ``read_cypher`` tool,
+and ``--pipeline`` does not offer ``graph`` for the same reason.
+
 .. code-block:: bash
 
    osprey channel-finder build-database
@@ -668,6 +699,57 @@ Options: ``--project PATH``, ``-v, --verbose``
    osprey channel-finder generate --format hierarchical
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
+
+osprey knowledge
+================
+
+Build and load the facility's knowledge material: the OKF bundle of concept
+documents, and the NARAD-convention corpus the graph store holds. An omitted
+``BUNDLE`` comes from ``facility_knowledge.bundle_path`` and an omitted ``TTL``
+from ``services.graphdb.ttl_path``. See :doc:`/how-to/okf-bundle` and
+:doc:`/how-to/use-facility-graph`.
+
+``osprey knowledge regen-index [BUNDLE]``
+   Regenerate the ``index.md`` files throughout an OKF bundle. Run it twice and
+   the second run changes nothing.
+
+``osprey knowledge validate [BUNDLE]``
+   Check every document in a bundle against the OKF format.
+
+``osprey knowledge seed-from-ttl TTL BUNDLE [--force]``
+   Write stub concept documents into a bundle from a TTL corpus, one per class,
+   for a person to fill in.
+
+``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH]``
+   Derive a NARAD-convention TTL corpus from the channel database: one device
+   node per device, one binding per address, a read or write direction on every
+   signal, and the descriptions that let the corpus be searched by meaning
+   rather than by address alone.
+
+   ``--channel-db`` is the hierarchical database, and defaults to the one
+   ``channel_finder.pipelines.hierarchical.database.path`` names.
+   ``--descriptions`` is the in-context database of the same machine, whose
+   per-channel text becomes each binding's description; unnamed, it is looked
+   for as ``in_context.json`` beside the file ``--channel-db`` named, which is
+   how the OSPREY source tree keeps the two. A rendered project holds only the
+   paradigm it runs, so name both there. ``--limits`` decides which signals are
+   written and ``--ontology`` maps device families to classes; both fall back to
+   the config and the shipped table. :doc:`/how-to/use-facility-graph` has the
+   detail.
+
+   A graph-mode project ships no channel database by design, so the command
+   refuses there and says to name the sources with ``--channel-db`` and
+   ``--descriptions``.
+
+``osprey knowledge seed-graph [TTL] [--force]``
+   Load a TTL corpus into the deployed graph store. ``--force`` wipes the store
+   and imports from scratch, which is what a changed store configuration needs.
+
+.. code-block:: bash
+
+   osprey knowledge build-ttl data/demo_machine.ttl
+   osprey knowledge seed-graph data/demo_machine.ttl
+   osprey knowledge validate
 
 osprey ariel
 ============
@@ -755,7 +837,11 @@ osprey web
 Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web [OPTIONS]``
-   Start the web terminal server (default: ``http://127.0.0.1:8087``).
+   Start the web terminal server (default: ``http://127.0.0.1:8087``). On
+   startup it prints a login URL (``…/?token=…``) that sets a session cookie
+   and then redirects to the clean address. The URL is printed once, but its
+   token is the server's own secret and stays valid for the life of the
+   process — treat it like a password.
 
    ``-p, --port INTEGER`` — Port (default: from config or 8087).
 
@@ -765,7 +851,9 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--repo PATH`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
 
-   ``--detach`` — Run in background (PID written to ``.osprey-web.pid``).
+   ``--detach`` — Run in background (PID written to ``var/osprey-web.pid``). The
+   login token is held only in memory; if the printed URL is lost, stop and
+   restart the server to mint a new one.
 
    ``--reload`` — Auto-reload for development.
 
@@ -791,7 +879,9 @@ write theme files. See :doc:`/how-to/web-terminal/theming`.
 
 ``osprey theme-lab [OPTIONS]``
    Serve the Theme Lab and open it. The URL is printed as well, so the page can
-   be opened by hand if no browser appears.
+   be opened by hand if no browser appears. It is a login URL at the server root
+   (``…/?token=…``): opening it sets a session cookie and then redirects to the
+   lab itself.
 
    ``-p, --port INTEGER`` — Port to serve on (default: an unused port chosen
    automatically).
