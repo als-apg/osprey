@@ -501,7 +501,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -846,6 +846,7 @@ window.addEventListener("load", load);</script>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-graph.html">Search the Facility Graph</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -1577,7 +1578,7 @@ directory.</p>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">control_assistant</span></code></p></td>
 <td><p>App template (data bundle) to render. Valid: <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>,
-<code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>.</p></td>
+<code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_standalone</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
 <td><p>string</p></td>
@@ -1604,13 +1605,16 @@ provider model ID.</p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>,
-<code class="docutils literal notranslate"><span class="pre">in_context</span></code>).</p></td>
+<code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">graph</span></code>). <code class="docutils literal notranslate"><span class="pre">graph</span></code> searches the deployment’s graph
+store instead of a channel database, so it needs a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code>
+block (see <a class="reference internal" href="#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a>).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tier</span></code></p></td>
 <td><p>int</p></td>
 <td><p>derived</p></td>
 <td><p>Channel-database tier (1 or 3). Defaults from the channel finder mode;
-tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only.</p></td>
+tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only. <code class="docutils literal notranslate"><span class="pre">graph</span></code> has no tiered artifacts at all —
+leave <code class="docutils literal notranslate"><span class="pre">tier</span></code> unset there.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
 <td><p>string</p></td>
@@ -1906,6 +1910,52 @@ declares <code class="docutils literal notranslate"><span class="pre">network:</
 <a class="reference internal" href="deploy-project.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a> for what host mode changes and for
 <code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code>, the single knob that covers the event dispatcher and its
 workers.</p>
+</section>
+<section id="graph-mode-channel-finding">
+<span id="profile-graph-mode"></span><h2>Graph-mode channel finding<a class="headerlink" href="#graph-mode-channel-finding" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span> <span class="pre">graph</span></code> points the channel finder at the deployment’s
+graph store: the agent searches the facility knowledge graph for channels
+instead of reading a channel database. The store <em>is</em> the database, so the
+profile ships no channel-database inputs and pins no <code class="docutils literal notranslate"><span class="pre">tier</span></code> — what it does
+need is a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, and the paradigm works with either shape
+that block comes in.</p>
+<p>A deployment that runs its own store already has one. The <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>
+app template renders <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> into <code class="docutils literal notranslate"><span class="pre">services</span></code> and <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts, bootstraps and seeds it — see <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-room</span>
+<span class="nt">app_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
+<span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
+<span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span><span class="w">     </span><span class="c1"># no `tier` — graph has no tiered artifacts</span>
+</pre></div>
+</div>
+<p>To search a store the facility already runs, name it instead of deploying one.
+That takes three things: an explicit <code class="docutils literal notranslate"><span class="pre">uri</span></code> on the block, the store’s password
+in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> as <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> (nothing is minted for a store
+this deployment does not own), and <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> off the <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>
+list — otherwise the build still stands up a local Neo4j nobody queries.
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is a list, so the override replaces it whole; write out
+the services you <em>do</em> want rather than the one you are removing.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.org:7687</span>
+<span class="w">  </span><span class="nt">services.graphdb.username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j</span><span class="w">    </span><span class="c1"># default `neo4j`</span>
+<span class="w">  </span><span class="c1"># Whole-list replacement: the template&#39;s default is</span>
+<span class="w">  </span><span class="c1"># [postgresql, openobserve, qmd, graphdb].</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">openobserve</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>An external store has to already hold a corpus for the mode to answer anything:
+generate one with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span></code> and load it with <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> (see <a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>). A store this deployment
+runs gets that during <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; a store it only connects to does not.</p>
+<p>A profile whose app template carries no <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block at all — the
+channel-finder app template carries none — is refused at build time, naming the
+missing block, rather than rendering a channel finder with nothing to read. An
+attached project (<code class="docutils literal notranslate"><span class="pre">deploy_services:</span> <span class="pre">false</span></code>) is refused the same way unless it
+names an external store, because it renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> whatever its app
+template says. For what the mode changes about the agent’s answers, see
+<a class="reference internal" href="use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; for the corpus behind them,
+<a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 </section>
 <section id="the-va-archiver-block">
 <span id="profile-va-archiver"></span><h2>The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block<a class="headerlink" href="#the-va-archiver-block" title="Link to this heading">#</a></h2>
@@ -2446,6 +2496,7 @@ relax the constraint in the profile.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-permissions">Tool permissions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-mode-channel-finding">Graph-mode channel finding</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-va-archiver-block">The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-fact-one-home">One fact, one home</a></li>
 </ul>

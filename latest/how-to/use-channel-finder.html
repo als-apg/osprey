@@ -61,12 +61,12 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Logbook Search Service (ARIEL)" href="ariel/index.html" />
+    <link rel="next" title="Search the Facility Graph" href="use-facility-graph.html" />
     <link rel="prev" title="The OKF Bundle" href="okf-bundle.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -411,6 +411,7 @@
 </ul>
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-graph.html">Search the Facility Graph</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -502,12 +503,14 @@ rather than exact channel names.</p>
 <h2>Choosing a Pipeline<a class="headerlink" href="#choosing-a-pipeline" title="Link to this heading">#</a></h2>
 <p>Set the active pipeline in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># or &quot;hierarchical&quot; or &quot;middle_layer&quot;</span>
+<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># or &quot;hierarchical&quot;, &quot;middle_layer&quot; or &quot;graph&quot;</span>
 </pre></div>
 </div>
 <p>When <code class="docutils literal notranslate"><span class="pre">pipeline_mode</span></code> is unset, OSPREY auto-detects: it uses the first
 pipeline that has a database configured, preferring middle layer, then
-hierarchical, then in-context.</p>
+hierarchical, then in-context. Auto-detection never lands on <code class="docutils literal notranslate"><span class="pre">graph</span></code> — that
+pipeline reads no database file, so there is nothing to detect and you name it
+explicitly.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Pipeline</p></th>
@@ -523,6 +526,9 @@ hierarchical, then in-context.</p>
 </tr>
 <tr class="row-even"><td><p><strong>Middle Layer</strong></p></td>
 <td><p>Large systems organized by function (MML)</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Graph</strong></p></td>
+<td><p>Machines described in a knowledge graph</p></td>
 </tr>
 </tbody>
 </table>
@@ -617,6 +623,57 @@ when DuckDB is installed — <code class="docutils literal notranslate"><span cl
 </pre></div>
 </div>
 </section>
+<section id="graph-pipeline">
+<h2>Graph Pipeline<a class="headerlink" href="#graph-pipeline" title="Link to this heading">#</a></h2>
+<p>Searches the facility knowledge graph instead of a channel database. The store
+<em>is</em> the database: a graph-mode project ships no database file, and the channel
+finder subagent finds addresses by writing read-only Cypher against the seeded
+<code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store.</p>
+<p><strong>How it works:</strong> four tools, served under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name like
+every other pipeline’s. <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> reports how addresses are spelled and
+what prose the corpus carries; <code class="docutils literal notranslate"><span class="pre">example_queries</span></code> returns runnable Cypher for
+the common channel questions, each with parameter values for the corpus at
+hand; <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> lists the labels, relationship types and property names
+<em>this</em> graph actually holds; <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> runs one query and returns rows.
+There is no resolution API behind them — the subagent adapts an example rather
+than calling a lookup.</p>
+<p>Configuration is the mode plus the store, and nothing else. There is no graph
+entry under <code class="docutils literal notranslate"><span class="pre">pipelines:</span></code> — that section renders empty in graph mode — and no
+<code class="docutils literal notranslate"><span class="pre">tier</span></code>, because the pipeline has no tiered artifacts:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
+<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span><span class="w">        </span><span class="c1"># nothing here — graph names no database file</span>
+</pre></div>
+</div>
+<p>The store comes from the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, either one this deployment
+runs or one the facility already hosts (an explicit <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code>
+and <code class="docutils literal notranslate"><span class="pre">username</span></code>, with <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>). See
+<a class="reference internal" href="build-profiles.html#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a> for both shapes, and <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a> for the
+block itself. A build that enables the channel finder but renders no
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is refused, naming the missing block, rather than
+shipping a pipeline with nothing to read — which is why the
+<code class="docutils literal notranslate"><span class="pre">channel_finder_standalone</span></code> app template, which carries no such block, cannot
+run this mode.</p>
+<p>Load the corpus into the store:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w"> </span>data/demo_machine.ttl
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does that for you when the deployment runs the store; a store the
+facility hosts holds whatever was loaded into it, so seed it deliberately. See
+<a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> for what the graph holds and how a corpus is
+generated.</p>
+<p><strong>What the subagent can search</strong> depends on the corpus. On a corpus
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span></code> generated — the demo machine — a phrase can be
+matched against the description written for a single channel, against what the
+last two tokens of an address mean, against the prose for a device family, a
+system or a ring, and against the synonyms an operator would say out loud. The
+ALS corpus OSPREY ships is a fixed artifact with less prose in it: there the
+way in is a name, an alternate name, a section or a device class.</p>
+<p><code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code> have no file to open on this pipeline, so both
+report what the store is and which commands act on it. Health reports the store
+instead of a database: whether it is reachable, and how many resources it holds
+(<a class="reference internal" href="configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p>
+</section>
 <section id="web-interface">
 <h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>
 <p>Launch the browser-based channel explorer:</p>
@@ -624,12 +681,18 @@ when DuckDB is installed — <code class="docutils literal notranslate"><span cl
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
 </pre></div>
 </div>
+<p>The explorer browses a channel database, so on the graph pipeline it shows a
+short pane saying so instead of a tree; database statistics and validation are
+not offered there. Ask the OSPREY agent for the channels you need — it answers
+from the graph. The channel-suggestion typeahead in the web panels is off in
+graph mode for the same reason: it is built from a database file on the build
+host, and there is none.</p>
 </section>
 <section id="configuration-reference">
 <h2>Configuration Reference<a class="headerlink" href="#configuration-reference" title="Link to this heading">#</a></h2>
 <p>Key <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> settings:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># &quot;in_context&quot;, &quot;hierarchical&quot;, or &quot;middle_layer&quot;</span>
+<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># &quot;in_context&quot;, &quot;hierarchical&quot;, &quot;middle_layer&quot;, or &quot;graph&quot;</span>
 <span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">in_context</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">template</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/in_context.json</span><span class="p p-Indicator">}</span>
@@ -637,6 +700,7 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span cla
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">hierarchical</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/hierarchical.json</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="nt">middle_layer</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">middle_layer</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/middle_layer.json</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="c1"># graph has no entry: it reads the `services.graphdb` store, not a file.</span>
 <span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">dataset_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/benchmarks/queries.json</span>
 <span class="w">    </span><span class="c1"># Concurrency and output dir are set per run via CLI flags</span>
@@ -644,14 +708,19 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span cla
 <span class="w">    </span><span class="c1"># they are not read from config.yml.</span>
 </pre></div>
 </div>
+<p>Three of the four pipelines name the database they read, so a build renders the
+one block its mode needs. Graph mode renders none: <code class="docutils literal notranslate"><span class="pre">pipeline_mode:</span> <span class="pre">graph</span></code> plus
+the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is its whole configuration.</p>
 </section>
 <section id="framework-integration">
 <span id="channel-finder-framework-integration"></span><h2>Framework Integration<a class="headerlink" href="#framework-integration" title="Link to this heading">#</a></h2>
-<p>Each pipeline is exposed to the agent through a dedicated MCP server
+<p>Each pipeline ships as its own MCP server package
 (<code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code>,
-<code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code>). The active server is selected from
-<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and wired into the
-agent’s artifacts when you run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+<code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_graph</span></code>), and whichever one
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> names in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is served to the agent
+under the single name <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> — so the tools change with the mode
+but the server the agent reaches does not. It is wired into the agent’s
+artifacts when you run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
 after editing the config). There is no public Python
 <code class="docutils literal notranslate"><span class="pre">find_channels(...)</span></code> entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:</p>
@@ -687,11 +756,11 @@ service source into your project for custom modifications.</p>
       </div>
     </a>
     <a class="right-next"
-       href="ariel/index.html"
+       href="use-facility-graph.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Logbook Search Service (ARIEL)</p>
+        <p class="prev-next-title">Search the Facility Graph</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -718,6 +787,7 @@ service source into your project for custom modifications.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#in-context-pipeline">In-Context Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hierarchical-pipeline">Hierarchical Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#middle-layer-pipeline">Middle Layer Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-pipeline">Graph Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-interface">Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-reference">Configuration Reference</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#framework-integration">Framework Integration</a></li>

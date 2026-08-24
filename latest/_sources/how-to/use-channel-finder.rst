@@ -23,11 +23,13 @@ Set the active pipeline in ``config.yml``:
 .. code-block:: yaml
 
    channel_finder:
-     pipeline_mode: in_context  # or "hierarchical" or "middle_layer"
+     pipeline_mode: in_context  # or "hierarchical", "middle_layer" or "graph"
 
 When ``pipeline_mode`` is unset, OSPREY auto-detects: it uses the first
 pipeline that has a database configured, preferring middle layer, then
-hierarchical, then in-context.
+hierarchical, then in-context. Auto-detection never lands on ``graph`` — that
+pipeline reads no database file, so there is nothing to detect and you name it
+explicitly.
 
 +---------------------------+----------------------------------------------+
 | Pipeline                  | Best for                                     |
@@ -37,6 +39,8 @@ hierarchical, then in-context.
 | **Hierarchical**          | Large systems with strict naming patterns    |
 +---------------------------+----------------------------------------------+
 | **Middle Layer**          | Large systems organized by function (MML)    |
++---------------------------+----------------------------------------------+
+| **Graph**                 | Machines described in a knowledge graph      |
 +---------------------------+----------------------------------------------+
 
 
@@ -149,6 +153,68 @@ The database follows MATLAB Middle Layer (MML) functional organization
       --output data/channel_databases/middle_layer.json
 
 
+Graph Pipeline
+==============
+
+Searches the facility knowledge graph instead of a channel database. The store
+*is* the database: a graph-mode project ships no database file, and the channel
+finder subagent finds addresses by writing read-only Cypher against the seeded
+``graphdb`` store.
+
+**How it works:** four tools, served under the ``channel-finder`` name like
+every other pipeline's. ``capabilities`` reports how addresses are spelled and
+what prose the corpus carries; ``example_queries`` returns runnable Cypher for
+the common channel questions, each with parameter values for the corpus at
+hand; ``get_schema`` lists the labels, relationship types and property names
+*this* graph actually holds; ``read_cypher`` runs one query and returns rows.
+There is no resolution API behind them — the subagent adapts an example rather
+than calling a lookup.
+
+Configuration is the mode plus the store, and nothing else. There is no graph
+entry under ``pipelines:`` — that section renders empty in graph mode — and no
+``tier``, because the pipeline has no tiered artifacts:
+
+.. code-block:: yaml
+
+   channel_finder:
+     pipeline_mode: graph
+     pipelines:        # nothing here — graph names no database file
+
+The store comes from the ``services.graphdb`` block, either one this deployment
+runs or one the facility already hosts (an explicit ``services.graphdb.uri``
+and ``username``, with ``GRAPHDB_PASSWORD`` in the project ``.env``). See
+:ref:`profile-graph-mode` for both shapes, and :doc:`deploy-project` for the
+block itself. A build that enables the channel finder but renders no
+``services.graphdb`` block is refused, naming the missing block, rather than
+shipping a pipeline with nothing to read — which is why the
+``channel_finder_standalone`` app template, which carries no such block, cannot
+run this mode.
+
+Load the corpus into the store:
+
+.. code-block:: bash
+
+   osprey knowledge seed-graph data/demo_machine.ttl
+
+``osprey up`` does that for you when the deployment runs the store; a store the
+facility hosts holds whatever was loaded into it, so seed it deliberately. See
+:doc:`use-facility-graph` for what the graph holds and how a corpus is
+generated.
+
+**What the subagent can search** depends on the corpus. On a corpus
+``osprey knowledge build-ttl`` generated — the demo machine — a phrase can be
+matched against the description written for a single channel, against what the
+last two tokens of an address mean, against the prose for a device family, a
+system or a ring, and against the synonyms an operator would say out loud. The
+ALS corpus OSPREY ships is a fixed artifact with less prose in it: there the
+way in is a name, an alternate name, a section or a device class.
+
+``validate`` and ``preview`` have no file to open on this pipeline, so both
+report what the store is and which commands act on it. Health reports the store
+instead of a database: whether it is reachable, and how many resources it holds
+(:doc:`configure-health-checks`).
+
+
 Web Interface
 =============
 
@@ -159,6 +225,13 @@ Launch the browser-based channel explorer:
    osprey channel-finder web
    osprey channel-finder web --port 9000
 
+The explorer browses a channel database, so on the graph pipeline it shows a
+short pane saying so instead of a tree; database statistics and validation are
+not offered there. Ask the OSPREY agent for the channels you need — it answers
+from the graph. The channel-suggestion typeahead in the web panels is off in
+graph mode for the same reason: it is built from a database file on the build
+host, and there is none.
+
 
 Configuration Reference
 =======================
@@ -168,7 +241,7 @@ Key ``config.yml`` settings:
 .. code-block:: yaml
 
    channel_finder:
-     pipeline_mode: in_context  # "in_context", "hierarchical", or "middle_layer"
+     pipeline_mode: in_context  # "in_context", "hierarchical", "middle_layer", or "graph"
      pipelines:
        in_context:
          database: {type: template, path: data/channel_databases/in_context.json}
@@ -176,11 +249,16 @@ Key ``config.yml`` settings:
          database: {type: hierarchical, path: data/channel_databases/hierarchical.json}
        middle_layer:
          database: {type: middle_layer, path: data/channel_databases/middle_layer.json}
+       # graph has no entry: it reads the `services.graphdb` store, not a file.
      benchmark:
        dataset_path: data/benchmarks/queries.json
        # Concurrency and output dir are set per run via CLI flags
        # (osprey channel-finder benchmark --concurrency / --output-dir);
        # they are not read from config.yml.
+
+Three of the four pipelines name the database they read, so a build renders the
+one block its mode needs. Graph mode renders none: ``pipeline_mode: graph`` plus
+the ``services.graphdb`` block is its whole configuration.
 
 
 .. _channel-finder-framework-integration:
@@ -188,11 +266,13 @@ Key ``config.yml`` settings:
 Framework Integration
 =====================
 
-Each pipeline is exposed to the agent through a dedicated MCP server
+Each pipeline ships as its own MCP server package
 (``channel_finder_in_context``, ``channel_finder_hierarchical``,
-``channel_finder_middle_layer``). The active server is selected from
-``channel_finder.pipeline_mode`` in ``config.yml`` and wired into the
-agent's artifacts when you run ``osprey build`` (or ``osprey build``
+``channel_finder_middle_layer``, ``channel_finder_graph``), and whichever one
+``channel_finder.pipeline_mode`` names in ``config.yml`` is served to the agent
+under the single name ``channel-finder`` — so the tools change with the mode
+but the server the agent reaches does not. It is wired into the agent's
+artifacts when you run ``osprey build`` (or ``osprey build``
 after editing the config). There is no public Python
 ``find_channels(...)`` entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:

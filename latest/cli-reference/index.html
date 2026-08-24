@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -411,6 +411,7 @@
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/use-facility-graph.html">Search the Facility Graph</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../how-to/ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -517,6 +518,7 @@ osprey<span class="w"> </span>feedback<span class="w">           </span><span cl
 osprey<span class="w"> </span>profile<span class="w">            </span><span class="c1"># Validate and inspect build profiles</span>
 osprey<span class="w"> </span>health<span class="w">             </span><span class="c1"># Check system health</span>
 osprey<span class="w"> </span>channel-finder<span class="w">     </span><span class="c1"># Channel finder CLI</span>
+osprey<span class="w"> </span>knowledge<span class="w">          </span><span class="c1"># Facility knowledge bundles and graph corpus</span>
 osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
 osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
@@ -603,6 +605,11 @@ setting through to <code class="docutils literal notranslate"><span class="pre">
 address the rendered config: <code class="docutils literal notranslate"><span class="pre">config.control_system.type=epics</span></code> writes that
 literal dotted entry into the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. <code class="docutils literal notranslate"><span class="pre">VALUE</span></code> is read as
 YAML, so <code class="docutils literal notranslate"><span class="pre">true</span></code>/<code class="docutils literal notranslate"><span class="pre">false</span></code> become booleans and bare numbers become numbers.</p>
+<p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code> names the channel-finder paradigm the build renders:
+<code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code> or <code class="docutils literal notranslate"><span class="pre">graph</span></code>. The first three
+search a channel database file; <code class="docutils literal notranslate"><span class="pre">graph</span></code> searches the graph store named by
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> – deployed with the stack or facility-hosted – instead of
+a database file.</p>
 <p>Two shorthands stand in for longer key paths: <code class="docutils literal notranslate"><span class="pre">connector=</span></code> writes
 <code class="docutils literal notranslate"><span class="pre">config.control_system.type</span></code>, and <code class="docutils literal notranslate"><span class="pre">epics_gateway=</span></code> writes a known facility’s
 EPICS gateway addresses. (Control systems beyond the bundled ones are reachable
@@ -1050,7 +1057,8 @@ channel databases.</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">build-database</span></code></dt><dd><p>Build a channel database from a CSV file.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">validate</span></code></dt><dd><p>Validate a channel database JSON file.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">validate</span> <span class="pre">[--database</span> <span class="pre">PATH]</span> <span class="pre">[--pipeline</span> <span class="pre">hierarchical|in_context|middle_layer]</span> <span class="pre">[-v]</span></code></dt><dd><p>Validate a channel database JSON file. The paradigm is auto-detected from the
+project’s config; <code class="docutils literal notranslate"><span class="pre">--pipeline</span></code> overrides that.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">preview</span></code></dt><dd><p>Preview a channel database with flexible display options.</p>
 </dd>
@@ -1064,12 +1072,59 @@ JSON results for accuracy/cost analysis.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">web</span></code></dt><dd><p>Launch the Channel Finder web interface.</p>
 </dd>
 </dl>
+<p>A graph-mode project has no channel database file: <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code>
+say so and point at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> and the <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> tool,
+and <code class="docutils literal notranslate"><span class="pre">--pipeline</span></code> does not offer <code class="docutils literal notranslate"><span class="pre">graph</span></code> for the same reason.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w"> </span>--format<span class="w"> </span>hierarchical
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-haiku-4-5
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
+</pre></div>
+</div>
+</section>
+<section id="osprey-knowledge">
+<h2>osprey knowledge<a class="headerlink" href="#osprey-knowledge" title="Link to this heading">#</a></h2>
+<p>Build and load the facility’s knowledge material: the OKF bundle of concept
+documents, and the NARAD-convention corpus the graph store holds. An omitted
+<code class="docutils literal notranslate"><span class="pre">BUNDLE</span></code> comes from <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> and an omitted <code class="docutils literal notranslate"><span class="pre">TTL</span></code>
+from <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>. See <a class="reference internal" href="../how-to/okf-bundle.html"><span class="doc">The OKF Bundle</span></a> and
+<a class="reference internal" href="../how-to/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Regenerate the <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files throughout an OKF bundle. Run it twice and
+the second run changes nothing.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">validate</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Check every document in a bundle against the OKF format.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-from-ttl</span> <span class="pre">TTL</span> <span class="pre">BUNDLE</span> <span class="pre">[--force]</span></code></dt><dd><p>Write stub concept documents into a bundle from a TTL corpus, one per class,
+for a person to fill in.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span> <span class="pre">OUTPUT</span> <span class="pre">[--channel-db</span> <span class="pre">PATH]</span> <span class="pre">[--descriptions</span> <span class="pre">PATH]</span> <span class="pre">[--limits</span> <span class="pre">PATH]</span> <span class="pre">[--ontology</span> <span class="pre">PATH]</span></code></dt><dd><p>Derive a NARAD-convention TTL corpus from the channel database: one device
+node per device, one binding per address, a read or write direction on every
+signal, and the descriptions that let the corpus be searched by meaning
+rather than by address alone.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--channel-db</span></code> is the hierarchical database, and defaults to the one
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines.hierarchical.database.path</span></code> names.
+<code class="docutils literal notranslate"><span class="pre">--descriptions</span></code> is the in-context database of the same machine, whose
+per-channel text becomes each binding’s description; unnamed, it is looked
+for as <code class="docutils literal notranslate"><span class="pre">in_context.json</span></code> beside the file <code class="docutils literal notranslate"><span class="pre">--channel-db</span></code> named, which is
+how the OSPREY source tree keeps the two. A rendered project holds only the
+paradigm it runs, so name both there. <code class="docutils literal notranslate"><span class="pre">--limits</span></code> decides which signals are
+written and <code class="docutils literal notranslate"><span class="pre">--ontology</span></code> maps device families to classes; both fall back to
+the config and the shipped table. <a class="reference internal" href="../how-to/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> has the
+detail.</p>
+<p>A graph-mode project ships no channel database by design, so the command
+refuses there and says to name the sources with <code class="docutils literal notranslate"><span class="pre">--channel-db</span></code> and
+<code class="docutils literal notranslate"><span class="pre">--descriptions</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span> <span class="pre">[TTL]</span> <span class="pre">[--force]</span></code></dt><dd><p>Load a TTL corpus into the deployed graph store. <code class="docutils literal notranslate"><span class="pre">--force</span></code> wipes the store
+and imports from scratch, which is what a changed store configuration needs.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>build-ttl<span class="w"> </span>data/demo_machine.ttl
+osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w"> </span>data/demo_machine.ttl
+osprey<span class="w"> </span>knowledge<span class="w"> </span>validate
 </pre></div>
 </div>
 </section>
@@ -1454,6 +1509,7 @@ directory, and <code class="docutils literal notranslate"><span class="pre">--re
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-chat">osprey chat</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-eject">osprey eject</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-channel-finder">osprey channel-finder</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-knowledge">osprey knowledge</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-ariel">osprey ariel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-artifacts">osprey artifacts</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-web">osprey web</a></li>

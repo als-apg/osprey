@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -435,8 +435,9 @@
 <p>OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through <a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP</a>
 servers. The Osprey agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
-tools via stdio JSON-RPC. There are <strong>8 in-tree MCP servers</strong>; build profiles
-can inject additional servers beyond the core set below.</p>
+tools via stdio JSON-RPC. The <strong>10 core in-tree servers</strong> below are the ones a
+deployment normally renders; build profiles can inject additional servers beyond
+them.</p>
 <section id="control-system">
 <h2>Control System<a class="headerlink" href="#control-system" title="Link to this heading">#</a></h2>
 <section id="id1">
@@ -463,9 +464,10 @@ bin that was used and whether it was requested or chosen automatically.</p></li>
 </section>
 <section id="channel-finding">
 <h2>Channel Finding<a class="headerlink" href="#channel-finding" title="Link to this heading">#</a></h2>
-<p>OSPREY provides three channel finder variants, each suited to different
-facility data models and search strategies. Deployments typically enable
-one or two variants depending on available metadata.</p>
+<p>OSPREY provides four channel finder variants, each suited to different
+facility data models and search strategies. A deployment picks one with
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code>, and whichever it picks is served under the one
+<code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name.</p>
 <section id="channel-finder-hierarchical">
 <h3><code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code><a class="headerlink" href="#channel-finder-hierarchical" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_hierarchical</span></code></p>
@@ -506,6 +508,34 @@ lookups and validation.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">validate</span></code> – Validate that channel names exist in the database.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">statistics</span></code> – Get database statistics (total channels, systems, families).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">run_sql</span></code> – Run a read-only SQL query directly against the channel finder DuckDB database (<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">systems</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> tables).</p></li>
+</ul>
+</section>
+<section id="channel-finder-graph">
+<h3><code class="docutils literal notranslate"><span class="pre">channel_finder_graph</span></code><a class="headerlink" href="#channel-finder-graph" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_graph</span></code></p>
+<p>Finds channels by searching the facility knowledge graph. Instead of drilling
+through a database file, the agent writes read-only Cypher against the seeded
+<code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store, so a question can start from a description, an alternate name
+or a system just as easily as from an address. Selected with
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode:</span> <span class="pre">graph</span></code>, and needs a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> store
+to search – deployed with the rest of the stack, or one the facility already
+runs.</p>
+<p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> and <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> are the <code class="docutils literal notranslate"><span class="pre">graph</span></code> server’s own tools, served
+here under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name: the same read transaction, the same
+refusal of extension procedures and <code class="docutils literal notranslate"><span class="pre">LOAD</span> <span class="pre">CSV</span></code>, the same row and time bounds.
+The examples catalogue is this package’s own, written around the questions
+operators ask about channels rather than around general graph exploration. See
+<a class="reference internal" href="../how-to/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> – Run one read-only Cypher query and return the matching rows,
+bounded by <code class="docutils literal notranslate"><span class="pre">services.graphdb.query_max_rows</span></code> and
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.query_timeout_s</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_schema</span></code> – Report the node labels, relationship types, sampled per-label
+property names and namespace prefixes this graph holds.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example_queries</span></code> – Return runnable Cypher examples for the common channel
+questions, each with per-corpus parameter values.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report the server description, tool list and operating notes.</p></li>
 </ul>
 </section>
 </section>
@@ -640,6 +670,31 @@ agent can look up operational know-how and draft new concepts for human review.<
 </ul>
 </section>
 </section>
+<section id="facility-graph">
+<h2>Facility Graph<a class="headerlink" href="#facility-graph" title="Link to this heading">#</a></h2>
+<section id="graph">
+<h3><code class="docutils literal notranslate"><span class="pre">graph</span></code><a class="headerlink" href="#graph" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.graph</span></code></p>
+<p>Read-only Cypher search over the facility knowledge graph – the
+NARAD-convention RDF corpus held by the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store. Rendered only where
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> is configured, and called by the
+<strong>facility-knowledge-graph subagent</strong>: the main agent’s route to the graph is
+delegation, mirroring the channel finder. Every query runs in a read
+transaction, and extension procedures, extension functions and <code class="docutils literal notranslate"><span class="pre">LOAD</span> <span class="pre">CSV</span></code> are
+refused before the store is dialed. See <a class="reference internal" href="../how-to/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> – Run one read-only Cypher query and return the matching rows,
+bounded by <code class="docutils literal notranslate"><span class="pre">services.graphdb.query_max_rows</span></code> and
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.query_timeout_s</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_schema</span></code> – Report the node labels, relationship types, sampled per-label
+property names and namespace prefixes this graph holds.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example_queries</span></code> – Return curated, runnable Cypher examples for the common
+question shapes, each with per-corpus parameter values.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report the server description, tool list and operating notes.</p></li>
+</ul>
+</section>
+</section>
 </section>
 
 
@@ -697,6 +752,7 @@ agent can look up operational know-how and draft new concepts for human review.<
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-hierarchical"><code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-in-context"><code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-middle-layer"><code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-graph"><code class="docutils literal notranslate"><span class="pre">channel_finder_graph</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a><ul class="visible nav section-nav flex-column">
@@ -713,6 +769,10 @@ agent can look up operational know-how and draft new concepts for human review.<
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-knowledge">Facility Knowledge</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-facility-knowledge"><code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-graph">Facility Graph</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#graph"><code class="docutils literal notranslate"><span class="pre">graph</span></code></a></li>
 </ul>
 </li>
 </ul>

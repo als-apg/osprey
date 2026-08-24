@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -411,6 +411,7 @@
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-graph.html">Search the Facility Graph</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -699,10 +700,10 @@ keys happened to be read.</p>
 </section>
 <section id="built-in-service-categories">
 <h2>Built-in service categories<a class="headerlink" href="#built-in-service-categories" title="Link to this heading">#</a></h2>
-<p>Beyond the always-on framework checks, two built-in categories are
+<p>Beyond the always-on framework checks, three built-in categories are
 <strong>presence-gated on their config blocks</strong>: they contribute rows only when the
 corresponding service is configured, so a minimal build shows no empty tiles.</p>
-<ul class="simple">
+<ul>
 <li><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code> — appears when a top-level <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block is configured. Probes
 the ARIEL interface’s status endpoint and reports: reachability, logbook
 entry count, last ingestion time, and the registered search and enhancement
@@ -712,9 +713,42 @@ on a stopped stack reports the interface as unreachable (a <code class="docutils
 configured. Reports the active pipeline mode, verifies the pipeline’s
 channel-database file exists (a configured-but-missing database is an
 <code class="docutils literal notranslate"><span class="pre">error</span></code>), shows the database’s age, and — for the <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>
-pipeline — the channel count from the materialized DuckDB.</p></li>
+pipeline — the channel count from the materialized DuckDB.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">graph</span></code> pipeline reads different rows, because it answers from the
+graph store rather than from a file on disk. The pipeline row reports it as
+store-backed, and in place of the database rows the category reports the
+store’s <strong>reachability</strong> and its <strong>resource count</strong> — the same two readings
+the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> category takes, so a stopped store warns rather than
+failing the suite. A graph-mode build configures no <code class="docutils literal notranslate"><span class="pre">database.path</span></code> and is
+never warned about one missing: there is no channel-database file in that
+paradigm to look for (see <a class="reference internal" href="use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>). The <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> tile is
+always alongside — graph mode needs that block — so these rows restate the
+same store readings in the channel finder’s own terms: whether <em>channel
+search</em> has anything to answer from.</p>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">graphdb</span></code> — appears when a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is configured (see
+<a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a>). Two rows: <strong>connection</strong>, which dials the store over
+bolt and reports the round-trip latency, and <strong>resources</strong>, the number of
+<code class="docutils literal notranslate"><span class="pre">(:Resource)</span></code> nodes in the graph — the nodes the TTL corpus imports.
+Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
+corpus was ever loaded, so counting <code class="docutils literal notranslate"><span class="pre">(:Resource)</span></code> specifically is what keeps
+an empty graph from reading as a populated one; a count of zero warns and
+names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> as the remedy. The agent’s own graph
+tools report the same degraded states from the inside — see
+<a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p></li>
 </ul>
-<p>Both are ordinary categories: valid under <code class="docutils literal notranslate"><span class="pre">--category</span></code>, tunable via a
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> category dials <strong>bolt</strong> — <code class="docutils literal notranslate"><span class="pre">services.graphdb.port_host</span></code>, or
+an explicit <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code> — never the <code class="docutils literal notranslate"><span class="pre">http_port_host</span></code> the Neo4j
+Browser and the container healthcheck use. That is the address its remedies
+name, so a probe that fails is pointing at the port the seeder also uses.</p>
+<p>Every row it produces is <code class="docutils literal notranslate"><span class="pre">ok</span></code> or <code class="docutils literal notranslate"><span class="pre">warning</span></code>, never <code class="docutils literal notranslate"><span class="pre">error</span></code>. A store that
+is stopped, unreachable, rejecting its credential, or simply unseeded is a
+service that is not running rather than a broken build, and the category says
+so in one line instead of failing the suite.</p>
+</div>
+<p>All three are ordinary categories: valid under <code class="docutils literal notranslate"><span class="pre">--category</span></code>, tunable via a
 metadata-only override, and rendered as dashboard tiles with no extra
 configuration.</p>
 </section>

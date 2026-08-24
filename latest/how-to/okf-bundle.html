@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -411,6 +411,7 @@
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-graph.html">Search the Facility Graph</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -685,17 +686,20 @@ session, or directly via <code class="docutils literal notranslate"><span class=
 <input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-2">
 osprey knowledge CLI</label><div class="sd-tab-content docutils">
-<p id="knowledge-cli">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> command group provides three operations for
-managing an OKF bundle from the terminal.</p>
+<p id="knowledge-cli">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> command group provides five operations from the
+terminal — three that manage an OKF bundle, one that loads the deployed
+graph store, and one that generates the corpus it loads.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>--help
 <span class="go">Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...</span>
 
 <span class="go">  Manage OKF facility knowledge bundles.</span>
 
 <span class="go">Commands:</span>
+<span class="go">  build-ttl      Derive a NARAD-convention TTL corpus from the channel...</span>
 <span class="go">  regen-index    Regenerate index.md files throughout an OKF bundle.</span>
-<span class="go">  validate       Validate all OKF documents in a bundle.</span>
 <span class="go">  seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.</span>
+<span class="go">  seed-graph     Load a NARAD/als-ontology TTL into the deployed graph...</span>
+<span class="go">  validate       Validate all OKF documents in a bundle.</span>
 </pre></div>
 </div>
 <p><strong>regen-index</strong> — regenerates <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files throughout the bundle. Run
@@ -749,6 +753,40 @@ auto-generated content.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--force</span></code> overwrites existing stubs.  Omit it to protect hand-edited
 documents.</p>
 </div>
+<p><strong>seed-graph</strong> — loads the same kind of TTL file into the deployed graph
+store.  The two seeding verbs are worth telling apart: <strong>seed-graph seeds
+the deployed graph store; seed-from-ttl builds an OKF document bundle.</strong>
+One corpus, two destinations.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w">                 </span><span class="c1"># uses services.graphdb.ttl_path</span>
+<span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w"> </span>devices.ttl<span class="w">     </span><span class="c1"># or name the file</span>
+</pre></div>
+</div>
+<p>It is safe to re-run.  A store that already holds this exact file reports
+<code class="docutils literal notranslate"><span class="pre">unchanged</span></code> and is left alone; a store holding a different corpus, or
+data OSPREY did not seed, is refused rather than overwritten, and
+<code class="docutils literal notranslate"><span class="pre">--force</span></code> wipes it and imports from scratch.  The seed marker is written
+only after the import succeeds, so a run that dies partway is caught as
+<code class="docutils literal notranslate"><span class="pre">unmanaged-partial</span></code> on the next one instead of passing for a good seed.</p>
+<p>The deploy already runs this for you on a first bring-up (see
+<a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a>); you need the verb when that step warned, or when
+the corpus changed.  For the full list of outcomes and flags, see
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span> <span class="pre">--help</span></code>.</p>
+<p><strong>build-ttl</strong> — generates the corpus <code class="docutils literal notranslate"><span class="pre">seed-graph</span></code> loads, deriving it
+from the project’s own channel databases so the graph and the channel
+finder describe the same machine:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>build-ttl<span class="w"> </span>data/demo_machine.ttl<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--channel-db<span class="w"> </span>data/channel_databases/hierarchical.json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--descriptions<span class="w"> </span>&lt;your<span class="w"> </span><span class="k">in</span>-context<span class="w"> </span>database&gt;
+</pre></div>
+</div>
+<p>Two databases describe the machine — the hierarchical one for its
+structure, the in-context one for the sentence on each channel — and a
+rendered project names both, because it ships only the paradigm it runs.
+The limits file comes from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and the ontology table from
+OSPREY’s shipped default, and every run reports which source decided each
+signal’s read/write direction. See
+<a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> for the inputs, the shipped corpora, and what
+the agent then does with the graph.</p>
 </div>
 </div>
 </section>
