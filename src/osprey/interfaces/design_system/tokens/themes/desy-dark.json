@@ -142,6 +142,8 @@
     "plot-bg": { "$value": "{color.petrol.950}", "$type": "color" },
     "grid": { "$value": "rgba(149, 173, 187, 0.1)", "$type": "color", "$description": "text.secondary base (#95adbb) at 10% alpha." },
     "axis-text": { "$value": "{color.petrol.400}", "$type": "color" },
+    "pane-bg": { "$value": "{color.petrol.900}", "$type": "color", "$description": "3D scene axis panes (Plotly scene.*axis.backgroundcolor): bg.secondary, one step off the plot canvas." },
+    "axis-line": { "$value": "{color.petrol.750}", "$type": "color", "$description": "Axis and legend lines (Plotly *.linecolor, legend.bordercolor): border.default." },
     "series": {
       "1": { "$value": "{color.cyan.300}", "$type": "color" },
       "2": { "$value": "{color.orange.300}", "$type": "color" },

@@ -152,6 +152,8 @@
   --chart-plot-bg: #111217;
   --chart-grid: rgba(142, 142, 154, 0.1);
   --chart-axis-text: #8e8e9a;
+  --chart-pane-bg: #141619;
+  --chart-axis-line: #2c3235;
   --chart-series-1: #4fd1c5;
   --chart-series-2: #f59e0b;
   --chart-series-3: #22c55e;
@@ -298,6 +300,8 @@
   --chart-plot-bg: #091720;
   --chart-grid: rgba(149, 173, 187, 0.1);
   --chart-axis-text: #95adbb;
+  --chart-pane-bg: #0c1d27;
+  --chart-axis-line: #1e3848;
   --chart-series-1: #009fdf;
   --chart-series-2: #f18f1f;
   --chart-series-3: #00a54b;
@@ -444,6 +448,8 @@
   --chart-plot-bg: #f3f8fc;
   --chart-grid: rgba(73, 103, 121, 0.1);
   --chart-axis-text: #496779;
+  --chart-pane-bg: #deeaf2;
+  --chart-axis-line: #b3c8d6;
   --chart-series-1: #007bc8;
   --chart-series-2: #eb6e0f;
   --chart-series-3: #00a54b;
@@ -590,6 +596,8 @@
   --chart-plot-bg: #000000;
   --chart-grid: rgba(204, 204, 204, 0.1);
   --chart-axis-text: #cccccc;
+  --chart-pane-bg: #1a1a1a;
+  --chart-axis-line: rgba(255, 255, 255, 0.24);
   --chart-series-1: #ffffff;
   --chart-series-2: #e6e6e6;
   --chart-series-3: #cccccc;
@@ -736,6 +744,8 @@
   --chart-plot-bg: #ffffff;
   --chart-grid: rgba(51, 51, 51, 0.1);
   --chart-axis-text: #333333;
+  --chart-pane-bg: #e6e6e6;
+  --chart-axis-line: #b3b3b3;
   --chart-series-1: #000000;
   --chart-series-2: #1a1a1a;
   --chart-series-3: #333333;
@@ -882,6 +892,8 @@
   --chart-plot-bg: #f4f5f5;
   --chart-grid: rgba(110, 110, 119, 0.1);
   --chart-axis-text: #6e6e77;
+  --chart-pane-bg: #ecedef;
+  --chart-axis-line: #d8d9da;
   --chart-series-1: #0a8f8c;
   --chart-series-2: #d97706;
   --chart-series-3: #16a34a;
@@ -1028,6 +1040,8 @@
   --chart-plot-bg: #0a0f1a;
   --chart-grid: rgba(139, 154, 181, 0.1);
   --chart-axis-text: #8b9ab5;
+  --chart-pane-bg: #111a2e;
+  --chart-axis-line: rgba(148, 163, 184, 0.12);
   --chart-series-1: #4fd1c5;
   --chart-series-2: #f59e0b;
   --chart-series-3: #22c55e;
@@ -1174,6 +1188,8 @@
   --chart-plot-bg: #f7f9fc;
   --chart-grid: rgba(55, 65, 85, 0.1);
   --chart-axis-text: #374155;
+  --chart-pane-bg: #eef2f7;
+  --chart-axis-line: #d1d8e3;
   --chart-series-1: #0a8f8c;
   --chart-series-2: #d97706;
   --chart-series-3: #16a34a;
