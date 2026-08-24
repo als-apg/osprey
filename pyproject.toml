@@ -72,7 +72,7 @@ dependencies = [
     "claude-agent-sdk==0.2.136",
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
-    "pandas>=2.2.3",
+    "pandas>=3.0.5",
     "numpy>=2.2.6",  # Required by pandas
     # archiver_read imports dateutil.parser directly to accept ISO/human start
     # and end times. It resolves today only because pandas happens to depend on
