@@ -146,7 +146,7 @@ dependencies = [
     # Neo4j driver for the graph store (osprey.services.graphdb). Pure Python,
     # no build step, so it carries none of the platform-wheel concerns that
     # justify keeping other clients optional. Core rather than an extra.
-    "neo4j>=5.20",
+    "neo4j>=6.2.0",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
