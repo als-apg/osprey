@@ -118,6 +118,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   pointer — the artifact id, a short headline and the identifiers asked for —
   instead of repeating the artifact, and the orchestrator focuses that artifact
   in the gallery rather than re-typing its tables into the chat.
+- Readonly Python runs can import `at` (accelerator-toolbox) again: h5py's
+  import reads the processor name, which CPython resolves by running `uname -p`,
+  and the readonly guard refused that as a subprocess call — so the pyAT
+  specialist could not load its own simulation library. The guard now resolves
+  the value before it locks subprocess down; nothing user code can call was
+  loosened.
 - Container deployments now get the graph schema snapshot baked into the agent
   prompts. `osprey up` patched only the host renders, so every container shipped
   the "no snapshot yet" placeholder and each delegation paid a schema prelude.
