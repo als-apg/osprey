@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Architecture Overview &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+    <title>Architecture Overview &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -66,7 +66,7 @@ const initStyles = () => {
 
 pre.mermaid > svg {
     /* Same as .mermaid-container > pre > svg */
-    height: auto;
+    height: 500px;
     width: 100%;
     max-width: 100% !important;
 }`;
@@ -85,7 +85,7 @@ pre.mermaid > svg {
 }
 
 .mermaid-container > pre > svg {
-    height: auto;
+    height: 500px;
     width: 100%;
     max-width: 100% !important;
 }
@@ -488,7 +488,7 @@ window.addEventListener("load", load);</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -875,12 +875,8 @@ the tool interface, and <strong>pluggable connectors</strong> for protocol-agnos
 </figure>
 <section id="safety-chain">
 <h2>Safety Chain<a class="headerlink" href="#safety-chain" title="Link to this heading">#</a></h2>
-<p>Every tool call the agent makes through the harness passes through a configurable chain of
-<strong>PreToolUse hooks</strong> before reaching the MCP server. OSPREY’s MCP servers are stdio child
-processes the harness starts — they expose no network port of their own — so every tool call
-that reaches one has already passed the hook chain. That guarantee belongs to the harness: a
-process on the host that runs the server command itself is outside it, which is why host access
-is part of the trust boundary. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
+<p>Every tool invocation passes through a configurable chain of <strong>PreToolUse hooks</strong> before reaching
+the MCP server. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
 <pre  class="mermaid">
         flowchart LR
     CC[&quot;Osprey agent&lt;br/&gt;calls channel_write&quot;] --&gt; WC[&quot;writes_check&lt;br/&gt;&lt;i&gt;kill switch&lt;/i&gt;&quot;]

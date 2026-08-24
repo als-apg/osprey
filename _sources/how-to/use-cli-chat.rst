@@ -2,26 +2,24 @@ Use the CLI Chat Interface
 ==========================
 
 The CLI chat interface launches the Osprey agent in your native terminal while
-running OSPREY's companion services in the background. This runs the agent
-in the full terminal TUI — keyboard shortcuts, slash commands, native
+running OSPREY's companion services in the background. This gives you the full
+agent TUI experience — keyboard shortcuts, slash commands, native
 scrollback — with access to companion services (artifact gallery, session
 analytics, etc.) via their URLs in a browser.
 
 Launching
 ---------
 
-From anywhere inside a deployment repository:
+From any OSPREY project directory:
 
 .. code-block:: bash
 
-   osprey chat
+   osprey claude chat
 
 This command:
 
-1. Finds the deployment by walking up to the nearest ``profile.yml``, and starts
-   the agent in that repository's ``build/`` — nothing is re-rendered, since
-   ``osprey build`` owns that. A profile that has changed since the last build
-   is reported as a warning and the session starts anyway.
+1. Regenerates Osprey agent integration files (``.mcp.json``, ``CLAUDE.md``,
+   ``.claude/settings.json``) from ``config.yml``.
 2. Resolves the configured LLM provider and injects authentication.
 3. Starts the translation proxy if the provider needs it (see
    :doc:`configure-providers`).
@@ -33,30 +31,24 @@ Options
 
 .. code-block:: bash
 
-   osprey chat --repo /path/to/deployment    # explicit deployment repo
-   osprey chat --resume SESSION_ID           # resume a previous session
-   osprey chat --print                       # non-interactive (pipe-friendly)
-   osprey chat --effort high                 # set effort level
-   osprey chat --no-pin                      # ignore the pinned CLI version
+   osprey claude chat --project /path/to/project   # explicit project dir
+   osprey claude chat --resume SESSION_ID           # resume a previous session
+   osprey claude chat --print                       # non-interactive (pipe-friendly)
+   osprey claude chat --effort high                 # set effort level
 
-When ``--repo`` is omitted, the deployment enclosing the current directory is used.
-
-If ``claude_code.cli_version`` is set in ``config.yml``, chat launches that
-exact agent CLI version instead of whatever is installed globally, so every
-launch of the project behaves the same. ``--no-pin`` opts out and uses the
-global installation.
+When ``--project`` is omitted, the current directory is used.
 
 Companion Services
 ------------------
 
-On startup, ``osprey chat`` launches the same companion servers as
+On startup, ``osprey claude chat`` launches the same companion servers as
 ``osprey web``. Each server's URL is printed before the Osprey agent starts:
 
 .. code-block:: text
 
-   Companion servers
-     Artifact gallery   http://127.0.0.1:8086
-     ARIEL server       http://127.0.0.1:8085
+   Companion servers:
+     * Artifact gallery  http://127.0.0.1:8086
+     * ARIEL server      http://127.0.0.1:8085
 
 Open any of these URLs in a browser to access the service while the Osprey agent
 runs in your terminal. Which servers start depends on your ``config.yml`` —
@@ -72,7 +64,7 @@ When to Use CLI vs. Web Terminal
    :header-rows: 1
    :widths: 50 50
 
-   * - CLI chat (``osprey chat``)
+   * - CLI chat (``osprey claude chat``)
      - Web terminal (``osprey web``)
    * - Native terminal experience
      - Browser-based split-pane UI

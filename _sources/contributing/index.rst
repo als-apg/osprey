@@ -60,7 +60,6 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 - Branch your work off ``main``, and open your PR against ``main``.
 - ``main`` is always the integration target. CI gates every PR; protected status checks must pass before merge.
 - Releases are cut by maintainers tagging a commit on ``main``; the PyPI publish workflow runs on ``v*.*.*`` tags.
-- The ``osprey-connectors`` workspace package releases independently via ``osprey-connectors-v*`` tags. Because the framework wheel depends on it from PyPI, a connectors version satisfying the framework's requirement must be published **before** the framework tag that needs it.
 - Hotfixes follow the same path: branch from the tag (or ``main``), PR back, tag again as ``vYYYY.M.P+1``. No special hotfix branches.
 
 Branch Naming
@@ -138,40 +137,6 @@ enforces:
 
 If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.
-
-Dependency Update Pull Requests
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Dependabot opens pull requests for dependency bumps, subject to a **seven-day
-cooldown**: a release is not proposed until it has been public for a week, so
-that a hijacked or malicious version has time to be found and yanked before it
-reaches this repository. Security updates are exempt, by design — a fix for a
-known vulnerability should not wait.
-
-These pull requests run with a deliberate gap in coverage. GitHub treats a
-Dependabot-triggered run as if it came from a fork: it receives only the
-Dependabot secret store, never the repository's Actions secrets. The lanes that
-need a live model endpoint therefore **skip** rather than run — the agentic
-flows, the E2E suite, the dispatch stacks, and the two chat bridges. The run
-summary of the ``All CI Checks Passed`` job names them explicitly, so a green
-check on a dependency PR is never mistaken for full coverage.
-
-To close that gap before merging, review the diff and then revalidate the branch
-yourself. Because *you* trigger it, that run gets the normal secrets:
-
-.. code-block:: bash
-
-   gh workflow run ci.yml --ref <dependabot-branch> -f revalidate_secret_lanes=true
-
-Find the branch name with ``gh pr view <number> --json headRefName``. Watch the
-resulting run to completion before merging.
-
-The reason this is a manual step rather than an automatic one is worth stating:
-mirroring the model API key into the Dependabot secret store would make these
-lanes pass unattended, but it would also hand a live credential to a
-newly-published third-party package at install time — the precise supply-chain
-exposure the cooldown exists to reduce. The human read of the diff is the point,
-not an inconvenience around it.
 
 Osprey Agent Workflow Skill
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -267,9 +232,6 @@ All new functionality must include tests.
    * - **E2E**
      - Critical user flows, deployment validation
      - Slow, requires API keys ($0.10-$0.25/run)
-   * - **Browser**
-     - Real-browser page loads, theming, JS module loading (Playwright + Chromium)
-     - Slow; needs Chromium (auto-installed in CI, skips locally if absent)
 
 **Running tests:**
 
@@ -287,9 +249,6 @@ All new functionality must include tests.
    # E2E tests (requires API keys) -- MUST use path, NOT marker
    uv run pytest tests/e2e/ -v
 
-   # Browser smokes (Playwright + Chromium; skips if the browser is absent)
-   uv run pytest tests/interfaces/ -m browser -v
-
    # With coverage
    uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
 
@@ -297,132 +256,6 @@ All new functionality must include tests.
 
    E2E tests **must** be run with ``pytest tests/e2e/`` not ``pytest -m e2e``.
    The marker-based approach causes registry state leaks and service conflicts.
-
-Front-End (JavaScript) Testing
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Front-end code (``static/js/`` under each ``src/osprey/interfaces/<name>/``) gets
-its own dev/CI-only Node toolchain -- ``tsc --noEmit`` for types and
-`Vitest <https://vitest.dev/>`_ for unit tests. Neither is needed to install or
-run Osprey; both run only in dev and CI, the front-end analogues of ``mypy``
-and ``pytest``.
-
-.. code-block:: bash
-
-   # Type-check every // @ts-check'd file (opt-in per file -- see below)
-   npm run typecheck
-
-   # All Vitest units (happy-dom, no real browser)
-   npm run test:js
-
-   # A single Vitest file
-   npx vitest run tests/interfaces/artifacts/preview.test.mjs
-
-A front-end change is covered by up to five rails, narrowest/fastest to
-broadest/slowest:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 18 47 35
-
-   * - Rail
-     - Covers
-     - Run
-   * - **Vitest unit**
-     - Pure logic in one module: mocked ``fetch``, no real browser (happy-dom)
-     - ``npx vitest run tests/interfaces/<iface>/<module>.test.mjs``
-   * - **Loads-clean**
-     - Page boots in a real browser with no uncaught JS exception and no
-       failed same-origin script/stylesheet fetch
-     - ``uv run pytest tests/interfaces/test_load_smokes.py -m browser -k <iface> -v``
-   * - **Contract**
-     - Shell<->panel chrome contract: ``?embedded=true`` hides branding, the
-       theme switcher shows/hides correctly, a reload after a theme toggle
-       carries no stale ``?theme=``
-     - ``uv run pytest tests/interfaces/web_terminal/test_contract_params.py -m browser -v``
-   * - **Visual**
-     - Pixel-level screenshot diff per interface x theme against a committed
-       baseline PNG
-     - ``uv run pytest tests/interfaces/design_system/test_visual.py -k <iface> -v``
-   * - **Interaction pin**
-     - A real user flow through a real browser and a real backend, proving a
-       multi-module wiring didn't drop a call across a split -- the one net a
-       per-module Vitest suite (which mocks its neighbors) cannot cast
-     - ``uv run pytest tests/interfaces/<iface>/test_<flow>.py -m browser -v``
-
-.. warning::
-
-   ``test_visual.py`` is marked ``slow``, **not** ``browser`` -- an
-   ``-m browser`` selector silently matches zero of its cases. Select it with
-   ``-k <target-name>`` (or run the file directly) instead.
-
-**What a new panel or extracted module must ship with:**
-
-- ``// @ts-check`` as line 1, plus full JSDoc (``@param``/``@returns``).
-  ``tsconfig.json`` sets ``checkJs: false`` repo-wide, so a file is
-  type-checked only once it opts in -- a module missing the pragma makes
-  ``npm run typecheck`` *pass* while checking nothing inside it.
-- A Vitest file, one-to-one by name (``foo.js`` -> ``foo.test.mjs``), covering
-  the module's pure logic and DOM-visible behavior in isolation.
-- If the module is wired into a page: a ``test_load_smokes.py`` entry for
-  that page, so a broken import or a typo'd export name surfaces as a real
-  thrown exception instead of a silent no-op.
-- If it's a **panel** (embeddable in the Web Terminal hub): support both
-  standalone and embedded modes -- ``applyEmbedded()`` on load, an
-  ``<osprey-theme-switcher>`` that hides itself when embedded (the hub owns
-  theme chrome there), branding hidden when embedded -- plus a
-  ``test_contract_params.py`` case, which is the up-to-date spec for the
-  dual-mode checklist and well-known parameters. See
-  :doc:`/how-to/web-terminal/panels` for how panels embed in the hub.
-- If the change is visible on screen: a ``test_visual.py`` ``TARGETS`` entry
-  and a committed baseline PNG (regenerate with ``--regen-baselines`` on
-  Linux/CI -- a baseline captured on macOS will mismatch there).
-- If the change moves real behavior across a module boundary (a callback that
-  used to call a sibling directly now goes through an injected factory, a
-  delegator, or a re-exported method): an interaction pin that drives the
-  whole chain through a real browser, not just each module's own
-  mocked-neighbor Vitest suite.
-
-**JSDoc / cast conventions** (``src/osprey/interfaces/vendor-globals.d.ts`` and
-the exemplars below have worked examples):
-
-- Vendored classic-script globals that never get real npm types (Plotly,
-  ``marked``, ``hljs``, KaTeX) get **one** shared ambient-declarations file
-  (``vendor-globals.d.ts``, ``declare const X: any;``) rather than a
-  per-call-site cast.
-- A ``document.getElementById``/``querySelector`` result that needs a
-  property the generic ``Element``/``HTMLElement`` type doesn't have
-  (``.value``, ``.checked``, ``.dataset``, ``.disabled``) gets an inline
-  type-assertion cast to the concrete element type at the call site --
-  ``/** @type {HTMLInputElement} */ (document.getElementById("foo"))``.
-- For ``querySelectorAll(...).forEach(callback)`` where the callback needs a
-  narrower element type than ``Element``: cast the **collection**, not the
-  per-item callback parameter. TypeScript's contravariant
-  function-parameter checking rejects a callback typed to accept only
-  ``HTMLInputElement`` where one accepting any ``Element`` is expected, even
-  though ``HTMLInputElement`` narrows ``Element``.
-- ``catch (e)`` blocks that read the error message use
-  ``e instanceof Error ? e.message : String(e)`` (``e`` is ``unknown`` under
-  ``strict``); a ``catch`` that only logs the raw value needs no cast.
-- Shared design-system helpers are imported by the absolute
-  ``/design-system/js/*`` specifier, mapped in both ``tsconfig.json`` and
-  ``vitest.config.js``'s ``resolve.alias`` -- the same import path resolves
-  under the type-checker, Vitest, and the real browser.
-
-**Exemplars** (concrete, complete, worth reading before writing your own):
-
-- Vitest unit, factory-with-injected-callbacks pattern:
-  ``tests/interfaces/artifacts/preview.test.mjs``,
-  ``tests/interfaces/lattice_dashboard/render.test.mjs``,
-  ``tests/interfaces/web_terminal/scaffold-detail.test.mjs``.
-- Interaction pin, proving a multi-module split still wires up end to end:
-  ``tests/interfaces/artifacts/test_gallery_interactions.py``,
-  ``tests/interfaces/web_terminal/test_scaffold_detail.py``,
-  ``tests/interfaces/lattice_dashboard/test_settings_form.py``,
-  ``tests/interfaces/web_terminal/test_session_page.py``.
-- Contract + dual-mode chrome: ``tests/interfaces/web_terminal/test_contract_params.py``.
-- Visual baselines: ``tests/interfaces/design_system/test_visual.py``.
-- Loads-clean: ``tests/interfaces/test_load_smokes.py``.
 
 Docstrings
 ^^^^^^^^^^
@@ -444,100 +277,6 @@ All public functions, classes, and methods need Google-style docstrings:
        Raises:
            ValueError: When parameter is invalid.
        """
-
-----
-
-Refreshing documentation screenshots
-------------------------------------
-
-The committed doc images under ``docs/source/_static/screenshots/`` are
-regenerated from a declarative registry, not captured by hand. Each image is one
-``DocShot`` recipe in ``docs/screenshots/recipes.py`` -- the authoritative list
-of every doc screenshot and how it is produced. List them with:
-
-.. code-block:: console
-
-   $ python -m docs.screenshots list
-
-**The default is container-free.** ``make screenshots`` (or ``python -m
-docs.screenshots``) captures only the ``standalone_interface`` recipes -- each
-boots a single interface ``create_app()`` on a throwaway port, so it needs
-neither a container runtime nor seeded data. Regenerate one recipe with
-``make screenshots-<name>``.
-
-**Two opt-in environments** cover the images that need real data:
-
-- ``SCREENSHOTOPTS=--stack`` -- the ARIEL search/browse/create/status views.
-  Builds the ``control-assistant`` tutorial project, brings up Postgres
-  (``osprey up -d``), and seeds the logbook with
-  ``osprey sim apply nominal --yes --now <anchor>``. Needs a container runtime
-  and a free host port 5432. The ``--now`` anchor freezes the seeded dates, so
-  repeat captures are byte-stable.
-- ``SCREENSHOTOPTS=--agentic`` -- the Web Terminal hero. Drives a live agent
-  session to produce a real beam-current plot, so it needs a live Claude
-  session on your subscription budget. Success is a structural check (non-blank
-  image, correct viewport, plot present), not a byte comparison.
-
-.. code-block:: console
-
-   $ make screenshots                          # default: standalone only
-   $ make screenshots SCREENSHOTOPTS=--stack    # + ARIEL views (containers)
-   $ python -m docs.screenshots --agentic --only web_terminal_hero
-
-**Provenance is automatic.** Every capture stamps ``manifest.json`` with the
-OSPREY version and UTC timestamp, and each figure's *"Captured with OSPREY
-vX.Y.Z"* caption is generated from it -- never hand-edit the version in a
-caption.
-
-This framework is **capture-only**: it is never a CI gate (the stack needs
-Postgres; the hero needs a live agent). It is distinct from the CI visual-drift
-guard -- pixel diffs of each rendered interface against a committed baseline
-live in the front-end **Visual** tests above (regenerated with
-``--regen-baselines``), and continue to run in CI unchanged.
-
-----
-
-Reviewing a web-interface redesign (contact sheet)
---------------------------------------------------
-
-When a web interface is being restyled, the **contact-sheet renderer** boots the
-*real* interface in every theme/mode variant and folds the shots into one
-self-contained page, so a whole redesign can be reviewed as a single artifact --
-no live agent, provider, hardware, or network. It lives beside the screenshot
-framework in ``docs/screenshots/`` but is a review tool, not a committed doc
-image: nothing it produces is checked in or CI-gated.
-
-.. code-block:: console
-
-   $ uv run python -m docs.screenshots.contact_sheet --out /tmp/sheet
-
-That captures the Web Terminal's four shells -- the **dark** and **light** themes
-crossed with the **expert** and **simple** UI modes -- writes one PNG per cell
-into the output directory, composes them into ``contact-sheet.html`` there, and
-prints its path. Open that one file to review every variant side by side.
-
-**Comparing accent candidates.** Add ``--accents`` to render each of the four
-variants twice, once under each accent candidate (blue vs teal), so a pending
-accent decision can be made from real output rather than a mockup:
-
-.. code-block:: console
-
-   $ uv run python -m docs.screenshots.contact_sheet --out /tmp/sheet --accents
-
-To keep every cell looking like a working session with no live backend, the
-renderer points the workspace panel at a pre-seeded demo store and replays a
-canned terminal transcript. That transcript is width-guarded against the narrow
-terminal card -- the run fails fast if a line would overflow, before any browser
-launches. Where no browser runtime is available the run skips with a one-line
-notice instead of erroring.
-
-**Extending it to another target.** The variant grid is the ``VARIANTS`` list of
-``(theme, mode)`` tuples near the top of ``contact_sheet.py``, and the
-completeness invariant ``_FULL_MATRIX`` mirrors it -- add a cell to *both* to
-capture a new theme/mode combination. To cover a new panel, seed its backing
-store the way ``seed_demo_workspace`` seeds the workspace artifacts and wire it
-into ``hermetic_hub`` so the panel renders populated; the capture loop and the
-composed sheet then pick it up unchanged.
 
 ----
 

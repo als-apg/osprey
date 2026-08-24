@@ -9,7 +9,7 @@ Welcome to Osprey Framework! This comprehensive guide will take you from zero to
 By following this comprehensive learning path, you'll have:
 
 * A fully functional development environment
-* Your first working agent (hello world)
+* Your first working agent (weather assistant)
 * Production-grade control system patterns (control assistant)
 * Framework mastery through essential development patterns
 * Complete API reference for daily development

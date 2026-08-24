@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>MCP Servers &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+    <title>MCP Servers &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -448,14 +448,7 @@ safety-limits enforcement on all write operations.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">channel_read</span></code> – Read current values from one or more control system channels.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code> – Write values to one or more control system channels (requires human approval).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> – Retrieve historical archived data for one or more channels over a
-time range. <code class="docutils literal notranslate"><span class="pre">processing</span></code> selects the per-bin aggregation (<code class="docutils literal notranslate"><span class="pre">raw</span></code>, <code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>,
-<code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">median</span></code>, <code class="docutils literal notranslate"><span class="pre">std</span></code>, <code class="docutils literal notranslate"><span class="pre">count</span></code>) and <code class="docutils literal notranslate"><span class="pre">bin_size</span></code> sets the bin width in seconds;
-<code class="docutils literal notranslate"><span class="pre">bin_size=0</span></code> returns full resolution and is valid only with <code class="docutils literal notranslate"><span class="pre">processing=&quot;raw&quot;</span></code>.
-When <code class="docutils literal notranslate"><span class="pre">bin_size</span></code> is omitted the bin is derived from the time span so a continuously
-archived channel returns about <code class="docutils literal notranslate"><span class="pre">archiver.auto_bin_points</span></code> (default 10 000) points —
-1 s for anything under ~2.8 hours, ~53 minutes for a year — and the summary reports the
-bin that was used and whether it was requested or chosen automatically.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> – Retrieve historical archived data for one or more channels over a time range.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">channel_limits</span></code> – Query the channel safety limits database (lookup, pattern match, summary).</p></li>
 </ul>
 </section>
@@ -486,7 +479,7 @@ channel database to an inner LLM as context. Designed for databases small
 enough to fit in a single context window.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">ask_channels</span></code> – Answer a natural-language question about channels; an inner LLM call sees the full channel database as context and returns the answer text together with tokenizer-estimated input/output token counts (used by the benchmark harness for cost accounting).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query_channels</span></code> – Answer a natural-language question about channels; an inner LLM call sees the full channel database as context and returns the answer text together with tokenizer-estimated input/output token counts (used by the benchmark harness for cost accounting).</p></li>
 </ul>
 </section>
 <section id="channel-finder-middle-layer">
@@ -504,7 +497,7 @@ lookups and validation.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code> – Inspect the field structure of a device family.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">validate</span></code> – Validate that channel names exist in the database.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">statistics</span></code> – Get database statistics (total channels, systems, families).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">run_sql</span></code> – Run a read-only SQL query directly against the channel finder DuckDB database (<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">systems</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> tables).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query_channels</span></code> – Run a read-only SQL query directly against the channel finder DuckDB database (<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">systems</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> tables).</p></li>
 </ul>
 </section>
 </section>
@@ -518,13 +511,10 @@ documents, and session state. This is the largest server, grouping
 tools into several functional areas.</p>
 <p><strong>Artifacts:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_register</span></code> – Register a file on disk, or literal text, as a gallery artifact.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_save</span></code> – Save a file or generated content as a gallery artifact.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_get</span></code> – Look up an artifact by ID to get its file path and metadata.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_list</span></code> – List stored artifacts, optionally narrowed by category, tool or agent.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_read</span></code> – Read a stored artifact’s full content (small artifacts only).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> – Delete an artifact from the gallery.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code> – Delete a whole scope of artifacts (one category, or everything)
-in a single call. The <code class="docutils literal notranslate"><span class="pre">scope</span></code> argument is required.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code> – Delete all artifacts from the gallery in a single call.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_export</span></code> – Export an artifact to a different format (e.g., PNG, SVG, PDF).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_focus</span></code> – Select an artifact in the gallery so the user sees it.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_pin</span></code> – Pin or unpin an artifact for quick-access filtering.</p></li>
@@ -536,12 +526,12 @@ in a single call. The <code class="docutils literal notranslate"><span class="pr
 <li><p><code class="docutils literal notranslate"><span class="pre">create_dashboard</span></code> – Execute Panel/Bokeh code to produce a live dashboard app.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">create_document</span></code> – Compile LaTeX source to PDF (Beamer slides or article reports).</p></li>
 </ul>
-<p><strong>Stored data:</strong></p>
-<p>Datasets are not a separate namespace – an archiver read or a run result is an
-artifact with a <code class="docutils literal notranslate"><span class="pre">category</span></code>, so the artifact tools above list, read and delete
-them (<code class="docutils literal notranslate"><span class="pre">artifact_list(category=&quot;archiver_data&quot;)</span></code>).</p>
+<p><strong>Data Context:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">archiver_downsample</span></code> – Downsample an archiver artifact to a target point count.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">data_list</span></code> – List all data entries in the workspace with optional filters.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">data_read</span></code> – Read the full data content of a data entry.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">data_delete</span></code> – Delete a data entry from the workspace.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">archiver_downsample</span></code> – Downsample an archiver data entry to a target point count.</p></li>
 </ul>
 <p><strong>Lattice Dashboard:</strong></p>
 <ul class="simple">
@@ -559,10 +549,7 @@ them (<code class="docutils literal notranslate"><span class="pre">artifact_list
 <p><strong>Panels:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and custom).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> – Put a panel on screen in front of the operator.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">close_panel</span></code> – Take a panel’s tile off screen, leaving it on the rail.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> – Make a panel launchable from the rail in one click.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> – Take a panel off the rail (and off screen with it).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">switch_panel</span></code> – Switch the Web Terminal to show a specific panel tab.</p></li>
 </ul>
 <p><strong>Screen Capture:</strong></p>
 <ul class="simple">

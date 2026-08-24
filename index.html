@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Osprey Framework Documentation &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+    <title>Osprey Framework Documentation &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="_static/documentation_options.js?v=e7cf6fe6"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -64,7 +64,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -393,9 +393,18 @@
                   
   <section id="osprey-framework-documentation">
 <h1>Osprey Framework Documentation<a class="headerlink" href="#osprey-framework-documentation" title="Link to this heading">#</a></h1>
-<p><strong>An agentic interface to scientific control systems.</strong></p>
+<p><strong>An agentic interface for safety-critical control systems.</strong></p>
+<div class="admonition-new-architecture-april-2026 admonition">
+<p class="admonition-title">New architecture (April 2026)</p>
+<p>Osprey has transitioned from its legacy LangGraph orchestrator to a
+coding-agent harness with MCP servers and hook-based
+approval. If you’re upgrading from a previous version, see
+<a class="reference internal" href="getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>. The last LangGraph-era release is archived at
+<a class="reference external" href="https://als-apg.github.io/osprey/v0.11.5/">v0.11.5 docs</a> (also reachable
+via the version picker in the top-right).</p>
+</div>
 <p>The <strong>Osprey Framework</strong> is an agentic interface and harness for scientific facilities managing complex technical infrastructure — particle accelerators, fusion experiments, beamlines, and large telescopes. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.</p>
-<p>Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, <a class="reference internal" href="how-to/add-connector.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS and Mock ship in-tree; LabVIEW, Tango, and other stacks are supported via custom connectors), <a class="reference internal" href="how-to/ariel/index.html"><span class="doc">logbook search</span></a> across facility electronic logbooks, and mandatory human oversight for safety-critical operations.</p>
+<p>Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, <a class="reference internal" href="how-to/add-connector.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS and Mock ship in-tree; LabVIEW, Tango, and other stacks are supported via custom connectors), <a class="reference internal" href="how-to/ariel/index.html"><span class="doc">intelligent logbook search</span></a> across facility electronic logbooks, and mandatory human oversight for safety-critical operations.</p>
 <figure class="align-center" id="id1">
 <a class="reference internal image-reference" href="_images/architecture.png"><img alt="Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line." src="_images/architecture.png" style="width: 100%;" />
 </a>
@@ -449,6 +458,10 @@ contribution workflow.</p>
 </div>
 </div>
 </div>
+</section>
+<section id="proven-in-production">
+<h2>Proven in Production<a class="headerlink" href="#proven-in-production" title="Link to this heading">#</a></h2>
+<p>Osprey is deployed at Lawrence Berkeley National Laboratory’s Advanced Light Source, managing tens of thousands of control channels across accelerator operations.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-quote" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 2.5h10.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5Zm4 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2.5 7.75v6a.75.75 0 0 1-1.5 0v-6a.75.75 0 0 1 1.5 0Z"></path></svg></span><span class="sd-summary-text">Citation</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -512,6 +525,7 @@ contribution workflow.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-structure">Documentation Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#proven-in-production">Proven in Production</a></li>
 </ul>
   </nav></div>
 

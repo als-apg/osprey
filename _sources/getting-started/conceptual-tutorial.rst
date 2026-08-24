@@ -23,11 +23,10 @@ corrector by 0.5 A", "what happened to the vacuum last Tuesday" ---
 and the agent figures out which tools to call, which channels to query,
 and how to present the results.
 
-The catch: the agent cannot write to hardware on its own. Safety enforcement
-lives in the runtime --- the PreToolUse hook chain and the MCP server ---
-outside the agent's reasoning, and the agent is given no credential to reach in
-and disable it. The agent proposes actions; the safety system and the
-operator decide whether they happen.
+The catch: the agent can never write to hardware on its own. Safety
+enforcement lives in code that the agent cannot modify or bypass, not
+in the agent's own judgment. The agent proposes actions; the safety
+system and the operator decide whether they happen.
 
 
 How the Agent Works
@@ -69,9 +68,8 @@ off --- no prompt appears. The **limits system** validates each value
 against per-channel safe ranges and read-only flags. If either check
 fails, the write is blocked before the operator is ever asked.
 
-These checks are enforced by the runtime, in a layer the agent's tool calls
-pass through: they run whether or not the agent cooperates, and the agent holds
-no credential for the operator interfaces that could change safety settings.
+These checks are enforced by the runtime. The agent cannot modify,
+skip, or influence them.
 
 
 The Connector Abstraction
@@ -82,10 +80,10 @@ OSPREY does not talk to your control system directly. It uses a
 appropriate protocol (EPICS Channel Access, mock data, or a custom
 backend).
 
-You select the connector in ``profile.yml`` by setting
-``control_system.type`` in its ``config:`` block. Change ``mock`` to
-``epics`` and the same agent, tools, and safety hooks work against real
-hardware. No code changes, no reconfiguration --- one setting.
+You select the connector in ``config.yml`` by setting
+``control_system.type``. Change ``mock`` to ``epics`` and the same
+agent, tools, and safety hooks work against real hardware. No code
+changes, no reconfiguration --- one setting.
 
 
 Next Steps
@@ -95,11 +93,11 @@ Now that you understand the core concepts, you're ready to build:
 
 **Start here:** :doc:`hello-world-tutorial`
   Build your first agent with one MCP server and a mock control system.
-  Three commands: ``osprey init``, ``osprey build``, ``osprey web``.
+  One command to create, one command to run.
 
 **Then scale up:** :doc:`control-assistant`
-  Add channel finding, logbook search, an archive of its own, and
-  logbook and channel-finder panels in the web terminal.
+  Add channel finding, logbook search, archiver access, and a web
+  terminal for production deployment.
 
 **Go deeper:** :doc:`../architecture/index`
   Detailed diagrams of the safety chain, data flow, and the full MCP

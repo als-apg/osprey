@@ -9,7 +9,7 @@ pipelines, health checks, and automated workflows.
    :icon: book
 
    - What ``osprey query`` does and when to reach for it
-   - How deployment resolution works (nearest ``profile.yml``, or ``--repo``)
+   - How project resolution works (``--project`` → ``OSPREY_PROJECT`` → cwd)
    - The ``--json`` flag for machine-readable output
    - Exit codes and what each means
    - The read-only guarantee and how it is enforced
@@ -33,25 +33,30 @@ Use ``osprey query`` when you need to verify that the *entire agent stack*
 works end-to-end against your real control system, not just that the model
 is reachable.
 
-Deployment Resolution
-=====================
+Project Resolution
+==================
 
-``osprey query`` asks the deployment enclosing the current directory: it walks
-up to the nearest ``profile.yml`` and answers from that repository's ``build/``
-as it was last rendered. ``--repo DIRECTORY`` names another one.
+``osprey query`` resolves the project directory in this order:
+
+1. ``--project DIR`` flag (explicit)
+2. ``OSPREY_PROJECT`` environment variable
+3. Current working directory (cwd)
 
 .. code-block:: bash
 
-   # The deployment you are standing in
-   cd ~/deployments/als-assistant
+   # Explicit project
+   osprey query --project ~/projects/als-assistant "List vacuum sections"
+
+   # Via environment variable
+   export OSPREY_PROJECT=~/projects/als-assistant
    osprey query "List vacuum sections"
 
-   # A deployment somewhere else
-   osprey query --repo ~/deployments/als-assistant "List vacuum sections"
+   # Current directory (cwd)
+   cd ~/projects/als-assistant
+   osprey query "List vacuum sections"
 
-When ``profile.yml`` or a file it points at has changed since that build, a
-warning on stderr says so and the query runs anyway. The command exits with
-code ``2`` if there is no build to answer from.
+The command exits with code ``2`` if no valid project is found at the
+resolved path.
 
 Exit Codes
 ==========
@@ -123,8 +128,8 @@ cannot call any of these tools even if it tries. The list is the union of:
   ``mcp__python__execute_file``, ``mcp__osprey_workspace__setup_patch``),
   derived from the server registry so the blocked set tracks the framework
   rather than a hand-maintained copy.
-- **Destructive workspace tools** — ``artifact_delete`` and
-  ``artifact_delete_all``, which permanently remove stored artifacts.
+- **Destructive workspace tools** — ``data_delete``, ``artifact_delete``, and
+  ``artifact_delete_all``, which permanently remove stored data/artifacts.
 - **Facility-custom write tools** — any tool a custom MCP server in
   ``claude_code.servers`` marks under ``permissions.ask`` (or a custom server
   that writes-check-gates all its tools) is blocked too. Declare custom write
@@ -137,7 +142,7 @@ guarantee is specifically that the run performs no hardware write, no code or
 shell execution, and no deletion of stored data.
 
 There is no ``--allow-writes`` flag. If you need an agent run that can write,
-use ``osprey chat`` or the event-dispatch pipeline instead.
+use ``osprey claude chat`` or the event-dispatch pipeline instead.
 
 .. note::
 
@@ -172,12 +177,12 @@ For pipelines that parse results, use ``--json`` and ``jq``:
    echo "$result" | jq '.final_text'
    echo "$result" | jq '.exit_code'
 
-For a deployment not in the current directory:
+For a project not in the current directory:
 
 .. code-block:: bash
 
    osprey query \
-     --repo /opt/osprey/als-assistant \
+     --project /opt/osprey/als-assistant \
      "List all vacuum sections" \
      || exit 1
 

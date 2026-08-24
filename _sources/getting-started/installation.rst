@@ -36,21 +36,20 @@ Claude Code requires `Node.js <https://nodejs.org/>`_ 18+.
 
       .. code-block:: bash
 
-         # Debian/Ubuntu — npm is a separate package here, and Claude Code needs it
-         sudo apt-get install -y nodejs npm
+         # Ubuntu/Debian
+         curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+         sudo apt-get install -y nodejs
 
-      Your distribution's own packages are the simplest route and the one the
-      OSPREY container images take. Check what yours ships (``node --version``):
-      a few older releases package a Node below the 18 floor, and there the
-      cleanest fix is a current Node from `nvm <https://github.com/nvm-sh/nvm>`_.
+         # Or use your distribution's package manager
 
    .. tab-item:: Windows (WSL2)
 
-      Install Node.js inside your WSL2 environment, the same way as on Linux:
+      Install Node.js inside your WSL2 environment:
 
       .. code-block:: bash
 
-         sudo apt-get install -y nodejs npm
+         curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+         sudo apt-get install -y nodejs
 
 Verify:
 
@@ -65,11 +64,7 @@ Step 2: Install Claude Code
 
 .. code-block:: bash
 
-   npm install -g @anthropic-ai/claude-code@2.1.146
-
-The pinned version is the one OSPREY's generated projects run. Installing it
-exactly — rather than whatever was published most recently — means a brand-new
-CLI release can't change your setup the day it comes out.
+   npm install -g @anthropic-ai/claude-code
 
 Verify:
 
@@ -81,24 +76,21 @@ Verify:
 Pinning the Claude Code CLI version
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Anthropic ships breaking changes to the Claude Code CLI from time to time.
-The install command above already pins your global ``claude`` binary; to pin
-what a specific project launches — independently of what is installed
-globally — set a version under ``config:`` in ``profile.yml`` and run
-``osprey build``:
+Anthropic ships breaking changes to the Claude Code CLI from time to time. To
+insulate a project from upstream releases, pin a specific version in the
+project's ``config.yml``:
 
 .. code-block:: yaml
 
-   config:
-     claude_code:
-       cli_version: "2.1.146"   # exact version, no semver ranges
+   claude_code:
+     cli_version: "2.1.146"   # exact version, no semver ranges
 
-When set, ``osprey chat`` and the web terminal launch the pinned
+When set, ``osprey claude chat`` and the web terminal launch the pinned
 version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the
 globally-installed ``claude`` binary. The first run downloads the package;
 subsequent runs hit the npx cache. Use ``osprey health`` to confirm the pin
 is being honored. To temporarily bypass the pin for debugging, run
-``osprey chat --no-pin``.
+``osprey claude chat --no-pin``.
 
 
 Step 3: Install Python tools
@@ -132,8 +124,7 @@ Step 4: Set up your API key
 -----------------------------
 
 The Osprey agent needs an API key for the AI provider. Set it in your shell profile
-now: an exported key is what a host-local run reads, and it is what seeds the first
-project you build. Its durable home comes later — see the note below.
+so it's always available.
 
 .. tab-set::
 
@@ -178,18 +169,6 @@ project you build. Its durable home comes later — see the note below.
 
 .. note::
    Using ``bash`` instead of ``zsh``? Replace ``~/.zshrc`` with ``~/.bashrc``.
-
-.. admonition:: Where the key lives once you create a deployment
-   :class: important
-
-   A shell export reaches a **deployment repository** once: when ``osprey init``
-   creates it. From then on the repository's own ``.env`` is the key's home —
-   builds and deploys read it and never re-read your shell, so a key exported
-   *after* the repository exists does not get in.
-
-   Keep the export for host-local runs and for seeding that first repository;
-   put the key in the repository's ``.env`` for anything you want to survive a
-   rebuild. See :ref:`profile-secrets`.
 
 
 Step 5: Install OSPREY
@@ -256,7 +235,7 @@ OSPREY is installed and ready to use. Here's what to do next:
       :link-type: doc
 
       Build your first agent with a mock control system. One MCP server, zero
-      complexity. Takes about five minutes.
+      complexity. Takes about 10 minutes.
 
    .. grid-item-card:: **Guided Build Interview**
       :link: osprey-build-interview
@@ -320,14 +299,14 @@ OSPREY is installed and ready to use. Here's what to do next:
 
 
 Troubleshooting
----------------
+~~~~~~~~~~~~~~~~
 
 .. dropdown:: Common issues
    :color: warning
    :icon: alert
 
    **"claude: command not found"**
-      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.146``
+      Install Claude Code: ``npm install -g @anthropic-ai/claude-code``
 
    **"osprey: command not found"**
       If you installed via ``uv tool install osprey-framework``, make sure uv's

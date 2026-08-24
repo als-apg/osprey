@@ -48,43 +48,30 @@ Bring It Up
 ===========
 
 Both services are registered in ``deployed_services``, so they come up with the
-rest of the stack. ``osprey up`` auto-generates both bearer tokens into
-the profile's ``.env`` when they are unset, then derives the project's ``.env``
-from it:
+rest of the stack. One command, secure by default — ``osprey deploy up``
+auto-generates both bearer tokens into ``.env`` when they are unset:
 
 .. code-block:: bash
 
-   osprey up        # add --dev to bake in a local osprey checkout
+   osprey deploy up        # add --dev to bake in a local osprey checkout
 
-The first build is slow: both images install Node and the agent CLI the
-worker runs on.
+The first build is slow: the shared dispatcher/worker image installs Node and
+the agent CLI the worker runs on.
 
 .. dropdown:: Image build & overrides
    :icon: package
 
-   The two services use two different images, both built locally on first
-   ``osprey up``:
-
-   - the **dispatcher** gets its own small image
-     (``<project>-dispatch:local``, from
-     ``services/event_dispatcher/Dockerfile``);
-   - the **worker** runs the full *project image* (``<project>:local`` — the
-     same image :doc:`containerize-project` describes, with your profile's
-     artifacts and ``data/`` baked in), so the agent it launches sees the real
-     project.
-
-   Pass ``--dev`` to install your local osprey checkout (incl. unreleased
-   code) via a wheel; otherwise the images install ``osprey-framework`` from
-   PyPI. To use prebuilt/published images instead of building, set the
-   override env vars — note they take *different kinds* of image: the worker
-   override must be a project-style image containing ``/app/<project>``, not
-   a dispatch image:
+   The dispatcher and worker share one image, built locally from
+   ``services/event_dispatcher/Dockerfile`` on first ``osprey deploy up``. Pass
+   ``--dev`` to install your local osprey checkout (incl. unreleased code) via a
+   wheel; otherwise the image installs ``osprey-framework`` from PyPI. To use a
+   prebuilt/published image instead of building, set the override env vars:
 
    .. code-block:: bash
 
       OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev \
-      OSPREY_WORKER_IMAGE=my-registry/my-project:dev \
-        osprey up
+      OSPREY_WORKER_IMAGE=my-registry/osprey-dispatch:dev \
+        osprey deploy up
 
    Inside the compose network the worker is reachable as
    ``dispatch-worker-1:9190`` — the default ``dispatch_target`` in
@@ -192,25 +179,6 @@ a container, repoint it at the dispatcher service:
 
    EVENT_DISPATCHER_URL=http://event-dispatcher:8020
 
-Auto-derived URL
-----------------
-
-You do not have to set ``web.panels.events.url`` by hand. Whenever a profile
-lists the ``events`` panel **and** declares a ``dispatch:`` block, the build
-derives the panel's route from ``dispatch.dispatcher_port``:
-
-.. code-block:: yaml
-
-   web.panels.events.url: http://localhost:<dispatcher_port>   # bare host
-   web.panels.events.path: /dashboard                          # route
-
-The ``url`` is the bare dispatcher host and ``path`` carries the ``/dashboard``
-route — the web terminal composes the backend target as ``url`` + ``path``, so
-baking ``/dashboard`` into ``url`` would double-prefix sub-routes. Keep them
-split. If a profile already pins ``web.panels.events.path`` the build leaves it
-untouched, and an explicit ``web.panels.events.url`` override always wins (use it
-for remote/containerized terminals that cannot reach ``localhost``).
-
 Authoring Triggers
 ==================
 
@@ -259,12 +227,10 @@ Authoring Triggers
 Authentication
 ==============
 
-Two bearer tokens guard the stack. ``osprey up`` auto-generates a strong
-random value for each when it is unset (and logs where it wrote it), so a
-containerized deploy needs no token editing. A generated value is written into
-the **profile's** ``.env`` and derived from there into the project's, so a
-rebuild comes up on the same token. To pick your own values, set them in the
-profile's ``.env`` and rebuild:
+Two bearer tokens live in the project ``.env``. ``osprey deploy up``
+auto-generates a strong random value for each when it is unset (and logs where
+it wrote it), so a containerized deploy is secure by default — no editing
+required. Set your own values in ``.env`` to override:
 
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints.
   Send it as ``Authorization: Bearer <token>``.
@@ -293,4 +259,4 @@ profile's ``.env`` and rebuild:
        Container deployment mechanics for all Osprey services.
 
    :doc:`../cli-reference/index`
-       Full ``osprey build`` and lifecycle-verb reference.
+       Full ``osprey build`` and ``osprey deploy`` reference.

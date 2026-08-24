@@ -94,14 +94,6 @@ Set the API key as an environment variable before running Osprey:
 
 Ollama and vLLM run locally and do not require an API key.
 
-.. note::
-
-   A shell export reaches a **deployment** only once, when ``osprey init``
-   creates the repository, and only for providers that profile references. After
-   that, put the key in the repository's ``.env``: it is the deployment's one
-   secret store, and nothing else re-reads your shell. See
-   :ref:`profile-secrets`.
-
 Provider Configuration
 ----------------------
 
@@ -130,43 +122,28 @@ Providers are configured in two sections of ``config.yml``:
          base_url: https://api.anthropic.com
          models:
            haiku: claude-haiku-4-5-20251001
-           sonnet: claude-sonnet-4-5-20250929
-           opus: claude-opus-4-6
+           sonnet: claude-sonnet-4-6
+           opus: claude-opus-4-7
 
        cborg:
          api_key: ${CBORG_API_KEY}
          base_url: https://api.cborg.lbl.gov/v1
          models:
-           # Use pinned versions here — unversioned aliases like
-           # anthropic/claude-sonnet break the agent's capability detection.
-           haiku: claude-haiku-4-5
-           sonnet: claude-sonnet-4-6
-           opus: claude-opus-4-7
+           haiku: anthropic/claude-haiku
+           sonnet: anthropic/claude-sonnet
+           opus: anthropic/claude-opus
 
        stanford:
          api_key: ${STANFORD_API_KEY}
          base_url: https://aiapi-prod.stanford.edu/v1
          models:
-           # A gateway need not serve Claude models at all — map its own IDs
-           # onto the tiers by capability and cost.
-           haiku: gpt-4o-mini
-           sonnet: gpt-4o
-           opus: o3-mini
+           haiku: claude-3-haiku
+           sonnet: claude-4-sonnet
+           opus: claude-4-sonnet
 
 Each provider entry needs ``api_key``, ``base_url``, and a ``models`` mapping
 that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
-``opus``). A full tier map is recommended — subagent tier routing uses it —
-but it is not required: a tier that no source maps falls back to the default
-model, with a build warning naming each substitution. The framework never
-substitutes another provider's model IDs; a provider with no ``models``
-mapping *and* no ``default_model`` to fall back on is refused.
-
-``base_url`` is the endpoint the agent itself talks to. ``cborg`` and
-``als-apg`` ship a built-in URL that a value here overrides; omit it to keep
-the built-in one. ``anthropic`` ships none, so omitting it sends requests to
-Anthropic's own API. Keep the trailing
-``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
-agent's own requests have it stripped automatically.
+``opus``).
 
 **Select the active provider** under ``claude_code``:
 
@@ -177,35 +154,22 @@ agent's own requests have it stripped automatically.
      default_model: sonnet
 
 ``provider`` picks one of the entries in ``api.providers``.
-``default_model`` selects the model for the main conversation. Give it a tier
-name, or any model ID the selected provider serves. An ID found in the
-provider's ``models`` block resolves to that tier; any other ID is passed
-through verbatim to the provider — a newly released model or a gateway-only
-alias works without waiting for the tier map to catch up, and a misspelt ID
-fails at the provider (an error naming the ID), not at resolution. If omitted,
-``default_model`` falls back to the provider's own default tier — ``sonnet``
-for ``anthropic``, ``haiku`` for ``cborg`` and ``als-apg``, and ``opus`` for
-custom providers.
+``default_model`` selects the tier for the main conversation. If omitted, it
+falls back to the provider's own default tier — ``sonnet`` for ``anthropic``,
+``haiku`` for ``cborg`` and ``als-apg``, and ``opus`` for custom providers.
 
 Model Tier Mapping
 ------------------
 
 The Osprey agent uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
-(balanced), and ``opus`` (most capable). Each provider maps these to its own model
+(balanced), and ``opus`` (powerful). Each provider maps these to its own model
 IDs via the ``models`` block in ``api.providers``.
 
 The resolver applies model IDs in this priority order:
 
 1. ``claude_code.models`` — explicit per-tier overrides (highest priority).
 2. ``api.providers.<name>.models`` — the provider's own model naming.
-3. Built-in defaults — the bundled fallback model IDs the framework ships for
-   ``anthropic``, ``cborg``, and ``als-apg``.
-
-A tier that no source maps falls back to the default model, with a build
-warning naming each substitution — agents pinned to an unmapped tier then run
-the default model, not a tier-appropriate one, so a full map is recommended.
-No provider ever inherits another provider's model IDs; only a provider with
-no models and no ``default_model`` at all is refused.
+3. Built-in defaults — the provider's bundled fallback model IDs (Anthropic direct IDs only as a last resort).
 
 For example, to override the opus tier for a specific project:
 
@@ -215,7 +179,7 @@ For example, to override the opus tier for a specific project:
      provider: cborg
      default_model: sonnet
      models:
-       opus: claude-sonnet-4-6   # use sonnet even for opus-tier agents
+       opus: anthropic/claude-sonnet   # use sonnet even for opus-tier agents
 
 Agents can also be pinned to specific tiers:
 
@@ -252,9 +216,6 @@ translation proxy:
          models:
            haiku: claude-haiku-4-5-20251001
            sonnet: claude-sonnet-4-5-20250929
-
-(The unmapped ``opus`` tier here falls back to the default model at build
-time, with a warning — map it to silence the substitution.)
 
 Verifying Connectivity
 ----------------------

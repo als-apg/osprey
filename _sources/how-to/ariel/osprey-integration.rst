@@ -18,7 +18,7 @@ Integration Architecture
 
    User Query
        ↓
-   Osprey agent (via osprey chat)
+   Osprey agent (via osprey claude chat)
        ↓  selects from ARIEL MCP tools
    ARIEL MCP Server → ARIELSearchService
        ↓
@@ -76,9 +76,7 @@ Osprey agent selects the appropriate tool based on the user's query.
 Search Result Structure
 =======================
 
-Internally, each search produces an ``ARIELSearchResult`` with the fields
-below; the MCP tools serialize this into their own JSON envelope for the
-agent:
+The MCP tool returns a structured result containing:
 
 .. list-table::
    :header-rows: 1
@@ -97,8 +95,8 @@ agent:
      - ``tuple[str, ...]``
      - Entry IDs used as sources
    * - ``search_modes_used``
-     - ``tuple[str, ...]``
-     - Modes executed (e.g., ``keyword``, ``semantic``)
+     - ``tuple[SearchMode, ...]``
+     - Modes executed (e.g., ``KEYWORD``, ``SEMANTIC``)
    * - ``reasoning``
      - ``str``
      - Explanation of results

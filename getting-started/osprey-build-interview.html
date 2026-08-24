@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Guided Project Setup &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+    <title>Guided Project Setup &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -436,11 +436,12 @@
   <section id="guided-project-setup">
 <h1>Guided Project Setup<a class="headerlink" href="#guided-project-setup" title="Link to this heading">#</a></h1>
 <p>If you’re setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> skill turns a guided conversation
-into a working deployment repository tailored to your system — created up
-front from a curated preset, then refined with you piece by piece.</p>
-<p>A minimal setup takes a few minutes; how much further you go is up to you,
-and you can stop, build, and resume at any point.</p>
+subsystem, the <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> skill walks you through a guided
+conversation that generates a ready-to-build project profile tailored to your
+system. It also handles <strong>migration from existing OSPREY projects</strong> — point
+it at your old
+project directory and it will scan, classify, and extract everything reusable.</p>
+<p>The whole interview takes about 10–15 minutes.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -459,11 +460,13 @@ the interview is a live LLM conversation.</p></li>
 <li><p class="sd-card-text"><strong>A container runtime (Docker or Podman)</strong> — not needed for the interview
 itself, but your generated project will likely include containerized
 services (Jupyter, simulation IOCs, databases). Without one, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-still works but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> won’t. See the “Container Runtime”
+still works but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> won’t. See the “Container Runtime”
 dropdown in <a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> for install instructions.</p></li>
 <li><p class="sd-card-text"><strong>A list or spreadsheet of EPICS PV names</strong> for your subsystem, if you have
 one. Not required — the interview can proceed without concrete PVs — but
 having it handy speeds things up considerably.</p></li>
+<li><p class="sd-card-text"><strong>If migrating from an existing OSPREY project:</strong> the path to that project
+directory ready to paste.</p></li>
 </ul>
 </div>
 </details><section id="install-the-interview-skill">
@@ -490,100 +493,97 @@ claude
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey-build-interview
 </pre></div>
 </div>
-<p>The interview creates your <strong>deployment repository first</strong> — one <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">init</span></code> from a working preset, in the first minutes of the conversation — and
-then refines it with you in place. There is no questionnaire to survive before
-something exists: the repo builds at every step, and you can ask to see it
-running at any point.</p>
-<p>Four things are always settled before the interview calls itself done:</p>
-<ul class="simple">
-<li><p><strong>Which AI service answers</strong> — usually whichever one your lab provides, and
-a working key for it. “I’m not sure” is a fine answer; the interview helps
-you find out.</p></li>
-<li><p><strong>How it connects</strong> — the built-in simulated accelerator to start with,
-which is the recommended choice if you’re unsure, or a live connection to
-your control system.</p></li>
-<li><p><strong>Whether the assistant may change things, or only look</strong> — read-only is
-the safe start. If you do want it to change values, you’ll also settle
-which channels and what range is safe for each.</p></li>
-<li><p><strong>What the project is</strong> — a short name, the facility it belongs to, and
-its timezone.</p></li>
-</ul>
-<p>Everything else keeps the preset’s curated defaults unless you bring it up.
-The profile the interview edits lists every optional feature — including the
-ones not switched on — as commented entries with explanations, so “what else
-could this do?” is always answerable by reading the file, with or without the
-interview.</p>
-<p>Decisions land in an <code class="docutils literal notranslate"><span class="pre">INTERVIEW.md</span></code> at the repository root: what was chosen,
-why, and what was deliberately deferred. Reopen the repository later and
-invoke the skill again to resume exactly where you left off.</p>
+<p>The Osprey agent will walk you through:</p>
+<ol class="arabic simple">
+<li><p>What system you work with and what you need the AI for</p></li>
+<li><p>Whether you’re starting fresh or <strong>migrating from an existing OSPREY project</strong>
+(if migrating, just point it to the directory and it will scan and reuse what it can)</p></li>
+<li><p>Your EPICS PV names (if you have them — it’s OK if you don’t yet)</p></li>
+<li><p>Whether you need read-only or write access</p></li>
+<li><p>How to connect (simulated data is recommended for starting out)</p></li>
+<li><p>Whether you’d like a custom monitoring panel in the web dashboard</p></li>
+<li><p>A review step that checks for anything missing</p></li>
+</ol>
 <section id="tips-during-the-interview">
 <h3>Tips during the interview<a class="headerlink" href="#tips-during-the-interview" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p>If you’re not sure about a question, say “I’m not sure” — it’ll pick a safe default</p></li>
-<li><p>If you have a spreadsheet of channel names handy, that’s helpful but not required</p></li>
-<li><p>Ask to see the assistant running whenever you’re curious — the repo always builds</p></li>
+<li><p>If you have a spreadsheet of PV names handy, that’s helpful but not required</p></li>
+<li><p>If you’re migrating, have the path to your existing project directory ready</p></li>
+<li><p>You can always re-run the interview later to adjust things</p></li>
 </ul>
 </section>
 </section>
-<section id="migrating-an-existing-project">
-<h2>Migrating an existing project<a class="headerlink" href="#migrating-an-existing-project" title="Link to this heading">#</a></h2>
-<p>If you already have an OSPREY project — even one from the LangGraph era —
-point the interview at it. It scans the old project, salvages what carries
-over (channel databases, data files, custom code, configuration values), and
-walks you through each judgment call as a confirmation rather than a
-question. The porting decisions are recorded in <code class="docutils literal notranslate"><span class="pre">INTERVIEW.md</span></code> alongside
-everything else.</p>
-</section>
-<section id="build-and-run">
-<h2>Build and run<a class="headerlink" href="#build-and-run" title="Link to this heading">#</a></h2>
-<p>The interview leaves you inside a deployment repository whose
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> records everything that was decided:</p>
+<section id="build-your-project">
+<h2>Build your project<a class="headerlink" href="#build-your-project" title="Link to this heading">#</a></h2>
+<p>When the interview is done, the Osprey agent generates a <code class="docutils literal notranslate"><span class="pre">build-profile/</span></code> directory
+containing your <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, channel database, README, and a project-local
+copy of the <strong>osprey-build-deploy</strong> skill under
+<code class="docutils literal notranslate"><span class="pre">build-profile/.claude/skills/osprey-build-deploy/</span></code>. The interview installs
+this skill automatically and runs three verification agents to confirm it
+landed correctly — so the deploy phase is wired up by the time you see the
+final summary.</p>
+<p>Then:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-<span class="nb">cd</span><span class="w"> </span>my-project
-osprey<span class="w"> </span>build<span class="w">     </span><span class="c1"># render build/ from the profile</span>
-osprey<span class="w"> </span>web<span class="w">       </span><span class="c1"># web dashboard on your own machine</span>
+osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>build-profile/profile.yml
 </pre></div>
 </div>
-<p>Or talk to the agent directly with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>. Adjust anything later by
-editing <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (every key carries its own explanation) and running
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> again.</p>
+<p>One command. OSPREY reads your profile, validates your selections, copies your
+channel database into the right place, and produces a ready-to-use project.</p>
+<p>To start using it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
+<span class="nb">cd</span><span class="w"> </span>my-project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>claude
+</pre></div>
+</div>
+<p>Or for the web dashboard:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
+osprey<span class="w"> </span>web
+</pre></div>
+</div>
 </section>
 <section id="phase-2-deploy-your-project">
 <h2>Phase 2: deploy your project<a class="headerlink" href="#phase-2-deploy-your-project" title="Link to this heading">#</a></h2>
-<p>The interview settles <em>what</em> to build. Running what was built — putting it on a
-real machine and keeping it there — is the other half, and it lives in the same
-place. The deployment repository is a durable, git-tracked artifact you’ll
-redeploy from many times, and both halves of deployment live inside it.</p>
-<p>First, the deployment coordinates go in the profile itself, under a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code>
-block: the CI platform you use, the deploy host, and the container registry if
-that host pulls its images. A fresh profile ships this block commented out, so
-filling it in is the one edit that turns a buildable profile into a deployable
-one. Credentials are <em>named</em> there, never written there.</p>
-<p>Second, one command turns those coordinates into files:</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">build-profile/</span></code> directory is a durable, git-tracked artifact you’ll
+redeploy from many times. When you’re ready to ship to a real deploy server
+(GitLab CI/CD, container registry, on-server containers), open the Osprey agent
+<strong>inside the profile repo</strong> and trigger the deploy skill:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>ci
+<span class="nb">cd</span><span class="w"> </span>build-profile
+git<span class="w"> </span>init<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>add<span class="w"> </span>-A<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Initial profile&quot;</span>
+claude
 </pre></div>
 </div>
-<p>That writes the CI pipeline at the repository root and a post-deploy health
-check inside the profile. Re-run it whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes — a
-file whose content already matches is left untouched, and a file you hand-edited
-is reported rather than overwritten.</p>
-<p>From there the same handful of commands runs the stack, from anywhere inside
-the repository:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>up<span class="w"> </span>-d<span class="w">      </span><span class="c1"># start it</span>
-osprey<span class="w"> </span>status<span class="w">     </span><span class="c1"># what is running, where it answers, which build it is</span>
-osprey<span class="w"> </span>logs<span class="w">       </span><span class="c1"># what the containers are saying</span>
-osprey<span class="w"> </span>health<span class="w">     </span><span class="c1"># diagnostics: config, environment, providers, telemetry</span>
+<p>In the Osprey agent session:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey-build-deploy
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> only reads, so it is safe against a live stack at any time,
-and it is the first thing to run when something looks wrong. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>
-stops the stack and keeps its volumes.</p>
-<p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for a worked example that goes from an
-empty directory to running containers, and <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the
-full build profile reference.</p>
+<p>The deploy skill walks you through:</p>
+<ol class="arabic simple">
+<li><p>A one-time deploy interview that captures site-specific values (GitLab
+host, deploy server, container runtime, ports, optional modules) and
+writes them to <code class="docutils literal notranslate"><span class="pre">facility-config.yml</span></code></p></li>
+<li><p>Scaffolding the deploy infrastructure from that config (<code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">scripts/deploy.sh</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.template</span></code>)</p></li>
+<li><p>Driving the GitLab pipeline (push → CI builds containers → manual release
+tag → <code class="docutils literal notranslate"><span class="pre">deploy.sh</span></code> on the server)</p></li>
+<li><p>Post-deploy health checks and ongoing release operations</p></li>
+</ol>
+<p>Because the skill lives <strong>inside the profile repo</strong> (not globally), every
+operator who clones this repo gets the same deploy operator automatically —
+no separate install step. To refresh the skill after upgrading OSPREY, run
+from the profile repo root:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
+osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
+</pre></div>
+</div>
+<p>The previous copy is backed up to <code class="docutils literal notranslate"><span class="pre">.claude/skills/osprey-build-deploy.bak.&lt;timestamp&gt;/</span></code>.</p>
+</section>
+<section id="send-feedback">
+<h2>Send feedback<a class="headerlink" href="#send-feedback" title="Link to this heading">#</a></h2>
+<p>After you’ve tested your project, you can send feedback to the OSPREY team by
+starting an Osprey agent session and typing <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span> <span class="pre">feedback</span></code>. It takes
+about 30 seconds and helps us improve the process.</p>
+<p>See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the full build profile reference.</p>
 </section>
 </section>
 
@@ -639,9 +639,9 @@ full build profile reference.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tips-during-the-interview">Tips during the interview</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migrating-an-existing-project">Migrating an existing project</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-and-run">Build and run</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-your-project">Build your project</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-deploy-your-project">Phase 2: deploy your project</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#send-feedback">Send feedback</a></li>
 </ul>
   </nav></div>
 

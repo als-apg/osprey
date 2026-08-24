@@ -9,40 +9,24 @@ Complete reference for all Osprey Framework CLI commands.
 Overview
 ========
 
-All commands are accessed through the ``osprey`` command.
-
-A deployment is a git repository: ``profile.yml`` at its root is the source you
-edit, ``build/`` is what a build renders from it, and ``var/`` is durable state.
-The lifecycle verbs find that repository by walking up from wherever you are
-standing, so none of them has to be told where it is; ``--repo DIRECTORY``
-names another one explicitly.
+All commands are accessed through the ``osprey`` command. Running ``osprey``
+without arguments launches an interactive TUI menu.
 
 .. code-block:: bash
 
+   osprey                    # Launch interactive menu
    osprey --version          # Show framework version
-   osprey init               # Create a deployment repo from a preset
-   osprey set KEY=VALUE      # Write a setting into profile.yml
-   osprey validate           # Check profile.yml without building
-   osprey build              # Render build/ from profile.yml
-   osprey up                 # Start the deployment, as built
-   osprey down               # Stop it, keeping all data
-   osprey restart            # Stop and start it again
-   osprey status             # Show what it is doing
-   osprey logs               # Show its container logs
-   osprey reset              # Wipe it back to a fresh state
-   osprey config             # Show the deployment configuration
-   osprey chat               # Talk to this deployment's agent
-   osprey users              # Manage web-terminal users
-   osprey feedback           # Read feedback sent from the web terminals
-   osprey profile            # Validate and inspect build profiles
+   osprey build PROJECT      # Build project from preset or profile
+   osprey config             # Manage configuration
+   osprey deploy COMMAND     # Manage services
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
+   osprey claude             # Manage Osprey agent integration
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
-   osprey theme-lab          # Design and preview a theme in the browser
-   osprey scaffold           # CI files, boot unit, build artifact overrides
+   osprey scaffold           # Build artifact overrides
    osprey audit              # Audit project or profile safety
    osprey skills             # Manage bundled Osprey skills
    osprey vendor             # Manage locally bundled vendor assets
@@ -53,525 +37,104 @@ Global Options
 ``--version``
    Show framework version and exit.
 
-``-v, --verbose``
-   Show debug output, including every container command run. The transcript
-   takes the place of the progress report rather than joining it, so under
-   ``-v`` no phase or step lines are printed at all. Without it, a run prints
-   the progress report and the command's own output only; log records below
-   WARNING never reach the screen, though they still reach every sink the
-   deployment configures.
-
 ``--help``
-   Show help for any command (e.g., ``osprey build --help``).
-
-osprey init
-===========
-
-Create a deployment repository from a bundled preset.
-
-.. code-block:: bash
-
-   osprey init [DIRECTORY] --preset NAME [OPTIONS]
-
-``DIRECTORY`` is the repository the deployment lives in, and its name *is* the
-deployment's name. Omit it to initialize the current directory in place, which
-is how a repository cloned empty from a forge is filled in.
-
-The repository holds four zones — source you edit, secrets, disposable build
-output, and durable state:
-
-.. code-block:: text
-
-   DIRECTORY/
-     profile.yml                    the manifest; everything the preset configures
-     data/ personas/ triggers.yml   the material it names — yours to edit
-     .env                           provider keys, seeded from your shell
-     build/                         rendered by `osprey build`; gitignored
-     var/                           agent memory and audit log; gitignored
-
-``git init`` and an initial commit run at the end, unless a git repository
-already encloses the target or ``--no-git`` is given.
-
-``--preset NAME`` — Bundled preset to materialize.
-
-``--list-presets`` — List bundled preset names and exit.
-
-``-O, --override FILE`` — Layer a YAML file on top of the preset before writing
-(repeatable, in order).
-
-``--set KEY.PATH=VALUE`` — Inline scalar/list override baked into the emitted
-profile (repeatable). RHS is parsed as YAML. Top-level shorthands: ``provider``,
-``model``, ``channel_finder_mode``, ``connector``.
-
-``--force`` — Re-materialize the source zone of an existing deployment
-repository, discarding edits to ``profile.yml``, ``data/``, ``personas/``,
-``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. Never touches
-``.env``, ``.git``, ``var/``, ``build/``, ``.gitignore``, ``README.md``,
-``ci-extra.yml``, the CI file, or ``scripts/verify.sh``.
-
-``--no-git`` — Skip ``git init`` and the initial commit.
-
-``--up`` / ``-d, --detach`` / ``--dev`` — Build and start the deployment right
-away, optionally in the background or in development mode.
-
-.. code-block:: bash
-
-   osprey init --list-presets
-   osprey init als-assistant --preset control-assistant
-   osprey init demo --preset control-assistant --up -d --dev
-
-osprey set
-==========
-
-Write settings into the deployment profile.
-
-.. code-block:: bash
-
-   osprey set KEY=VALUE... [--repo DIRECTORY]
-
-Each ``KEY=VALUE`` is written into this repository's ``profile.yml`` in place,
-comments intact. That file is the source of truth, so this is the only command
-that edits configuration for you — the rendered ``build/config.yml`` is
-generated from it and is never hand-edited. Run ``osprey build`` to carry a
-setting through to ``build/``, then ``osprey up`` to deploy it.
-
-``KEY`` is a top-level profile key (``provider``, ``model``, ``tier``,
-``channel_finder_mode``, ``connector``) or a dotted path. Keys under ``config.``
-address the rendered config: ``config.control_system.type=epics`` writes that
-literal dotted entry into the profile's ``config:`` block. ``VALUE`` is read as
-YAML, so ``true``/``false`` become booleans and bare numbers become numbers.
-
-Two shorthands stand in for longer key paths: ``connector=`` writes
-``config.control_system.type``, and ``epics_gateway=`` writes a known facility's
-EPICS gateway addresses. (Control systems beyond the bundled ones are reachable
-through custom connector packages — see :doc:`/how-to/add-connector`.)
-
-.. code-block:: bash
-
-   osprey set model=sonnet
-   osprey set connector=epics
-   osprey set tier=1 channel_finder_mode=in_context
-   osprey set config.facility.name='ALS Storage Ring'
-   osprey set epics_gateway=als
-   osprey set --repo ~/als-assistant config.control_system.writes_enabled=true
-
-osprey validate
-===============
-
-Check the deployment profile without building.
-
-.. code-block:: bash
-
-   osprey validate [TARGET] [--repo DIRECTORY]
-
-With no argument, validates the deployment repository enclosing the working
-directory. ``TARGET`` names a different profile to check instead — a persona
-delta file under ``personas/``, or a directory holding a ``profile.yml``.
-
-Resolves ``extends:`` chains and runs the full consistency check — convention
-directories, the ``data:`` tree, service templates, lifecycle steps, env vars —
-then lints the declared web stack against the config a build would render. Every
-problem found is reported, not just the first. Exits 0 when the profile is
-valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
-
-.. code-block:: bash
-
-   osprey validate
-   osprey validate personas/reader.yml
-   osprey validate --repo ~/als-assistant
+   Show help for any command (e.g., ``osprey deploy --help``).
 
 osprey config
 =============
 
-Show the deployment configuration.
+Manage project configuration. Interactive menu if no subcommand is given.
+
+``osprey config show [--project PATH] [--format yaml|json]``
+   Display current project configuration.
+
+``osprey config export [--output PATH] [--format yaml|json]``
+   Export framework default configuration template.
+
+``osprey config set-control-system SYSTEM_TYPE [--project PATH]``
+   Switch connector: ``mock`` or ``epics``. (Other control systems are
+   reachable through custom connector packages — see
+   :doc:`/how-to/add-connector`.)
+
+``osprey config set-epics-gateway [--facility als|aps|custom] [--address] [--port]``
+   Configure EPICS gateway using facility presets or custom values.
 
 .. code-block:: bash
 
-   osprey config [--rendered | --defaults] [--repo DIRECTORY]
-
-With no flag, prints the source ``profile.yml`` — the tracked, hand-edited
-manifest — exactly as it is on disk, comments included. Output is piped through
-unchanged when stdout is not a terminal. This command only reads; to change a
-setting, use ``osprey set``.
-
-``--rendered`` — Show the built ``config.yml`` the deployment actually runs on.
-
-``--defaults`` — Show the framework's default template, with every key the
-framework understands and its default. Needs no deployment repository.
-
-.. code-block:: bash
-
-   osprey config
-   osprey config --rendered
-   osprey config --defaults > defaults.yml
-
-osprey profile
-==============
-
-Validate and inspect build profiles. The profile is the durable, facility-owned
-source a deployment is built from — see :doc:`/how-to/build-profiles`.
-
-.. code-block:: bash
-
-   osprey profile validate TARGET
-   osprey profile presets
-   osprey profile artifacts
-
-``osprey profile validate TARGET``
-   Check a profile without building anything. ``TARGET`` is a directory holding
-   a ``profile.yml`` or a path to a profile file. Resolves ``extends:`` chains
-   and reports every problem found — convention directories, the ``data:``
-   tree, service templates, lifecycle steps, env vars. Exits 0 when valid, 2
-   with the accumulated errors when not. Inside a deployment repository, plain
-   ``osprey validate`` checks that repository without naming a target.
-
-``osprey profile presets``
-   List bundled preset names, one per line. Every name printed is usable as
-   ``--preset NAME`` for ``osprey init``.
-
-``osprey profile artifacts``
-   List every artifact the six profile lists can name — hooks, rules, skills,
-   agents, output styles, and web panels — with a one-line description of
-   each. The same menu appears as commented entries in an emitted profile.
-
-.. code-block:: bash
-
-   osprey profile presets
-   osprey init my-facility --preset control-assistant --set model=opus
-   cd my-facility
-   osprey validate
-   osprey build
+   osprey config show
+   osprey config set-control-system epics
 
 osprey build
 ============
 
-Render this deployment repository's ``build/`` from its profile.
+Build a facility-specific assistant from a bundled preset or a YAML profile.
+See :doc:`/how-to/build-profiles`.
 
 .. code-block:: bash
 
-   osprey build [OPTIONS]
+   osprey build PROJECT_NAME [PROFILE] [OPTIONS]
 
-Run it with no arguments, anywhere inside a deployment repository. It walks up
-to the repository's ``profile.yml`` and renders the whole output zone from it:
-``config.yml``, the Osprey agent artifacts, the data tree, the service templates
-and the compose files that deploy them.
+``--preset NAME`` — Use a bundled preset (mutually exclusive with positional
+``PROFILE``). Run ``osprey build --list-presets`` to see available names.
 
-``build/`` is derived in full and holds nothing durable — your keys are in
-``.env``, the agent's memory is in ``var/`` — so every build wipes and
-re-renders it. The render lands in ``build/.tmp`` and replaces ``build/`` only
-once it has succeeded, so a build that fails, or one you interrupt, leaves the
-previous build exactly as it was and still able to stop the stack it started.
+``-O, --override PATH`` — Layer a YAML file on top of the base preset/profile
+(repeatable, in order).
 
-It renders files, never containers: rebuild while the stack is up and the change
-takes effect at the next ``osprey up`` or ``osprey restart``.
+``--set KEY.PATH=VALUE`` — Inline scalar/list override (repeatable). RHS is
+parsed as YAML so ``true``, ``[a,b]``, and bare ints/floats are typed.
 
-``-s, --stream`` — Stream lifecycle step output in real time.
+``--list-presets`` — Print bundled preset names and exit.
 
-``--skip-lifecycle`` — Skip the profile's ``pre_build``, ``post_build``, and
-``validate`` steps.
+``-o, --output-dir PATH`` — Output directory (default: current directory).
 
-``--skip-deps`` — Skip venv creation and dependency installation (CI mode).
+``-f, --force`` — Overwrite existing project directory.
 
-``--runtime-root PATH`` — Override ``project_root`` in the rendered config, for
-a build whose output runs somewhere other than where it was made.
-
-``--repo DIRECTORY`` — Deployment repository to act on (default: the nearest
-``profile.yml`` at or above the working directory).
+``-s, --stream`` — Stream build step output in real time.
 
 .. code-block:: bash
 
-   osprey build
-   osprey build --repo ~/deployments/als-assistant
-   osprey build --skip-lifecycle --skip-deps          # CI: no venv, no hooks
+   osprey build my-agent --preset hello-world
+   osprey build als-test ~/profiles/als-dev.yml --force
+   osprey build edu --preset education -O overrides.yml --set model=claude-sonnet-4-6
+   osprey build --list-presets
 
-Lifecycle verbs
-===============
+osprey deploy
+=============
 
-``osprey up``, ``down``, ``restart``, ``status``, ``logs`` and ``reset`` run the
-deployment's container stack. Each one takes ``--repo DIRECTORY`` and otherwise
-needs no arguments: run it anywhere inside the deployment repository.
-
-osprey up
----------
-
-Start this deployment from ``build/``, as built.
-
-It starts what the last ``osprey build`` rendered and re-renders nothing from
-``profile.yml``, so the services that come up are always the ones you can read
-on disk. It reads ``profile.yml`` for one thing: a fingerprint. If the profile
-has changed since the build, ``up`` refuses and says what moved, because
-starting would deploy something other than what the profile now describes.
-
-One exception, by design: a deployment with web terminals re-renders that stack
-at every start — its compose file, nginx config, landing page, and any persona
-whose project is missing. Those follow the user roster rather than the build, so
-a roster edit takes effect on the next start.
-
-Whether the deployment is reachable off-host is a property of the build, not of
-this command: the bind address is rendered into every published port. Change it
-with ``osprey set deployment.bind_address=0.0.0.0``, then rebuild.
-
-``-d, --detached`` — Run services in the background.
-
-``--dev`` — Bake the local osprey checkout into the images instead of the
-published release.
-
-``--build`` — Re-render ``build/`` from ``profile.yml`` first, then start it.
-
-``--as-built`` — Start ``build/`` as it was rendered, even though ``profile.yml``
-has moved on.
-
-``--keep-archiver-base`` — Keep the existing archiver history even when the
-profile's retention/cadence knobs no longer match it.
-
-osprey down
------------
-
-Stop this deployment, keeping all data. It renders nothing; destroying data is
-``osprey reset``, which asks first.
-
-If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
-compose files from ``profile.yml`` — those describe what would be started now,
-not what is running. Instead it stops the containers this repository labelled as
-its own, which is the recovery path for a ``build/`` deleted while the stack was
-up. Containers are labelled when they are *created*, so a stack started before
-this labelling existed cannot be found that way; run ``osprey build`` to restore
-``build/`` and ``down`` works normally again.
-
-osprey restart
---------------
-
-Stop and start this deployment again. Takes the same options as ``up``:
-``-d/--detached``, ``--dev``, ``--build``, ``--as-built``,
-``--keep-archiver-base``.
-
-osprey status
--------------
-
-Show what this deployment is doing. It reads and reports — it starts nothing,
-stops nothing and renders nothing — so it is safe to run against a live stack at
-any time.
-
-Four sections. **Build** says whether ``build/`` still matches ``profile.yml``,
-the same check ``osprey up`` refuses on, and which version of osprey rendered it.
-**Containers** is what the container runtime reports, not what compose thinks
-should exist. **Endpoints** is where the services are declared to answer.
-**Agent** is the provider, whether its credential can be found, and whether the
-rendered agent files still match the config.
-
-``--agents`` — Also show the per-subagent model assignments.
-
-osprey logs
------------
-
-Show this deployment's container logs, and step out of the way: ``-f`` streams,
-Ctrl-C stops it, piping into other commands works, and the exit code is the
-runtime's own. Both halves of a deployment are covered — the services and, when
-there is one, the web-terminal stack.
-
-``-f, --follow`` — Keep streaming new output until interrupted.
-
-``--tail INTEGER`` — Show only the last N lines per container.
+Manage Docker/Podman services for Osprey projects.
 
 .. code-block:: bash
 
-   osprey logs
-   osprey logs event-dispatcher -f
-   osprey logs --tail 50
+   osprey deploy ACTION [OPTIONS]
 
-osprey reset
-------------
+**Actions:** ``up``, ``down``, ``restart``, ``status``, ``build``, ``clean``, ``rebuild``.
 
-Wipe this deployment back to a fresh state. It stops the stack, removes the
-containers, volumes and images carrying this checkout's identity, destroys the
-agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
-out of ``.env``, and deletes ``build/``.
+- ``up`` -- Start all configured services.
+- ``down`` -- Stop all services.
+- ``restart`` -- Restart all services.
+- ``status`` -- Show service status.
+- ``build`` -- Build/prepare compose files without starting services.
+- ``clean`` -- Remove containers and volumes (destructive).
+- ``rebuild`` -- Clean, rebuild, and restart services.
 
-Two things survive, and the plan says so before you confirm: ``var/audit/``, the
-safety audit log, and everything in ``.env`` that a deploy did not mint — your
-provider keys. The source zone is never touched: ``profile.yml``, ``data/``,
-``personas/``, ``triggers.yml`` and ``.git`` are exactly what they were.
+**Options (apply to all actions):**
 
-Reset removes a container or volume only when it also carries this repository's
-identity label, and refuses outright — removing nothing — when it finds
-same-named resources created from a different path.
+``-p, --project DIRECTORY`` -- Project directory (default: current directory or ``OSPREY_PROJECT``).
 
-``--dry-run`` — Show the removal plan and stop. Nothing is stopped, removed, or
-written.
+``-c, --config PATH`` -- Configuration file (default: ``config.yml`` in project directory).
 
-``-y, --yes`` — Skip the typed confirmation. The plan is still printed.
+``-d, --detached`` -- Run services in detached mode (for ``up``, ``restart``, ``rebuild``).
 
-``--purge-audit`` — Destroy ``var/audit/`` as well. It is kept by default.
+``--dev`` -- Copy local osprey package to containers instead of using PyPI version.
 
-Exit status: ``0`` the reset did what it said (or there was nothing to do),
-``1`` you declined or it refused, ``3`` it ran but the deployment is only partly
-reset, with each survivor named above the exit.
+``--expose`` -- Expose services on all network interfaces (``0.0.0.0``).
 
 .. code-block:: bash
 
-   osprey up -d
-   osprey status
-   osprey up --build -d
-   osprey restart --dev
-   osprey logs -f
-   osprey down
-   osprey reset --dry-run
-
-osprey users
-============
-
-Manage this repository's web-terminal users. A multi-user deployment gives each
-person on the roster their own web terminal, container and workspace volumes;
-these verbs act on that roster, which lives in the profile. Every verb takes
-``--repo DIRECTORY``.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 46 32
-
-   * - Verb
-     - What it does
-     - Also accepts
-   * - ``remove USER``
-     - Retire one person: remove their web-terminal workspace.
-     - ``--archive``, ``--purge``, ``-y/--yes``
-   * - ``prune``
-     - Remove workspaces for people no longer on the roster.
-     - ``--archive``, ``--purge``, ``-y/--yes``, ``--dry-run``
-   * - ``seed [USER]``
-     - (Re)seed workspaces from the roster; ``USER`` targets one person, omit
-       to reseed all.
-     - —
-   * - ``passwd USER``
-     - Change one user's login password (password authentication only).
-       Prompts without echoing, and ends that user's sessions.
-     - —
-   * - ``login-url USER``
-     - Print the URL that opens that user's terminal. Only the URL goes to
-       stdout, so it can be piped or copied. Refuses for a user who signs in
-       through the login page.
-     - —
-   * - ``env``
-     - Render ``.env.users``, the env file every per-user container runs
-       with.
-     - ``--env-file``, ``-o/--output``
-
-``--archive`` -- Archive a user's workspace before removing it (mutually exclusive with ``--purge``).
-
-``--purge`` -- Permanently delete a user's workspace without archiving it (mutually exclusive with ``--archive``).
-
-``-y, --yes`` -- Assume yes to confirmation prompts.
-
-``--dry-run`` -- Show what would happen without making changes.
-
-``osprey users login-url`` builds the URL from that user's operator secret in
-the repository's ``.env``, which ``osprey up`` mints for every roster user in
-every auth mode. Opening it once trades the token for a session cookie. It is
-how someone gets in when nginx authenticates nobody — ``auth.method: none``, or
-a roster entry with ``login: false`` — and it is a password: send each person
-only their own. Rotate one by deleting that user's ``OSPREY_TERMINAL_SECRET_*``
-line from ``.env`` and running ``osprey up`` again.
-
-For a user who *is* behind the login wall the command refuses and names their
-login page instead. The URL would not work for them — the authentication
-service turns the request away before the terminal can read the token — and
-printing it would put a live credential in someone's inbox for nothing.
-
-``osprey users env`` renders the same subset a deploy would generate, from the
-same two inputs — the rendered deploy config and the repository root's env
-chain (``.env.shared`` then ``.env``, so ``.env`` wins on a key both set) — so
-a file rendered here and one generated by ``osprey up`` cannot disagree. Values
-come only from those files, never from the surrounding environment.
-``--env-file PATH`` renders from that one file instead of the chain.
-``-o/--output PATH`` writes the result at mode ``0600`` instead of to stdout;
-unlike a deploy, which never overwrites an existing ``.env.users``, an
-explicit ``--output`` is taken as an instruction and replaces what is there. In
-CI, pass it: without ``--output`` the assembled secrets go to the job log.
-
-.. code-block:: bash
-
-   osprey users remove alice --archive
-   osprey users prune --dry-run
-   osprey users seed alice
-   osprey users passwd alice
-   osprey users login-url alice
-   osprey users env --output .env.users
-
-See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
-verbs end to end.
-
-osprey feedback
-===============
-
-Read the feedback this deployment's web terminals collected. People using a web
-terminal can send a report from the terminal itself; each submission is stored
-with the session it was sent from, in the sender's own workspace, and these
-verbs read it back. Every verb takes ``--repo DIRECTORY``.
-
-A multi-user deployment keeps one store per person, and reading it starts a
-short-lived read-only container on each person's workspace — so the
-deployment's container runtime has to be up. A single-user deployment keeps one
-store on this machine, read straight off disk.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 46 32
-
-   * - Verb
-     - What it does
-     - Also accepts
-   * - ``list``
-     - One line per submission, newest first: id, who sent it, when (UTC),
-       which channel it went out on, and the start of the message. Headers
-       only.
-     - —
-   * - ``export``
-     - Every submission's whole record plus the session captured with it, as
-       one JSON array. Written a record at a time, so a large store never has
-       to fit in memory.
-     - ``-o/--output``
-
-``-o, --output PATH`` -- Write the export to this file instead of stdout. Naming
-a directory, or a file inside a directory that does not exist, is a usage error
-at parse time, before any workspace is read.
-
-With no ``--output``, ``export`` puts the JSON document on stdout and nothing
-else, so it can be redirected straight into a file; errors and the closing
-summary go to standard error. With ``--output``, the human output stays on the
-terminal and the file holds the export. An empty store exports ``[]``.
-
-A workspace that cannot be read is reported and the rest of the deployment is
-still listed or exported; the export's closing summary distinguishes a workspace
-that contributed nothing from one that was only partly readable. If nothing at
-all could be read, both verbs stop rather than reporting a deployment with no
-feedback in it. A submission whose session was dropped to keep the store inside
-``web.feedback.max_store_bytes`` carries ``context_pruned``; one missing its
-session for any other reason carries ``context_missing``. The submission is
-exported either way.
-
-Exit status: ``0`` on success, including a deployment nobody has sent feedback
-from. Non-zero when the repository has no build, when every workspace failed to
-read, and when an export stopped part-way — in which case the file still parses
-and holds what was read.
-
-``agent_data.base_dir`` is checked on the **single-user** path only, and a
-``~``-relative value there is non-zero with the explanation (the data lands
-where the verb cannot reach it). The multi-user path never consults the key: it
-mounts each person's volume and reads a fixed path inside it, so a rostered
-deployment with a ``~``-relative ``agent_data.base_dir`` writes its feedback to
-a volume these verbs do not mount and simply reads as having none. Nothing
-detects that, so do not read an empty multi-user listing as proof. See
-:doc:`/how-to/send-feedback`.
-
-.. code-block:: bash
-
-   osprey feedback list
-   osprey feedback list --repo ../other-deployment
-   osprey feedback export --output feedback.json
-   osprey feedback export > feedback.json
-
-See :doc:`/how-to/send-feedback` for the dialog these records come from and what
-each submission carries.
+   osprey deploy up -d
+   osprey deploy status
+   osprey deploy rebuild --dev
+   osprey deploy down
 
 osprey health
 =============
@@ -582,57 +145,57 @@ Run comprehensive system health check.
 
    osprey health [OPTIONS]
 
-``--project DIRECTORY`` -- Deployment repository or rendered project directory (default: the repository enclosing the current directory).
+``-p, --project DIRECTORY`` -- Project directory (default: current directory or ``OSPREY_PROJECT``).
 
-``-v, --verbose`` -- Show per-warning and per-error details in the summary.
+``-v, --verbose`` -- Show detailed information about warnings and errors.
 
-``--json`` -- Emit the report as a single JSON document on stdout.
+``-b, --basic`` -- Skip model completion tests (only check configuration and connectivity).
 
-``--category NAME`` -- Run only the named category (repeatable).
+osprey claude
+=============
 
-``--full`` -- Also run on-demand categories (live model chat, pinned CLI download).
+Manage Osprey agent integration — regenerate artifacts, launch chat, and check
+status.
 
-Exit codes: ``0`` healthy, ``1`` warnings only, ``2`` one or more errors,
-``3`` the command itself failed, ``130`` interrupted. See
-:doc:`/how-to/health-json-contract` for the ``--json`` document's shape and the
-``jq`` patterns for consuming it, and :doc:`/how-to/configure-health-checks` for
-the ``health:`` config block.
+``osprey claude chat [OPTIONS]``
+   Regenerate artifacts from ``config.yml``, launch companion servers, and
+   start the Osprey agent in the terminal. See :doc:`/how-to/use-cli-chat`.
 
-osprey chat
-===========
+   ``-p, --project DIRECTORY`` — Project directory (default: current directory).
 
-Talk to this deployment's agent. See :doc:`/how-to/use-cli-chat`.
+   ``--resume SESSION_ID`` — Resume a previous session.
+
+   ``--print`` — Non-interactive pipe-friendly mode.
+
+   ``--effort [low|medium|high|max]`` — Set effort level.
+
+``osprey claude regen [OPTIONS]``
+   Re-render all Osprey agent integration files (``.mcp.json``,
+   ``.claude/settings.json``, ``CLAUDE.md``, agents) from ``config.yml``.
+   Existing files are backed up to ``_agent_data/backup/``.
+
+   ``-p, --project DIRECTORY`` — Project directory (default: current directory).
+
+   ``--dry-run`` — Show what would change without writing files.
+
+   ``--runtime-root PATH`` — Rewrite ``project_root`` in ``config.yml`` to
+   PATH (comment-preserving) and re-render artifacts against it. A recorded
+   ``execution.python_env_path`` that does not exist on the current
+   filesystem is replaced with the current interpreter. Use after copying a
+   built project into a container image; see :doc:`/how-to/containerize-project`.
+
+``osprey claude status [OPTIONS]``
+   Display provider configuration, model tier mappings, per-agent model
+   assignments, and artifact sync status.
+
+   ``-p, --project DIRECTORY`` — Project directory (default: current directory).
 
 .. code-block:: bash
 
-   osprey chat [PROMPT] [OPTIONS]
-
-Starts the agent in the deployment's ``build/`` directory, wired to the
-provider, control system and facility knowledge that build was rendered with.
-``PROMPT``, when given, is the opening message — with ``--print`` it is answered
-and the command exits, which is the shape a script wants.
-
-Nothing is re-rendered: ``osprey build`` owns that. When the profile has changed
-since the last build, a warning says so and the session starts anyway against
-the build as it stands.
-
-``--resume SESSION_ID`` — Resume a previous agent session by ID.
-
-``--print`` — Print the answer and exit.
-
-``--effort [low|medium|high|max]`` — Reasoning effort (default:
-``claude_code.effort`` from the build).
-
-``--no-pin`` — Ignore ``claude_code.cli_version`` and use the installed agent CLI.
-
-``--repo DIRECTORY`` — Deployment repository to act on.
-
-.. code-block:: bash
-
-   osprey chat
-   osprey chat --print "what is the stored beam current?"
-   osprey chat --resume abc123
-   osprey chat --repo ~/als-assistant
+   osprey claude chat
+   osprey claude chat --resume abc123
+   osprey claude regen --dry-run
+   osprey claude status
 
 osprey eject
 ============
@@ -656,7 +219,7 @@ osprey channel-finder
 Tools for building, validating, previewing, and serving control system
 channel databases.
 
-Options: ``--project PATH``, ``-v, --verbose``
+Options: ``-p, --project PATH``, ``-v, --verbose``
 
 ``osprey channel-finder build-database``
    Build a channel database from a CSV file.
@@ -667,7 +230,7 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
 
-``osprey channel-finder generate [--output-dir DIR] [--source PATH] [--format in_context|hierarchical|middle_layer|all] [--tier 1|3|none] [--validate]``
+``osprey channel-finder generate [--output-dir DIR] [--source PATH] [--format in_context|hierarchical|middle_layer|all] [--tier 1|2|3|none] [--validate]``
    Generate channel databases from a hierarchical template. Produces one
    or more pipeline formats (default: all three) with optional tier filtering.
 
@@ -709,24 +272,10 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
 ``enhance [--module NAME] [--force] [--limit N]`` -- Run enhancement modules.
 
-``qmd-resync [--rebuild]``
-   Re-export entries the qmd markdown mirror never saw --- entries created in
-   the web interface, attachment uploads, and entries written through the
-   logbook write service. ``--rebuild`` wipes the mirror and re-exports
-   everything, which is what to run after ``purge``.
-   ``ingest`` and ``watch`` already do this pass on their own.
-
 ``models`` -- List embedding models and tables.
 
-``search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
-   Execute a search query. Without ``--mode``, the deployment's
-   ``ariel.default_search_mode`` decides.
-
-``vocab-check [PATH] [--json]``
-   Validate a facility vocabulary file --- the shorthand-to-prose mapping that
-   query expansion uses. Checks ``PATH``, or the file named by
-   ``ariel.vocabulary.path`` when no path is given. Needs no database. Exits 1
-   and lists every error when the file is broken; warnings never fail it.
+``search QUERY [--mode keyword|semantic] [--limit N] [--json]``
+   Execute a search query (default mode: ``keyword``).
 
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.
@@ -739,7 +288,6 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
-   osprey ariel vocab-check data/ariel/vocabulary.yml
    osprey ariel web --port 8080
 
 osprey artifacts
@@ -748,7 +296,7 @@ osprey artifacts
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
 interactive plots, tables, and other outputs produced by the Osprey agent during
 analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact()`` in
-``osprey execute`` or the ``artifact_register`` MCP tool.
+``osprey execute`` or the ``artifact_save`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``
    Launch the Artifact Gallery web interface. Starts a FastAPI server on
@@ -771,14 +319,10 @@ analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact
 osprey web
 ==========
 
-Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
+Launch the Web Terminal interface. See :doc:`/how-to/use-web-terminal`.
 
 ``osprey web [OPTIONS]``
-   Start the web terminal server (default: ``http://127.0.0.1:8087``). On
-   startup it prints a login URL (``…/?token=…``) that sets a session cookie
-   and then redirects to the clean address. The URL is printed once, but its
-   token is the server's own secret and stays valid for the life of the
-   process — treat it like a password.
+   Start the web terminal server (default: ``http://127.0.0.1:8087``).
 
    ``-p, --port INTEGER`` — Port (default: from config or 8087).
 
@@ -786,11 +330,9 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--shell TEXT`` — Shell command to run (default: ``claude``).
 
-   ``--repo PATH`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
+   ``--project DIRECTORY`` — Project directory (default: current directory).
 
-   ``--detach`` — Run in background (PID written to ``var/osprey-web.pid``). The
-   login token is held only in memory; if the printed URL is lost, stop and
-   restart the server to mint a new one.
+   ``--detach`` — Run in background (PID written to ``.osprey-web.pid``).
 
    ``--reload`` — Auto-reload for development.
 
@@ -804,39 +346,12 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    osprey web --detach
    osprey web stop
 
-osprey theme-lab
-================
-
-Design a theme in the browser. Starts a local server for OSPREY's design
-system and opens the Theme Lab, where you pick an accent color and see it
-previewed live on dark and light mock-ups of the web terminal, with contrast
-badges that update as you go. Copying the export block gives you a
-ready-to-paste description of the theme to request; the lab itself does not
-write theme files. See :doc:`/how-to/web-terminal/theming`.
-
-``osprey theme-lab [OPTIONS]``
-   Serve the Theme Lab and open it. The URL is printed as well, so the page can
-   be opened by hand if no browser appears. It is a login URL at the server root
-   (``…/?token=…``): opening it sets a session cookie and then redirects to the
-   lab itself.
-
-   ``-p, --port INTEGER`` — Port to serve on (default: an unused port chosen
-   automatically).
-
-   ``--no-browser`` — Do not open a browser window; print the URL only.
-
-.. code-block:: bash
-
-   osprey theme-lab
-   osprey theme-lab --port 9000
-   osprey theme-lab --no-browser
-
 osprey audit
 ============
 
 Audit a build profile or project directory for safety risks. Uses an AI
-reviewer to analyze permissions, hooks, MCP server configs, convention
-directories, and lifecycle scripts.
+reviewer to analyze permissions, hooks, MCP server configs, overlay files,
+and lifecycle scripts.
 
 .. code-block:: bash
 
@@ -861,96 +376,38 @@ directories, and lifecycle scripts.
 osprey scaffold
 ===============
 
-Emit the repository's CI files and boot unit, and manage build artifact
-ownership.
-Framework-managed build artifacts (agents, rules, etc.) can be claimed
-per-facility for in-place editing. A claim moves the artifact out of the build
-zone and into the profile beside it; the next build copies it back and registers
-it as user-owned, so a rebuild leaves your version alone.
+Manage build artifact ownership. Framework-managed build artifacts (agents,
+rules, etc.) can be claimed per-facility for in-place editing. Claimed files
+are marked user-owned in ``config.yml`` and ``.osprey-manifest.json``, and
+subsequent ``osprey claude regen`` runs skip them.
 
 All subcommands accept a common flag:
 
-``--repo DIRECTORY`` — Deployment repository to act on (default: the nearest
-``profile.yml`` at or above the working directory).
-
-``osprey scaffold ci [--force]``
-   Emit this repository's CI pipeline and health check from the profile's
-   ``deploy:`` block: the pipeline at the repository root and the post-deploy
-   health check at ``scripts/verify.sh``. Run it again whenever the block
-   changes. Re-running is safe — a file whose content already matches is left
-   untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
-   file the scaffolder did not write is reported and left alone unless
-   ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
-   pipeline includes it.
-
-``osprey scaffold systemd [--force]``
-   Emit a systemd user unit that starts this deployment at boot: ``osprey.service``
-   at the repository root, plus the commands to install it. The unit runs
-   ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
-   the repository and the ``osprey`` program written in as full paths — systemd
-   starts a unit with no working directory and a short ``PATH``. Run it on the
-   machine that will run the deployment, and again after the repository moves or
-   OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
-   ``ci``: a matching file is left untouched, and a file the scaffolder did not
-   write needs ``--force``. Refuses when no ``osprey`` program can be found to
-   name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
-   see :doc:`../how-to/deploy-a-facility`.
+``-p, --project DIRECTORY`` — Project directory (default: current directory).
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
    user-owned).
 
 ``osprey scaffold claim NAME``
-   Move an artifact out of ``build/`` and into the repository's profile, into
-   the convention directory for its kind (``rules/safety.md``,
-   ``skills/orbit-check/``, ``services/postgresql/``, ``hooks/my-guard``). A
-   file moves as a file; skills and services move as whole directories. The
-   build copy is *moved*, not copied — it lives in one place until the next
-   ``osprey build`` renders it again.
-
-   Refused, with the reason: a **generated** artifact rather than an authored one —
-   ``CLAUDE.md``, ``.claude/settings.json``, ``.mcp.json``,
-   ``hook_config.json`` — where the message names the config key that does
-   control it; and a profile slot that is already occupied. See
-   :ref:`profile-claim`.
+   Claim ownership of a framework artifact for in-place editing. If the file
+   doesn't exist yet, the framework template is rendered in place at the
+   canonical output path. If it already exists, it is marked user-owned.
 
 ``osprey scaffold diff NAME``
    Show a unified diff between the current framework template (re-rendered)
-   and your file at the canonical output path. For a claimed service
-   directory, diffs every file in the directory against the packaged
-   template.
+   and your file at the canonical output path.
 
 ``osprey scaffold unclaim NAME``
-   Release ownership and restore framework management. The next build overwrites
-   the file with the framework template. Ownership a build derived from the
-   profile is re-registered by the next build, so this holds only until then —
-   give the artifact up for good by deleting it from the profile's convention
-   directory.
-
-``osprey scaffold web-terminals lint [--repo PATH]``
-   Validate the deployment's ``modules.web_terminals`` stanza (port-family
-   allocation, reserved service names, duplicate users, persona references).
-   Exits non-zero on error-severity findings; warnings do not fail the check,
-   so it is safe to wire into a CI gate.
-
-``osprey scaffold web-terminals render [--repo PATH] -o DIRECTORY``
-   Render the multi-user deployment artifacts (docker-compose overlay, nginx
-   routing fragment, static landing page) into ``-o/--output``. Lints first by
-   default and aborts on errors; ``--no-lint`` skips the pre-check.
-
-   Both verbs read the stanza from the repository's built ``config.yml``.
+   Release ownership and restore framework management. The next
+   ``osprey claude regen`` will overwrite the file with the framework template.
 
 .. code-block:: bash
 
-   osprey scaffold ci                             # Re-emit the CI files
-   osprey scaffold systemd                        # Write the boot unit
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
-   osprey scaffold claim services/postgresql      # Freeze a service template
    osprey scaffold diff agents/channel-finder     # Compare yours vs framework
    osprey scaffold unclaim rules/safety           # Restore framework management
-   osprey scaffold web-terminals lint             # lint this project's stanza
-   osprey scaffold web-terminals render -o deploy/
 
 osprey skills
 =============
@@ -968,15 +425,18 @@ can be installed either globally or into a specific project's
 
    ``--target PATH`` — directory to install into. Tilde is expanded. Use a
    project-local ``.claude/skills/`` path to scope the skill to one repo
-   (e.g., a facility repository's ``.claude/skills/``). Omit for the global
-   install.
+   (e.g., ``build-profile/.claude/skills/``). Omit for the global install.
 
    Currently supported skills:
 
-   * ``osprey-build-interview`` — set up or migrate an OSPREY deployment
-     through a guided conversation anchored on the live deployment repo (see
-     :doc:`/getting-started/osprey-build-interview`). Typically installed
-     globally so it is available in any Osprey agent session.
+   * ``osprey-build-interview`` — guided project-profile generation (see
+     :doc:`/getting-started/osprey-build-interview`). Typically installed globally
+     so it is available in any Osprey agent session.
+   * ``osprey-build-deploy`` — CI/CD setup, deploy-server operations, and
+     release workflow for a facility profile repo. Typically installed
+     project-locally (into the profile repo's ``.claude/skills/``) by the
+     last phase of the ``osprey-build-interview`` skill, so ``/osprey-build-deploy``
+     is available wherever the profile repo is cloned.
    * ``osprey-contribute`` — walks a contributor through the GitHub Flow
      journey from a working-tree change to a merged PR on ``main`` (branching,
      atomic commits, push, PR, rebase, merge).
@@ -988,13 +448,11 @@ can be installed either globally or into a specific project's
      for designing, adding, or reviewing a feature. Useful for framework
      contributors; install globally to have it available when working on
      ``src/osprey`` in any session.
-   * ``creating-an-osprey-panel`` — author a themed, token-only web-terminal
-     panel.
 
 .. code-block:: bash
 
    osprey skills install osprey-build-interview
-   osprey skills install creating-an-osprey-panel --target .claude/skills/
+   osprey skills install osprey-build-deploy --target build-profile/.claude/skills/
 
 osprey vendor
 =============
@@ -1012,24 +470,10 @@ switch the interfaces over to local bundles.
 
    ``-q, --quiet`` — Suppress per-file output.
 
-   Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
-   fails cert verification until it is pointed at the site's CA bundle.
-   That is the first remedy to reach for — verification stays on:
-
-   .. code-block:: bash
-
-      OSPREY_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
-        osprey vendor fetch
-
-   ``SSL_CERT_FILE`` works too (Python's default SSL context honors it);
-   ``OSPREY_CA_BUNDLE`` wins when both are set. The path above is the
-   RHEL-family system bundle — on Debian-family hosts it is
-   ``/etc/ssl/certs/ca-certificates.crt``.
-
-   ``-k, --insecure`` — The fallback when no CA bundle is at hand: skip TLS
-   cert verification. Every asset is still checked against its manifest
-   SHA256, so this is safe behind corporate proxies that intercept TLS.
-   Also enabled via ``OSPREY_VENDOR_INSECURE=1``.
+   ``-k, --insecure`` — Skip TLS cert verification. Every asset is still
+   checked against its manifest SHA256, so this is safe behind corporate
+   proxies (e.g. Squid) that intercept TLS. Also enabled via
+   ``OSPREY_VENDOR_INSECURE=1``.
 
 ``osprey vendor verify``
    Verify all vendor assets exist on disk with correct SHA256 checksums.
@@ -1037,8 +481,7 @@ switch the interfaces over to local bundles.
 .. code-block:: bash
 
    osprey vendor fetch                    # Download all assets
-   OSPREY_CA_BUNDLE=/path/to/ca.pem osprey vendor fetch   # TLS-intercepting proxy, verified
-   osprey vendor fetch --insecure         # Fallback: no CA bundle at hand
+   osprey vendor fetch --insecure         # Behind a TLS-intercepting proxy
    osprey vendor verify                   # Check checksums
 
 Environment Variables
@@ -1046,9 +489,8 @@ Environment Variables
 
 .. code-block:: bash
 
+   OSPREY_PROJECT=/path/to/project   # Default project directory
    ANTHROPIC_API_KEY=sk-...          # Or OPENAI_API_KEY, GOOGLE_API_KEY, etc.
 
-Provider keys live in the deployment repository's ``.env`` and are read from
-there. No environment variable selects which deployment a command acts on:
-every lifecycle verb finds the repository by walking up from the working
-directory, and ``--repo DIRECTORY`` names another one.
+``OSPREY_PROJECT`` sets a default project directory for all commands. Priority:
+``--project`` flag > ``OSPREY_PROJECT`` > current directory.

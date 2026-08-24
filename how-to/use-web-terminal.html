@@ -60,12 +60,12 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Theming the OSPREY Interfaces" href="theming-interfaces.html" />
+    <link rel="next" title="Use the CLI Chat Interface" href="use-cli-chat.html" />
     <link rel="prev" title="Add an MCP Server" href="add-mcp-server.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Jul 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -375,11 +375,6 @@
 <li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the Web Terminal</a></li>
-<li class="toctree-l1"><a class="reference internal" href="theming-interfaces.html">Theming the OSPREY Interfaces</a></li>
-<li class="toctree-l1"><a class="reference internal" href="osprey-themes.html">OSPREY Themes</a></li>
-<li class="toctree-l1"><a class="reference internal" href="author-a-theme.html">Author Your Own OSPREY Theme</a></li>
-<li class="toctree-l1"><a class="reference internal" href="author-a-panel.html">Author an OSPREY Panel</a></li>
-<li class="toctree-l1"><a class="reference internal" href="embedding-osprey-panels.html">Embedding OSPREY Panels</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
 
@@ -397,7 +392,6 @@
 
 
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -406,11 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -541,14 +531,6 @@ sessions are kept alive in a pool for quick switching.</p></li>
 Agent SDK instead of a PTY. The client sends structured JSON prompts and
 receives typed events (text, thinking, tool use, errors).</p>
 </section>
-<section id="theme">
-<h3>Theme<a class="headerlink" href="#theme" title="Link to this heading">#</a></h3>
-<p>The default first-paint theme is set by <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (a
-theme family or a concrete theme id); the in-page switcher always overrides
-it and persists your choice across reloads. See <a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a> for
-the full contract, including how <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> differs from the CLI’s own
-<code class="docutils literal notranslate"><span class="pre">cli.theme</span></code>.</p>
-</section>
 <section id="live-workspace-viewer">
 <h3>Live Workspace Viewer<a class="headerlink" href="#live-workspace-viewer" title="Link to this heading">#</a></h3>
 <p>The right pane shows the workspace directory tree in real time. A file watcher
@@ -651,21 +633,6 @@ gallery</strong> is always enabled. <strong>Domain panels</strong> are activated
 <p>The <code class="docutils literal notranslate"><span class="pre">/api/panel-focus</span></code> endpoint lets MCP tools programmatically switch the
 active panel.</p>
 </section>
-<section id="deployment-name">
-<h3>Deployment Name<a class="headerlink" href="#deployment-name" title="Link to this heading">#</a></h3>
-<p>Set an optional human-readable name to distinguish otherwise-identical web
-terminals (for example, several deployments sharing the same layout). It is
-rendered as a muted badge on the right of the header. When unset or empty, no
-badge is shown and the header is unchanged.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">app_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Control</span><span class="nv"> </span><span class="s">Room</span><span class="nv"> </span><span class="s">A&quot;</span>
-</pre></div>
-</div>
-<p>The <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_APP_NAME</span></code> environment variable overrides <code class="docutils literal notranslate"><span class="pre">web.app_name</span></code> when
-set. This is useful when several containers share a single baked config image
-but should each display a distinct name — set the variable per container instead
-of rebuilding a config per deployment.</p>
-</section>
 </section>
 <section id="configuration-reference">
 <h2>Configuration Reference<a class="headerlink" href="#configuration-reference" title="Link to this heading">#</a></h2>
@@ -736,11 +703,11 @@ on the command line. CLI flags take precedence over <code class="docutils litera
       </div>
     </a>
     <a class="right-next"
-       href="theming-interfaces.html"
+       href="use-cli-chat.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Theming the OSPREY Interfaces</p>
+        <p class="prev-next-title">Use the CLI Chat Interface</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -770,7 +737,6 @@ on the command line. CLI flags take precedence over <code class="docutils litera
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key Features</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#terminal-pty">Terminal PTY</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#operator-mode">Operator Mode</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#theme">Theme</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#live-workspace-viewer">Live Workspace Viewer</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#settings-drawer">Settings Drawer</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-setup-editor">Osprey Agent Setup Editor</a></li>
@@ -778,7 +744,6 @@ on the command line. CLI flags take precedence over <code class="docutils litera
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#scaffold-gallery">Scaffold Gallery</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-gallery">Memory Gallery</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#side-panels">Side Panels</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-name">Deployment Name</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-reference">Configuration Reference</a><ul class="visible nav section-nav flex-column">

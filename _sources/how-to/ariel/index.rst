@@ -77,13 +77,11 @@ delegated to the Osprey agent layer.
 
          .. code-block:: bash
 
-            osprey init my-project --preset ariel-standalone
+            osprey build my-project --preset ariel-standalone
             cd my-project
 
-         Run ``osprey build`` in it and you get a ready-to-use ``config.yml``
-         with PostgreSQL, the ARIEL web interface, and all search modules
-         enabled --- skip to Step 2. The repository's ``profile.yml`` is what
-         the build reads, and its ``.env`` is where your provider keys belong.
+         This generates a ready-to-use ``config.yml`` with PostgreSQL, the ARIEL
+         web interface, and all search modules enabled --- skip to Step 2.
 
       .. tab-item:: 2. Deploy
 
@@ -95,7 +93,7 @@ delegated to the Osprey agent layer.
 
          .. code-block:: bash
 
-            osprey up -d
+            osprey deploy up -d
 
          Once the containers are running, connect to PostgreSQL, run database
          migrations, then ingest the demo logbook data and generate embeddings:
@@ -138,7 +136,7 @@ delegated to the Osprey agent layer.
 
                .. code-block:: bash
 
-                  osprey chat
+                  osprey claude chat
                   >>> What does the logbook say about the last RF cavity trip?
 
 Learn More
@@ -234,3 +232,7 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    search-modes
    web-interface
    standalone-deployment
+
+
+See Also
+========

@@ -32,7 +32,7 @@ project's ``config.yml``:
          env:
            OSPREY_CONFIG: "{project_root}/config.yml"
 
-Each entry needs ``command``; ``args`` and ``env`` are optional.
+Each entry needs ``command`` and ``args``.  ``env`` is optional.
 ``{project_root}`` is expanded to the project directory at build time;
 ``${VAR}`` passes through shell environment variables.
 
@@ -55,7 +55,7 @@ After editing, regenerate the Osprey agent configuration:
 
 .. code-block:: bash
 
-   osprey build
+   osprey claude regen
 
 The server will appear in ``.mcp.json`` and its permissions will be added
 to ``.claude/settings.json``.
@@ -158,13 +158,6 @@ Key points:
   the ``mcp`` instance.
 * Tool modules are imported inside ``create_server()`` so that
   ``@mcp.tool()`` decorators run after context is ready.
-* Log through the standard ``logging`` module and leave handler setup to
-  ``run_mcp_server()``, which calls ``osprey.configure_logging()`` on your
-  behalf.  Every log line goes to stderr; stdout belongs to the JSON-RPC
-  transport, so a ``print()`` there will break the client connection.  Anything
-  embedding Osprey outside an entry point — a notebook, a script — must call
-  ``osprey.configure_logging()`` itself to see log output; importing the
-  framework configures nothing.
 
 
 Step 3: Register Tools
@@ -197,10 +190,8 @@ Tool guidelines:
 
 * **Return type** -- always ``str`` (typically JSON).
 * **Docstring** -- becomes the tool description the LLM sees; be specific.
-* **Error handling** -- report failures via
-  ``osprey.mcp_server.errors.make_error``, which raises a ``ToolError``
-  carrying a structured JSON envelope; raising this way is what marks the
-  result as an error for the agent.
+* **Error handling** -- return structured JSON errors via
+  ``osprey.mcp_server.errors.make_error`` rather than raising exceptions.
 * **One tool per file** keeps modules focused and avoids circular imports.
 
 
@@ -242,28 +233,21 @@ Important ``ServerDefinition`` fields:
     Use ``_APPROVAL`` for human-in-the-loop on safety-critical tools and
     ``_post_error()`` for standard error guidance.
 
-After adding the entry, run ``osprey build`` to regenerate the Osprey
+After adding the entry, run ``osprey claude regen`` to regenerate the Osprey
 agent configuration.  The server will appear in ``.mcp.json``.
 
 
 Testing
 -------
 
-Unit-test tools by calling the underlying async function. FastMCP's
-``@mcp.tool()`` decorator wraps a function into a ``FunctionTool`` object, so
-unwrap it first — the shared test helper ``get_tool_fn`` (in
-``tests/mcp_server/conftest.py``) returns the raw function via its ``.fn``
-attribute:
+Unit-test tools by calling the async functions directly:
 
 .. code-block:: python
 
-   from tests.mcp_server.conftest import get_tool_fn
-
-   @pytest.mark.unit
+   @pytest.mark.asyncio
    async def test_my_tool():
        from osprey.mcp_server.my_server.tools.my_tool import my_tool
-       result = await get_tool_fn(my_tool)("example", count=2)
+       result = await my_tool("example", count=2)
        assert '"status": "ok"' in result
 
-(The suite runs with ``asyncio_mode=auto``, so plain ``async def`` tests need
-no extra marker.) Place tests under ``tests/mcp_server/test_my_server.py``.
+Place tests under ``tests/mcp_server/test_my_server.py``.

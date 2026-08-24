@@ -2,6 +2,11 @@
 Web Interface
 =============
 
+.. admonition:: Experimental
+   :class: warning
+
+   The ARIEL web interface is experimental and under active development. Its API endpoints, frontend architecture, and configuration options may change in future releases.
+
 ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.
 
 .. code-block:: text
@@ -68,53 +73,6 @@ The interface has four views, accessible via the navigation bar. All views are r
 
          Status dashboard showing service health and configuration.
 
-The four ARIEL views above were captured with OSPREY |captured_ariel| from the
-``control-assistant`` tutorial's seeded logbook.
-
-Display Preferences
-===================
-
-The button at the top right of the header --- the one drawn as three sliders
---- opens a small card holding everything about how the interface looks, plus
-the way in to its settings:
-
-**Appearance**
-   Light or Dark. It flips the shade without changing which theme you are in.
-
-**View**
-   Expert or Simple. Expert is the full interface. Simple clears away the
-   extras --- the four-tab strip becomes a single "Browse all entries" link,
-   the search mode tabs and advanced options disappear, and results lose their
-   relevance scores --- leaving a search box and a list of entries.
-
-**Theme**
-   One button per theme family: Main, DESY, High Contrast, and Retro. Picking
-   a family keeps whichever appearance you are already in, so a switch from
-   Main to High Contrast in dark stays dark.
-
-**Settings**
-   Opens the settings drawer, where you can read and edit ARIEL's
-   configuration block.
-
-Appearance, View, and Theme take effect straight away and leave the card open,
-so you can compare two looks without re-opening the menu. Settings closes it,
-because it takes you to a different surface. Click anywhere outside the card,
-or press ``Escape``, to dismiss it.
-
-**Your picks follow you.** The theme and view you choose here are remembered by
-your browser and shared with every OSPREY interface served from the same
-address --- pick a dark High Contrast look in ARIEL and the OSPREY web terminal
-comes up that way the next time you load it, and the other way round too. There
-is no separate preference to keep in step.
-
-ARIEL running *inside* the web terminal, as a panel, behaves differently on
-purpose. The terminal passes its own theme and view to the panel in the page
-address, and an address always outranks the remembered preference, so an
-embedded panel matches the terminal it sits in no matter what was set
-elsewhere. The embedded panel has no header of its own either --- the
-terminal's tile bar is the one header --- so the sliders button does not
-appear there.
-
 Capabilities API
 ================
 
@@ -126,7 +84,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
    :class: note
 
    - **XSS-safe highlights:** Search result highlights from PostgreSQL ``ts_headline`` are sanitized by ``sanitizeHighlight()`` in ``components.js`` --- only ``<b>`` and ``</b>`` tags are preserved; all other HTML is escaped.
-   - **No cross-origin surface:** The interface app registers no CORS middleware. The browser and the ``/api`` endpoints it calls are served from the same origin, so there is no cross-origin request path to allow or restrict.
+   - **CORS:** The development server uses ``allow_origins=["*"]``. Restrict this in production deployments.
    - **Frontend fallback:** If ``/api/capabilities`` is unavailable at startup, the frontend falls back to a default mode list so the interface remains usable.
 
 .. dropdown:: Technical Reference
@@ -177,19 +135,6 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - PUT
               - ``/api/config``
               - Update the ARIEL configuration block
-            * - GET
-              - ``/api/publish-info``
-              - Describe the configured logbook's write capability (the create
-                form adapts its credential prompt to it)
-            * - POST
-              - ``/api/drafts``
-              - Create a draft entry (pre-fill data for the web form)
-            * - GET
-              - ``/api/drafts/{draft_id}``
-              - Read a draft entry
-            * - GET
-              - ``/api/drafts/{draft_id}/attachments/{filename}``
-              - Download a draft's attachment
 
          Additionally, a ``GET /health`` endpoint at the root level returns a simple health check response.
 
@@ -284,7 +229,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
       .. tab-item:: App Internals
 
-         **App factory:** The ``create_app()`` function in :mod:`osprey.interfaces.ariel.app` is a standard FastAPI app factory. It accepts an optional ``config_path`` argument and returns a fully configured FastAPI application with API routes and static file serving. It registers no CORS middleware --- the app and its ``/api`` endpoints share one origin, so there is no cross-origin surface.
+         **App factory:** The ``create_app()`` function in :mod:`osprey.interfaces.ariel.app` is a standard FastAPI app factory. It accepts an optional ``config_path`` argument and returns a fully configured FastAPI application with CORS middleware, API routes, and static file serving.
 
          **Lifespan management:** The app uses FastAPI's ``lifespan`` context manager to initialize the ``ARIELSearchService`` on startup and clean it up on shutdown. During initialization:
 
@@ -322,37 +267,23 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - Module
               - Responsibility
             * - ``app.js``
-              - Application initialization and hash-based routing
+              - Application initialization, hash-based routing, health check polling
             * - ``api.js``
               - REST client wrapping ``fetch()`` for all API endpoints
             * - ``search.js``
               - Search form, query submission, results rendering
             * - ``advanced-options.js``
               - Capabilities-driven advanced options panel (dynamic parameter controls)
-            * - ``entries.js``, ``entries-detail.js``, ``entries-form.js``, ``entries-helpers.js``
-              - Browse view with pagination, entry detail view, and the new
-                entry form (split across the four modules)
+            * - ``entries.js``
+              - Browse view with pagination, entry detail view, new entry form
             * - ``dashboard.js``
-              - Status dashboard rendering and periodic health refresh
+              - Status dashboard rendering
             * - ``components.js``
               - Shared UI components (entry cards, loading states, error messages)
-            * - ``utils.js``
-              - Small shared helpers
+            * - ``drawer.js``
+              - Side-drawer behavior (filters, advanced options, settings panels)
             * - ``settings.js``
               - Settings UI: read/write ARIEL config block via ``/api/config``
-
-         Side-drawer behavior (filters, advanced options, settings panels) comes
-         from the shared ``<osprey-drawer>`` design-system component rather than
-         a page-local module. The header's display-preferences popover is the
-         shared ``<osprey-display-menu>`` component in the same way: ARIEL
-         mounts the element and passes it the settings drawer's id, and the
-         component supplies the trigger, the card, the Appearance/View/Theme
-         rows, and the hiding-when-embedded rule.
-
-         Theming role: standalone, ARIEL is the *hub* --- the display menu is
-         the operator's control and its pick is the one that gets remembered.
-         Embedded, it is a *follower*: the web terminal owns the pick and
-         broadcasts it, and ARIEL applies what it is sent.
 
          **CSS architecture:**
 
@@ -362,6 +293,8 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
             * - File
               - Scope
+            * - ``variables.css``
+              - Design tokens (colors, spacing, typography, transitions)
             * - ``base.css``
               - Reset, typography, form elements
             * - ``components.css``
@@ -369,13 +302,9 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``layout.css``
               - Header, navigation, main content, responsive grid
             * - ``drawer.css``
-              - Page-level styling around the shared drawer component
+              - Side-drawer panel styling
             * - ``settings.css``
-              - Settings drawer styling (config form, YAML editor, save bar)
-
-         Design tokens (colors, spacing, typography, transitions) are not
-         defined per page — they come from the shared design system's
-         ``/design-system/css/tokens.css``.
+              - Settings and OSPREY-agent-setup editor styling
 
          **Routing:** The app uses ``window.location.hash`` for navigation. The ``app.js`` module listens for ``hashchange`` events and shows/hides view sections (``#search``, ``#browse``, ``#create``, ``#status``). No page reloads occur during navigation.
 
@@ -396,7 +325,7 @@ Running the Web Interface
 
    The web UI runs in-process via ``osprey ariel web`` and is also exposed
    as a panel under ``osprey web``. There is no shipped container service
-   template for it --- ``osprey up`` only brings up dependencies
+   template for it --- ``osprey deploy up`` only brings up dependencies
    such as PostgreSQL.
 
 **Programmatic usage:**

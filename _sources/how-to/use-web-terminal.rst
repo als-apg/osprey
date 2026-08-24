@@ -81,15 +81,6 @@ An alternative WebSocket endpoint (``/ws/operator``) drives the Osprey agent thr
 Agent SDK instead of a PTY. The client sends structured JSON prompts and
 receives typed events (text, thinking, tool use, errors).
 
-Theme
-^^^^^
-
-The default first-paint theme is set by ``web.theme`` in ``config.yml`` (a
-theme family or a concrete theme id); the in-page switcher always overrides
-it and persists your choice across reloads. See :doc:`osprey-themes` for
-the full contract, including how ``web.theme`` differs from the CLI's own
-``cli.theme``.
-
 Live Workspace Viewer
 ^^^^^^^^^^^^^^^^^^^^^
 
@@ -198,25 +189,6 @@ Custom panels pointing to external URLs are also supported:
 
 The ``/api/panel-focus`` endpoint lets MCP tools programmatically switch the
 active panel.
-
-
-Deployment Name
-^^^^^^^^^^^^^^^
-
-Set an optional human-readable name to distinguish otherwise-identical web
-terminals (for example, several deployments sharing the same layout). It is
-rendered as a muted badge on the right of the header. When unset or empty, no
-badge is shown and the header is unchanged.
-
-.. code-block:: yaml
-
-   web:
-     app_name: "Control Room A"
-
-The ``OSPREY_WEB_APP_NAME`` environment variable overrides ``web.app_name`` when
-set. This is useful when several containers share a single baked config image
-but should each display a distinct name — set the variable per container instead
-of rebuilding a config per deployment.
 
 
 Configuration Reference

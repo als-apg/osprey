@@ -3,12 +3,13 @@ Guided Project Setup
 ====================
 
 If you're setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the ``/osprey-build-interview`` skill turns a guided conversation
-into a working deployment repository tailored to your system — created up
-front from a curated preset, then refined with you piece by piece.
+subsystem, the ``/osprey-build-interview`` skill walks you through a guided
+conversation that generates a ready-to-build project profile tailored to your
+system. It also handles **migration from existing OSPREY projects** — point
+it at your old
+project directory and it will scan, classify, and extract everything reusable.
 
-A minimal setup takes a few minutes; how much further you go is up to you,
-and you can stop, build, and resume at any point.
+The whole interview takes about 10--15 minutes.
 
 .. dropdown:: **Prerequisites**
    :color: info
@@ -29,11 +30,13 @@ and you can stop, build, and resume at any point.
    * **A container runtime (Docker or Podman)** — not needed for the interview
      itself, but your generated project will likely include containerized
      services (Jupyter, simulation IOCs, databases). Without one, ``osprey build``
-     still works but ``osprey up`` won't. See the "Container Runtime"
+     still works but ``osprey deploy up`` won't. See the "Container Runtime"
      dropdown in :doc:`installation` for install instructions.
    * **A list or spreadsheet of EPICS PV names** for your subsystem, if you have
      one. Not required — the interview can proceed without concrete PVs — but
      having it handy speeds things up considerably.
+   * **If migrating from an existing OSPREY project:** the path to that project
+     directory ready to paste.
 
 Install the interview skill
 ===========================
@@ -67,111 +70,109 @@ In the Osprey agent session, type:
 
    /osprey-build-interview
 
-The interview creates your **deployment repository first** — one ``osprey
-init`` from a working preset, in the first minutes of the conversation — and
-then refines it with you in place. There is no questionnaire to survive before
-something exists: the repo builds at every step, and you can ask to see it
-running at any point.
+The Osprey agent will walk you through:
 
-Four things are always settled before the interview calls itself done:
-
-* **Which AI service answers** — usually whichever one your lab provides, and
-  a working key for it. "I'm not sure" is a fine answer; the interview helps
-  you find out.
-* **How it connects** — the built-in simulated accelerator to start with,
-  which is the recommended choice if you're unsure, or a live connection to
-  your control system.
-* **Whether the assistant may change things, or only look** — read-only is
-  the safe start. If you do want it to change values, you'll also settle
-  which channels and what range is safe for each.
-* **What the project is** — a short name, the facility it belongs to, and
-  its timezone.
-
-Everything else keeps the preset's curated defaults unless you bring it up.
-The profile the interview edits lists every optional feature — including the
-ones not switched on — as commented entries with explanations, so "what else
-could this do?" is always answerable by reading the file, with or without the
-interview.
-
-Decisions land in an ``INTERVIEW.md`` at the repository root: what was chosen,
-why, and what was deliberately deferred. Reopen the repository later and
-invoke the skill again to resume exactly where you left off.
+1. What system you work with and what you need the AI for
+2. Whether you're starting fresh or **migrating from an existing OSPREY project**
+   (if migrating, just point it to the directory and it will scan and reuse what it can)
+3. Your EPICS PV names (if you have them — it's OK if you don't yet)
+4. Whether you need read-only or write access
+5. How to connect (simulated data is recommended for starting out)
+6. Whether you'd like a custom monitoring panel in the web dashboard
+7. A review step that checks for anything missing
 
 Tips during the interview
 -------------------------
 
 - If you're not sure about a question, say "I'm not sure" — it'll pick a safe default
-- If you have a spreadsheet of channel names handy, that's helpful but not required
-- Ask to see the assistant running whenever you're curious — the repo always builds
+- If you have a spreadsheet of PV names handy, that's helpful but not required
+- If you're migrating, have the path to your existing project directory ready
+- You can always re-run the interview later to adjust things
 
-Migrating an existing project
-=============================
+Build your project
+==================
 
-If you already have an OSPREY project — even one from the LangGraph era —
-point the interview at it. It scans the old project, salvages what carries
-over (channel databases, data files, custom code, configuration values), and
-walks you through each judgment call as a confirmation rather than a
-question. The porting decisions are recorded in ``INTERVIEW.md`` alongside
-everything else.
+When the interview is done, the Osprey agent generates a ``build-profile/`` directory
+containing your ``profile.yml``, channel database, README, and a project-local
+copy of the **osprey-build-deploy** skill under
+``build-profile/.claude/skills/osprey-build-deploy/``. The interview installs
+this skill automatically and runs three verification agents to confirm it
+landed correctly — so the deploy phase is wired up by the time you see the
+final summary.
 
-Build and run
-=============
-
-The interview leaves you inside a deployment repository whose
-``profile.yml`` records everything that was decided:
+Then:
 
 .. code-block:: bash
 
    # skip-ci
-   cd my-project
-   osprey build     # render build/ from the profile
-   osprey web       # web dashboard on your own machine
+   osprey build my-project build-profile/profile.yml
 
-Or talk to the agent directly with ``osprey chat``. Adjust anything later by
-editing ``profile.yml`` (every key carries its own explanation) and running
-``osprey build`` again.
+One command. OSPREY reads your profile, validates your selections, copies your
+channel database into the right place, and produces a ready-to-use project.
+
+To start using it:
+
+.. code-block:: bash
+
+   # skip-ci
+   cd my-project && claude
+
+Or for the web dashboard:
+
+.. code-block:: bash
+
+   # skip-ci
+   osprey web
 
 Phase 2: deploy your project
 ============================
 
-The interview settles *what* to build. Running what was built — putting it on a
-real machine and keeping it there — is the other half, and it lives in the same
-place. The deployment repository is a durable, git-tracked artifact you'll
-redeploy from many times, and both halves of deployment live inside it.
-
-First, the deployment coordinates go in the profile itself, under a ``deploy:``
-block: the CI platform you use, the deploy host, and the container registry if
-that host pulls its images. A fresh profile ships this block commented out, so
-filling it in is the one edit that turns a buildable profile into a deployable
-one. Credentials are *named* there, never written there.
-
-Second, one command turns those coordinates into files:
+The ``build-profile/`` directory is a durable, git-tracked artifact you'll
+redeploy from many times. When you're ready to ship to a real deploy server
+(GitLab CI/CD, container registry, on-server containers), open the Osprey agent
+**inside the profile repo** and trigger the deploy skill:
 
 .. code-block:: bash
 
    # skip-ci
-   osprey scaffold ci
+   cd build-profile
+   git init && git add -A && git commit -m "Initial profile"
+   claude
 
-That writes the CI pipeline at the repository root and a post-deploy health
-check inside the profile. Re-run it whenever the ``deploy:`` block changes — a
-file whose content already matches is left untouched, and a file you hand-edited
-is reported rather than overwritten.
+In the Osprey agent session:
 
-From there the same handful of commands runs the stack, from anywhere inside
-the repository:
+.. code-block:: text
+
+   /osprey-build-deploy
+
+The deploy skill walks you through:
+
+1. A one-time deploy interview that captures site-specific values (GitLab
+   host, deploy server, container runtime, ports, optional modules) and
+   writes them to ``facility-config.yml``
+2. Scaffolding the deploy infrastructure from that config (``docker-compose.yml``,
+   ``.gitlab-ci.yml``, ``scripts/deploy.sh``, ``.env.template``)
+3. Driving the GitLab pipeline (push → CI builds containers → manual release
+   tag → ``deploy.sh`` on the server)
+4. Post-deploy health checks and ongoing release operations
+
+Because the skill lives **inside the profile repo** (not globally), every
+operator who clones this repo gets the same deploy operator automatically —
+no separate install step. To refresh the skill after upgrading OSPREY, run
+from the profile repo root:
 
 .. code-block:: bash
 
    # skip-ci
-   osprey up -d      # start it
-   osprey status     # what is running, where it answers, which build it is
-   osprey logs       # what the containers are saying
-   osprey health     # diagnostics: config, environment, providers, telemetry
+   osprey skills install osprey-build-deploy --target .claude/skills/
 
-``osprey status`` only reads, so it is safe against a live stack at any time,
-and it is the first thing to run when something looks wrong. ``osprey down``
-stops the stack and keeps its volumes.
+The previous copy is backed up to ``.claude/skills/osprey-build-deploy.bak.<timestamp>/``.
 
-See :doc:`/how-to/deploy-a-facility` for a worked example that goes from an
-empty directory to running containers, and :doc:`/how-to/build-profiles` for the
-full build profile reference.
+Send feedback
+=============
+
+After you've tested your project, you can send feedback to the OSPREY team by
+starting an Osprey agent session and typing ``/osprey-build-interview feedback``. It takes
+about 30 seconds and helps us improve the process.
+
+See :doc:`/how-to/build-profiles` for the full build profile reference.

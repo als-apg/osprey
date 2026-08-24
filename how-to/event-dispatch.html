@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Event Dispatch &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+    <title>Event Dispatch &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -66,7 +66,7 @@ const initStyles = () => {
 
 pre.mermaid > svg {
     /* Same as .mermaid-container > pre > svg */
-    height: auto;
+    height: 500px;
     width: 100%;
     max-width: 100% !important;
 }`;
@@ -85,7 +85,7 @@ pre.mermaid > svg {
 }
 
 .mermaid-container > pre > svg {
-    height: auto;
+    height: 500px;
     width: 100%;
     max-width: 100% !important;
 }
@@ -488,19 +488,19 @@ window.addEventListener("load", load);</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Chat Bridges" href="chat-bridges/index.html" />
-    <link rel="prev" title="Non-Interactive Agent Queries" href="non_interactive_query.html" />
+    <link rel="next" title="Add a Connector" href="add-connector.html" />
+    <link rel="prev" title="Python Execution Service" href="use-python-executor.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -803,20 +803,13 @@ window.addEventListener("load", load);</script>
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
-<li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
-<li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
-</ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
-<li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
 
@@ -826,24 +819,13 @@ window.addEventListener("load", load);</script>
 
 
 
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Event Dispatch</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
-<li class="toctree-l2"><a class="reference internal" href="chat-bridges/google-chat.html">Google Chat</a></li>
-<li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
-</ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Event Dispatch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -853,13 +835,7 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -964,37 +940,24 @@ config into your project, and appends both to <code class="docutils literal notr
 <section id="bring-it-up">
 <h2>Bring It Up<a class="headerlink" href="#bring-it-up" title="Link to this heading">#</a></h2>
 <p>Both services are registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so they come up with the
-rest of the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> auto-generates both bearer tokens into
-the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> when they are unset, then derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-from it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
+rest of the stack. One command, secure by default — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
+auto-generates both bearer tokens into <code class="docutils literal notranslate"><span class="pre">.env</span></code> when they are unset:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
 </pre></div>
 </div>
-<p>The first build is slow: both images install Node and the agent CLI the
-worker runs on.</p>
+<p>The first build is slow: the shared dispatcher/worker image installs Node and
+the agent CLI the worker runs on.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-package" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.878.392 5.25 3.045c.54.314.872.89.872 1.514v6.098a1.75 1.75 0 0 1-.872 1.514l-5.25 3.045a1.75 1.75 0 0 1-1.756 0l-5.25-3.045A1.75 1.75 0 0 1 1 11.049V4.951c0-.624.332-1.201.872-1.514L7.122.392a1.75 1.75 0 0 1 1.756 0ZM7.875 1.69l-4.63 2.685L8 7.133l4.755-2.758-4.63-2.685a.248.248 0 0 0-.25 0ZM2.5 5.677v5.372c0 .09.047.171.125.216l4.625 2.683V8.432Zm6.25 8.271 4.625-2.683a.25.25 0 0 0 .125-.216V5.677L8.75 8.432Z"></path></svg></span><span class="sd-summary-text">Image build &amp; overrides</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">The two services use two different images, both built locally on first
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>:</p>
-<ul class="simple">
-<li><p class="sd-card-text">the <strong>dispatcher</strong> gets its own small image
-(<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-dispatch:local</span></code>, from
-<code class="docutils literal notranslate"><span class="pre">services/event_dispatcher/Dockerfile</span></code>);</p></li>
-<li><p class="sd-card-text">the <strong>worker</strong> runs the full <em>project image</em> (<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> — the
-same image <a class="reference internal" href="containerize-project.html"><span class="doc">Containerize a Project</span></a> describes, with your profile’s
-artifacts and <code class="docutils literal notranslate"><span class="pre">data/</span></code> baked in), so the agent it launches sees the real
-project.</p></li>
-</ul>
-<p class="sd-card-text">Pass <code class="docutils literal notranslate"><span class="pre">--dev</span></code> to install your local osprey checkout (incl. unreleased
-code) via a wheel; otherwise the images install <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> from
-PyPI. To use prebuilt/published images instead of building, set the
-override env vars — note they take <em>different kinds</em> of image: the worker
-override must be a project-style image containing <code class="docutils literal notranslate"><span class="pre">/app/&lt;project&gt;</span></code>, not
-a dispatch image:</p>
+<p class="sd-card-text">The dispatcher and worker share one image, built locally from
+<code class="docutils literal notranslate"><span class="pre">services/event_dispatcher/Dockerfile</span></code> on first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>. Pass
+<code class="docutils literal notranslate"><span class="pre">--dev</span></code> to install your local osprey checkout (incl. unreleased code) via a
+wheel; otherwise the image installs <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> from PyPI. To use a
+prebuilt/published image instead of building, set the override env vars:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">OSPREY_DISPATCH_IMAGE</span><span class="o">=</span>my-registry/osprey-dispatch:dev<span class="w"> </span><span class="se">\</span>
-<span class="nv">OSPREY_WORKER_IMAGE</span><span class="o">=</span>my-registry/my-project:dev<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>osprey<span class="w"> </span>up
+<span class="nv">OSPREY_WORKER_IMAGE</span><span class="o">=</span>my-registry/osprey-dispatch:dev<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>osprey<span class="w"> </span>deploy<span class="w"> </span>up
 </pre></div>
 </div>
 <p class="sd-card-text">Inside the compose network the worker is reachable as
@@ -1084,22 +1047,6 @@ a container, repoint it at the dispatcher service:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">EVENT_DISPATCHER_URL</span><span class="o">=</span>http://event-dispatcher:8020
 </pre></div>
 </div>
-<section id="auto-derived-url">
-<h3>Auto-derived URL<a class="headerlink" href="#auto-derived-url" title="Link to this heading">#</a></h3>
-<p>You do not have to set <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> by hand. Whenever a profile
-lists the <code class="docutils literal notranslate"><span class="pre">events</span></code> panel <strong>and</strong> declares a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, the build
-derives the panel’s route from <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web.panels.events.url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:&lt;dispatcher_port&gt;</span><span class="w">   </span><span class="c1"># bare host</span>
-<span class="nt">web.panels.events.path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/dashboard</span><span class="w">                          </span><span class="c1"># route</span>
-</pre></div>
-</div>
-<p>The <code class="docutils literal notranslate"><span class="pre">url</span></code> is the bare dispatcher host and <code class="docutils literal notranslate"><span class="pre">path</span></code> carries the <code class="docutils literal notranslate"><span class="pre">/dashboard</span></code>
-route — the web terminal composes the backend target as <code class="docutils literal notranslate"><span class="pre">url</span></code> + <code class="docutils literal notranslate"><span class="pre">path</span></code>, so
-baking <code class="docutils literal notranslate"><span class="pre">/dashboard</span></code> into <code class="docutils literal notranslate"><span class="pre">url</span></code> would double-prefix sub-routes. Keep them
-split. If a profile already pins <code class="docutils literal notranslate"><span class="pre">web.panels.events.path</span></code> the build leaves it
-untouched, and an explicit <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> override always wins (use it
-for remote/containerized terminals that cannot reach <code class="docutils literal notranslate"><span class="pre">localhost</span></code>).</p>
-</section>
 </section>
 <section id="authoring-triggers">
 <h2>Authoring Triggers<a class="headerlink" href="#authoring-triggers" title="Link to this heading">#</a></h2>
@@ -1144,12 +1091,10 @@ stack never exercises it; the behaviour is covered by
 </details></section>
 <section id="authentication">
 <h2>Authentication<a class="headerlink" href="#authentication" title="Link to this heading">#</a></h2>
-<p>Two bearer tokens guard the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> auto-generates a strong
-random value for each when it is unset (and logs where it wrote it), so a
-containerized deploy needs no token editing. A generated value is written into
-the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> and derived from there into the project’s, so a
-rebuild comes up on the same token. To pick your own values, set them in the
-profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> and rebuild:</p>
+<p>Two bearer tokens live in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
+auto-generates a strong random value for each when it is unset (and logs where
+it wrote it), so a containerized deploy is secure by default — no editing
+required. Set your own values in <code class="docutils literal notranslate"><span class="pre">.env</span></code> to override:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> — guards <strong>inbound</strong> webhook and write endpoints.
 Send it as <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;token&gt;</span></code>.</p></li>
@@ -1175,7 +1120,7 @@ handoff.</p>
 <dl class="simple">
 <dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Container deployment mechanics for all Osprey services.</p>
 </dd>
-<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and lifecycle-verb reference.</p>
+<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> reference.</p>
 </dd>
 </dl>
 </div>
@@ -1193,20 +1138,20 @@ handoff.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="non_interactive_query.html"
+       href="use-python-executor.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Non-Interactive Agent Queries</p>
+        <p class="prev-next-title">Python Execution Service</p>
       </div>
     </a>
     <a class="right-next"
-       href="chat-bridges/index.html"
+       href="add-connector.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Chat Bridges</p>
+        <p class="prev-next-title">Add a Connector</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1232,10 +1177,7 @@ handoff.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bring-it-up">Bring It Up</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fire-a-trigger">Fire a Trigger</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-events-panel">The EVENTS Panel</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-derived-url">Auto-derived URL</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-events-panel">The EVENTS Panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-triggers">Authoring Triggers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication">Authentication</a></li>
 </ul>

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Production Control Systems Tutorial &#8212; Osprey Framework osprey-connectors-v0.1.0 documentation</title>
+    <title>Production Control Systems Tutorial &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=8cac9ea1"></script>
+    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,7 +53,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'osprey-connectors-v0.1.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 23, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
   </head>
   
   
@@ -470,56 +470,22 @@ them.</p></li>
 It covers project layout, the <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server, and the safety model
 in detail — everything below builds directly on it.</p>
 </div>
-<section id="step-1-build-the-project-and-bring-it-up">
-<h2>Step 1: Build the Project and Bring It Up<a class="headerlink" href="#step-1-build-the-project-and-bring-it-up" title="Link to this heading">#</a></h2>
+<section id="step-1-build-the-project">
+<h2>Step 1: Build the Project<a class="headerlink" href="#step-1-build-the-project" title="Link to this heading">#</a></h2>
 <p>Create a project from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
 <span class="nb">cd</span><span class="w"> </span>my-control-assistant
-osprey<span class="w"> </span>build
 </pre></div>
 </div>
-<p>As in Hello World, this writes one repository whose <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the
-source and whose <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the render; provider keys go in the repository’s
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
-<p>No hardware is involved, so every example below is safe to run; hardware writes
-are still gated behind the human-approval prompt. Unlike <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, the
-preset ships a <strong>channel database</strong>, a <strong>seeded electronic logbook</strong>, and an
-<strong>archive of its own</strong> — a real store this project deploys, seeds and records
-into — plus a set of sub-agents and operator skills.</p>
+<p>Like <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, this project starts in <strong>mock</strong> mode, so every example
+below is safe to run with no hardware attached; hardware writes are still gated
+behind the human-approval prompt. Unlike
+<code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, the preset ships a <strong>channel database</strong>, a <strong>seeded electronic
+logbook</strong>, and a <strong>mock archiver</strong>, plus a set of sub-agents and operator skills.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>First run may take 1–2 minutes to create a virtual environment and install
 dependencies. Subsequent builds are near-instant.</p>
-</div>
-<p>Then bring the stack up (this needs Docker or Podman):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up
-</pre></div>
-</div>
-<p>This starts the containers the preset declares: the Virtual Accelerator
-soft-IOC the agent reads and writes, and the <strong>archive</strong> — a MongoDB store and a
-recorder service — that holds what those channels did.</p>
-<p><strong>The first deploy seeds the archive</strong>, and it is the step that takes the
-longest. It writes about a month of history for every channel the machine
-serves, reporting a step under the start phase every 15 seconds or so while it
-works. The duration at the end of each step is how long that slice took:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>→ Starting my-control-assistant
-  · seeding the archive base: 2,908 channels over 30 days (minutes on a first deploy)
-  · seeding archive: 8,960 documents written across 2,908 channels (17.4s)
-  · seeding archive: 17,920 documents written across 2,908 channels (15.0s)
-  ...
-  · archive base: seeded 57,600 documents x 2,908 channels (2026-07-12 09:14 to 2026-08-11 09:14 UTC) in 96.3s (14.2s)
-</pre></div>
-</div>
-<p>Each of those documents holds one instant across every channel, which is why
-the count is in the tens of thousands rather than the millions. Expect a minute
-or two on a first deploy — it is writing, not hanging. Later deploys check what
-is already stored against the settings now in force and skip the seed when it
-already matches.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The store is compressed (zstd) and bounded by its retention window: at the
-shipped settings it stays under 2 GiB on disk, and samples expire rather than
-accumulating forever. Tuning that is Step 7.</p>
 </div>
 </section>
 <section id="step-2-what-s-different-from-hello-world">
@@ -545,30 +511,27 @@ database — no need to know PV names.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code> query a seeded operations
 logbook for past events.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>Archive + visualization</strong></p></td>
-<td><p>A store this project deploys serves historical data — seeded on the first
-deploy, then recorded from the running machine; the <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code>
-sub-agent turns it into interactive and publication-quality plots.</p></td>
+<tr class="row-even"><td><p><strong>Archiver + visualization</strong></p></td>
+<td><p>A mock archiver serves historical data; the <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code> sub-agent
+turns it into interactive and publication-quality plots.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Operator skills</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code>, <code class="docutils literal notranslate"><span class="pre">/session-report</span></code>, <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">demo-ui</span></code> support common control-room workflows.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code>, <code class="docutils literal notranslate"><span class="pre">/session-report</span></code>, <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, and <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code>
+support common control-room workflows.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Web terminal</strong></p></td>
-<td><p>A browser split-pane UI with logbook and channel-finder panels
-(documented separately — see <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>).</p></td>
+<td><p>A browser split-pane UI with logbook, channel-finder, and tuning panels
+(documented separately — see <a class="reference internal" href="../how-to/use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a>).</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <p>The <strong>safety model is unchanged</strong>: limits checking, the pre-write check, and the
 human-approval prompt all behave exactly as in the Hello World Tutorial. Refer
-back to that tutorial’s “Write with the Guards Watching” step for the
-write-approval walkthrough — we won’t repeat it here.</p>
-<p>Start the agent from anywhere inside the project — this tutorial stays in the
-terminal with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>; the web terminal from Hello World
-(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>) works just as well:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat
+back to that tutorial’s “Safety &amp; Limits” step for the write-approval walkthrough
+— we won’t repeat it here.</p>
+<p>Start the agent the same way as before, from the project directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude
 </pre></div>
 </div>
 <div class="admonition note">
@@ -646,29 +609,23 @@ search and stitches the entries into a single narrative.</p>
 </section>
 <section id="step-5-pull-historical-data-and-plot-it">
 <h2>Step 5: Pull Historical Data and Plot It<a class="headerlink" href="#step-5-pull-historical-data-and-plot-it" title="Link to this heading">#</a></h2>
-<p>The archive Step 1 seeded is what answers history questions here — the agent
-reads stored samples, not numbers made up when you ask. Ask for a trend:</p>
+<p>The bundle also configures a <strong>mock archiver</strong> that serves synthetic historical
+data, so you can exercise the trend-and-plot workflow without a real archive
+appliance. Ask for a trend:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Plot the storage-ring beam current over the last 24 hours
 </pre></div>
 </div>
 <p>The agent finds the channel (<code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code>), reads its history
 from the archiver, and delegates to the <strong>data-visualizer</strong> sub-agent to render
 the result. The visualizer produces a self-contained figure artifact:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Read 8640 samples for SR:DIAG:DCCT:01:CURRENT:RB (last 24h).
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Read 1440 samples for SR:DIAG:DCCT:01:CURRENT:RB (last 24h).
 Created interactive plot: beam_current_24h.html (artifact)
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code> can produce interactive Plotly figures, publication-quality
-matplotlib images, dashboards, and LaTeX reports. Here the query hits the store
-this project deploys; in production the same query hits your facility’s archiver
+matplotlib images, dashboards, and LaTeX reports. In development everything runs
+against the mock archiver; in production the same query hits your real archiver
 (see Step 7).</p>
-<p>Two things follow from the history being <em>stored</em> rather than made up on
-demand. The last 24 hours come back at one sample every 10 seconds, because that
-is the cadence the archive holds recent history at — so a 24-hour trend is
-around 8,600 points, not a smooth line drawn to fit your window. And a question
-reaching back further than the archive does gets <strong>no points</strong> rather than a
-plausible-looking answer: ask for last year and the honest reply is that the
-archive starts about a month ago.</p>
 </section>
 <section id="step-6-run-operator-skills">
 <h2>Step 6: Run Operator Skills<a class="headerlink" href="#step-6-run-operator-skills" title="Link to this heading">#</a></h2>
@@ -690,16 +647,13 @@ HTML report to the artifact gallery.</p>
 connection errors, configuration drift) and produces a structured root-cause
 report — it is for diagnosing the <em>assistant</em>, not the accelerator.</p>
 <p><strong>Other skills:</strong> <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code> generates a showcase of plot and report
-artifacts to explore the gallery’s capabilities, <code class="docutils literal notranslate"><span class="pre">demo-ui</span></code> runs a short
-scripted demonstration of the agent driving the web workspace — switching
-panel tabs, focusing artifacts, composing layouts — and <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>
-inspects and repairs the project’s configuration when something looks
-misconfigured.</p>
+artifacts to explore the gallery’s capabilities, and <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code> inspects and
+repairs the project’s configuration when something looks misconfigured.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>This project also ships a browser-based <strong>web terminal</strong> with logbook
-and channel-finder panels. It has its own guide —
-see <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> to launch it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p>
+<p>This project also ships a browser-based <strong>web terminal</strong> with logbook,
+channel-finder, and tuning panels. It has its own guide —
+see <a class="reference internal" href="../how-to/use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a> to launch it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p>
 </div>
 </section>
 <section id="step-7-tune-the-assistant-and-go-to-production">
@@ -707,45 +661,25 @@ see <a class="reference internal" href="../how-to/web-terminal/operate.html"><sp
 <p><strong>Choose a channel-finder strategy.</strong> The preset defaults to <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>
 mode, which scales to large facilities with thousands of channels. For a small
 facility (under ~1,000 channels) the <code class="docutils literal notranslate"><span class="pre">in_context</span></code> strategy can be simpler and
-faster. The strategy is a build-time choice, so set it and rebuild:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
-osprey<span class="w"> </span>build
+faster. The strategy is a build-time choice, so select it when you build:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--set<span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> writes the value into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so it stays in effect for
-every later build — you can also just edit that file instead.</p>
 <p>See <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> for a comparison of the strategies.</p>
-<p><strong>Tune how much history the archive keeps.</strong> Two settings decide the store’s
-size and reach: <code class="docutils literal notranslate"><span class="pre">retention_days</span></code> (how far back it goes — 30 by default) and
-<code class="docutils literal notranslate"><span class="pre">hot_span_hours</span></code> (how much of that is kept at the dense 10-second cadence —
-48 by default; everything older is kept at 60 seconds). Both live in the
-<strong>profile</strong>, in its <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block, which is the one place the archive is
-described:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
-<span class="nt">va_archiver</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">retention_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7</span><span class="w">        </span><span class="c1"># a week is plenty for a demo, and seeds faster</span>
-<span class="w">  </span><span class="nt">hot_span_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24</span>
-</pre></div>
-</div>
-<p>Rebuild and deploy after editing. The deploy notices the stored history no
-longer matches what the profile asks for, says what changed, and reseeds it
-(pass <code class="docutils literal notranslate"><span class="pre">--keep-archiver-base</span></code> to leave the old data alone instead). Do <strong>not</strong>
-copy these keys into the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the build writes that file
-from the block, and a second copy is free to disagree with the first.</p>
 <p><strong>Switch to real hardware.</strong> As in Hello World, moving to production is a
-configuration change, not a code change. Point the connectors at your facility
-in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics
-osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver
+configuration change, not a code change. Point the connectors at your facility in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span><span class="w">            </span><span class="c1"># was: mock</span>
+
+<span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span><span class="w">   </span><span class="c1"># was: mock_archiver</span>
 </pre></div>
 </div>
-<p>The archive this tutorial deploys is a <em>simulated</em> machine’s history, which is
-not what you want against hardware — so the archiver moves to your facility’s
-appliance at the same time as the control system.</p>
-<p>Because these are build-time inputs, re-render the agent’s artifacts and
-relaunch:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
-osprey<span class="w"> </span>chat
+<p>Because these are build-time inputs, regenerate the agent’s artifacts and relaunch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>regen
+claude
 </pre></div>
 </div>
 <p>Your queries don’t change — “Read the current in the booster’s defocusing
@@ -757,17 +691,13 @@ difference; the agent, the channel finder, and your prompts stay the same.</p>
 <p>You’ve built a production-shaped control assistant with channel finding, logbook
 search, historical plotting, and operator skills. Where to go next:</p>
 <ul class="simple">
-<li><p><strong>Run your first plan</strong>: this project can run real measurement plans — ask
-the agent for a grid scan, review it in the BLUESKY panel, and start it from
-the BLUESKY panel, all against the Virtual Accelerator.
-<a class="reference internal" href="../how-to/bluesky/run-first-plan.html"><span class="doc">Run Your First Scan</span></a> walks through it in ten minutes.</p></li>
 <li><p><strong>Channel finder in depth</strong>: <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> compares the
 hierarchical, in-context, and middle-layer strategies and explains the database
 format.</p></li>
-<li><p><strong>Web terminal</strong>: <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> launches the browser UI and
+<li><p><strong>Web terminal</strong>: <a class="reference internal" href="../how-to/use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a> launches the browser UI and
 its panels with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p></li>
 <li><p><strong>Tailor a preset to your facility</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> shows how
-to turn <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> into a profile you own and edit.</p></li>
+to extend <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> with your own overrides and overlays.</p></li>
 <li><p><strong>Architecture deep dive</strong>: the <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> and the
 <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture</span></a> section explain the agent + MCP
 design, the connector system, and the safety mechanisms.</p></li>
@@ -824,7 +754,7 @@ design, the connector system, and the safety mechanisms.</p></li>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-build-the-project-and-bring-it-up">Step 1: Build the Project and Bring It Up</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-build-the-project">Step 1: Build the Project</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-what-s-different-from-hello-world">Step 2: What’s Different from Hello World</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-find-channels-by-description">Step 3: Find Channels by Description</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-search-the-electronic-logbook">Step 4: Search the Electronic Logbook</a></li>
