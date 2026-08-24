@@ -530,7 +530,7 @@ The web tier names its registry separately
 ------------------------------------------
 
 The web tier — the landing page and the one containerized terminal per
-operator, described in :doc:`multi-user` — carries its own, older spelling of
+operator, described in :doc:`multi-user/index` — carries its own, older spelling of
 the same two ideas, and the two vocabularies coexist rather than merging:
 
 .. list-table::
@@ -1022,7 +1022,7 @@ worth editing because the next command overwrites them:
    * - ``.env.auth``
      - both — the web terminals' password hashes and cookie-signing secrets,
        minted by the deploy, but also where you put an OIDC client id and
-       secret by hand (multi-user deployments only; see :doc:`multi-user`)
+       secret by hand (multi-user deployments only; see :doc:`multi-user/index`)
    * - ``build/.env.merged``
      - machine — the chain collapsed into one file, for compose providers that
        accept only one

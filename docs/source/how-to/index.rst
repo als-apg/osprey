@@ -69,7 +69,7 @@ Run & Operate the Agent
       OSPREY interface at once, and adding your own themed side panels.
 
    .. grid-item-card:: Multi-User Support
-      :link: multi-user
+      :link: multi-user/index
       :link-type: doc
 
       Serve a whole team from one host — a landing page plus a private
@@ -226,7 +226,7 @@ Bundled Services & Tutorials
    deploy-project
    containerize-project
    web-terminal/index
-   multi-user
+   multi-user/index
    send-feedback
    use-cli-chat
    non_interactive_query

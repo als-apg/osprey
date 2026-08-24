@@ -353,3 +353,6 @@ See also
   posture that refuses control-system writes. It is a separate control: no
   posture opens the protected set, and no posture closes anything on this page
   further.
+- :doc:`Privilege Tiers <multi-user/tiers>` — what each login may do, and
+  the three layers that hold it. This page is the line every tier shares,
+  admin included.

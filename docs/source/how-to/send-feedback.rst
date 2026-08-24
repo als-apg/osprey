@@ -280,7 +280,7 @@ Two deliberate gaps, both recorded so nobody has to rediscover them:
       Running the terminal the feedback dialog lives in, and the full ``web``
       settings table.
 
-   :doc:`multi-user`
+   :doc:`multi-user/index`
       Per-user web terminals and the roster that decides how feedback is stored
       and read.
 

@@ -558,7 +558,7 @@ that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
    want is "may not write," prefer flipping the enforcement switch instead —
    the bundled ``control-assistant-readonly`` preset differs from its
    write-capable sibling only on ``control_system.writes_enabled``, leaving
-   the tool surface identical (see :doc:`multi-user`).
+   the tool surface identical (see :doc:`multi-user/tiers`).
 
 To keep the bluesky server **on** while hiding an individual plan, set
 ``bluesky.excluded_plans`` instead:
@@ -1093,7 +1093,7 @@ would not be a posture at all.
    at all — with ``auth.method: none`` there is no wall to be exempt from, and
    the same exposure is reported as an advisory instead. On a profile that
    wrote no floor at all, where every persona holds everything, the only
-   remedy that refusal can offer is to write one. See :doc:`multi-user`.
+   remedy that refusal can offer is to write one. See :doc:`multi-user/tiers`.
 
 .. _profile-services:
 

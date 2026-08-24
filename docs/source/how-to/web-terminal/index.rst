@@ -51,7 +51,7 @@ tools without ever leaving the page.
       Add your own tools as themed side panels that sit beside the chat.
 
    .. grid-item-card:: Multi-user
-      :link: ../multi-user
+      :link: ../multi-user/index
       :link-type: doc
       :shadow: md
 

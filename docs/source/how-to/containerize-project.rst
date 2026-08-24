@@ -436,7 +436,7 @@ write land. Every other render leaves the file root-owned, which is what makes
 the boundary a fact of the filesystem rather than a permission list the agent
 is asked to respect. Grant the two surfaces together, the way the bundled
 tiers do — a persona handed the panel alone would find the file it has to
-write still owned by root. See :doc:`multi-user` for the tiers this exists
+write still owned by root. See :doc:`multi-user/tiers` for the tiers this exists
 for.
 
 On a bare host it is ownership you set up
