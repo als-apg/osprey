@@ -151,6 +151,16 @@ _VAR_GENERATORS: dict[str, Callable[[], str]] = {
     # construction, so every spelling is safe unescaped, with the same 256 bits
     # of entropy as the default recipe.
     "MONGO_ROOT_PASSWORD": lambda: secrets.token_hex(32),
+    # The graph store's password follows the same hex rationale one step
+    # further. Neo4j takes its initial credentials as the COMPOSITE
+    # ``NEO4J_AUTH: "neo4j/<password>"``, which the container splits on the
+    # first ``/``: a value carrying one hands the container a different user
+    # and a truncated password rather than failing loudly. Neo4j also refuses
+    # an initial password under 8 characters. Hex satisfies both by
+    # construction — no ``/`` in the alphabet, 64 characters long — with the
+    # same 256 bits of entropy, and stays safe unescaped in the bolt URI a
+    # health check or an operator may spell by hand.
+    "GRAPHDB_PASSWORD": lambda: secrets.token_hex(32),
 }
 
 
@@ -210,6 +220,46 @@ def _validate_uri_safe_password(value: str) -> bool:
     if not value:
         return False
     return not any(c in value for c in "@:/?#") and not any(c.isspace() for c in value)
+
+
+#: Neo4j's own floor on an initial password: the container refuses anything
+#: shorter and crash-loops at start. Named rather than inlined because the
+#: operator-facing description below has to quote the same number.
+_GRAPHDB_PASSWORD_MIN_LENGTH = 8
+
+
+def _validate_graphdb_password(value: str) -> bool:
+    """True if ``value`` is safe as the password half of ``NEO4J_AUTH``.
+
+    Two constraints, from two different places, and an operator can trip either
+    one alone:
+
+    * **The composite.** The graphdb compose template passes credentials as
+      ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-…}"`` — one string the container
+      splits on ``/``. A password containing ``/`` therefore moves the split:
+      the container is initialized as a *different user* with a *truncated*
+      password, and nothing in the value is malformed enough for anything to
+      say so. That is a strictly worse failure than a refusal, because the
+      store comes up and the operator's own credentials then do not work.
+    * **The length floor.** Neo4j rejects an initial password under
+      ``_GRAPHDB_PASSWORD_MIN_LENGTH`` characters and crash-loops at container
+      start, in the ``BLUESKY_TILED_API_KEY``/``ZO_ROOT_USER_PASSWORD`` shape:
+      an opaque restart loop that says nothing about ``.env``.
+
+    The ``/`` check is stated here even though
+    :func:`_validate_uri_safe_password` already rejects it as a URI-reserved
+    character. That is deliberate and not redundancy for its own sake: the two
+    rules rest on different facts — one on how a URI's authority component
+    parses, the other on how this one container splits one variable — and the
+    shared helper is free to change its character class for URI reasons that
+    have nothing to do with the composite. Restating it keeps the composite's
+    safety from depending on an unrelated helper's future.
+    """
+    if len(value) < _GRAPHDB_PASSWORD_MIN_LENGTH:
+        return False
+    if "/" in value:
+        return False
+    return _validate_uri_safe_password(value)
 
 
 def _validate_openobserve_password(value: str) -> bool:
@@ -277,6 +327,10 @@ _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # read by the recorder, the seeder, and the agent's connector, at least one
     # of which may assemble a mongodb:// URI around it.
     "MONGO_ROOT_PASSWORD": _validate_uri_safe_password,
+    # The URI-safe rule plus the two constraints Neo4j adds on top of it: the
+    # value is the password half of the composite NEO4J_AUTH, and Neo4j has a
+    # minimum length. See _validate_graphdb_password.
+    "GRAPHDB_PASSWORD": _validate_graphdb_password,
 }
 
 # Human-readable constraint text shown in the RuntimeError _ensure_service_tokens
@@ -304,6 +358,14 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
         "(@ : / ? #) — the archiver store's clients may spell the connection "
         "as a mongodb:// URI carrying this value unescaped"
     ),
+    "GRAPHDB_PASSWORD": (
+        f"must be at least {_GRAPHDB_PASSWORD_MIN_LENGTH} characters with no "
+        "whitespace and no URI-reserved character (@ : / ? #) — the graph store "
+        "receives it as the password half of the composite NEO4J_AUTH "
+        "('neo4j/<password>'), which the container splits on '/', and Neo4j "
+        f"refuses an initial password shorter than {_GRAPHDB_PASSWORD_MIN_LENGTH} "
+        "characters"
+    ),
 }
 
 
@@ -330,6 +392,14 @@ _VAR_FORBIDDEN_VALUES: dict[str, frozenset[str]] = {
     # The ``${ZO_ROOT_USER_PASSWORD:-…}`` fallback in
     # ``osprey/templates/services/openobserve/docker-compose.yml.j2``.
     "ZO_ROOT_USER_PASSWORD": frozenset({"Complexpass#123"}),
+    # The password half of the ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-…}"``
+    # fallback in ``osprey/templates/services/graphdb/docker-compose.yml.j2``.
+    # Registered as the BARE password, not the composite, because that is what
+    # the variable holds: an operator writes ``GRAPHDB_PASSWORD=ospreygraph``
+    # into ``.env``, never the ``neo4j/`` prefix, so a composite entry here
+    # would match nothing an operator can actually type and the refusal would
+    # silently never fire.
+    "GRAPHDB_PASSWORD": frozenset({"ospreygraph"}),
 }
 
 # The ``_VAR_VALIDATOR_DESCRIPTIONS`` twin for _VAR_FORBIDDEN_VALUES: the
@@ -347,6 +417,13 @@ _VAR_FORBIDDEN_DESCRIPTIONS: dict[str, str] = {
         "rather than a secret, and this store holds full agent conversation "
         "transcripts; remove the line from .env (and unset any shell export of the "
         "same name) so the next run mints a per-deploy value"
+    ),
+    "GRAPHDB_PASSWORD": (
+        "must not be the default published in the graphdb compose template — "
+        "that value ships in every rendered project, so it is a shared password "
+        "rather than a secret, and it guards the facility knowledge graph the "
+        "agent answers from; remove the line from .env (and unset any shell "
+        "export of the same name) so the next run mints a per-deploy value"
     ),
 }
 

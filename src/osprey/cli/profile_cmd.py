@@ -983,6 +983,17 @@ class _MaterializedProfile(NamedTuple):
     commented out, so this is normally false on a fresh materialization; it
     decides whether there is anything to render a CI pipeline from."""
 
+    resolved: BuildProfile
+    """The materialized profile, resolved back from the written ``profile.yml``
+    — the same read-back that validates the round-trip, so what the caller
+    summarizes (the composition card) is a fact about what is on disk rather
+    than about what the inputs asked for."""
+
+    persona_deltas: dict[str, Mapping[str, Any]]
+    """The emitted persona deltas, parsed, keyed by persona name — empty for a
+    profile that emits none. The per-persona facts a summary needs (each tier's
+    panels and its write posture) live in these, not in the host profile."""
+
 
 def _materialize_profile_directory(
     target_dir: Path,
@@ -1234,4 +1245,6 @@ def _materialize_profile_directory(
         shell_keys.skipped,
         profile_name_default,
         written.deploy is not None,
+        written,
+        persona_deltas,
     )

@@ -48,8 +48,30 @@ Per-tool policies from `approval.tools` in config.yml:
 
 Creates a pre-execution notebook artifact for code review whenever
 `execute` requires approval (write mode, write patterns, or always policy).
+
+## Write-approval stamps
+
+A `channel_write` ask also leaves a *stamp* beside the target state: the target
+and generation this prompt was rendered against, written before the dialog is
+shown. The controls server reads it back when the tool finally runs and refuses
+the write if the session has moved since — see `_stamp_write_approval` for the
+correlation key and the multi-session rule. The stamp is an enrichment, never a
+gate: a render that cannot write one simply produces a prompt the server cannot
+cross-check, exactly as every older render already does.
+
+## Bluesky plan lanes
+
+A deployment that renders two plan lanes — one Bluesky stack per control-system
+target — turns "queue this" and "start the queue" into questions about WHICH
+machine. The queue describers therefore name the lane an operation binds to,
+fetch their detail from that lane's own bridge, and say out loud when a start
+names a lane the session has switched away from (which the deployment refuses).
+The lane map is render-time truth read from the config's ``services.<lane>``
+blocks; the session's target still comes only from the state file. A single-lane
+deployment has nothing to address and renders exactly what it always did.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -63,6 +85,22 @@ from osprey_hook_log import (
     load_osprey_config,
     log_hook,
 )
+
+# The shared, stdlib-only reader for the control-system target state — the ONLY
+# source this hook consults for target identity (see `_target_line`). Imported
+# here, while this file's own directory is still the first `sys.path` entry the
+# line above put there, because the reader is a sibling script rather than an
+# installed module.
+#
+# The import is guarded because a project rendered before the switch capability
+# existed has no such sibling, and an approval prompt that failed to render at
+# all would be a far worse outcome than one that says the target is unknown. A
+# missing reader therefore lands on exactly the same explicit baseline line as
+# unreadable state.
+try:
+    import osprey_target_state as _target_state
+except Exception:  # pragma: no cover - older render without the reader
+    _target_state = None
 
 # Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
 # Must stay in sync with get_framework_standard_patterns()["write"] (19 patterns).
@@ -133,18 +171,77 @@ except ImportError:
         return any(re.search(p, code) for p in patterns)
 
 
-def build_approval_output(reason_detail: str) -> dict:
+def build_approval_output(reason_detail: str, hook_input=None, read_record=None) -> dict:
+    """The ask envelope, with the target identity line above every detail.
+
+    Every ask this hook emits goes out through here, which is why the identity
+    line is added here and not at the three call sites: a line that is assembled
+    per branch is a line that eventually goes missing from one of them, and the
+    absence of a `Target:` line is indistinguishable from a target that is not
+    the machine. It sits directly under the headline so a long enrichment block
+    (a full queue listing, a plan's source) cannot push it out of view.
+
+    The record is read ONCE here and handed to both consumers: the line the
+    human reads and the stamp the server later cross-checks have to be the same
+    claim, and two reads of a file another process is writing are two claims.
+
+    *read_record* extends that guarantee to the whole prompt. A describer that
+    also names a target — the plan lane a queue operation binds to, the
+    destination of a switch — is handed the same reader, so one prompt describes
+    one read of the state file rather than two reads a switch could land between.
+    Left unset, this resolves its own, exactly as before.
+    """
+    record = (read_record or _record_reader(hook_input))()
+    _stamp_write_approval(hook_input, record)
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "ask",
             "permissionDecisionReason": (
                 "\u26a0\ufe0f  OSPREY APPROVAL REQUIRED\n\n"
+                f"{_target_line(hook_input, record=record)}\n\n"
                 f"{reason_detail}\n\n"
                 "Review the operation above and approve to proceed."
             ),
         }
     }
+
+
+def _read_record_once(hook_input=None):
+    """The session's state record, or ``None`` \u2014 and never an exception.
+
+    :func:`_target_line` already degrades to the baseline line on any trouble;
+    this is the same tolerance moved one level up, so that hoisting the read out
+    of it cannot turn an unreadable state directory into a prompt that fails to
+    render at all.
+    """
+    try:
+        return _session_state_record(hook_input)
+    except Exception:
+        return None
+
+
+def _record_reader(hook_input=None):
+    """A callable resolving this session's state record AT MOST once.
+
+    Threading a reader rather than a record is what lets one prompt describe one
+    read without making a prompt that needs no record pay for one. Every ask
+    names the session's target, but a single-lane deployment's queue prompt has
+    no lane to resolve and must not read the state directory a second time —
+    nor, before the ask is even assembled, a first time.
+
+    The cell is per call of this function, so nothing outlives the prompt: a
+    hook process renders one prompt, and a memo any wider would hand a later
+    call an answer taken before a switch it should have seen.
+    """
+    cell = []
+
+    def read():
+        if not cell:
+            cell.append(_read_record_once(hook_input))
+        return cell[0]
+
+    return read
 
 
 def build_allow_output() -> dict:
@@ -293,6 +390,380 @@ def _sanitize_label(text) -> str:
         else f"\\x{ord(ch):02x}"
         for ch in str(text)
     )
+
+
+# ---------------------------------------------------------------------------
+# Identity: which control-system target this approval would act on
+# ---------------------------------------------------------------------------
+# One line, on every prompt, answering the question no tool argument answers:
+# is this session pointed at the real machine or at a simulation? It is read
+# EXCLUSIVELY from the target-state file the controls server writes. The
+# rendered config.yml is in this hook's hand throughout and is deliberately not
+# consulted: config states what the deployment STARTS as, so on a session that
+# switched at run time it would produce a confident, stale, wrong safety claim —
+# and a wrong `Target:` line is worse than none, because nobody audits a line
+# that looks answered.
+
+#: Rendered whenever the target cannot be resolved: no switch capability in this
+#: render, no controls server running, two sessions sharing the checkout, or a
+#: corrupt record. The wording is fixed — operators and tests both key off it —
+#: and it is never omitted, because a missing line reads as "not the machine".
+_TARGET_BASELINE_LINE = "Target: deployment baseline (state unavailable)"
+
+
+def _real_machine_claim(meta):
+    """Whether *meta* CLAIMS a real machine: ``True``, ``False``, or ``None``.
+
+    Three states, not two. A ``real_machine`` key that is absent, null, or not a
+    boolean is a record this hook cannot read — an older or newer writer, or a
+    truncated one — and coercing that to ``False`` would print "virtual
+    accelerator (simulation)" over a record that never said so. ``None`` sends
+    the caller to the explicit baseline line, which is the honest answer: the
+    identity is unknown, and unknown is not the same claim as simulated.
+    """
+    if not isinstance(meta, dict):
+        return None
+    claim = meta.get("real_machine")
+    return claim if isinstance(claim, bool) else None
+
+
+#: "the caller did not pass a record", which is a different thing from a caller
+#: passing the ``None`` that means "no record resolved".
+_UNREAD = object()
+
+#: Short name of the tool whose approvals are stamped. A literal for the same
+#: reason the describer tables' keys are: this hook is deployed standalone and
+#: cannot import the name the controls server registers.
+_CHANNEL_WRITE_TOOL = "channel_write"
+
+#: Stamp files live beside the target state, under a prefix the state-file glob
+#: (``target_state_*.json``) cannot match — a stamp must never be mistaken for a
+#: server's state file by the reader here or the sweeper on the writer's side.
+WRITE_APPROVAL_PREFIX = "write_approval_"
+WRITE_APPROVAL_SUFFIX = ".json"
+
+#: How long a stamp stays on disk. Long enough that a human can think before
+#: clicking, short enough that the directory does not accumulate one file per
+#: write for the life of a deployment. Expiry is housekeeping only: the server
+#: matches a stamp by payload, so an expired one that survives is still correct.
+WRITE_APPROVAL_TTL_S = 3600.0
+
+
+def write_approval_key(tool_input) -> str | None:
+    """Correlate a prompt with the tool call it will authorize, or ``None``.
+
+    The key is a SHA-256 over the canonical JSON of the two fields of the write
+    that both sides see — ``operations`` and ``verification_level`` — because
+    the hook and the server share no identifier at all: Claude Code gives the
+    hook a session id and a tool-call payload, and the MCP tool receives only
+    its arguments. The payload is the one thing that provably crosses the gap,
+    and the tool's own parameter names are the spelling of it, so the legacy
+    single-channel shape (``channel``/``value``, which the tool does not accept)
+    is deliberately not stamped.
+
+    ``None`` whenever no key can be formed, which the caller renders as "do not
+    stamp": no comparison is a far better failure than a wrong comparison.
+
+    The server restates this derivation in its own module. That duplication is
+    the same one the state-file path contract already carries — hooks run
+    outside the osprey venv and cannot import it — and the two spellings are
+    pinned against each other by a test.
+    """
+    if not isinstance(tool_input, dict):
+        return None
+    operations = tool_input.get("operations")
+    if not isinstance(operations, list) or not operations:
+        return None
+    try:
+        payload = json.dumps(
+            {
+                "operations": operations,
+                "verification_level": tool_input.get("verification_level"),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
+def _channel_write_summary(tool_input) -> str:
+    """``channel=value`` for every write in the call, or ``""`` if there is none.
+
+    Both approval policies render the same list — one as the whole reason, one as
+    a line under it — so the list is derived once. The legacy single-channel
+    shape (``channel``/``value``) is folded in for display only: a prompt has to
+    name what it was actually handed, whatever spelling the caller used.
+    """
+    channels = tool_input.get("operations", [])
+    if not channels:
+        ch = tool_input.get("channel")
+        val = tool_input.get("value")
+        if ch is not None:
+            channels = [{"channel": ch, "value": val}]
+    return ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
+
+
+def _stamp_binding(record):
+    """``(target, generation, server_pid)`` for a stamp, each possibly ``None``.
+
+    Normalized exactly as the server normalizes the same record: a target that
+    is not a non-empty string, or a generation that is not an integer, makes the
+    binding unknown *as a whole* rather than half-known. Both sides collapsing
+    those cases the same way is what keeps "unpublished" a stable answer instead
+    of an intermittent mismatch.
+    """
+    if not isinstance(record, dict) or _target_state is None:
+        return None, None, None
+    try:
+        server_pid = int(record.get("server_pid"))
+    except (TypeError, ValueError):
+        server_pid = None
+    target = _target_state.selected_target(record)
+    if not isinstance(target, str) or not target:
+        return None, None, server_pid
+    try:
+        return target, int(record.get("generation")), server_pid
+    except (TypeError, ValueError):
+        return None, None, server_pid
+
+
+def _prune_write_approvals(directory) -> None:
+    """Drop stamps older than :data:`WRITE_APPROVAL_TTL_S`. Never raises."""
+    cutoff = time.time() - WRITE_APPROVAL_TTL_S
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return
+    for name in names:
+        if not (name.startswith(WRITE_APPROVAL_PREFIX) and name.endswith(WRITE_APPROVAL_SUFFIX)):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.unlink(path)
+        except OSError:
+            continue
+
+
+def _stamp_write_approval(hook_input, record) -> None:
+    """Record the binding a ``channel_write`` prompt is being rendered against.
+
+    This closes the window the tool cannot see. Approval is enforced out here,
+    before the server is called at all, so the server's earliest observation is
+    its own entry — and between the moment this prompt is rendered and the
+    moment the human clicks approve, a target switch can land. Writing the
+    rendered binding down is what lets the server compare against what the human
+    was actually shown rather than against a state it inherited.
+
+    The stamp carries the ``server_pid`` of the record it was rendered from. Two
+    sessions sharing one checkout write into one directory, and an identical
+    write payload would otherwise collide; a stamp whose ``server_pid`` is not
+    the reading server's is ignored by it, which costs that call its comparison
+    and never produces a wrong one.
+
+    Never raises, and never blocks the prompt: every failure — no reader, no
+    resolvable state directory, an unwritable disk — simply leaves no stamp, and
+    a missing stamp means the server does no comparison, exactly as it does for
+    a project rendered before this existed.
+    """
+    try:
+        if _target_state is None or not isinstance(hook_input, dict):
+            return
+        tool_name = str(hook_input.get("tool_name") or "")
+        if tool_name.rsplit("__", 1)[-1] != _CHANNEL_WRITE_TOOL:
+            return
+        key = write_approval_key(hook_input.get("tool_input"))
+        if key is None:
+            return
+        directory = _target_state.resolve_state_dir(hook_input)
+        if not directory:
+            return
+        os.makedirs(directory, exist_ok=True)
+        _prune_write_approvals(directory)
+
+        target, generation, server_pid = _stamp_binding(record)
+        path = os.path.join(directory, f"{WRITE_APPROVAL_PREFIX}{key}{WRITE_APPROVAL_SUFFIX}")
+        payload = {
+            "tool": _CHANNEL_WRITE_TOOL,
+            "key": key,
+            "target": target,
+            "generation": generation,
+            "server_pid": server_pid,
+            "rendered_at": time.time(),
+        }
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, path)
+    except Exception:
+        return
+
+
+def _session_state_record(hook_input=None):
+    """The raw state record this session resolves to, or ``None``.
+
+    A one-line delegation to the reader's :func:`read_session_record`, which
+    applies the identical liveness, parentage and ambiguity rules
+    :func:`read_session_target` does. This hook deliberately holds NO copy of
+    those rules: a second walk of the state directory would eventually differ
+    from the first — dropping the liveness filter is the easy mistake, and it
+    ends with a crashed server's stale file answering for the live one.
+
+    ``None`` for every baseline outcome, for a render with no reader, and on any
+    trouble at all; the caller renders the explicit baseline or "cannot be
+    previewed", and the approval still reaches the human.
+    """
+    state = _target_state
+    if state is None:
+        return None
+    return state.read_session_record(hook_input)
+
+
+def _target_identity_phrase(record, target):
+    """How one target is SPOKEN OF on this prompt, or ``None`` if it cannot be.
+
+    The single place the two identity phrasings live, because more than one
+    surface now names a target: the ``Target:`` line names the session's, and
+    the plan-lane lines name the target a lane is wired to. A second spelling of
+    "virtual accelerator (simulation)" would eventually drift from this one, and
+    two different phrasings for one machine on one prompt is exactly the
+    ambiguity the line exists to remove.
+
+    ``None`` means the record makes no readable claim about *target* — the
+    tri-state of :func:`_real_machine_claim`, propagated rather than flattened,
+    so every caller renders its own explicit "unknown" instead of inheriting a
+    silent "simulation".
+    """
+    if _target_state is None or record is None or not target:
+        return None
+    meta = _target_state.target_metadata(record, target)
+    claim = _real_machine_claim(meta)
+    if claim is None:
+        return None
+    if claim:
+        # The endpoint is the selected-role one the writer chose (write_access
+        # when writes are enabled, read_only otherwise). Rendered verbatim:
+        # picking a role here would be a second opinion about which gateway
+        # this session actually holds.
+        endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
+        return f"LIVE MACHINE ({endpoint})"
+    return "virtual accelerator (simulation)"
+
+
+def _target_line(hook_input=None, record=_UNREAD) -> str:
+    """Name the target this approval would act on, in one line that always renders.
+
+    On EVERY ask, not only writes: an approver deciding about a queue start, a
+    patch or an execution has to know where the session points, and a line that
+    appears only on some prompts teaches them to read its absence as safe.
+
+    *record* lets a caller that has already resolved the session's record pass it
+    in, so the line and the write-approval stamp describe one read of the file
+    rather than two. Left unset, the record is resolved here exactly as before.
+
+    Fail-open like the rest of this hook — every failure, including the reader
+    module being absent from an older render and a record whose identity field
+    this hook cannot read, degrades to :data:`_TARGET_BASELINE_LINE` rather than
+    raising or guessing.
+    """
+    try:
+        state = _target_state
+        if record is _UNREAD:
+            record = _session_state_record(hook_input)
+        if record is None:
+            return _TARGET_BASELINE_LINE
+        phrase = _target_identity_phrase(record, state.selected_target(record))
+        if phrase is None:
+            return _TARGET_BASELINE_LINE
+        return f"Target: {phrase}"
+    except Exception:
+        return _TARGET_BASELINE_LINE
+
+
+def _describe_control_target_set(
+    tool_input, config, hook_input=None, read_record=None
+) -> list[str]:
+    """Render where a prospective target switch would leave the session.
+
+    The identity line above names where the session is NOW; for a switch, where
+    it would be is the whole decision, so this names the destination's label,
+    the endpoint it would hold, and the channel the switch will probe to prove
+    the destination is really there.
+
+    Everything comes from the same state file as the identity line, and — when
+    the caller hands one over — from the same READ of it, so the "where you are"
+    line and the "where you would be" lines below it cannot straddle a switch
+    that landed mid-prompt. Its per-target metadata is read schema-tolerantly: a
+    record written by a writer that does not record a probe channel for this
+    destination simply yields no probe line, rather than an empty one or an
+    exception.
+    """
+    destination = tool_input.get("target")
+    if not isinstance(destination, str) or not destination.strip():
+        return ["Destination: not named in this call — the switch would be refused."]
+    # The raw value is what the state file is keyed by; the escaped copy is what
+    # this prompt prints. Sanitizing before the lookup would turn a hostile
+    # target name into a silent miss instead of a visible one.
+    destination = destination.strip()
+    shown = _sanitize_label(destination)
+
+    record = (read_record or _record_reader(hook_input))()
+    if record is None:
+        return [
+            f"Destination: {shown} — cannot be previewed (state unavailable). "
+            f"Approval is not blocked; this prompt simply cannot show the endpoint "
+            f"the switch would land on."
+        ]
+
+    meta = _target_state.target_metadata(record, destination)
+    if meta is None:
+        return [
+            f"Destination: {shown} — the state file records no metadata for it. "
+            f"Approval is not blocked; the endpoint cannot be shown."
+        ]
+
+    lines = []
+    claim = _real_machine_claim(meta)
+    if claim is None:
+        # Same tri-state as the identity line: silence about a destination's
+        # nature must not read as "simulation". Saying so keeps the endpoint and
+        # probe lines below useful without attaching a safety claim to them.
+        lines.append(
+            "⚠️  The state file does not record whether this destination is the real "
+            "machine — treat it as unknown."
+        )
+    elif claim:
+        lines.append(
+            "⚠️  THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE — every write "
+            "approved afterwards moves real hardware."
+        )
+    label = _sanitize_label(meta.get("label") or destination)
+    endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
+    lines.append(f"Destination: {label} ({endpoint})")
+    probe = meta.get("probe_channel")
+    if probe:
+        lines.append(f"Destination probe channel: {_sanitize_label(probe)}")
+    return lines
+
+
+#: Tool short name -> describer, for tools whose approval detail comes from the
+#: target state rather than from the bridge. A table of its own rather than an
+#: entry in `_QUEUE_DESCRIBERS` further down, because the two groups answer from
+#: different places: these tools are described entirely from the state file the
+#: controls server writes, while the queue tools describe a bridge they reach
+#: over HTTP. Both tables' describers take the same three arguments — resolving
+#: the state file means resolving the repo root, and the hook payload's ``cwd``
+#: is part of that derivation.
+#:
+#: The key is a literal for the same reason the queue table's keys are — this
+#: hook is deployed standalone and cannot import the name the controls server
+#: registers. It stays inert until that tool actually reaches this hook.
+_TARGET_DESCRIBERS = {
+    "control_target_set": _describe_control_target_set,
+}
 
 
 def _revision_match_line(pinned, current_revision) -> str:
@@ -711,7 +1182,259 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
     return lines
 
 
-def _describe_queue_add(tool_input: dict, config: dict) -> list[str]:
+# ---------------------------------------------------------------------------
+# Plan lanes: WHICH Bluesky stack a queue operation would act on
+# ---------------------------------------------------------------------------
+# A plan lane is a whole Bluesky stack — bridge, queue manager, worker — wired
+# at RENDER time to one control-system target. Nearly every deployment renders
+# one; a deployment that opted into `bluesky.second_lane` renders two, one per
+# target, and then "start the queue" is an ambiguous instruction about hardware
+# motion until a lane is named.
+#
+# Two sources, and the split matters:
+#
+# * the lane MAP (which lanes exist, and which target each serves) is
+#   render-time truth and comes from the rendered config's `services.<lane>`
+#   blocks — the deployment's own statement of its shape, and the same key the
+#   host reads (`mcp_server/bluesky/lanes.discover_lanes`). Session state could
+#   not answer it: a lane's target does not move when a session switches;
+# * the SESSION target still comes exclusively from the state file, exactly as
+#   the `Target:` line does. Reading it from config would produce a confident,
+#   stale answer on the one deployment shape this axis exists for.
+#
+# The active lane is the lane whose target equals the session target — the same
+# exact-match-on-exactly-one rule the host applies, so this prompt and the tool
+# that later refuses agree about which lane is addressed. Zero matches and two
+# matches are both "no answer", and no answer is rendered as an explicit
+# unresolved line rather than as a guess.
+
+#: The lane every deployment has had since the plan stack shipped.
+_LANE_ONE = "bluesky"
+
+#: Every service key that can name a lane, in render order. Literals for the
+#: same reason the describer tables' keys are: this hook is deployed standalone
+#: and cannot import `osprey.bluesky_bridge_connection.LANE_KEYS`.
+_LANE_KEYS = ("bluesky", "bluesky_va", "bluesky_live")
+
+
+#: The control-system type whose deployments run against a simulator, and the
+#: two target names every lane is wired to. Literals for the same reason the
+#: lane keys are: this hook is deployed standalone and can import neither
+#: ``osprey_connectors.types`` nor ``target_state``'s ``TARGET_VA``/``TARGET_LIVE``.
+_VIRTUAL_ACCELERATOR_TYPE = "virtual_accelerator"
+_TARGET_VA = "va"
+_TARGET_LIVE = "live"
+
+
+def _baseline_target(config: dict) -> str:
+    """The target this deployment's config declares as its baseline.
+
+    The stdlib restatement of ``target_banner.resolve_baseline_target``, and the
+    fallback a lane with no declared ``target`` takes — the same substitution
+    ``lanes.discover_lanes`` makes host-side and ``queue_backend`` makes
+    bridge-side, so all three answer "which target does this lane serve"
+    identically. Without it a hand-degraded config (a lane block whose ``target``
+    key was dropped) would render "no lane serves your target" over a deployment
+    whose lanes cover it perfectly.
+
+    This is lane TOPOLOGY, not identity: it answers what the deployment is wired
+    to, which is a render-time fact config is the authority on. Where the SESSION
+    is pointed is a different question, and only the state file may answer it.
+    """
+    section = config.get("control_system") if isinstance(config, dict) else None
+    cs_type = section.get("type") if isinstance(section, dict) else None
+    return _TARGET_VA if cs_type == _VIRTUAL_ACCELERATOR_TYPE else _TARGET_LIVE
+
+
+def _lane_block(config: dict, lane_key: str) -> dict:
+    """A lane's ``services.<lane>`` block, or ``{}`` if it has none."""
+    services = config.get("services") if isinstance(config, dict) else None
+    block = services.get(lane_key) if isinstance(services, dict) else None
+    return block if isinstance(block, dict) else {}
+
+
+def _rendered_lanes(config: dict) -> list[tuple[str, str]]:
+    """``[(lane key, the target it serves)]`` in render order.
+
+    A lane exists in the rendered config as its own ``services.<lane>`` block,
+    and carries a ``target`` key only on a two-lane deploy — the single-lane
+    block has never needed one, which is what keeps a single-lane prompt
+    byte-for-byte what it always was. A lane without one therefore serves the
+    deployment BASELINE (:func:`_baseline_target`), which is the substitution
+    both the host and the bridge make for the same block.
+
+    Lane 1 is reported whether or not the config names it, because a config this
+    hook could not read must not be able to make the default lane disappear.
+    """
+    baseline = _baseline_target(config)
+    lanes = [
+        (key, _declared_lane_target(config, key) or baseline)
+        for key in _LANE_KEYS
+        if _lane_block(config, key)
+    ]
+    if not any(key == _LANE_ONE for key, _ in lanes):
+        lanes.insert(0, (_LANE_ONE, baseline))
+    return lanes
+
+
+def _declared_lane_target(config: dict, lane_key: str) -> str | None:
+    """The control target a lane's own config block declares, or ``None``."""
+    target = _lane_block(config, lane_key).get("target")
+    return target.strip() if isinstance(target, str) and target.strip() else None
+
+
+def _lane_situation(config: dict, hook_input=None, read_record=None) -> dict:
+    """Everything the lane lines are rendered from, resolved once.
+
+    Keys: ``lanes`` (the rendered map), ``multi`` (whether there is anything to
+    address at all), ``record`` (the session's state record, or ``None``),
+    ``session_target`` and ``active`` (the lane serving it, or ``None``).
+
+    Never raises: an unreadable config is a single-lane deployment and an
+    unreadable state file is an unknown session target, which are the two
+    answers that degrade the prompt rather than blocking it.
+
+    The state file is read only when there is more than one lane. A single-lane
+    deployment has nothing to address, renders no lane line at all, and must
+    therefore do exactly the work — and exactly the file reads — it did before
+    lanes existed. That is why *read_record* is a reader and not a record: the
+    prompt's one read happens here when a lane has to be resolved, and does not
+    happen at all when none does.
+    """
+    try:
+        lanes = _rendered_lanes(config)
+    except Exception:
+        # Unreachable in practice (`_rendered_lanes` reads only mappings), and a
+        # single-lane answer either way — no lane line is rendered from it. The
+        # target named is the loud one, so a bug here cannot quietly say
+        # "simulation".
+        lanes = [(_LANE_ONE, _TARGET_LIVE)]
+    record = (read_record or _record_reader(hook_input))() if len(lanes) > 1 else None
+    session_target = None
+    if _target_state is not None and record is not None:
+        try:
+            session_target = _target_state.selected_target(record)
+        except Exception:
+            session_target = None
+    matches = [key for key, target in lanes if session_target and target == session_target]
+    return {
+        "lanes": lanes,
+        "multi": len(lanes) > 1,
+        "record": record,
+        "session_target": session_target,
+        "active": matches[0] if len(matches) == 1 else None,
+    }
+
+
+def _lane_target_of(situation: dict, lane_key) -> str | None:
+    """The target the named lane serves, per the rendered config."""
+    for key, target in situation["lanes"]:
+        if key == lane_key:
+            return target
+    return None
+
+
+def _lane_target_phrase(situation: dict, lane_target) -> str:
+    """How a lane's target is spoken of, with an explicit word for every gap.
+
+    The identity voice is :func:`_target_identity_phrase`'s, so a lane and the
+    ``Target:`` line above it name one machine the same way. What this adds is
+    the way a lane can have no phrasable identity — a state file that records
+    nothing about the target the lane serves — said out loud rather than left
+    blank or guessed at.
+
+    The empty-target guard is defensive only: every lane :func:`_rendered_lanes`
+    reports serves a target, declared or baseline. It is here so that a caller
+    naming a lane this deployment does not render gets a word rather than the
+    string ``None``.
+    """
+    if not lane_target:
+        return "target unknown to this prompt"
+    phrase = _target_identity_phrase(situation["record"], lane_target)
+    if phrase:
+        return phrase
+    return f"{_sanitize_label(lane_target)} (identity not recorded in the state file)"
+
+
+def _lane_roster_text(situation: dict) -> str:
+    """Every rendered lane and the target it serves, for a refusal line."""
+    return ", ".join(f"{key!r} ({_sanitize_label(target)})" for key, target in situation["lanes"])
+
+
+def _session_target_phrase(situation: dict) -> str:
+    """How this session's own target is spoken of in a lane line."""
+    session_target = situation["session_target"]
+    if not session_target:
+        return "unavailable (the session's target state could not be read)"
+    return _lane_target_phrase(situation, session_target)
+
+
+def _unresolved_lane_lines(situation: dict, action: str) -> list[str]:
+    """Why no lane could be named, in the operator's terms. Never empty.
+
+    Both branches state the consequence — this deployment refuses an unaddressed
+    plan operation rather than picking a machine — because an approver reading a
+    lane line has to know whether approving would achieve anything.
+    """
+    if not situation["session_target"]:
+        return [
+            f"Bluesky PLAN lane: unresolved — the session's target state could not be "
+            f"read, so this prompt cannot name the lane {action} would act on. Approval "
+            f"is not blocked; this deployment renders {len(situation['lanes'])} lanes "
+            f"({_lane_roster_text(situation)})."
+        ]
+    return [
+        f"⚠️  NO ACTIVE BLUESKY PLAN LANE — this session is on target "
+        f"{_sanitize_label(situation['session_target'])}, which no single rendered lane "
+        f"serves (rendered lanes: {_lane_roster_text(situation)}). {action} will be "
+        f"REFUSED."
+    ]
+
+
+def _lane_bridge_url(situation: dict, lane_key, config: dict) -> str | None:
+    """The base URL of one lane's bridge, or ``None`` when it cannot be resolved.
+
+    Lane 1 resolves exactly as it always has (:func:`_resolve_bridge_url`), so a
+    single-lane deployment makes the same call to the same place. A second lane
+    has no ``bluesky.bridge_url`` of its own: its address is the loopback URL of
+    the port the build published for it, which is the same derivation
+    ``bluesky_bridge_connection.resolve_bridge_url`` applies, plus the per-lane
+    ``<LANE>_BRIDGE_URL`` override the framework sets per bridge instance.
+
+    ``None`` rather than lane 1's URL when a second lane's port is missing: a
+    queue listing fetched from the WRONG lane would describe a different machine
+    than the one being approved, which is worse than no listing at all. The
+    caller renders :func:`_unaddressable_lane_line` for it, which says a
+    different thing from "the bridge could not be reached" — one is a config
+    that never published an address, the other an address nobody answered.
+    """
+    if not lane_key or lane_key == _LANE_ONE:
+        return _resolve_bridge_url(config)
+    full = os.environ.get(f"{lane_key.upper()}_BRIDGE_URL")
+    if full:
+        return full.rstrip("/")
+    port = _lane_block(config, lane_key).get("port")
+    return f"http://127.0.0.1:{port}" if port else None
+
+
+def _unaddressable_lane_line(lane_key) -> str:
+    """One line for a lane this deployment publishes no address for.
+
+    Deliberately distinct from the "could not be reached" line: an operator who
+    reads "unavailable" reaches for the bridge's logs, and this case has no
+    bridge to look at — the rendered config simply carries no port for the lane,
+    so nothing was ever asked.
+    """
+    return (
+        f"Queue state: unavailable — this deployment's config publishes no port for the "
+        f"{lane_key!r} lane, so its bridge cannot be reached from here. Approval is not "
+        f"blocked."
+    )
+
+
+def _describe_queue_add(
+    tool_input: dict, config: dict, hook_input=None, read_record=None
+) -> list[str]:
     """Render the enqueue-approval prompt's draft/plan/queue detail lines.
 
     `queue_add` carries only a pinned `draft_revision` (no run record exists
@@ -729,9 +1452,36 @@ def _describe_queue_add(tool_input: dict, config: dict) -> list[str]:
     `GET /draft` body is caught by the `isinstance` guard here (→ queue lines
     only), and `main` wraps the whole call in a final try/except. The
     approval prompt must always render, degraded if need be, never blocked.
+
+    On a deployment with two plan lanes the first line names the lane the item
+    would BIND to — the active one, the lane serving the session's target — and
+    everything below it is fetched from THAT lane's bridge: each lane holds its
+    own draft and its own queue, so lane 1's answers would describe a different
+    machine than the one being approved. A single-lane deployment has no lane to
+    choose and renders exactly what it always did.
     """
-    base_url = _resolve_bridge_url(config)
-    lines = _queue_activity_lines(_queue_snapshot(base_url))
+    situation = _lane_situation(config, hook_input, read_record)
+    lines: list[str] = []
+    lane_key = None
+    if situation["multi"]:
+        lane_key = situation["active"]
+        if lane_key is None:
+            return _unresolved_lane_lines(situation, "Queuing a Bluesky PLAN") + [
+                "The staged draft and the queue are NOT previewed below: this prompt "
+                "cannot tell which lane's queue the item would land in, and previewing "
+                "the wrong lane would describe a different machine."
+            ]
+        lines.append(
+            f"Bluesky PLAN lane: {lane_key} "
+            f"(target: {_lane_target_phrase(situation, _lane_target_of(situation, lane_key))}) "
+            f"— the lane serving this session's target, which is where this plan binds."
+        )
+
+    base_url = _lane_bridge_url(situation, lane_key, config)
+    if base_url is None:
+        lines.append(_unaddressable_lane_line(lane_key))
+        return lines
+    lines.extend(_queue_activity_lines(_queue_snapshot(base_url)))
 
     snapshot = _bridge_get_json(base_url, "/draft")
     if not isinstance(snapshot, dict):
@@ -767,19 +1517,123 @@ def _describe_queue_add(tool_input: dict, config: dict) -> list[str]:
     return lines
 
 
-def _describe_queue_start(tool_input: dict, config: dict) -> list[str]:
+def _lane_start_lines(situation: dict, tool_input: dict) -> tuple[list[str], str | None]:
+    """The lane block for a start, and the lane whose queue to preview.
+
+    Returns ``([], None)`` on a single-lane deployment — nothing to address, and
+    the queue listing comes from the one bridge it always came from.
+
+    On a two-lane deployment the start is an ADDRESS, and this renders whether
+    the address is one the deployment will honour. The mismatch case is the
+    reason the block exists: a session that switched targets between the enqueue
+    and the start would otherwise be shown a queue listing with no hint that
+    starting it drives the machine the session has just left. The host refuses
+    such a start (``lane_mismatch``), so the prompt says so rather than asking a
+    human to approve something that cannot happen.
+
+    The second element is the lane whose queue the prompt should show: the bound
+    one when it is real, and ``None`` when no lane can be named — in which case
+    a listing would be a listing of the wrong queue.
+    """
+    if not situation["multi"]:
+        return [], None
+
+    requested = tool_input.get("lane")
+    requested = requested.strip() if isinstance(requested, str) and requested.strip() else None
+    active = situation["active"]
+
+    if requested is None:
+        lines = [
+            f"⚠️  NO LANE NAMED — this deployment renders {len(situation['lanes'])} Bluesky "
+            f"PLAN lanes ({_lane_roster_text(situation)}), so a start has to name which "
+            f"one (lane=<the lane id queue_add returned>). Starting will be REFUSED."
+        ]
+        if active:
+            lines.append(
+                f"The lane serving this session's target is {active!r} "
+                f"(target: {_lane_target_phrase(situation, _lane_target_of(situation, active))})."
+            )
+        return lines, None
+
+    shown = _sanitize_label(requested)
+    if all(key != requested for key, _ in situation["lanes"]):
+        return [
+            f"⚠️  UNKNOWN LANE — this deployment renders no {shown!r} Bluesky PLAN lane "
+            f"(rendered lanes: {_lane_roster_text(situation)}). Starting will be REFUSED."
+        ], None
+
+    bound_phrase = _lane_target_phrase(situation, _lane_target_of(situation, requested))
+    bound_line = f"Bluesky PLAN lane: {shown} (target: {bound_phrase})"
+
+    if active == requested:
+        return [f"{bound_line} — the lane this session's target is on."], requested
+
+    if situation["session_target"] is None:
+        # The lane is real and the queue below is genuinely its own; what cannot
+        # be said is whether it is the lane the session is on. Saying "mismatch"
+        # here would be a claim the state file never made.
+        return [
+            bound_line,
+            "This session's target state could not be read, so this prompt cannot say "
+            "whether that is the lane this session is on. Approval is not blocked; a "
+            "start on a lane the session has left is refused by the deployment.",
+        ], requested
+
+    lines = [
+        f"⚠️  LANE MISMATCH — the {shown!r} lane serves {bound_phrase}; this session's "
+        f"target is {_session_target_phrase(situation)}. Starting will be REFUSED."
+    ]
+    if active:
+        lines.append(
+            f"The lane serving this session's target is {active!r} — start that one "
+            f"instead, but only if its queue is what should run."
+        )
+    else:
+        lines.append(
+            f"No single rendered lane serves this session's target "
+            f"(rendered lanes: {_lane_roster_text(situation)})."
+        )
+    # Last, directly above the listing it owns: the warning leads, and the label
+    # under it is what tells the approver whose queue the items below are.
+    lines.append(f"{bound_line} — the queue listed below is this lane's.")
+    return lines, requested
+
+
+def _describe_queue_start(
+    tool_input: dict, config: dict, hook_input=None, read_record=None
+) -> list[str]:
     """Render the start-approval prompt: everything this start would run.
 
-    `queue_start` takes no arguments, so without these lines the approver would
-    be asked to approve motion with no statement of what moves. A start drains
-    the whole queue in order, so the whole queue is the answer.
+    `queue_start` carries at most a lane id, so without these lines the approver
+    would be asked to approve motion with no statement of what moves. A start
+    drains the whole queue in order, so the whole queue is the answer.
+
+    On a deployment with two plan lanes it also has to be the RIGHT queue: the
+    lane block above the listing names the lane the start is addressed to, and
+    the listing is fetched from that lane's bridge. Where no lane can be named —
+    none given, one this deployment does not render — there is no queue to show
+    that would be honest, and the block says why instead.
     """
-    base_url = _resolve_bridge_url(config)
-    snapshot = _queue_snapshot(base_url)
-    lines = [
+    situation = _lane_situation(config, hook_input, read_record)
+    lane_lines, lane_key = _lane_start_lines(situation, tool_input)
+    lines = list(lane_lines)
+    lines.append(
         "Starting the queue runs EVERY pending item below, in order — "
         "not only the most recently added one."
-    ]
+    )
+    if situation["multi"] and lane_key is None:
+        lines.append(
+            "Queue contents: not shown — this prompt cannot tell which lane's queue "
+            "would start, and listing the other lane's would describe a different "
+            "machine."
+        )
+        return lines
+
+    base_url = _lane_bridge_url(situation, lane_key, config)
+    if base_url is None:
+        lines.append(_unaddressable_lane_line(lane_key))
+        return lines
+    snapshot = _queue_snapshot(base_url)
     if snapshot is None:
         lines.append(
             "Queue contents: unavailable (the bridge could not be reached) — "
@@ -790,7 +1644,9 @@ def _describe_queue_start(tool_input: dict, config: dict) -> list[str]:
     return lines
 
 
-def _describe_queue_stop(tool_input: dict, config: dict) -> list[str]:
+def _describe_queue_stop(
+    tool_input: dict, config: dict, hook_input=None, read_record=None
+) -> list[str]:
     """Render the stop-approval prompt, whose two directions are opposites.
 
     A plain stop halts the queue after the running item finishes. ``cancel:
@@ -815,7 +1671,9 @@ def _describe_queue_stop(tool_input: dict, config: dict) -> list[str]:
     return lines
 
 
-def _describe_stop_run(tool_input: dict, config: dict) -> list[str]:
+def _describe_stop_run(
+    tool_input: dict, config: dict, hook_input=None, read_record=None
+) -> list[str]:
     """Render the abort-approval prompt: what an abort costs, and what is running.
 
     This is the emergency halt for a plan already moving hardware, so the
@@ -1014,7 +1872,7 @@ def main():
                         reason_parts.append(f"\nReview notebook: {gallery_link}")
                 reason = "\n".join(reason_parts)
                 log_hook("approval", hook_input, status="ask", detail="execute_selective")
-                json.dump(build_approval_output(reason), sys.stdout)
+                json.dump(build_approval_output(reason, hook_input), sys.stdout)
                 sys.exit(0)
 
             # Selective execute without write indicators — allow
@@ -1024,16 +1882,10 @@ def main():
 
         # For channel_write under selective, treat as always (conservative)
         if short_name == "channel_write":
-            channels = tool_input.get("operations", [])
-            if not channels:
-                ch = tool_input.get("channel")
-                val = tool_input.get("value")
-                if ch is not None:
-                    channels = [{"channel": ch, "value": val}]
-            channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
+            channel_list = _channel_write_summary(tool_input)
             reason = f"Channel write: {channel_list or 'unknown'}"
             log_hook("approval", hook_input, status="ask", detail="channel_write_selective")
-            json.dump(build_approval_output(reason), sys.stdout)
+            json.dump(build_approval_output(reason, hook_input), sys.stdout)
             sys.exit(0)
 
         # Other tools under selective: treat as always (conservative)
@@ -1044,6 +1896,11 @@ def main():
         f"Tool: {short_name}",
         f"Approval policy: {policy}",
     ]
+    # One reader for this whole prompt: whatever a describer learns about the
+    # session's target, the `Target:` line and the write-approval stamp below are
+    # rendered from the same read. It resolves nothing until something asks, so a
+    # prompt with no target-aware describer costs exactly what it always did.
+    read_record = _record_reader(hook_input)
     if short_name == "execute":
         code = tool_input.get("code", "")
         exec_mode = tool_input.get("execution_mode", "")
@@ -1052,18 +1909,21 @@ def main():
             if gallery_link:
                 reason_parts.append(f"\nReview notebook: {gallery_link}")
     elif short_name == "channel_write":
-        channels = tool_input.get("operations", [])
-        if not channels:
-            ch = tool_input.get("channel")
-            val = tool_input.get("value")
-            if ch is not None:
-                channels = [{"channel": ch, "value": val}]
-        channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
+        channel_list = _channel_write_summary(tool_input)
         if channel_list:
             reason_parts.append(f"Channels: {channel_list}")
     elif short_name in _QUEUE_DESCRIBERS:
         try:
-            reason_parts.extend(_QUEUE_DESCRIBERS[short_name](tool_input, config))
+            reason_parts.extend(
+                _QUEUE_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
+            )
+        except Exception:
+            pass
+    elif short_name in _TARGET_DESCRIBERS:
+        try:
+            reason_parts.extend(
+                _TARGET_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
+            )
         except Exception:
             pass
 
@@ -1074,7 +1934,7 @@ def main():
         status="ask",
         detail=f"policy={policy} tool={short_name}",
     )
-    json.dump(build_approval_output(reason), sys.stdout)
+    json.dump(build_approval_output(reason, hook_input, read_record), sys.stdout)
     sys.exit(0)
 
 

@@ -84,7 +84,7 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
         "# Carry a pre-rename .env.production onto .env.users before anything reads",
     ): "names the file the `up` path migrates",
     (
-        "docs/source/how-to/deploy-project.rst",
+        "docs/source/how-to/deploy-project/env-chain.rst",
         "mv .env.production .env.users",
     ): "the manual rename an upgrading operator runs when `up` has not done it yet",
 }

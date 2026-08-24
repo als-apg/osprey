@@ -15,6 +15,8 @@ from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
 from tests.e2e.sdk_helpers import (
     _DEFAULT_ARIEL_DB_URI,
     TRANSCRIPT_SUBDIR,
+    HookEvent,
+    _bind_approval_policy,
     _override_ariel_db_uri,
     dump_agent_transcript,
 )
@@ -161,3 +163,95 @@ def test_transcript_dump_never_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(blocker))
 
     assert dump_agent_transcript("orbit_response", SDKWorkflowResult()) is None
+
+
+# ---------------------------------------------------------------------------
+# Approval-policy arity. A policy written before the permission context existed
+# takes two arguments and must keep working untouched; a policy that wants to
+# see why the hook asked takes a third. The binder decides which from the
+# signature, so a `TypeError` raised inside a three-argument policy surfaces as
+# itself instead of being mistaken for the older shape.
+# ---------------------------------------------------------------------------
+
+
+class _FakeContext:
+    """Stand-in for the SDK's permission context — no SDK install required."""
+
+    def __init__(self, decision_reason: str | None = None):
+        self.decision_reason = decision_reason
+
+
+@pytest.mark.unit
+def test_two_arg_policy_is_called_with_two_arguments():
+    """The pre-existing form is dispatched unchanged — the context is dropped."""
+    seen: list[tuple] = []
+
+    def policy(tool_name, tool_input):
+        seen.append((tool_name, tool_input))
+        return True
+
+    bound = _bind_approval_policy(policy)
+
+    assert bound("Bash", {"command": "ls"}, _FakeContext("hook said ask")) is True
+    assert seen == [("Bash", {"command": "ls"})]
+
+
+@pytest.mark.unit
+def test_three_arg_policy_receives_the_context():
+    """The widened form gets the context object itself, not a copy of a field."""
+    seen: list[tuple] = []
+    context = _FakeContext("write outside the render")
+
+    def policy(tool_name, tool_input, ctx):
+        seen.append((tool_name, tool_input, ctx))
+        return False
+
+    bound = _bind_approval_policy(policy)
+
+    assert bound("Write", {"file_path": "/etc/hosts"}, context) is False
+    assert seen == [("Write", {"file_path": "/etc/hosts"}, context)]
+    assert seen[0][2].decision_reason == "write outside the render"
+
+
+@pytest.mark.unit
+def test_var_positional_policy_receives_the_context():
+    """A ``*args`` policy can take the context, so it is given the context."""
+    seen: list[tuple] = []
+
+    def policy(*args):
+        seen.append(args)
+        return True
+
+    _bind_approval_policy(policy)("Read", {}, _FakeContext("why"))
+
+    assert len(seen[0]) == 3
+
+
+@pytest.mark.unit
+def test_binder_does_not_swallow_type_errors_from_the_policy():
+    """A TypeError raised *inside* a policy is a bug, not an arity signal."""
+
+    def policy(tool_name, tool_input, ctx):
+        raise TypeError("boom inside the policy")
+
+    with pytest.raises(TypeError, match="boom inside the policy"):
+        _bind_approval_policy(policy)("Bash", {}, _FakeContext())
+
+
+@pytest.mark.unit
+def test_hook_event_decision_reason_defaults_and_accepts():
+    """The new field is optional (existing constructions keep working) and
+    carries the hook's own wording when the callback records it."""
+    without = HookEvent(tool_name="Bash", tool_input={}, decision="allow")
+    assert without.decision_reason is None
+    assert without.reason is None
+
+    with_reason = HookEvent(
+        tool_name="Write",
+        tool_input={"file_path": "notes.md"},
+        decision="deny",
+        reason="custom_policy",
+        decision_reason="target is outside the render",
+    )
+    assert with_reason.reason == "custom_policy"
+    assert with_reason.decision_reason == "target is outside the render"

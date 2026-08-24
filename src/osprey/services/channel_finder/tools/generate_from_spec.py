@@ -5,9 +5,9 @@ channel-database artifact. Run in place from the repo root::
 
     .venv/bin/python -m osprey.services.channel_finder.tools.generate_from_spec
 
-It emits, address-identically, all three shipped tier-3 channel-database
-formats -- ``hierarchical.json``, ``in_context.json``, ``middle_layer.json``
-(under ``src/osprey/templates/apps/control_assistant/data/channel_databases/
+It emits, address-identically, every shipped tier-3 channel-database format --
+``hierarchical.json``, ``in_context.json``, ``middle_layer.json`` (under
+``src/osprey/templates/apps/control_assistant/data/channel_databases/
 tiers/tier3/``) -- from two declarative sources:
 
 * :data:`osprey.simulation.facility_spec.ALS_U_AR` -- the 11 SR-ring
@@ -56,6 +56,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 from osprey.services.channel_finder.databases.template import ChannelDatabase
@@ -71,10 +72,20 @@ from osprey.simulation.facility_spec import ALS_U_AR
 
 RING = "SR"
 
+# The tier-3 database this generator writes for each paradigm, derived by
+# subtracting ``graph`` from the paradigm registry rather than listed by hand,
+# so registering a file-backed paradigm shows up here as a missing writer
+# instead of silently going ungenerated.
+#
+# ``graph`` is the deliberate exclusion: there is no generated graph database.
+# A graph store is seeded from the facility corpus TTL (``osprey knowledge
+# build-ttl`` then ``osprey knowledge seed-graph``), not grown from the facility
+# spec into a JSON file, so this pipeline has nothing to emit for it and the
+# cross-paradigm identity gate below has nothing to compare. Graph's equivalent
+# guarantee is the corpus-vs-database PV-set equality asserted by
+# ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.
 TIER3_FILENAMES: dict[str, str] = {
-    "hierarchical": "hierarchical.json",
-    "in_context": "in_context.json",
-    "middle_layer": "middle_layer.json",
+    name: f"{name}.json" for name in sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"})
 }
 
 # Tier 1 ships only the in_context paradigm; its filename lives beside the

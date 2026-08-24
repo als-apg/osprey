@@ -4,6 +4,34 @@ import logging
 
 logger = logging.getLogger("osprey.mcp_server.http")
 
+#: Activity kind that means "this touched the control system" — the kind
+#: ``channel_write``, ``execute`` and ``execute_file`` already emit. It is the
+#: one kind whose events are stamped with the session's control-system target,
+#: because it is the one kind for which "which machine?" is a real question.
+CONTROL_ACTIVITY_KIND = "channel"
+
+#: Tool name reported for a control-system target switch. The switch tool emits
+#: through :func:`notify_target_switch_async` rather than spelling this itself.
+TARGET_SWITCH_TOOL = "control_target_set"
+
+#: Activity kind a switch is reported under. A switch changes what the session
+#: is configured to talk to, so it rides the ``config`` kind the route already
+#: accepts — a new kind would be rejected with a 422 by the web terminal and the
+#: event would vanish.
+TARGET_SWITCH_KIND = "config"
+
+#: The two switch outcomes. Spelled here so the success and failure emits of the
+#: switch tool cannot drift into two vocabularies.
+SWITCH_OUTCOME_SUCCESS = "success"
+SWITCH_OUTCOME_FAILURE = "failure"
+
+#: Sentinel handed to ``resolve_session_target`` as its "no answer" value. That
+#: resolver returns the baseline it is given whenever the state is absent,
+#: foreign-owned, ambiguous or corrupt; passing a value no target can equal is
+#: how this module tells "nothing published" apart from "published as live",
+#: without restating the ownership rule that resolver owns.
+_NO_TARGET = ""
+
 
 def gallery_url() -> str:
     """Build the gallery base URL from config.
@@ -407,6 +435,144 @@ def notify_panel_focus(panel_id: str, url: str | None = None) -> None:
     post_json(f"{base}/api/panel-focus", payload, timeout=2)
 
 
+def resolve_activity_target() -> str | None:
+    """The control-system target to name on an activity event, or ``None``.
+
+    Answers from the target-state file a controls server publishes, through
+    :func:`~osprey.mcp_server.control_system.target_banner.resolve_session_target`
+    — the same resolver the approval prompt, the Phoebus guard and the health
+    row use, so no two surfaces can describe one session differently. The
+    resolver is holder-agnostic on purpose: this call is made from whichever MCP
+    server process emitted the activity (the controls server for
+    ``channel_write``, the python executor for ``execute``), and the record it
+    matches is the one owned by the same Claude Code parent.
+
+    Returns ``None``, and never the deployment baseline, when nothing is
+    published. The baseline of a ``mock`` deployment resolves to ``live``;
+    stamping that on an activity event would tell an operator a simulated write
+    touched the real machine. An unpublished target is an absent claim, not a
+    ``live`` one.
+
+    Never raises: a failure to answer degrades to an unstamped event, the same
+    fail-closed direction every other reader of that state file takes.
+    """
+    try:
+        from osprey.mcp_server.control_system.target_banner import resolve_session_target
+
+        target = resolve_session_target(_NO_TARGET)
+    except Exception as exc:  # pragma: no cover - defensive; resolver is total
+        logger.debug("Could not resolve the session control-system target: %s", exc)
+        return None
+    return target or None
+
+
+def _stamp_target(detail: str | None, target: str | None) -> str | None:
+    """Prefix *detail* with *target*, or return it unchanged.
+
+    The prefix goes at the FRONT and before the route's length bound is applied,
+    so a bulk write long enough to be truncated still names the machine it
+    landed on. ``detail`` is the only field of the activity frame the web
+    terminal carries through to the browser, which is why the target rides in it
+    rather than in a key of its own (see :func:`notify_agent_activity`).
+    """
+    if target is None:
+        return detail
+    return f"[{target}] {detail}" if detail else f"[{target}]"
+
+
+def build_target_switch_detail(
+    from_target: str,
+    to_target: str,
+    outcome: str,
+    generation: int | None = None,
+    reason: str | None = None,
+) -> str:
+    """Render the one-line body of a target-switch activity event.
+
+    Shape::
+
+        live → va · success (generation 3)
+        live → va · failure: probe channel never connected
+        va → live · failure
+
+    Both targets are always named — the operator needs to know what the session
+    was on as much as what it moved to, and on a failure the first of those is
+    still where it is. ``generation`` and ``reason`` are omitted when absent
+    rather than rendered as ``None``.
+    """
+    line = f"{from_target} → {to_target} · {outcome}"
+    if reason:
+        line = f"{line}: {reason}"
+    if generation is not None:
+        line = f"{line} (generation {generation})"
+    return line
+
+
+def notify_target_switch(
+    *,
+    from_target: str,
+    to_target: str,
+    outcome: str,
+    generation: int | None = None,
+    reason: str | None = None,
+) -> None:
+    """Fire-and-forget POST reporting a control-system target switch.
+
+    Emitted on **both** outcomes. A switch that succeeds moves every subsequent
+    tool call to another machine, and a switch that fails leaves the session on
+    the machine it started from — an operator who approved the attempt has to be
+    able to see which of those happened without asking.
+
+    Args:
+        from_target: Target the session was on (``live`` / ``va``).
+        to_target: Target the switch was asked for.
+        outcome: :data:`SWITCH_OUTCOME_SUCCESS` or :data:`SWITCH_OUTCOME_FAILURE`.
+        generation: Switch generation the session is on after the attempt, when
+            the caller knows it. Omitted from the line when ``None``.
+        reason: Short, operator-readable cause of a failure. Omitted when
+            ``None`` — an unexplained failure is still reported.
+
+    Never raises; blocking, so coroutines call :func:`notify_target_switch_async`.
+    """
+    notify_agent_activity(
+        TARGET_SWITCH_TOOL,
+        TARGET_SWITCH_KIND,
+        detail=build_target_switch_detail(from_target, to_target, outcome, generation, reason),
+    )
+
+
+async def notify_target_switch_async(
+    *,
+    from_target: str,
+    to_target: str,
+    outcome: str,
+    generation: int | None = None,
+    reason: str | None = None,
+) -> None:
+    """Awaitable form of :func:`notify_target_switch` — the one the switch tool
+    calls. The blocking POST runs off the loop.
+
+    The emit itself is fire-and-forget and swallows every failure. The one thing
+    outside that guarantee is the deferred ``anyio`` import on the first call,
+    which is deferred to match the rest of this module and cannot fail in the
+    MCP-server process this runs in (anyio is a hard dependency of the server).
+    """
+    import functools
+
+    import anyio
+
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_target_switch,
+            from_target=from_target,
+            to_target=to_target,
+            outcome=outcome,
+            generation=generation,
+            reason=reason,
+        )
+    )
+
+
 def notify_agent_activity(
     tool: str,
     kind: str,
@@ -435,11 +601,23 @@ def notify_agent_activity(
         detail: Optional free-form detail (e.g. channel name, file path).
             Truncated to the route's 1024-char bound so an unbounded caller
             (e.g. a bulk channel write) cannot turn the emit into a silent 422.
+
+    Control-system activity (``kind`` :data:`CONTROL_ACTIVITY_KIND`) is stamped
+    with the session's target here, in the one place every emit site passes
+    through, so ``channel_write``, ``execute`` and ``execute_file`` report the
+    same machine without each resolving it — three resolutions is how three
+    surfaces start disagreeing. The stamp rides in ``detail`` because that is
+    the only free field the ``/api/agent-activity`` route carries through to the
+    browser: its request model names ``kind``/``panel``/``detail`` and drops
+    anything else, so a structured ``target`` key would be silently discarded
+    server-side and never reach an operator's screen.
     """
     try:
         target: dict = {"kind": kind}
         if panel is not None:
             target["panel"] = panel
+        if kind == CONTROL_ACTIVITY_KIND:
+            detail = _stamp_target(detail, resolve_activity_target())
         if detail is not None:
             if len(detail) > 1024:
                 detail = detail[:1023] + "…"

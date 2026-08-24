@@ -47,6 +47,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -340,4 +341,57 @@ def test_simple_mode_renders_the_same_viewports_as_expert(tmp_path, monkeypatch,
         # Nothing anywhere in the card fell back to the sidebar-thumbnail
         # placeholder the old builder produced for unrenderable types.
         expect(preview.locator(".thumb-placeholder, .thumb-summary")).to_have_count(0)
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 5: an embedded artifact page inherits the gallery's theme
+# ---------------------------------------------------------------------------
+
+
+def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_browser):
+    """A freshly mounted preview boots in the gallery's theme, follows a hub
+    theme change, and the "Open in new tab" link is re-stamped with it.
+
+    The served page resolves its own theme through theme-boot.js (whose top
+    rung is ``?theme=``) rather than reading the parent gallery's
+    ``data-theme`` the way the old in-page bridge did -- so the gallery has
+    to carry its theme onto the iframe src and re-send it on load and on
+    every change. Drives the whole chain: a gallery opened in a non-main
+    theme, a preview mounted afterwards, then a hub-style broadcast.
+    """
+    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+        ctx = chromium_browser.new_context(viewport=VIEWPORT, color_scheme="dark")
+        page = ctx.new_page()
+        page.goto(f"{base_url}/?theme=retro-light", wait_until="domcontentloaded")
+        expect(page.locator("html")).to_have_attribute("data-theme", "retro-light")
+
+        _card_for_title(page, HTML_TITLE).click()
+        iframe = page.locator(".preview-viewport iframe.preview-iframe-light")
+        expect(iframe).to_be_visible(timeout=5_000)
+        # Load-time half: the src carries the theme in force, and the page
+        # inside painted in it (not the OS-dark it would resolve on its own).
+        assert "theme=retro-light" in (iframe.get_attribute("src") or "")
+        page.wait_for_function(
+            "() => document.querySelector('.preview-viewport iframe')"
+            "  ?.contentDocument?.documentElement.getAttribute('data-theme') === 'retro-light'",
+            timeout=10_000,
+        )
+        link = page.locator(".preview-header a[data-theme-link]")
+        assert "theme=retro-light" in (link.get_attribute("href") or "")
+
+        # Live half: a hub broadcast re-themes the gallery, the embedded page,
+        # and the new-tab link -- to an id outside the main family.
+        page.evaluate(
+            "() => window.postMessage({type: 'osprey-theme-change',"
+            " theme: 'high-contrast-light'}, window.location.origin)"
+        )
+        expect(page.locator("html")).to_have_attribute("data-theme", "high-contrast-light")
+        page.wait_for_function(
+            "() => document.querySelector('.preview-viewport iframe')"
+            "  ?.contentDocument?.documentElement.getAttribute('data-theme')"
+            "  === 'high-contrast-light'",
+            timeout=10_000,
+        )
+        expect(link).to_have_attribute("href", re.compile(r"theme=high-contrast-light"))
         page.close()

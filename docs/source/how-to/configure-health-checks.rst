@@ -16,6 +16,12 @@ This guide covers the ``health:`` configuration surface. For the shape of the
 :doc:`health-json-contract`; for the full flag list, see
 ``osprey health --help``.
 
+Rows reach one report from six independent places, and three surfaces read the
+result at different tiers:
+
+.. raw:: html
+   :file: ../_diagrams/health-suite-composition.html
+
 Cost classes and ``--full``
 ---------------------------
 
@@ -217,7 +223,7 @@ keys happened to be read.
 Built-in service categories
 ---------------------------
 
-Beyond the always-on framework checks, two built-in categories are
+Beyond the always-on framework checks, three built-in categories are
 **presence-gated on their config blocks**: they contribute rows only when the
 corresponding service is configured, so a minimal build shows no empty tiles.
 
@@ -232,7 +238,41 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   ``error``), shows the database's age, and — for the ``middle_layer``
   pipeline — the channel count from the materialized DuckDB.
 
-Both are ordinary categories: valid under ``--category``, tunable via a
+  The ``graph`` pipeline reads different rows, because it answers from the
+  graph store rather than from a file on disk. The pipeline row reports it as
+  store-backed, and in place of the database rows the category reports the
+  store's **reachability** and its **resource count** — the same two readings
+  the ``graphdb`` category takes, so a stopped store warns rather than
+  failing the suite. A graph-mode build configures no ``database.path`` and is
+  never warned about one missing: there is no channel-database file in that
+  paradigm to look for (see :doc:`use-channel-finder`). The ``graphdb`` tile is
+  always alongside — graph mode needs that block — so these rows restate the
+  same store readings in the channel finder's own terms: whether *channel
+  search* has anything to answer from.
+- ``graphdb`` — appears when a ``services.graphdb`` block is configured (see
+  :doc:`deploy-project/index`). Two rows: **connection**, which dials the store over
+  bolt and reports the round-trip latency, and **resources**, the number of
+  ``(:Resource)`` nodes in the graph — the nodes the TTL corpus imports.
+  Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
+  corpus was ever loaded, so counting ``(:Resource)`` specifically is what keeps
+  an empty graph from reading as a populated one; a count of zero warns and
+  names ``osprey knowledge seed-graph`` as the remedy. The agent's own graph
+  tools report the same degraded states from the inside — see
+  :doc:`use-facility-graph`.
+
+.. note::
+
+   The ``graphdb`` category dials **bolt** — ``services.graphdb.port_host``, or
+   an explicit ``services.graphdb.uri`` — never the ``http_port_host`` the Neo4j
+   Browser and the container healthcheck use. That is the address its remedies
+   name, so a probe that fails is pointing at the port the seeder also uses.
+
+   Every row it produces is ``ok`` or ``warning``, never ``error``. A store that
+   is stopped, unreachable, rejecting its credential, or simply unseeded is a
+   service that is not running rather than a broken build, and the category says
+   so in one line instead of failing the suite.
+
+All three are ordinary categories: valid under ``--category``, tunable via a
 metadata-only override, and rendered as dashboard tiles with no extra
 configuration.
 

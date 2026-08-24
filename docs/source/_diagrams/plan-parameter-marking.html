@@ -1,0 +1,48 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 346" role="img" aria-labelledby="plan-marking-title plan-marking-desc">
+  <title id="plan-marking-title">What a plan's parameter marking decides</title>
+  <desc id="plan-marking-desc">A plan marks each parameter holding channel names as either movable, meaning the plan drives it, or readable, meaning the plan only records it. That single marking is read by four independent consumers: the validator's stand-in devices, the pre-queue channel check, the approval prompt shown to the human, and the default plot's x axis.</desc>
+  <defs>
+    <marker id="plan-marking-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <line class="e" x1="480" y1="76" x2="480" y2="110" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 472,214 H143 Q135,214 135,222 V230" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 472,214 H373 Q365,214 365,222 V230" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 488,214 H587 Q595,214 595,222 V230" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 488,214 H817 Q825,214 825,222 V230" marker-end="url(#plan-marking-arr)"/>
+
+  <rect class="nb-in" x="380" y="24" width="200" height="52" rx="6"/>
+  <text class="tn" x="480" y="46" text-anchor="middle">your plan file</text>
+  <text class="ts" x="480" y="62" text-anchor="middle">says it once, outright</text>
+
+  <rect class="nb-foc" x="360" y="110" width="240" height="76" rx="6"/>
+  <text class="tn" x="480" y="136" text-anchor="middle">parameter marking</text>
+  <text class="ts" x="480" y="155" text-anchor="middle">movable — the plan drives it</text>
+  <text class="ts" x="480" y="171" text-anchor="middle">readable — it only records it</text>
+
+  <rect class="nb" x="30" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="135" y="254" text-anchor="middle">the validator</text>
+  <text class="ts" x="135" y="272" text-anchor="middle">which stand-in devices</text>
+  <text class="ts" x="135" y="288" text-anchor="middle">to build for the rehearsal</text>
+
+  <rect class="nb" x="260" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="365" y="254" text-anchor="middle">the pre-queue check</text>
+  <text class="ts" x="365" y="272" text-anchor="middle">which names are checked</text>
+  <text class="ts" x="365" y="288" text-anchor="middle">against your machine</text>
+
+  <rect class="nb" x="490" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="595" y="254" text-anchor="middle">the approval prompt</text>
+  <text class="ts" x="595" y="272" text-anchor="middle">what the human is told</text>
+  <text class="ts" x="595" y="288" text-anchor="middle">is about to move</text>
+
+  <rect class="nb" x="720" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="825" y="254" text-anchor="middle">the default plot</text>
+  <text class="ts" x="825" y="272" text-anchor="middle">which channel becomes</text>
+  <text class="ts" x="825" y="288" text-anchor="middle">the x axis</text>
+
+  <text class="ta ta-warn" x="480" y="330" text-anchor="middle">each of these used to guess from how a parameter was spelled — now they all read the same answer</text>
+</svg>
+</div>

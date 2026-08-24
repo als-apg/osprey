@@ -606,20 +606,21 @@ class TestComposeTemplateContract:
 
     A rename on either side is a hard ``osprey up`` abort rather than a soft
     failure — the template guards both halves with ``:?`` — so the two names
-    are pinned here against the template's own text.
+    are pinned here against the template's own output.
+
+    Against the OUTPUT, not the source: the template renders one stack per
+    Bluesky plan lane, so the variable names and mount sources below are
+    per-lane expressions in the source and only become these literals once a
+    deployment's lanes are known. The render below is the single-lane shape —
+    every project that has not opted into a second lane — which is the shape
+    these names have always had.
     """
 
     @staticmethod
     def _template_text():
-        import osprey.templates
+        from tests.deployment.test_lane_compose import _render_text, _single_lane_contexts
 
-        path = (
-            Path(osprey.templates.__file__).parent
-            / "services"
-            / "bluesky"
-            / "docker-compose.yml.j2"
-        )
-        return path.read_text(encoding="utf-8")
+        return _render_text(_single_lane_contexts()["full"])
 
     def test_every_expansion_of_both_halves_is_guarded_fail_closed(self):
         """`:?` on BOTH names is why an empty value of either is refused upstream.

@@ -5,7 +5,7 @@ name: Channel Finder Feedback Capture
 description: Silently captures channel finder search results into pending review store
 summary: Captures CF tool results for operator review
 event: PostToolUse
-tools: mcp__channel-finder__build_channels, mcp__channel-finder__ask_channels, mcp__channel-finder__run_sql
+tools: mcp__channel-finder__build_channels, mcp__channel-finder__ask_channels, mcp__channel-finder__run_sql, mcp__channel-finder__read_cypher
 ---
 
 ## Flow
@@ -21,7 +21,7 @@ stdin --> Parse JSON
          Parse tool_response
               |
               v
-         total > 0?  --NO--> EXIT (silent)
+     total/row_count > 0?  --NO--> EXIT (silent)
               |
              YES
               v
@@ -84,13 +84,14 @@ try:
         "mcp__channel-finder__build_channels",
         "mcp__channel-finder__ask_channels",
         "mcp__channel-finder__run_sql",
+        "mcp__channel-finder__read_cypher",
     }
     if tool_name not in CAPTURE_TOOLS:
         log_hook("cf-feedback-capture", hook_input, status="skip-tool", detail=tool_name)
         sys.exit(0)
 
     # ----------------------------------------------------------------
-    # 3. Parse tool_response, skip if total <= 0
+    # 3. Parse tool_response, skip if the result set is empty
     # ----------------------------------------------------------------
     tool_response_raw = hook_input.get("tool_response", "")
 
@@ -125,9 +126,22 @@ try:
         else:
             tool_response = inner  # already a dict/list
 
+    # Two answer shapes reach this hook. The table pipelines return
+    # `channels`/`total`; the graph pipeline returns read_cypher's QueryResult
+    # envelope — `rows`, `row_count`, `truncated`. Reading both counts keeps one
+    # capture path for every pipeline mode, so an operator reviews graph answers
+    # on the same card as table answers.
     total = 0
+    graph_envelope = None
     if isinstance(tool_response, dict):
-        total = tool_response.get("total", 0)
+        if "row_count" in tool_response:
+            graph_envelope = tool_response
+            total = tool_response.get("row_count")
+            if not isinstance(total, int) or isinstance(total, bool):
+                rows = tool_response.get("rows")
+                total = len(rows) if isinstance(rows, list) else 0
+        else:
+            total = tool_response.get("total", 0)
     if not total or total <= 0:
         resp_type = type(tool_response).__name__
         resp_keys = list(tool_response.keys()) if isinstance(tool_response, dict) else None
@@ -167,13 +181,40 @@ try:
         except (json.JSONDecodeError, ValueError):
             tool_input = {}
 
+    recorded_response = (
+        tool_response_raw if isinstance(tool_response_raw, str) else json.dumps(tool_response_raw)
+    )
+
+    # The review UI and the artifact matcher both read the addresses out of a
+    # `channels` list on the recorded response. A graph answer carries them in
+    # its address column instead — `fullPv` as the corpus spells it, `pv` as
+    # the shipped example queries alias it -- so the envelope is recorded with
+    # that list beside its rows. It goes here rather than on the item because
+    # the pending-review store copies a fixed set of item fields and would drop
+    # anything else, while `tool_response` reaches both readers intact. A query
+    # that returns no addresses at all (a count per section, say) is still worth
+    # reviewing and lands with an empty list.
+    if graph_envelope is not None:
+        recorded = dict(graph_envelope)
+        addresses = []
+        seen = set()
+        for row in recorded.get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            address = row.get("fullPv")
+            if not isinstance(address, str) or not address:
+                address = row.get("pv")
+            if isinstance(address, str) and address and address not in seen:
+                seen.add(address)
+                addresses.append(address)
+        recorded["channels"] = addresses
+        recorded_response = json.dumps(recorded, default=str)
+
     item = {
         "query": tool_input.get("query", ""),
         "facility": tool_input.get("facility", ""),
         "tool_name": tool_name,
-        "tool_response": tool_response_raw
-        if isinstance(tool_response_raw, str)
-        else json.dumps(tool_response_raw),
+        "tool_response": recorded_response,
         "channel_count": total,
         "selections": tool_input.get("selections", {}),
         "session_id": hook_input.get("session_id", ""),

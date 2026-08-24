@@ -143,6 +143,10 @@ dependencies = [
     # (simulation.apply, deployment.container_lifecycle, services.archiver_recorder)
     # import pymongo directly rather than through a connector.
     "pymongo>=4.17.0",
+    # Neo4j driver for the graph store (osprey.services.graphdb). Pure Python,
+    # no build step, so it carries none of the platform-wheel concerns that
+    # justify keeping other clients optional. Core rather than an extra.
+    "neo4j>=5.20",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -194,7 +198,11 @@ dependencies = [
     # `--extra dev` would otherwise satisfy every other --dev precondition and
     # fail only at wheel-build time.
     "build",
-    "osprey-connectors>=0.1.0,<0.2.0",
+    # The connectors package versions with this repo's own calendar stream
+    # (same v-tags, same describe — see its pyproject.toml), so the two wheels
+    # built from one checkout always agree; the floor below is the last release
+    # tag, which any same-checkout build satisfies.
+    "osprey-connectors>=2026.6.2",
 ]
 
 [project.optional-dependencies]
@@ -206,7 +214,6 @@ docs = [
     "sphinx-copybutton",
     "sphinx-autobuild",
     "sphinx-design",
-    "sphinxcontrib-mermaid",
     "sphinxcontrib-jsmath>=1.0.1",
     "graphviz",
 ]
@@ -233,6 +240,7 @@ dev = [
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
+    "rdflib>=7.0",  # TTL generator tests (semantic round-trip); runtime use stays in the knowledge extra
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -558,7 +566,10 @@ target-version = "py311"
 src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
-extend-exclude = ["src/osprey/_version.py"]
+extend-exclude = [
+    "src/osprey/_version.py",
+    "packages/osprey-connectors/src/osprey_connectors/_version.py",
+]
 
 [tool.ruff.format]
 # Ruff >=0.16 also formats Python code blocks embedded in Markdown. The snippets

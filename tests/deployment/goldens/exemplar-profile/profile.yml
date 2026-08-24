@@ -75,7 +75,10 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 #     sonnet: claude-sonnet-4-6
 #     opus: claude-opus-4-6
 
-# Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
+# Channel-finder pipeline. Override via
+# --set channel_finder_mode=in_context|middle_layer|graph. The first three pick
+# which channel database the build writes; `graph` writes none and reads the
+# store named by `services.graphdb` instead (deploy it to use that mode).
 channel_finder_mode: hierarchical
 
 # ── Artifact selection ───────────────────────────────────────────────────────
@@ -84,6 +87,7 @@ channel_finder_mode: hierarchical
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
   - writes-check      # Pre-write safety check: confirm channel is writable

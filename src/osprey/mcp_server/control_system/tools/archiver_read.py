@@ -10,16 +10,29 @@ from typing import Any, NamedTuple
 import pandas as pd
 
 from osprey.connectors.archiver import PROCESSING_MODES
+from osprey.mcp_server.control_system import target_banner
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey.utils.config import get_facility_timezone
+from osprey_connectors.types import resolve_archiver_type
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
 
 #: Points per channel the default bin aims for when the caller names no
 #: ``bin_size``; ``archiver.auto_bin_points`` in config.yml overrides it.
 DEFAULT_AUTO_BIN_POINTS = 10_000
+
+#: ``target_source`` when the session has selected a target of its own — the
+#: state file named it, and it differs from the deployment baseline.
+TARGET_SOURCE_SESSION = "session_switch"
+
+#: ``target_source`` when no session selection was in force: no state file, an
+#: unreadable one, or a session sitting on the baseline. All three mean the same
+#: thing about the data — it was read while the deployment baseline was current
+#: — and saying "baseline" is the honest spelling of all three. The key is
+#: always present, so a reader never has to guess from an absent one.
+TARGET_SOURCE_BASELINE = "baseline"
 
 
 def auto_bin_seconds(span: timedelta, target_points: int) -> int:
@@ -209,6 +222,42 @@ def _compose_coverage(
     }
 
 
+def _provenance(archiver_section: Any, connector: Any) -> dict[str, str]:
+    """Who served this read: the session's control-system target and the archiver.
+
+    Four keys, always all four, stamped identically onto the saved query block
+    and the artifact's metadata — the ``bin_size_source`` rule applied to
+    identity: a fact the tool knows and the reader cannot recover later has to
+    travel with the data.
+
+    * ``target`` / ``target_source`` — the control-system target the session was
+      on when the read ran. Archived data is not routed through that target (see
+      :func:`archiver_read`), but a plot of it is read next to live values from
+      one, so which one was current is part of what the numbers mean. The target
+      comes from the shared resolver in
+      :mod:`~osprey.mcp_server.control_system.target_banner`, never from a second
+      reading of the state file; a session on the baseline (or with no readable
+      state at all) stamps :data:`TARGET_SOURCE_BASELINE`.
+    * ``archiver_type`` — the configured archiver type, resolved by the same
+      :func:`~osprey_connectors.types.resolve_archiver_type` the factory uses, so
+      the stamp cannot disagree with what was actually built.
+    * ``archiver_backend`` — the connector class that served it. The class name
+      and nothing else: an endpoint or connection string would put a host — or a
+      credential — into an artifact that outlives the session.
+
+    Args:
+        archiver_section: The ``archiver`` config block.
+        connector: The archiver connector instance that served this read.
+    """
+    situation = target_banner.resolve_target_situation()
+    return {
+        "target": situation.session_target,
+        "target_source": TARGET_SOURCE_SESSION if situation.switched else TARGET_SOURCE_BASELINE,
+        "archiver_type": resolve_archiver_type(archiver_section),
+        "archiver_backend": type(connector).__name__,
+    }
+
+
 @mcp.tool()
 async def archiver_read(
     channels: list[str],
@@ -245,6 +294,9 @@ async def archiver_read(
         window, ``summary.coverage`` explains why — the window precedes/follows
         the archive's real bounds, the channel was never recorded, or the
         window holds an honest gap — so an empty answer is never a silent one.
+        The saved query block and the artifact's metadata additionally carry a
+        provenance stamp naming the session's control-system target and the
+        archiver that served the data.
     """
     if not channels:
         return make_error(
@@ -327,7 +379,14 @@ async def archiver_read(
             resolved_bin = bin_size
             bin_source = "requested"
 
+        # The archiver connector is HTTP/pymongo-class — an appliance or a
+        # database, never Channel Access — so this read is NOT routed through
+        # the connector-host child that serves the control system, and must
+        # never be gated on that child being alive: history stays readable
+        # exactly when a diagnosis needs it most. The only thing the session
+        # target contributes here is provenance, stamped below.
         connector = await registry.archiver()
+        provenance = _provenance(registry.config.archiver, connector)
 
         # Deduplicate: all counts below must describe what was actually queried.
         unique_channels = list(dict.fromkeys(channels))
@@ -385,6 +444,7 @@ async def archiver_read(
                 "processing": processing,
                 "bin_size": resolved_bin,
                 "bin_size_source": bin_source,
+                **provenance,
             },
             "series": series,
         }
@@ -416,7 +476,10 @@ async def archiver_read(
                     "the parameters this read actually used, after deduplicating "
                     "channels. start_time/end_time are facility-local wall-clock "
                     "strings (e.g. with a '-08:00' offset) — NOT the UTC used for "
-                    "series timestamps."
+                    "series timestamps. It also carries the provenance stamp: "
+                    "'target'/'target_source' name the control-system target the "
+                    "session was on, and 'archiver_type'/'archiver_backend' name "
+                    "the archiver that served the data."
                 ),
                 "series": (
                     "each channel's own real samples as two parallel arrays of equal "
@@ -447,7 +510,7 @@ async def archiver_read(
             summary=summary,
             access_details=access_details,
             category="archiver_data",
-            metadata={"data_type": "timeseries"},
+            metadata={"data_type": "timeseries", **provenance},
         )
 
         return json.dumps(entry.to_tool_response(), default=str)

@@ -4,6 +4,7 @@ Covers the build-time step that flattens tier-routed channel databases AND
 the matching benchmark query file:
 
 * single-paradigm modes (``in_context`` / ``hierarchical`` / ``middle_layer``)
+* ``graph``, whose store is a service: queries file only, no paradigm DB
 * tier 3 selection materializes the right source DB (byte-exact)
 * queries file is materialized to ``data/benchmarks/queries.json`` (byte-exact)
 * missing source DB raises :class:`FileNotFoundError`
@@ -19,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey.cli.templates.scaffolding import (
     materialize_tier_artifacts,
     prune_csv_build_artifacts,
@@ -37,7 +39,13 @@ _PRESET_DATA_DIR = (
 _PRESET_CDB_DIR = _PRESET_DATA_DIR / "channel_databases"
 _PRESET_QUERIES_DIR = _PRESET_DATA_DIR / "benchmarks" / "cross_paradigm" / "queries"
 
-_PARADIGMS: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
+# The paradigms whose store is a channel-database file, derived from the registry
+# so a new paradigm cannot be added without landing here. ``graph`` is excluded
+# by the same subtraction the CLI's ``click.Choice`` lists use: a graph build
+# materializes no ``channel_databases/<paradigm>.json``, so there is nothing for
+# these byte-comparisons to point at. See
+# tests/build/test_mode_registry_single_source.py.
+_PARADIGMS: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
 
 def _make_rendered_project(tmp_path: Path) -> Path:
@@ -121,6 +129,52 @@ class TestTier3Selection:
         queries_flat = rendered_project / "data" / "benchmarks" / "queries.json"
         expected_queries = (_PRESET_QUERIES_DIR / "tier3_queries.json").read_bytes()
         assert queries_flat.read_bytes() == expected_queries
+
+
+class TestGraphParadigm:
+    """``graph`` materializes the queries file and no channel database.
+
+    A graph build's store is a seeded graph service, so there is no
+    ``channel_databases/<paradigm>.json`` for it to flatten. It still takes the
+    tier-matching benchmark queries, because the graph lane scores the same
+    ground truth as the file-database paradigms.
+    """
+
+    def test_graph_ships_queries_and_no_channel_database(self, rendered_project: Path):
+        materialize_tier_artifacts(rendered_project, tier=3, channel_finder_mode="graph")
+
+        cdb = rendered_project / "data" / "channel_databases"
+
+        # No flat paradigm DB was materialized — not graph.json, not any other.
+        assert not (cdb / "graph.json").exists()
+        for paradigm in _PARADIGMS:
+            assert not (cdb / f"{paradigm}.json").exists(), (
+                f"{paradigm}.json should not have been materialized for mode='graph'"
+            )
+
+        # The queries file still lands at the flat path, byte-equal to tier 3.
+        queries_flat = rendered_project / "data" / "benchmarks" / "queries.json"
+        assert queries_flat.is_file()
+        assert (
+            queries_flat.read_bytes() == (_PRESET_QUERIES_DIR / "tier3_queries.json").read_bytes()
+        )
+
+        # Both staging subtrees are pruned, same as every other paradigm.
+        assert not (cdb / "tiers").exists()
+        assert not (rendered_project / "data" / "benchmarks" / "cross_paradigm").exists()
+
+    def test_graph_missing_queries_raises_file_not_found(self, tmp_path: Path):
+        """The queries file is graph's only required source, so its absence is
+        still a hard error that leaves the staging tree untouched."""
+        project_dir = tmp_path / "proj"
+        tier_dir = project_dir / "data" / "channel_databases" / "tiers" / "tier3"
+        tier_dir.mkdir(parents=True)
+
+        with pytest.raises(FileNotFoundError, match="queries"):
+            materialize_tier_artifacts(project_dir, tier=3, channel_finder_mode="graph")
+
+        assert tier_dir.exists()
+        assert not (project_dir / "data" / "benchmarks" / "queries.json").exists()
 
 
 class TestMissingSourceDb:

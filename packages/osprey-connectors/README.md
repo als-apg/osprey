@@ -78,11 +78,13 @@ names `ChannelWriteBlockedError`, `ChannelWriteFailedError`, and
 `ChannelLimitsViolationError`, and their `reason` codes, are load-bearing for
 callers that branch on them.
 
-- `ChannelWriteBlockedError` — the write was never attempted (refused before
-  any `caput`). `reason` is one of `WRITES_DISABLED`, `LIMITS`,
-  `VALIDATION_ERROR`.
+- `ChannelWriteBlockedError` — the write was refused and no value was written.
+  `reason` is one of `WRITES_DISABLED`, `LIMITS`, `VALIDATION_ERROR`, or
+  `CONTROL_SYSTEM_REFUSED`. The first three are refused before any `caput`; the
+  last means the control system was asked and denied the write itself (EPICS
+  access security, for instance).
 - `ChannelWriteFailedError` — the write was attempted but did not verifiably
-  succeed. `reason` is one of `CAPUT_FAILED`, `READBACK_UNVERIFIED`.
+  succeed. `reason` is one of `WRITE_FAILED`, `READBACK_UNVERIFIED`.
 - `ChannelLimitsViolationError` — a channel write violated configured safety
   limits (range, read-only, step size, or unlisted channel).
 

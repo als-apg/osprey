@@ -1,0 +1,65 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 312" role="img" aria-labelledby="multi-user-title multi-user-desc">
+  <title id="multi-user-title">Multi-user landing page</title>
+  <desc id="multi-user-desc">One nginx landing page on port 9080 routes each person by path to their own terminal container — alice, bob, and the standalone ARIEL logbook — all of which share the same databases and telemetry services; when login is on, nginx asks the auth service about every request before proxying.</desc>
+  <defs>
+    <marker id="multi-user-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- edges -->
+  <line class="e" x1="176" y1="156" x2="272" y2="156" marker-end="url(#multi-user-arr)"/>
+  <path class="e" d="M448,142 H480 Q488,142 488,134 V88 Q488,80 496,80 H560" marker-end="url(#multi-user-arr)"/>
+  <line class="e" x1="448" y1="156" x2="560" y2="156" marker-end="url(#multi-user-arr)"/>
+  <path class="e" d="M448,170 H512 Q520,170 520,178 V224 Q520,232 528,232 H560" marker-end="url(#multi-user-arr)"/>
+  <line class="e-warn" x1="352" y1="184" x2="352" y2="224" marker-end="url(#multi-user-arr)"/>
+  <line class="e-warn e-dash" x1="368" y1="224" x2="368" y2="184" marker-end="url(#multi-user-arr)"/>
+  <line class="e-thin" x1="760" y1="80" x2="808" y2="80"/>
+  <line class="e-thin" x1="760" y1="156" x2="808" y2="156"/>
+  <line class="e-thin" x1="760" y1="232" x2="808" y2="232"/>
+  <!-- edge labels -->
+  <rect class="mask" x="204" y="136" width="40" height="12" rx="2"/>
+  <text class="ta" x="224" y="145" text-anchor="middle">:9080</text>
+  <rect class="mask" x="496" y="100" width="56" height="12" rx="2"/>
+  <text class="ta" x="524" y="109" text-anchor="middle">/u/alice/</text>
+  <rect class="mask" x="504" y="136" width="48" height="12" rx="2"/>
+  <text class="ta" x="528" y="145" text-anchor="middle">/u/bob/</text>
+  <rect class="mask" x="452" y="196" width="56" height="12" rx="2"/>
+  <text class="ta" x="480" y="205" text-anchor="middle">/u/ariel/</text>
+  <rect class="mask" x="296" y="196" width="44" height="12" rx="2"/>
+  <text class="ta ta-warn" x="318" y="205" text-anchor="middle">CHECK</text>
+  <rect class="mask" x="376" y="196" width="44" height="12" rx="2"/>
+  <text class="ta ta-warn" x="398" y="205" text-anchor="middle">ALLOW</text>
+  <!-- nodes -->
+  <rect class="mask" x="40" y="128" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="128" width="136" height="56" rx="6"/>
+  <text class="tn" x="108" y="152" text-anchor="middle">browser</text>
+  <text class="ts" x="108" y="168" text-anchor="middle">one URL for everyone</text>
+  <rect class="mask" x="272" y="128" width="176" height="56" rx="6"/>
+  <rect class="nb-foc" x="272" y="128" width="176" height="56" rx="6"/>
+  <text class="tn" x="360" y="152" text-anchor="middle">nginx landing page</text>
+  <text class="ts" x="360" y="168" text-anchor="middle">routes by path</text>
+  <rect class="mask" x="560" y="56" width="200" height="48" rx="6"/>
+  <rect class="nb" x="560" y="56" width="200" height="48" rx="6"/>
+  <text class="tn" x="660" y="76" text-anchor="middle">alice — web terminal</text>
+  <text class="ts" x="660" y="92" text-anchor="middle">own container + volumes</text>
+  <rect class="mask" x="560" y="132" width="200" height="48" rx="6"/>
+  <rect class="nb" x="560" y="132" width="200" height="48" rx="6"/>
+  <text class="tn" x="660" y="152" text-anchor="middle">bob — web terminal</text>
+  <text class="ts" x="660" y="168" text-anchor="middle">own container + volumes</text>
+  <rect class="mask" x="560" y="208" width="200" height="48" rx="6"/>
+  <rect class="nb" x="560" y="208" width="200" height="48" rx="6"/>
+  <text class="tn" x="660" y="228" text-anchor="middle">ariel — logbook</text>
+  <text class="ts" x="660" y="244" text-anchor="middle">a different product</text>
+  <rect class="mask" x="272" y="224" width="176" height="48" rx="6"/>
+  <rect class="nb-bnd" x="272" y="224" width="176" height="48" rx="6"/>
+  <text class="tn" x="360" y="244" text-anchor="middle">auth service</text>
+  <text class="ts" x="360" y="260" text-anchor="middle">password · OIDC</text>
+  <rect class="mask" x="808" y="64" width="112" height="184" rx="6"/>
+  <rect class="nb-st" x="808" y="64" width="112" height="184" rx="6"/>
+  <text class="tn" x="864" y="144" text-anchor="middle">shared</text>
+  <text class="tn" x="864" y="160" text-anchor="middle">services</text>
+  <text class="ts" x="864" y="180" text-anchor="middle">databases</text>
+  <text class="ts" x="864" y="192" text-anchor="middle">telemetry</text>
+</svg>
+</div>

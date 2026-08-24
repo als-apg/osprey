@@ -9,12 +9,12 @@ produce an agent whose past is fiction and whose present is not, with nothing
 connecting the two — so the fiction can never be caught by disagreeing with the
 machine it claims to describe.
 
-Refused at three independent moments, because a deployment can acquire the
-pairing at any of them: ``osprey build`` writes the config, ``osprey up``
-stands the services up, and the MCP server reads whatever ``config.yml`` it is
-pointed at — including one hand-edited long after the build. Each site raises in
-its own vocabulary and names its own fix. What they share, and what lives here,
-is the question they ask and the reason they ask it.
+Refused at every moment a deployment can acquire the pairing: ``osprey build``
+writes the config, ``osprey up`` stands the services up, the MCP server reads
+whatever ``config.yml`` it is pointed at — including one hand-edited long after
+the build — and, at run time, a session asks to be pointed at the simulator.
+Each site raises in its own vocabulary and names its own fix. What they share,
+and what lives here, is the question they ask and the reason they ask it.
 
 **The question is asked twice, because the two kinds of config are read by
 different readers, and a guard must resolve a key exactly as the reader it
@@ -39,6 +39,18 @@ factory's ``… is not set; defaulting to …`` warnings), so *unset counts as m
 at every site. That is the fallback the rule is really about: the common way
 into the pairing is not naming the mock, it is naming nothing.
 
+The run-time question is the same question asked one step early. A session that
+asks to be pointed at the virtual accelerator has not changed anything yet, so
+the config's own ``control_system.type`` is not the type to judge — the pairing
+to refuse is the one the switch *would* create.
+:func:`pairing_for_target` judges that one, taking the prospective control
+system from :func:`~osprey_connectors.types.resolve_target` while the archiver
+still comes from the config, because the switch changes the machine and leaves
+the archive exactly where it was. The target is resolved through that shared
+resolver and never here: a guard that translates ``va`` privately is guarding a
+deployment other than the one the switch will produce, which is the same
+divergence-is-the-bypass this module refuses on the config keys.
+
 Deliberately *not* a refusal of every mock archiver: a mock control system paired
 with the mock archiver is the honest storeless deployment, and it is the app
 template's default. Nothing is claimed to be real there, so nothing lies.
@@ -54,9 +66,10 @@ from .types import (
     VIRTUAL_ACCELERATOR,
     resolve_archiver_type,
     resolve_control_system_type,
+    resolve_target,
 )
 
-#: Why the pairing is refused, in one sentence pair the three sites share so the
+#: Why the pairing is refused, in one sentence pair every site shares so the
 #: explanation cannot drift between them. Each site supplies its own fix.
 VA_MOCK_ARCHIVER_WHY = (
     "a virtual accelerator serves a machine whose channels move for modelled "
@@ -152,9 +165,57 @@ def pairing_in_rendered_config(config: Any) -> ArchiverPairing:
     # hands the factory (``MCPServerConfig.control_system`` / ``.archiver`` are
     # ``raw.get(section)``), resolved by the factory's own functions. There is no
     # second opinion to diverge from: this *is* what the deployment will build.
-    sections = config if isinstance(config, dict) else {}
-    control_system_type = resolve_control_system_type(sections.get("control_system"))
-    archiver_type = resolve_archiver_type(sections.get("archiver"))
+    control_system = _sections(config).get("control_system")
+    return _rendered_pairing(config, resolve_control_system_type(control_system))
+
+
+def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
+    """Judge the pairing a session *target* would create in a rendered config.
+
+    The same nested-only reading of the same file as
+    :func:`pairing_in_rendered_config`, asked one step early: the control system
+    is not the one the config selects but the one *target* selects, because a
+    session pointed at the virtual accelerator gets a virtual accelerator
+    whatever the deployment was built for. The archiver is still the config's
+    own, since pointing a session somewhere else does not move the archive —
+    which is exactly how a deployment honest at build time acquires the pairing
+    at run time.
+
+    The prospective type comes from
+    :func:`~osprey_connectors.types.resolve_target` and is never worked out
+    here, so this predicate and the switch it guards cannot disagree about where
+    a target lands.
+
+    Args:
+        config: The raw config mapping, as loaded from ``config.yml``.
+        target: The session target being asked for, one of
+            :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+
+    Returns:
+        The verdict and the phrase naming the config's archiver, ready for a
+        refusal that quotes :data:`VA_MOCK_ARCHIVER_WHY`.
+
+    Raises:
+        ValueError: Propagated from :func:`~osprey_connectors.types.resolve_target`
+            when *target* is unknown, or is ``live`` on a deployment with no
+            derivable live control system. An underivable target has no pairing
+            to judge, and answering "allowed" for one would report a session as
+            honest that cannot be established at all; callers establish that a
+            target exists before asking whether it may be used.
+    """
+    control_system = _sections(config).get("control_system")
+    return _rendered_pairing(config, resolve_target(control_system, target))
+
+
+def _sections(config: Any) -> dict[Any, Any]:
+    """The config's top-level sections, or none when it is not a mapping."""
+    return config if isinstance(config, dict) else {}
+
+
+def _rendered_pairing(config: Any, control_system_type: str) -> ArchiverPairing:
+    """The verdict on a rendered config, given the control system to judge it
+    against — the one it selects, or the one a target would select."""
+    archiver_type = resolve_archiver_type(_sections(config).get("archiver"))
 
     return ArchiverPairing(
         is_invented_history=(

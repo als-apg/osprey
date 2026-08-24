@@ -40,7 +40,7 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 #     opus: claude-opus-4-6
 
 # How the agent searches for channels. `osprey set channel_finder_mode=...`
-# also accepts in_context or middle_layer.
+# also accepts in_context, middle_layer, or graph (the knowledge graph store).
 channel_finder_mode: hierarchical
 
 # ── What the agent can do ────────────────────────────────────────────────────
@@ -49,6 +49,7 @@ channel_finder_mode: hierarchical
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
   - writes-check      # Kill switch: refuse every write while writes_enabled is false
@@ -92,6 +93,7 @@ agents:
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis
   - facility-knowledge      # Look up facility documentation, procedures, and device specs
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
   - pyat-specialist         # Lattice/optics computation sub-agent (pyAT)
 
 output_styles:

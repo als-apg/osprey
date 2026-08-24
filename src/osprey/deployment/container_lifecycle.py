@@ -47,6 +47,11 @@ from osprey.deployment.errors import (
     DevModeUnavailableError,
     NoRenderedBuildError,
 )
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_SERVICE_NAME,
+    preflight_graphdb_config,
+)
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
@@ -154,10 +159,31 @@ logger = get_logger("deployment.lifecycle")
 # from an ambient environment.
 # NOTE: mongod, like postgres, reads its root credentials only when
 # initializing a fresh data volume — the same stale-volume caveat applies.
+#
+# graphdb is the Neo4j knowledge-graph store, and follows the openobserve
+# rationale with one wrinkle the other three do not have: its compose template
+# passes credentials as the COMPOSITE ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-…}"``,
+# so the minted value is only the password half. Left alone the store comes up
+# on the template's published default, guarding the facility knowledge graph
+# the agent answers from. The minted value reaches two readers from this one
+# ``.env`` entry — the container, via that composite, and the agent's
+# connection resolver, whose ``services.graphdb`` block names the variable
+# rather than carrying a value (the archiver's ``password_env`` pattern, not
+# the postgres embedded-DSN one, because the neo4j driver takes auth
+# separately as ``driver(uri, auth=(user, password))``).
+# NOTE: neo4j, like postgres and mongod, adopts its initial password only when
+# initializing a fresh data volume — the same stale-volume caveat applies.
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "bluesky": ("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY"),
+    # The SECOND plan lane (opt-in ``bluesky.second_lane``), which is a whole
+    # stack of its own and therefore gets its own launch token. A shared token
+    # would let a launch armed for one machine be replayed against the other,
+    # which is exactly the confusion the lane axis exists to remove. No Tiled
+    # key: Tiled is the one shared component and lives on lane 1.
+    "bluesky_va": ("BLUESKY_VA_LAUNCH_TOKEN",),
+    "bluesky_live": ("BLUESKY_LIVE_LAUNCH_TOKEN",),
     # The operator credential for the sidecar's WebAuthMiddleware gate. The
     # sidecar container declares OSPREY_TERMINAL_BIND_HOST, so an empty secret
     # refuses startup instead of minting a value nothing outside the container
@@ -166,6 +192,7 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     "postgresql": ("ARIEL_DB_PASSWORD",),
     "mongodb": ("MONGO_ROOT_PASSWORD",),
+    "graphdb": ("GRAPHDB_PASSWORD",),
 }
 
 # Non-secret settings written into ``.env`` for a deployed service, as
@@ -228,13 +255,31 @@ _SERVICE_DEFAULT_VARS: dict[str, tuple[tuple[str, str], ...]] = {
 # project's effective env, it is validated like any other var — never
 # fabricated when absent, never auto-minted when malformed, just rejected
 # with a named-var/no-value error.
-_VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
+#
+# GRAPHDB_PASSWORD earns its place on a SECOND ground, which is why this is a
+# set of two rather than a set of ARIEL_DSN-shaped vars. It does have a
+# _SERVICE_TOKEN_VARS entry — but only under the "graphdb" key, so the mint and
+# the validation above reach it only on a deploy that runs its own graph store.
+# The other supported shape is an EXTERNAL store: an explicit
+# `services.graphdb.uri` pointing at a Neo4j this deploy does not run, with
+# "graphdb" absent from `deployed_services`. On that path the operator writes
+# the password into the project `.env` themselves, and it is precisely the
+# operator-supplied values — never the minted ones — that the format constraint
+# exists to catch. Without this entry the var would be invisible to the deploy
+# boundary in exactly the configuration where it is most likely to be malformed.
+#
+# Membership in both sets is deliberate and costs nothing: on a deploy that
+# does run graphdb the validate-only loop re-checks an already-checked value
+# with the same pure validator and the same pure forbidden-value lookup. Both
+# loops ask both questions in the same order, so which one reaches a given
+# value first does not change the diagnosis the operator reads.
+_VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN", "GRAPHDB_PASSWORD"}
 
 
 class VolumeInitializedStore(NamedTuple):
     """Where one store's identity lives on the host, for the stale-volume check.
 
-    Four names that must agree with the service's compose template, which
+    Five names that must agree with the service's compose template, which
     ``TestRegistryAgreement`` in the per-store mint tests pins field by field:
 
     * ``service`` — the ``deployed_services`` key, and the name shown to the
@@ -246,15 +291,27 @@ class VolumeInitializedStore(NamedTuple):
       ``container_name``. The container is the only host-side record of the
       credential its volume was initialized with;
     * ``cred_env`` — what that credential is called *inside* the container,
-      which is not the ``.env`` var name for two of the three stores
+      which is not the ``.env`` var name for most of these stores
       (``MONGO_ROOT_PASSWORD`` arrives as ``MONGO_INITDB_ROOT_PASSWORD``,
-      ``ARIEL_DB_PASSWORD`` as ``POSTGRES_PASSWORD``).
+      ``ARIEL_DB_PASSWORD`` as ``POSTGRES_PASSWORD``);
+    * ``cred_prefix`` — the fixed text the template puts *in front of* the
+      ``.env`` value when it builds ``cred_env``, stripped back off on the way
+      in. Empty for every store whose container variable holds the credential
+      and nothing else; ``"neo4j/"`` for graphdb, whose ``NEO4J_AUTH`` is a
+      ``<user>/<password>`` composite. Without the strip, the harvested value
+      would carry the prefix while ``.env`` does not, and the two places that
+      consume it would both be wrong in the same direction: the staleness
+      comparison would call every healthy graphdb volume stale, and
+      ``--reuse-stores`` would then "restore" ``neo4j/<password>`` into
+      ``GRAPHDB_PASSWORD``, re-composing to ``neo4j/neo4j/<password>`` and
+      locking the operator out of a store that was working.
     """
 
     service: str
     volume: str
     container: str
     cred_env: str
+    cred_prefix: str = ""
 
 
 #: Minted vars a service reads ONLY when it initializes a fresh data volume.
@@ -287,6 +344,21 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
         volume="archiver_mongodb_data",
         container="-archiver-mongodb",
         cred_env="MONGO_INITDB_ROOT_PASSWORD",
+    ),
+    # Neo4j reads NEO4J_AUTH only while initializing an empty /data, and that
+    # volume carries the server's auth store — so it belongs here for the same
+    # reason the three above do. What is different is only the spelling: the
+    # template composes `neo4j/${GRAPHDB_PASSWORD:-…}`, so the container-side
+    # value is the bare password with a fixed user prefix on it, which
+    # `cred_prefix` takes back off. The plugins volume is deliberately NOT
+    # named: it holds a downloaded jar, carries no credential, and a store is
+    # listed here for the volume whose survival makes a credential unusable.
+    "GRAPHDB_PASSWORD": VolumeInitializedStore(
+        service="graphdb",
+        volume="graphdb_data",
+        container="-graphdb",
+        cred_env="NEO4J_AUTH",
+        cred_prefix="neo4j/",
     ),
 }
 
@@ -358,28 +430,113 @@ _STORE_ISSUED_VARS: dict[str, StoreIssuedCredential] = {
     ),
 }
 
-# Document-plane CURVE certificate layout, relative to the project directory.
-# Fixed by the read-only mounts the bluesky compose template declares
-# (``../../data/bluesky_curve/<side>`` -> ``/app/curve``) together with the
-# certificate paths it hardcodes into each container's environment, so this
-# constant and that template are one contract: change either and the bridge
-# refuses to bind its proxy.
-#
-# Split per side rather than per file so neither container can read the
-# secret it is not supposed to hold. The bridge (which binds the proxy, and
-# so holds the SERVER half) gets the proxy's secret certificate plus a
-# ``clients/`` directory of the publisher public keys it will accept; the
-# queueserver (the publishing CLIENT) gets the publisher's secret certificate
-# plus the proxy's public one.
-_BLUESKY_CURVE_DIR = Path("data") / "bluesky_curve"
+# Service key of the Bluesky plan lane every project has had since the bridge
+# shipped, and the two keys the OPT-IN second lane can take. A lane is named
+# for the control-system target it serves, never for its index, so which of the
+# two exists depends on which target the deployment baseline is (see
+# ``_inject_bluesky``). Lane 1 keeps the historical key, which is what lets
+# every per-lane name below collapse to its pre-lane spelling on the
+# single-lane deployment every existing project is.
+_BLUESKY_LANE_ONE = "bluesky"
+_BLUESKY_SECOND_LANE_KEYS = ("bluesky_va", "bluesky_live")
+
+
+def _bluesky_lane_keys(config: dict) -> list[str]:
+    """The Bluesky plan lanes this deployment renders, in render order.
+
+    Read off ``deployed_services`` — the same membership rule every other
+    provisioning step here is gated on — rather than off ``services``, so a
+    block left in config.yml but not deployed provisions nothing.
+
+    Args:
+        config: Raw deploy config.
+
+    Returns:
+        ``[]`` for a deploy with no bluesky bridge, ``["bluesky"]`` for the
+        single-lane case, and lane 1 followed by the second lane's key for a
+        two-lane deploy.
+    """
+    services = {str(service) for service in (config.get("deployed_services") or [])}
+    if _BLUESKY_LANE_ONE not in services:
+        return []
+    return [_BLUESKY_LANE_ONE] + [key for key in _BLUESKY_SECOND_LANE_KEYS if key in services]
+
+
+def _bluesky_lane_env_prefix(lane_key: str) -> str:
+    """The ``.env`` variable prefix a lane's own secrets are minted under.
+
+    ``bluesky`` -> ``BLUESKY``, which is every pre-lane variable name spelled
+    exactly as it always was; ``bluesky_va`` -> ``BLUESKY_VA``. The name INSIDE
+    each container never changes — the image is lane-agnostic — so this prefix
+    only ever names the host-side variable the compose template interpolates.
+
+    Args:
+        lane_key: A lane's ``services.<lane>`` key.
+
+    Returns:
+        The upper-cased prefix.
+    """
+    return lane_key.upper()
+
+
+def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
+    """Document-plane CURVE certificate directory for one lane.
+
+    Relative to the project directory, and fixed by the read-only mounts the
+    bluesky compose template declares (``./data/<lane>_curve/<side>`` ->
+    ``/app/curve``) together with the certificate paths it hardcodes into each
+    container's environment, so this function and that template are one
+    contract: change either and the bridge refuses to bind its proxy.
+
+    Per lane rather than shared, and that is the point: a single keypair would
+    authenticate either lane's publisher to either lane's proxy, so a plan
+    running on one machine could inject documents into the other's run
+    history. Lane 1's directory keeps its historical name.
+
+    Args:
+        lane_key: A lane's ``services.<lane>`` key.
+
+    Returns:
+        The lane's certificate directory, relative to the project directory.
+    """
+    return Path("data") / f"{lane_key}_curve"
+
 
 # Control-plane (RE Manager 0MQ control socket) CURVE keypair. Unlike the
 # document plane's certificates these are z85 key *strings*, not files:
 # ``start-re-manager`` and ``bluesky-queueserver-api`` both read them straight
 # out of the environment, so the compose template passes them through from the
 # project ``.env`` under these OSPREY-namespaced names.
+#
+# Spelled here as lane 1's names and derived per lane by
+# ``_qserver_zmq_key_vars``: a second lane runs a second manager on a second
+# control socket, and one keypair across both would let either lane's bridge
+# drive the other lane's queue.
 _QSERVER_ZMQ_PRIVATE_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY"
 _QSERVER_ZMQ_PUBLIC_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"
+
+#: Suffixes the per-lane control-plane variable names are built from — the
+#: halves of lane 1's names after its ``BLUESKY`` prefix, so the two spellings
+#: cannot drift apart.
+_QSERVER_ZMQ_PRIVATE_KEY_SUFFIX = _QSERVER_ZMQ_PRIVATE_KEY_VAR.removeprefix("BLUESKY")
+_QSERVER_ZMQ_PUBLIC_KEY_SUFFIX = _QSERVER_ZMQ_PUBLIC_KEY_VAR.removeprefix("BLUESKY")
+
+
+def _qserver_zmq_key_vars(lane_key: str = _BLUESKY_LANE_ONE) -> tuple[str, str]:
+    """The ``(private, public)`` control-plane variable names for one lane.
+
+    Args:
+        lane_key: A lane's ``services.<lane>`` key.
+
+    Returns:
+        The two ``.env`` variable names, which for lane 1 are exactly
+        :data:`_QSERVER_ZMQ_PRIVATE_KEY_VAR` / :data:`_QSERVER_ZMQ_PUBLIC_KEY_VAR`.
+    """
+    prefix = _bluesky_lane_env_prefix(lane_key)
+    return (
+        f"{prefix}{_QSERVER_ZMQ_PRIVATE_KEY_SUFFIX}",
+        f"{prefix}{_QSERVER_ZMQ_PUBLIC_KEY_SUFFIX}",
+    )
 
 
 def _report_fact(message: str, /, *, wrote: tuple[str, object] | None = None) -> None:
@@ -572,7 +729,8 @@ def _ensure_service_tokens(
     directory, one file, no second copy to keep in step.
 
     Independently of the above, every var in ``_VALIDATE_ONLY_VARS``
-    (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
+    (e.g. ``ARIEL_DSN``) is checked against both its ``_VAR_FORBIDDEN_VALUES``
+    entry and its ``_VAR_VALIDATORS`` constraint
     when present in the effective env — but never minted, and never required:
     this runs even when no deployed service pulls in any ``_SERVICE_TOKEN_VARS``
     entry at all, since a validate-only var's presence does not depend on
@@ -806,6 +964,15 @@ def _ensure_service_tokens(
         effective = _effective_value(name, post)
         if not effective:
             continue  # absent — never fabricated, never minted
+        # Same two checks in the same order as the required_vars loop above, and
+        # for a sharper reason here: a value reaching THIS loop was never minted,
+        # so it is operator-supplied by construction. Pinning a template's
+        # published default is exactly the mistake an operator wiring up an
+        # external store makes — they copy the fallback out of the compose file —
+        # and the forbidden map is the only check that can see it, since such a
+        # value is well-formed by every format rule its var registers.
+        if _is_forbidden_value(name, effective):
+            _raise_forbidden_var(name)
         if not _validate_var(name, effective):
             _raise_invalid_var(name, effective)
 
@@ -849,11 +1016,23 @@ def _harvest_original_credential(probe, project: str, store: VolumeInitializedSt
     ``None`` whenever the container is gone, carries no such variable, or holds
     an empty one — every case in which the volume cannot be reopened and the
     only way forward is to discard it.
+
+    The returned value is always in ``.env`` terms, never container terms:
+    ``store.cred_prefix`` is stripped here rather than at either call site,
+    because this is the single point both of them read the credential through —
+    the staleness comparison against the ``.env`` value, and the
+    ``--reuse-stores`` write back into it. Stripping in one place is what keeps
+    those two from disagreeing about what the credential is. A composite that
+    is nothing but its prefix (``"neo4j/"``, an empty password) reduces to the
+    empty string and is reported as unreadable, which is what it is.
     """
     env = probe.env_of_container(f"{project}{store.container}")
     if not env:
         return None
-    return env.get(store.cred_env) or None
+    raw = env.get(store.cred_env)
+    if not raw:
+        return None
+    return raw.removeprefix(store.cred_prefix) or None
 
 
 def _stale_store_volumes(
@@ -1176,7 +1355,8 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     """
     deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
-    if "bluesky" not in services or "virtual_accelerator" not in services:
+    lane_keys = _bluesky_lane_keys(config)
+    if not lane_keys or "virtual_accelerator" not in services:
         return
 
     # The substrate devices are ophyd-async Channel Access devices, which only
@@ -1229,8 +1409,22 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         )
         return
 
+    # One set of variables PER LANE. The device NAMES are a property of the
+    # facility and come out the same for both — the two lanes address the same
+    # PVs through different gateways — but the variables are per lane all the
+    # same, because that is what lets an operator narrow one lane's substrate
+    # without silently narrowing the other's. Lane 1's names are unchanged, so
+    # a single-lane project's ``.env`` gains nothing new here.
+    derived_by_lane: dict[str, str] = {}
+    for lane_key in lane_keys:
+        prefix = _bluesky_lane_env_prefix(lane_key)
+        for name, value in derived.items():
+            derived_by_lane[f"{prefix}{name.removeprefix(_BLUESKY_LANE_ONE.upper())}"] = value
+
     existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    generated = {k: v for k, v in derived.items() if k not in os.environ and k not in existing}
+    generated = {
+        k: v for k, v in derived_by_lane.items() if k not in os.environ and k not in existing
+    }
     if not generated:
         return
 
@@ -1248,18 +1442,20 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     )
 
 
-def _bluesky_curve_paths(project_dir: Path) -> dict[str, Path]:
-    """The document-plane certificate paths for one project, by role.
+def _bluesky_curve_paths(project_dir: Path, lane_key: str = _BLUESKY_LANE_ONE) -> dict[str, Path]:
+    """The document-plane certificate paths for one lane, by role.
 
     Args:
         project_dir: Project directory (the parent of the project ``.env``).
+        lane_key: The lane these certificates belong to. Defaults to lane 1,
+            whose directory is the one every single-lane project already has.
 
     Returns:
         Mapping of role name to path. ``bridge``/``queueserver``/
         ``bridge_clients`` are directories (the compose mount sources); the
         four remaining entries are the certificate files each side reads.
     """
-    base = project_dir / _BLUESKY_CURVE_DIR
+    base = project_dir / _bluesky_curve_dir(lane_key)
     bridge = base / "bridge"
     queueserver = base / "queueserver"
     clients = bridge / "clients"
@@ -1310,19 +1506,43 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
     stack to come up without a document plane (no live rows), which is the
     same degradation the bridge already handles.
 
+    Per LANE, and independently: a two-lane deployment gets two complete,
+    unrelated sets, because one shared pair would authenticate either lane's
+    publisher to either lane's proxy and let a plan running on one machine
+    inject documents into the other machine's run history. Each lane's set is
+    provisioned, repaired and reported on its own, so an incomplete set on one
+    lane never rotates the other lane's keys.
+
     Args:
         config: Raw deploy config (``deployed_services`` membership).
         env_path: Project ``.env`` path, used only to locate the project
             directory; defaults to ``Path(".env")`` like every other
             provisioning step here.
     """
-    services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "bluesky" not in services:
+    lane_keys = _bluesky_lane_keys(config)
+    if not lane_keys:
         return
 
     if env_path is None:
         env_path = Path(".env")
-    paths = _bluesky_curve_paths(env_path.resolve().parent)
+    project_dir = env_path.resolve().parent
+    for lane_key in lane_keys:
+        _ensure_bluesky_lane_document_plane_certs(lane_key, project_dir)
+
+
+def _ensure_bluesky_lane_document_plane_certs(lane_key: str, project_dir: Path) -> None:
+    """Provision one lane's document-plane certificate set.
+
+    The whole of :func:`_ensure_bluesky_document_plane_certs`'s contract —
+    unconditional, idempotent, existing-material-wins, never raising into a
+    deploy — applies here per lane; see that function for why.
+
+    Args:
+        lane_key: The lane's ``services.<lane>`` key.
+        project_dir: Project directory (the parent of the project ``.env``).
+    """
+    paths = _bluesky_curve_paths(project_dir, lane_key)
+    curve_dir = _bluesky_curve_dir(lane_key)
 
     certs = ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public")
     present = [name for name in certs if paths[name].is_file()]
@@ -1359,9 +1579,9 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
         return
 
     _report_fact(
-        f"bluesky CURVE certificates → {_BLUESKY_CURVE_DIR}/",
+        f"bluesky CURVE certificates → {curve_dir}/",
         wrote=(
-            f"{_BLUESKY_CURVE_DIR}/",
+            f"{curve_dir}/",
             "document-plane certificates (gitignored); containers read them at "
             "startup, so replacements need the bridge and queueserver recreated",
         ),
@@ -1456,16 +1676,41 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     ``zmq``) logs a warning and returns, leaving the ``:?`` guard to stop the
     deploy rather than this function.
 
+    Per LANE: a second lane runs a second RE Manager on a second control
+    socket, and one keypair across both would let either lane's bridge drive
+    the other lane's queue — the same reason each lane gets its own document
+    plane and its own launch token. Each lane's pair is minted, repaired and
+    validated on its own; a refusal on one lane stops the deploy before the
+    next lane is touched, which is the honest order when the refusal means an
+    operator set something unsatisfiable.
+
     Args:
         config: Raw deploy config (``deployed_services`` membership).
         env_path: Project ``.env`` path; defaults to ``Path(".env")``.
     """
-    services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "bluesky" not in services:
+    lane_keys = _bluesky_lane_keys(config)
+    if not lane_keys:
         return
 
     if env_path is None:
         env_path = Path(".env")
+    for lane_key in lane_keys:
+        _ensure_bluesky_lane_control_plane_keys(lane_key, env_path)
+
+
+def _ensure_bluesky_lane_control_plane_keys(lane_key: str, env_path: Path) -> None:
+    """Mint ONE lane's RE Manager control-socket CURVE keypair into ``.env``.
+
+    Every rule in :func:`_ensure_bluesky_control_plane_keys` — both halves are
+    secrets, existing values win, plaintext is not a supported mode, an
+    explicitly empty value is refused rather than minted over — applies here,
+    to this lane's own pair of variables. See that function for why.
+
+    Args:
+        lane_key: The lane's ``services.<lane>`` key.
+        env_path: Project ``.env`` path.
+    """
+    private_var, public_var = _qserver_zmq_key_vars(lane_key)
     existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
     def _is_set(name: str) -> bool:
@@ -1484,7 +1729,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     # as it rejects unset, and an empty public half leaves the bridge unable to
     # authenticate to a manager that does have a key. Minting over either one
     # would contradict a value the operator deliberately set.
-    for var in (_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR):
+    for var in (private_var, public_var):
         if (var in os.environ or var in existing) and not _effective_value(var, existing).strip():
             raise RuntimeError(
                 f"{var} is set but empty. An empty value would run the bluesky RE manager's "
@@ -1492,7 +1737,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
                 "the one route to plan execution that does not pass the bridge's launch-token "
                 "gate, and its container shares a network with every other service. Either "
                 f"unset {var} and let `osprey up` mint a keypair, or set "
-                f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} to the private half of a CURVE keypair of "
+                f"{private_var} to the private half of a CURVE keypair of "
                 "your own."
             )
 
@@ -1504,11 +1749,11 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     # cause rather than a mismatched-pair message about a value neither side
     # ever sees. Existing values are never overwritten, so refusing is the only
     # honest option here — minting over an operator's deliberate key is not.
-    for var in (_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR):
+    for var in (private_var, public_var):
         _assert_env_interpolation_safe(var, _effective_value(var, existing))
 
-    has_private = _is_set(_QSERVER_ZMQ_PRIVATE_KEY_VAR)
-    has_public = _is_set(_QSERVER_ZMQ_PUBLIC_KEY_VAR)
+    has_private = _is_set(private_var)
+    has_public = _is_set(public_var)
     if has_private and has_public:
         # Both present is the "operator supplied their own" path, and it is the
         # one shape the compose `:?` guards cannot check: two well-formed keys
@@ -1516,8 +1761,10 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
         # at runtime as a control-socket timeout with nothing pointing at the
         # keys. Verify the pairing here, where the message can name the cause.
         _verify_qserver_keypair_pairs(
-            _effective_value(_QSERVER_ZMQ_PRIVATE_KEY_VAR, existing),
-            _effective_value(_QSERVER_ZMQ_PUBLIC_KEY_VAR, existing),
+            _effective_value(private_var, existing),
+            _effective_value(public_var, existing),
+            private_var,
+            public_var,
         )
         return
     if has_public and not has_private:
@@ -1528,16 +1775,16 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
             "the compose template's fail-closed guard on the private key rather than "
             "start the manager in plaintext. Set %s to the private half of that keypair, "
             "or unset %s to let `osprey up` mint a fresh pair.",
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            public_var,
+            private_var,
+            private_var,
+            public_var,
         )
         return
 
     try:
         generated = _derive_qserver_keypair(
-            _effective_value(_QSERVER_ZMQ_PRIVATE_KEY_VAR, existing)
+            _effective_value(private_var, existing), private_var, public_var
         )
     except EnvInterpolationUnsafeError:
         # NOT swallowed like the failures below: the compose `:?` guard cannot
@@ -1551,13 +1798,13 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
             "(%s / %s). No key is written, so the compose template's fail-closed guard "
             "on the private key will stop the deploy rather than start the manager in "
             "plaintext.",
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            private_var,
+            public_var,
             exc_info=True,
         )
         return
 
-    if has_private and _QSERVER_ZMQ_PRIVATE_KEY_VAR in os.environ:
+    if has_private and private_var in os.environ:
         # The private half lives only in this shell, so writing its derived
         # public half to .env would leave a half-state on disk: the next deploy
         # from a clean shell would find a public key with no private one, hit
@@ -1567,7 +1814,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
         os.environ.update(generated)
         _report_fact(
             f"derived {', '.join(generated)} from this shell's "
-            f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} for this deploy only (not written to .env)"
+            f"{private_var} for this deploy only (not written to .env)"
         )
         return
 
@@ -1590,7 +1837,12 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     )
 
 
-def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
+def _verify_qserver_keypair_pairs(
+    private_key: str,
+    public_key: str,
+    private_var: str = _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+    public_var: str = _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+) -> None:
     """Refuse a configured keypair whose two halves do not belong together.
 
     Both halves being present is the operator-supplied path, and a mismatched
@@ -1601,8 +1853,13 @@ def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
     a named cause.
 
     Args:
-        private_key: The effective ``BLUESKY_QSERVER_ZMQ_PRIVATE_KEY``.
-        public_key: The effective ``BLUESKY_QSERVER_ZMQ_PUBLIC_KEY``.
+        private_key: The effective private-key value.
+        public_key: The effective public-key value.
+        private_var: Name of the variable ``private_key`` came from. Defaults
+            to lane 1's, which is the only name a single-lane deploy has; a
+            second lane passes its own so the message names the value the
+            operator actually set.
+        public_var: Name of the variable ``public_key`` came from.
 
     Raises:
         RuntimeError: The public key is not the one derived from the private
@@ -1621,20 +1878,20 @@ def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
             "Could not check that %s pairs with %s: the private key does not parse as a "
             "CURVE key. The deploy continues, but the manager will reject every "
             "control-socket call until that value is a valid z85 private key.",
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            private_var,
+            public_var,
             exc_info=True,
         )
         return
 
     if derived != public_key.strip():
         raise RuntimeError(
-            f"{_QSERVER_ZMQ_PUBLIC_KEY_VAR} is not the public half of "
-            f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR}. Both values are well-formed, so every "
+            f"{public_var} is not the public half of "
+            f"{private_var}. Both values are well-formed, so every "
             "compose guard would pass and the stack would start — but the bridge could "
             "never complete a CURVE handshake with the RE manager, and every queue call "
             "would fail as an unexplained control-socket timeout. Set "
-            f"{_QSERVER_ZMQ_PUBLIC_KEY_VAR} to the public half of that keypair, or unset "
+            f"{public_var} to the public half of that keypair, or unset "
             "both and let `osprey up` mint a matched pair."
         )
 
@@ -1708,7 +1965,11 @@ def _assert_env_interpolation_safe(var: str, value: str) -> None:
     )
 
 
-def _derive_qserver_keypair(private_key: str) -> dict[str, str]:
+def _derive_qserver_keypair(
+    private_key: str,
+    private_var: str = _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+    public_var: str = _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+) -> dict[str, str]:
     """The control-plane variables to append, given any private key already set.
 
     Freshly minted pairs are drawn until BOTH halves are free of ``$`` (see
@@ -1723,10 +1984,14 @@ def _derive_qserver_keypair(private_key: str) -> dict[str, str]:
     that path is checked and refused instead.
 
     Args:
-        private_key: The effective ``BLUESKY_QSERVER_ZMQ_PRIVATE_KEY``, or an
-            empty string when none is set. An empty value never reaches here —
-            the caller refuses it outright, since plaintext is not a supported
-            mode.
+        private_key: The effective private-key value, or an empty string when
+            none is set. An empty value never reaches here — the caller refuses
+            it outright, since plaintext is not a supported mode.
+        private_var: Name the minted private half is returned under. Defaults
+            to lane 1's; a second lane mints under its own name, because two
+            lanes sharing one keypair would let either lane's bridge drive the
+            other lane's queue.
+        public_var: Name the public half is returned under.
 
     Returns:
         The public half alone when a private key is already set (derived from
@@ -1742,16 +2007,16 @@ def _derive_qserver_keypair(private_key: str) -> dict[str, str]:
     if private_key.strip():
         public = zmq.curve_public(private_key.encode()).decode()
         # Not re-drawable: this half is determined by the operator's own key.
-        _assert_env_interpolation_safe(_QSERVER_ZMQ_PUBLIC_KEY_VAR, public)
-        return {_QSERVER_ZMQ_PUBLIC_KEY_VAR: public}
+        _assert_env_interpolation_safe(public_var, public)
+        return {public_var: public}
 
     for _ in range(_QSERVER_KEYPAIR_MINT_ATTEMPTS):
         public_bytes, secret_bytes = zmq.curve_keypair()
         public, secret = public_bytes.decode(), secret_bytes.decode()
         if "$" not in public and "$" not in secret:
             return {
-                _QSERVER_ZMQ_PRIVATE_KEY_VAR: secret,
-                _QSERVER_ZMQ_PUBLIC_KEY_VAR: public,
+                private_var: secret,
+                public_var: public,
             }
     raise EnvInterpolationUnsafeError(
         f"could not mint a bluesky RE manager keypair free of '$' in "
@@ -2812,7 +3077,12 @@ def _deploy_written_env_vars() -> set[str]:
     """
     written = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
     written |= {var for pairs in _SERVICE_DEFAULT_VARS.values() for var, _default in pairs}
-    written |= {_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR}
+    # Every lane's control-plane pair, not only lane 1's: the census is a
+    # census of names this command can write, and a two-lane deploy writes two
+    # pairs. Enumerated from the lane keys rather than from this deploy's
+    # config, because the census has none.
+    for _lane_key in (_BLUESKY_LANE_ONE, *_BLUESKY_SECOND_LANE_KEYS):
+        written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
     written |= set(_STORE_ISSUED_VARS)
 
@@ -3518,6 +3788,125 @@ def _check_shared_disk_preflight(config: dict) -> None:
             f"modules.shared_disk.host_path does not exist on this server: {host_path}\n"
             "Mount the filesystem (check /etc/fstab) or correct modules.shared_disk.host_path."
         )
+
+
+#: Podman networking backend the Bluesky stack requires.  The legacy ``cni``
+#: backend ships no aardvark-dns, and without it a dual-homed container gets
+#: only its *first* network's dnsmasq in ``resolv.conf``.
+_REQUIRED_PODMAN_NETWORK_BACKEND = "netavark"
+
+#: Cap on the ``podman info`` probe below.  Short on purpose: the answer is
+#: local configuration, and a probe that hangs must not become the reason a
+#: deploy stalls -- see :func:`_podman_network_backend` on why it stays silent.
+_NETWORK_BACKEND_PROBE_TIMEOUT_SECONDS = 10.0
+
+
+def _podman_network_backend(runtime: str) -> str | None:
+    """Report the host's podman network backend, or ``None`` if it can't be read.
+
+    Deliberately total: every failure mode -- a runtime that isn't podman, a
+    podman too old to carry ``.Host.NetworkBackend``, a probe that errors or
+    times out -- collapses to ``None``, which the caller reads as "no opinion"
+    and lets the deploy through. The check below exists to explain one specific
+    broken host; a preflight that refused because it could not interrogate the
+    host would be causing the outage it exists to prevent.
+
+    :param runtime: The resolved container runtime (``docker`` or ``podman``).
+    :returns: The lowercased backend name (e.g. ``netavark``, ``cni``), or
+        ``None`` when this host has no answer to give.
+    """
+    if runtime != "podman":
+        return None
+
+    try:
+        completed = subprocess.run(
+            [runtime, "info", "--format", "{{.Host.NetworkBackend}}"],
+            capture_output=True,
+            text=True,
+            timeout=_NETWORK_BACKEND_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if completed.returncode != 0:
+        return None
+
+    backend = completed.stdout.strip().lower()
+    # An older podman renders the missing field as `<no value>` rather than
+    # failing, so an empty-or-templated answer is the same "no opinion" as a
+    # probe that never ran.
+    if not backend or backend.startswith("<"):
+        return None
+    return backend
+
+
+def _preflight_bluesky_network_backend(config: dict) -> None:
+    """Refuse a Bluesky deploy on a podman host still using the ``cni`` backend.
+
+    The bundled Bluesky template puts the bridge, the RE Manager and Redis on an
+    ``internal: true`` network and dual-homes the queueserver. On rootless
+    podman with the legacy ``cni`` backend there is no aardvark-dns, so the
+    dual-homed queueserver receives only its first network's resolver and can
+    never resolve ``bluesky-redis``. It goes unhealthy, and ``osprey up`` aborts
+    before the web slice renders -- the whole deployment is down, on a DNS fact
+    that is invisible from anything osprey prints.
+
+    Refusing here turns that into one line naming the host setting to change.
+    Nothing is started when it fires, so the host is left exactly as it was.
+
+    Skipped unless ``bluesky`` is deployed: the failure is specific to the
+    multi-network shape that service brings, and every other stack in this
+    project runs fine on ``cni``.
+
+    :param config: Raw deploy config (``deployed_services`` membership).
+    :raises RuntimeError: ``bluesky`` is deployed on a podman host whose network
+        backend is ``cni``.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "bluesky" not in services:
+        return
+
+    try:
+        runtime = get_runtime_command(config)[0]
+    except RuntimeError:
+        # No usable runtime at all. verify_runtime_is_running says that far
+        # better than a networking preflight can; don't pre-empt it.
+        return
+
+    backend = _podman_network_backend(runtime)
+    if backend is None or backend == _REQUIRED_PODMAN_NETWORK_BACKEND:
+        return
+
+    if backend != "cni":
+        # A backend nobody here has seen. Say so rather than refuse: the known
+        # break is cni's missing aardvark-dns, and guessing that some future
+        # backend shares it would block a deploy on no evidence.
+        _warn_fact(
+            f"Unrecognised podman network backend: {backend}",
+            "The bundled Bluesky stack needs container-name DNS across two networks, "
+            f"which this project has only verified on {_REQUIRED_PODMAN_NETWORK_BACKEND}. "
+            "If bluesky-queueserver comes up unhealthy, resolving bluesky-redis is the "
+            "first thing to check.",
+            None,
+        )
+        return
+
+    raise RuntimeError(
+        "The Bluesky stack requires podman's netavark network backend; this host is "
+        "using the legacy cni backend.\n"
+        "Without aardvark-dns the dual-homed bluesky-queueserver cannot resolve "
+        "bluesky-redis, so it never becomes healthy and the deploy aborts before the "
+        "web slice renders.\n"
+        "Switch the host over by setting the following in containers.conf "
+        "(/etc/containers/containers.conf, or ~/.config/containers/containers.conf for "
+        "a rootless deployment), installing aardvark-dns, then re-running osprey up:\n"
+        "\n"
+        "    [network]\n"
+        '    network_backend = "netavark"\n'
+        "\n"
+        "Existing podman networks must be recreated after the switch "
+        "(podman system reset, or podman network rm for the project's own networks)."
+    )
 
 
 def _web_terminals_enabled(config: dict) -> bool:
@@ -4299,6 +4688,305 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         _report_step(f"logbook seeded: {seeded} entries")
 
 
+# ---------------------------------------------------------------------------
+# Staged graph-store bring-up
+# ---------------------------------------------------------------------------
+
+# How long the staged graph store gets to accept a bolt connection. The same
+# budget ARIEL's store gets, and for the same reason: Neo4j opens its port only
+# once the store is recovered and the plugins the image fetches at every start
+# are loaded, so what this waits out is a refusal rather than a slow answer.
+_GRAPHDB_HEALTH_TIMEOUT_S = 90.0
+_GRAPHDB_HEALTH_POLL_S = 2.0
+
+# Trivial round-trip that proves the store is up, authenticated and answering
+# Cypher. Deliberately not a count of anything: the wait is about reachability,
+# and a query whose cost grows with the graph would make a big store look down.
+_GRAPHDB_PING_CYPHER = "RETURN 1 AS ok"
+
+# The one command that finishes the job by hand, named in every warning below
+# and by the graphdb health category's remedy text, so an operator reading
+# either is pointed at the same verb. Imported from the module both sides
+# already share their vocabulary through, rather than spelled here a second
+# time: two copies would agree only until one of them was edited.
+_GRAPHDB_RECOVERY_HINT = GRAPHDB_SEED_COMMAND
+
+
+def _graphdb_store_deployed(config: dict) -> bool:
+    """True when this deploy runs the graph store itself.
+
+    Membership in ``deployed_services`` is the whole test. A project pointed at
+    a Neo4j someone *else* runs (the explicit ``services.graphdb.uri`` case) must
+    never have that store bootstrapped or imported into by a local deploy — the
+    graph is a mirror, and rebuilding somebody else's mirror is not this deploy's
+    call to make.
+    """
+    return GRAPHDB_SERVICE_NAME in (config.get("deployed_services") or [])
+
+
+def _graphdb_connection(config: dict, project_dir: Path):
+    """Resolve what to dial, as whom, and with which password, for THIS project.
+
+    The password is read from ``<project_dir>/.env`` by name, never from the
+    ambient environment — the same rule :func:`_ariel_store_config` follows, and
+    for the same reason: a deploy is routinely driven from another directory,
+    where an exported ``GRAPHDB_PASSWORD`` belongs to somebody else's deployment.
+
+    :param config: Raw deploy config.
+    :param project_dir: Root of the built project (holds ``.env``).
+    :returns: The resolved
+        :class:`~osprey.deployment.graphdb_service.GraphdbConnection`.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_connection
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env_path = Path(project_dir) / ".env"
+    env = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    block = (config.get("services") or {}).get(GRAPHDB_SERVICE_NAME) or {}
+    return resolve_graphdb_connection(block, env=env)
+
+
+def _graphdb_config_dir(project_dir: Path) -> Path:
+    """The directory holding this project's ``config.yml``.
+
+    What a relative ``services.graphdb.ttl_path`` resolves against — see
+    :func:`_graphdb_ttl_text`. Derived from the project root the deploy was
+    handed rather than from :func:`osprey_connectors.workspace.resolve_config_path`,
+    which falls back to the process working directory: a deploy driven with
+    ``--repo`` from somewhere else would otherwise resolve the corpus against
+    whatever directory the operator happened to be standing in.
+
+    Both project shapes are covered by one rule, the same one
+    ``resolve_config_path`` applies to a working directory: the render one zone
+    down in ``build/`` when it is there, and the project root itself otherwise —
+    a container's project directory, or a legacy flat project, IS its own render.
+    """
+    from osprey.utils.workspace import rendered_config_path
+
+    rendered = rendered_config_path(project_dir)
+    return rendered.parent if rendered.is_file() else Path(project_dir)
+
+
+def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
+    """Read the configured TTL corpus, resolving its path the documented way.
+
+    ``ttl_path`` follows the ``facility_knowledge.bundle_path`` rule — ``~``
+    expanded, an absolute value used as written, a relative one resolved against
+    the ``config.yml`` directory — because ``osprey knowledge seed-graph`` reads
+    the same key by the same rule. Two resolutions of one key would mean the
+    deploy and the verb could seed a store from different files while both
+    reporting success.
+
+    :param ttl_path: The configured ``services.graphdb.ttl_path`` value.
+    :param project_dir: Root of the built project.
+    :returns: The resolved path and its text.
+    :raises OSError: If the corpus is not on disk or cannot be read — reported
+        by the caller's envelope, never fatal.
+    """
+    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+
+    resolved = resolve_bundle_path(ttl_path, _graphdb_config_dir(project_dir))
+    return resolved, resolved.read_text(encoding="utf-8")
+
+
+def _wait_for_graphdb_store(connection, deadline: float) -> None:
+    """Block until the staged store answers Cypher on these credentials, or give up.
+
+    Probes with the connection the bootstrap is about to use, so a rejected
+    password surfaces here — named, and beside the deploy step that owns it —
+    rather than as a bootstrap error that reads like a plugin problem.
+
+    :param connection: The resolved
+        :class:`~osprey.deployment.graphdb_service.GraphdbConnection`.
+    :param deadline: :func:`time.monotonic` instant to give up at.
+    :raises RuntimeError: if the store is still unreachable at ``deadline``.
+    """
+    from osprey.services.facility_knowledge.seeder import graph_seeder
+
+    last: Exception | None = None
+    while True:
+        try:
+            with graph_seeder.open_session(
+                connection.uri, connection.username, connection.password
+            ) as session:
+                session.run(_GRAPHDB_PING_CYPHER).consume()
+                return
+        except Exception as exc:  # noqa: BLE001 — every failure here is "not yet"
+            last = exc
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"the graph store did not accept a connection within "
+                    f"{_GRAPHDB_HEALTH_TIMEOUT_S:.0f}s: {last}"
+                ) from last
+            time.sleep(_GRAPHDB_HEALTH_POLL_S)
+
+
+def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> None:
+    """Bootstrap the staged store and, on a first bring-up only, import its corpus.
+
+    One session for the whole sequence, and each step gated on the one before:
+
+    * **bootstrap** — always, and idempotent. A store whose graph config is not
+      osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
+      is reported and left alone: n10s refuses to re-initialize a configured
+      store, so importing into it would load a corpus under assumptions about the
+      graph's shape that do not hold. Only ``--force`` can resolve that, and only
+      by wiping — which a deploy does not get to do to data it did not write.
+    * **seed** — only into an EMPTY graph (zero ``(:Resource)`` nodes, n10s's own
+      bookkeeping not counted), and only when a corpus is configured. A deploy may
+      fill a blank; it may not overwrite a graph somebody seeded.
+    * **marker** — only after the import reports success. n10s commits in batches,
+      so a failed import leaves triples behind; a marker written regardless would
+      label that half-graph a good seed and every later run would report it
+      unchanged and skip it forever.
+
+    :param config: Raw deploy config.
+    :param project_dir: Root of the built project.
+    :param connection: The resolved graph-store connection.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+    from osprey.services.facility_knowledge.seeder import graph_seeder
+
+    settings = resolve_graphdb_service_config(config)
+    ttl_path = settings.ttl_path if settings is not None else None
+
+    with graph_seeder.open_session(
+        connection.uri, connection.username, connection.password
+    ) as session:
+        bootstrapped = graph_seeder.bootstrap(session)
+        if not bootstrapped.ok:
+            logger.warning(
+                f"The graph store came up, but its {bootstrapped.message}. Nothing was "
+                f"imported, so its contents are whatever was already there. Run "
+                f"`{_GRAPHDB_RECOVERY_HINT} --force` from {project_dir} to wipe it and "
+                f"re-seed under osprey's settings."
+            )
+            return
+        _report_step("graph store bootstrapped")
+
+        if graph_seeder.resource_count(session) > 0:
+            # The normal second-deploy path: a graph that already carries a
+            # corpus is left exactly as it is, and silently — this is not a
+            # problem, and a warning here would cry wolf on every redeploy.
+            # The rendered agent prompt is NOT left as it is: this deploy's
+            # build reset it to the placeholder, so it is re-baked from the
+            # live store on every up — which is what keeps prompt and store in
+            # sync by construction rather than by convention.
+            _bake_graph_prompt_snapshot(session, project_dir)
+            return
+
+        if ttl_path is None:
+            _report_fact(
+                "graph store bootstrapped but not seeded: no services.graphdb.ttl_path "
+                f"is configured. Set one and run `{_GRAPHDB_RECOVERY_HINT}` to import a "
+                "corpus."
+            )
+            return
+
+        resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
+        imported = graph_seeder.import_ttl(session, text)
+        if not imported.ok:
+            logger.warning(
+                f"The graph store came up but importing {resolved} failed "
+                f"({imported.termination_status}: {imported.extra_info}), so graph queries "
+                f"will return little or nothing. Everything else in this deploy is "
+                f"unaffected. Fix the corpus and run `{_GRAPHDB_RECOVERY_HINT} --force` "
+                f"from {project_dir}."
+            )
+            return
+
+        graph_seeder.write_marker(session, graph_seeder.ttl_sha256(text))
+        _report_step(f"graph seeded: {imported.triples_loaded} triples")
+        _bake_graph_prompt_snapshot(session, project_dir)
+
+
+def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
+    """Bake the live store's schema into the rendered graph-agent prompts.
+
+    Runs on both staging outcomes — corpus just imported, and corpus already
+    present — because the render is fresh from this deploy's build either way.
+    Never fatal: an agent whose prompt kept the placeholder falls back to
+    calling ``get_schema``/``example_queries`` at run time, which is the same
+    behavior an unseeded render has.
+
+    :param session: The staging step's open driver session.
+    :param project_dir: Root of the built project.
+    """
+    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+
+    try:
+        patched = prompt_snapshot.bake_snapshot(session, _graphdb_config_dir(project_dir))
+    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+        logger.warning(
+            f"The graph schema snapshot could not be baked into the agent prompt, so the "
+            f"agent will read the schema through its tools instead. Cause: {exc}"
+        )
+        return
+    if patched:
+        _report_step(f"graph schema baked into {len(patched)} agent prompt(s)")
+
+
+def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
+    """Start the graph store, bootstrap it, and seed it on a first bring-up.
+
+    The knowledge-graph counterpart of :func:`_stage_ariel_store`, and staged
+    ahead of the full bring-up for the same kind of reason: a store that comes up
+    unbootstrapped and empty answers every query with zero rows, which reads as
+    "the data is wrong" rather than "nothing was ever loaded". Doing it after the
+    consumers start would leave a stack that is only correct once somebody
+    restarts it.
+
+    Failure here warns and returns rather than aborting the deploy. The graph is
+    one search surface among many, and a control room whose channels, plan runs
+    and archive are all up should not be denied them because its graph could not
+    be provisioned — but every warning names
+    ``osprey knowledge seed-graph`` (see :data:`_GRAPHDB_RECOVERY_HINT`), so the
+    gap is never silent.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project (holds ``.env``).
+    :param provider: The compose provider this deploy resolved, so the staging
+        invocation is shaped like the ``up`` that follows it. ``None`` is the
+        docker shape.
+    """
+    if not _graphdb_store_deployed(config):
+        return
+
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    # The invocation contract, same as _stage_ariel_store: one provider-shaped
+    # base, anchored on the repo root, so the store this brings up joins the same
+    # compose project the `up` below it starts.
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+
+    _report_group("graphdb")
+    up_cmd = base_cmd + ["up", "-d", GRAPHDB_SERVICE_NAME]
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    run_captured(up_cmd, env=run_env, spool_name="graphdb-store-up", repo_root=project_dir)
+    _report_step("graph store started")
+
+    try:
+        connection = _graphdb_connection(config, project_dir)
+        _wait_for_graphdb_store(connection, time.monotonic() + _GRAPHDB_HEALTH_TIMEOUT_S)
+        _bootstrap_and_seed_graphdb(config, project_dir, connection)
+    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+        logger.warning(
+            f"The graph store could not be bootstrapped or seeded, so graph queries will "
+            f"return nothing. Everything else in this deploy is unaffected. Run "
+            f"`{_GRAPHDB_RECOVERY_HINT}` from {project_dir} once the store is reachable. "
+            f"Cause: {exc}"
+        )
+        return
+
+
 def _stage_openobserve_identity(config, compose_files, env, project_dir, *, provider=None) -> None:
     """Start the telemetry store, then provision the account that writes to it.
 
@@ -4686,10 +5374,26 @@ def _start_stack(
     # here, before the build the setting is meant to shorten.
     preflight_qmd_models_dir(config)
 
+    # And the same shape once more for the graph store: a `graphdb` in
+    # deployed_services with no `services.graphdb` block describes no store at
+    # all — no ports, no image, no corpus. Refused here, beside the other
+    # config-only preflights and before anything touches the host, rather than
+    # left to surface as a store that comes up on ports nothing was told about
+    # and answers every query with zero rows.
+    preflight_graphdb_config(config)
+
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
+
+    # With the runtime confirmed up, ask it one question about itself: a podman
+    # host on the legacy cni backend cannot run the Bluesky stack's dual-homed
+    # queueserver, and the failure that produces (unhealthy container, deploy
+    # aborted before the web slice renders) names nothing an operator can act
+    # on. Ahead of every container-touching command below, so the refusal
+    # leaves the host untouched.
+    _preflight_bluesky_network_backend(config)
 
     # Fail fast on a host-port collision (a foreign stack, or a second project
     # on the same host) with an actionable diagnosis, rather than letting
@@ -4868,13 +5572,6 @@ def _start_stack(
     if web_terminals_enabled:
         preflight_web_terminals(config, repo_root=Path(repo_root))
 
-    # Build the <project>:local image the dispatch worker references. The worker
-    # has no compose build block (that would race the event-dispatcher on the
-    # shared tag), so this is the only thing that produces its image. No-op
-    # unless the worker is deployed on the local project image. Run before
-    # `compose up` (which, non-detached, os.execvpe-replaces this process).
-    _build_project_image(config, dev_mode, env, build_context)
-
     # Stage the archiver store and seed its history BEFORE the branch split, so
     # both deploy paths inherit it and the recorder — started by whichever `up`
     # follows — finds a collection that already exists with the right indexes.
@@ -4897,6 +5594,22 @@ def _start_stack(
     # whose history is already in place — the two halves of one narrative, in the
     # order they document each other.
     _stage_ariel_store(config, compose_files, env, Path(repo_root), provider=provider)
+
+    # And the graph store, on the same placement and for the same reason: the
+    # corpus has to be in the graph before the surfaces that query it start, and
+    # both deploy paths need it. No-op unless this project deploys the store
+    # itself; never aborts (see _stage_graphdb_store).
+    _stage_graphdb_store(config, compose_files, env, Path(repo_root), provider=provider)
+
+    # Build the <project>:local image the dispatch worker references. The worker
+    # has no compose build block (that would race the event-dispatcher on the
+    # shared tag), so this is the only thing that produces its image. No-op
+    # unless the worker is deployed on the local project image. Run before
+    # `compose up` (which, non-detached, os.execvpe-replaces this process) and
+    # AFTER the graph staging above: that step bakes the live store's schema
+    # into the agent prompts inside this image's build context, and an image
+    # built before the bake ships the placeholder prompt.
+    _build_project_image(config, dev_mode, env, build_context)
 
     # And the telemetry store, for a third reason: its ingest credential is one
     # the STORE issues, so the only moment it can be harvested is with the store
@@ -5075,7 +5788,36 @@ def as_built_compose_files(config: dict, repo_root: Path | str) -> list[str]:
     from osprey.deployment.compose_generator import find_existing_compose_files
 
     services = [str(service) for service in (config.get("deployed_services") or [])]
-    return find_existing_compose_files(config, services, base=repo_root)
+    return _dedupe_compose_files(find_existing_compose_files(config, services, base=repo_root))
+
+
+def _dedupe_compose_files(compose_files: list[str]) -> list[str]:
+    """Drop repeats from a ``-f`` list, keeping first-seen order.
+
+    Two deployed services can name ONE compose template: a two-lane Bluesky
+    deployment declares ``services.bluesky`` and ``services.bluesky_va`` with
+    the same ``path``, because one template renders both lanes rather than a
+    second copy of the directory being kept in step with the first. The lookup
+    walks ``deployed_services``, so it reports that file once per lane.
+
+    Passing it twice is not obviously harmful — compose merges a document with
+    itself — but it is a claim the deploy does not mean to make, it doubles up
+    in every log line and status listing that echoes the file list, and how a
+    given runtime treats a repeated ``-f`` is not a bet worth taking.
+
+    :param compose_files: Paths in ``-f`` order, possibly with repeats
+    :type compose_files: list[str]
+    :return: The same paths, first occurrence only
+    :rtype: list[str]
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for compose_file in compose_files:
+        if compose_file in seen:
+            continue
+        seen.add(compose_file)
+        unique.append(compose_file)
+    return unique
 
 
 def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
@@ -5866,8 +6608,8 @@ def deploy_down(config_path, dev_mode=False):
     # Try to use existing compose files (suppress warnings for status check)
     from osprey.deployment.compose_generator import find_existing_compose_files
 
-    compose_files = find_existing_compose_files(
-        config, deployed_service_names, quiet=True, base=repo_root
+    compose_files = _dedupe_compose_files(
+        find_existing_compose_files(config, deployed_service_names, quiet=True, base=repo_root)
     )
 
     # If no existing compose files found, rebuild them

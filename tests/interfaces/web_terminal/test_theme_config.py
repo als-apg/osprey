@@ -6,7 +6,7 @@ concrete baked theme id and server-rendered onto `<html data-theme>` so the
 generated `theme-boot.js` (Task 1.8) first-paints with no flash.
 
 Covers:
-    - `resolve_web_theme_id` (pure resolver): family -> family's dark id,
+    - `resolve_theme_id` (pure resolver): family -> family's dark id,
       concrete id passthrough, unknown -> warn + fallback to osprey's dark id.
     - The render path: GET "/" contains the expected `data-theme="..."`.
 """
@@ -20,11 +20,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
-from osprey.interfaces.web_terminal.app import (
-    create_app,
-    resolve_web_theme_id,
-    resolve_web_theme_pinned_mode,
+from osprey.interfaces.design_system.theme_config import (
+    DEFAULT_WEB_THEME,
+    configured_web_theme,
+    resolve_configured_web_theme,
+    resolve_pinned_mode,
+    resolve_theme_id,
 )
+from osprey.interfaces.web_terminal.app import create_app
 
 # A synthetic manifest mirroring the real baked tokens.js THEMES: the
 # `main` family (dark/light) plus a `high-contrast` family (dark/light).
@@ -49,22 +52,22 @@ class TestResolveWebThemeId:
 
     def test_family_resolves_to_family_dark_id(self):
         """A family name resolves to that family's dark id (the SSR default)."""
-        assert resolve_web_theme_id("high-contrast", _ENTRIES, _DEFAULTS) == "high-contrast-dark"
+        assert resolve_theme_id("high-contrast", _ENTRIES, _DEFAULTS) == "high-contrast-dark"
 
     def test_main_family_resolves_to_dark(self):
-        assert resolve_web_theme_id("main", _ENTRIES, _DEFAULTS) == "dark"
+        assert resolve_theme_id("main", _ENTRIES, _DEFAULTS) == "dark"
 
     def test_concrete_id_passes_through(self):
         """A concrete id (e.g. pinning a specific mode) is used as-is."""
-        assert resolve_web_theme_id("light", _ENTRIES, _DEFAULTS) == "light"
-        assert resolve_web_theme_id("high-contrast-light", _ENTRIES, _DEFAULTS) == (
+        assert resolve_theme_id("light", _ENTRIES, _DEFAULTS) == "light"
+        assert resolve_theme_id("high-contrast-light", _ENTRIES, _DEFAULTS) == (
             "high-contrast-light"
         )
 
     def test_unknown_value_warns_and_falls_back_to_osprey_dark(self, caplog):
         """An unrecognized value logs a warning and falls back to osprey's dark id."""
         with caplog.at_level(logging.WARNING):
-            result = resolve_web_theme_id("nonsense", _ENTRIES, _DEFAULTS)
+            result = resolve_theme_id("nonsense", _ENTRIES, _DEFAULTS)
 
         assert result == "dark"
         assert any(
@@ -75,10 +78,10 @@ class TestResolveWebThemeId:
     def test_unknown_value_never_raises(self):
         """The resolver never raises on bad input — it only warns and falls back."""
         try:
-            resolve_web_theme_id("", _ENTRIES, _DEFAULTS)
-            resolve_web_theme_id(None, _ENTRIES, _DEFAULTS)  # type: ignore[arg-type]
+            resolve_theme_id("", _ENTRIES, _DEFAULTS)
+            resolve_theme_id(None, _ENTRIES, _DEFAULTS)  # type: ignore[arg-type]
         except Exception as exc:  # pragma: no cover - failure path
-            pytest.fail(f"resolve_web_theme_id raised unexpectedly: {exc}")
+            pytest.fail(f"resolve_theme_id raised unexpectedly: {exc}")
 
     def test_result_is_always_a_valid_baked_id(self):
         """Whatever is returned must be one of the concrete ids in the manifest.
@@ -89,7 +92,7 @@ class TestResolveWebThemeId:
         """
         valid_ids = {entry.id for entry in _ENTRIES}
         for configured in ("main", "high-contrast", "dark", "high-contrast-light", "bogus"):
-            assert resolve_web_theme_id(configured, _ENTRIES, _DEFAULTS) in valid_ids
+            assert resolve_theme_id(configured, _ENTRIES, _DEFAULTS) in valid_ids
 
 
 # ---- Render path: GET "/" server-renders the resolved data-theme ----
@@ -214,18 +217,18 @@ class TestResolveWebThemePinnedMode:
     """A configured value either states a mode or leaves it to the OS."""
 
     def test_concrete_id_pins_its_own_mode(self):
-        assert resolve_web_theme_pinned_mode("high-contrast-light", _ENTRIES) == "light"
-        assert resolve_web_theme_pinned_mode("dark", _ENTRIES) == "dark"
+        assert resolve_pinned_mode("high-contrast-light", _ENTRIES) == "light"
+        assert resolve_pinned_mode("dark", _ENTRIES) == "dark"
 
     def test_family_pins_nothing(self):
         """A family states a palette only — light/dark stays the operator's OS call."""
-        assert resolve_web_theme_pinned_mode("high-contrast", _ENTRIES) is None
-        assert resolve_web_theme_pinned_mode("main", _ENTRIES) is None
+        assert resolve_pinned_mode("high-contrast", _ENTRIES) is None
+        assert resolve_pinned_mode("main", _ENTRIES) is None
 
     def test_unknown_value_pins_nothing(self):
         """An unknown value falls back; a fallback must not pose as stated intent."""
-        assert resolve_web_theme_pinned_mode("nonsense", _ENTRIES) is None
-        assert resolve_web_theme_pinned_mode("", _ENTRIES) is None
+        assert resolve_pinned_mode("nonsense", _ENTRIES) is None
+        assert resolve_pinned_mode("", _ENTRIES) is None
 
 
 class TestRenderedThemeMode:
@@ -329,3 +332,96 @@ class TestThemeEnvOverride:
             assert "data-theme-mode" not in body
         finally:
             next(gen, None)
+
+
+# ---- The shared chain: environment -> web.theme -> id + pin + family ----
+
+
+class TestConfiguredWebTheme:
+    """`configured_web_theme()` — the raw value, read once for every surface.
+
+    The web terminal (above) and the artifact gallery both server-render a
+    theme, and both used to spell this precedence out for themselves; it now
+    lives in the design system so the two cannot drift apart.
+    """
+
+    def test_env_var_outranks_config(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "desy-light")
+        with patch("osprey.utils.config.get_config_value", return_value="main") as get_value:
+            assert configured_web_theme() == "desy-light"
+        get_value.assert_not_called()  # the config is not even read
+
+    def test_blank_env_var_falls_through_to_config(self, monkeypatch):
+        """An empty env var is 'unset', not 'the empty theme'."""
+        monkeypatch.setenv("OSPREY_WEB_THEME", "   ")
+        with patch("osprey.utils.config.get_config_value", return_value="retro") as get_value:
+            assert configured_web_theme() == "retro"
+        get_value.assert_called_once_with("web.theme", "main")
+
+    def test_absent_env_var_reads_web_theme_with_the_main_default(self, monkeypatch):
+        monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
+        with patch("osprey.utils.config.get_config_value", return_value="main") as get_value:
+            assert configured_web_theme() == DEFAULT_WEB_THEME
+        get_value.assert_called_once_with("web.theme", "main")
+
+    def test_empty_config_value_falls_back_to_the_default(self, monkeypatch):
+        """`web.theme:` with nothing after it reads as None, not as a theme name."""
+        monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
+        with patch("osprey.utils.config.get_config_value", return_value=None):
+            assert configured_web_theme() == DEFAULT_WEB_THEME
+
+    def test_config_read_error_propagates(self, monkeypatch):
+        """No config primed: the callers disagree about what to do (the terminal
+        renders a fallback theme, the gallery serves unpinned pages), so this
+        must not decide for them."""
+        monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
+        with (
+            patch(
+                "osprey.utils.config.get_config_value",
+                side_effect=FileNotFoundError("no config.yml found"),
+            ),
+            pytest.raises(FileNotFoundError),
+        ):
+            configured_web_theme()
+
+
+class TestResolveConfiguredWebTheme:
+    """`resolve_configured_web_theme()` — id, pin and family in one read.
+
+    Resolved against the real baked token tree, since the point of the helper
+    is that every surface sees the same registry.
+    """
+
+    def test_concrete_id_resolves_to_itself_and_pins_its_mode(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast-light")
+        resolved = resolve_configured_web_theme()
+        assert (resolved.id, resolved.pinned_mode, resolved.family) == (
+            "high-contrast-light",
+            "light",
+            "high-contrast",
+        )
+
+    def test_family_resolves_to_its_dark_id_but_pins_nothing(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast")
+        resolved = resolve_configured_web_theme()
+        assert resolved.id == "high-contrast-dark"
+        assert resolved.pinned_mode is None
+        assert resolved.family == "high-contrast"
+
+    def test_unknown_value_falls_back_without_posing_as_a_pin(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "nonsense")
+        resolved = resolve_configured_web_theme()
+        assert resolved.id == "dark"
+        assert resolved.pinned_mode is None
+        assert resolved.family == "main"
+
+    def test_explicit_value_bypasses_the_environment(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast-light")
+        assert resolve_configured_web_theme("light").id == "light"
+
+    def test_result_is_immutable(self):
+        """A resolved theme is read once at startup and shared; it must not be
+        editable in place by whatever reads it later."""
+        resolved = resolve_configured_web_theme("light")
+        with pytest.raises(Exception):  # noqa: B017 - FrozenInstanceError is a dataclass detail
+            resolved.id = "dark"  # type: ignore[misc]

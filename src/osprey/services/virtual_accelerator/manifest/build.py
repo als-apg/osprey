@@ -68,6 +68,16 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
         loaders.ParadigmMismatchError: if the three paradigm DBs disagree on
             the address set they expand to at the build-resolved tier.
     """
+    # Three paradigms, deliberately — the ``graph`` paradigm is exempt from this
+    # gate and stays exempt. The gate compares address sets expanded from tiered
+    # database files; a graph project ships none, because its store is seeded
+    # from the facility corpus TTL. Graph's identity contract is the same
+    # promise enforced one step earlier, at the corpus: the PV-set equality
+    # asserted by ``tests/services/facility_knowledge/test_demo_ttl_consistency
+    # .py::test_demo_ttl_bindings_equal_the_channel_database`` — every channel
+    # in the tier-3 database has a binding in the corpus and vice versa. So a
+    # graph-mode project's namespace still agrees with the one this manifest is
+    # built from; it is just pinned by the corpus test rather than here.
     hier_channels = loaders.load_hierarchical_channels(paths)
     hier_addresses = {c.address for c in hier_channels}
 

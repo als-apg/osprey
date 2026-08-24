@@ -1,0 +1,621 @@
+# The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
+# behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
+# `osprey up` builds its image locally on first run; subsequent runs
+# reuse the local tag. To use a prebuilt/published image instead, set
+# OSPREY_BLUESKY_BRIDGE_IMAGE (e.g. OSPREY_BLUESKY_BRIDGE_IMAGE=my-registry/osprey-bluesky-bridge:dev).
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+services:
+  bluesky-bridge:
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-proj-bluesky-bridge:local}
+    build:
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env). Same convention in the volumes below.
+      context: ./build/services/bluesky
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "2026.8.1"
+        OSPREY_PROJECT_NAME: "proj"
+
+    # Ordering, not convenience: the bridge opens the RE worker environment
+    # ONCE at startup and does not keep trying. `app.py`'s
+    # `_open_environment_at_startup` calls `ensure_environment`, which asks
+    # `capability()` first and returns False WITHOUT entering its retry loop
+    # when the manager is not answering yet (`manager_unreachable`); only an
+    # armed `POST /queue/start` runs it again. But `POST /queue/items`
+    # validates against `plans_allowed`, and the manager only downloads that
+    # list from the worker when the environment opens — so a bridge that boots
+    # faster than the manager refuses every enqueue with "not in the list of
+    # allowed plans", long before any start could self-heal it. Waiting for
+    # `qserver ping` to answer removes that race rather than betting on the
+    # manager's import of the bluesky/ophyd stack finishing first.
+    #
+    # Unconditional, because `queueserver` is rendered by THIS template and so
+    # is always defined. Not in tension with the rule that a Tiled outage must
+    # never block the bridge (FR4): Tiled is the read path's durable store,
+    # while the manager is the execution plane the bridge is a facade over —
+    # the same reason the VA is depended on below.
+    depends_on:
+      queueserver:
+        condition: service_healthy
+
+      # Only when the Virtual Accelerator is co-deployed: order the
+      # bridge's startup after the VA's CA-readiness healthcheck, so the
+      # substrate devices' ophyd-async connect doesn't race the
+      # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
+      # NOT get this — compose errors on depends_on naming an undefined service.
+      virtual-accelerator:
+        condition: service_healthy
+
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the bridge on one host without colliding
+    # on one name. In-network consumers reach this service by its compose service
+    # key `bluesky-bridge` — unchanged here — so this rename needs no network alias.
+    container_name: proj-bluesky-bridge
+    command:
+      [
+        "uvicorn",
+        "osprey.services.bluesky_bridge.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8090",
+      ]
+    labels:
+      osprey.project.name: "proj"
+      com.osprey.repo-id: "abc123def456"
+      osprey.project.root: "/tmp/proj"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      # No :-default — an unset token must stay EMPTY so the bridge's
+      # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
+      # booting with a guessable secret. `osprey up` auto-generates a
+      # strong random token into the project .env when unset (see
+      # container_lifecycle.py's per-service token-mint map).
+      BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
+      # The connector-backed bridge reads control_system.type/writes_enabled
+      # and control_system.limits_checking.database_path from config.yml at
+      # runtime. CWD is the image WORKDIR (/app), not the project
+      # dir, so without CONFIG_FILE this falls back to /app/config.yml and
+      # every connector lookup errors "No config.yml found" — mirrors
+      # dispatch_worker's identical CONFIG_FILE convention.
+      CONFIG_FILE: /app/project/config.yml
+      TZ: UTC
+      # ── queue control plane (client side) ────────────────────────────────
+      # The bridge is the ONLY authenticated route to the RE Manager: panels
+      # and MCP never see the qserver API. These two names are read directly
+      # by `bluesky-queueserver-api`'s REManagerAPI, so they are spelled
+      # upstream's way; the project `.env` supplies the values under
+      # BLUESKY_-prefixed names like every other secret in this file.
+      #
+      # TREAT THIS PUBLIC KEY AS A SECRET. It is not "public" in the usual
+      # sense: upstream's client authenticates with a FIXED keypair compiled
+      # into the package (`_fixed_public_key`/`_fixed_private_key`, comms.py),
+      # and the manager enables CURVE with no authenticator and no client-key
+      # allowlist (`CURVE_SERVER=1` + its secret, manager.py). So the server
+      # public key is the SOLE credential for the control socket — anyone
+      # holding it can drive the queue. It must never reach panels, the
+      # sidecar, logs, or any agent-visible surface.
+      #
+      # `:?` rather than a bare `${VAR}`: an empty value makes the manager
+      # skip encryption entirely (config.py's `key or None`), so a bare
+      # passthrough turns a missing mint into a silently PLAINTEXT control
+      # socket — with the queueserver dual-homed on osprey-network, that
+      # hands plan execution to anything on that network and bypasses the
+      # bridge's launch-token gate. Failing `osprey up` loudly is the only
+      # safe reading of "no key".
+      #
+      # PLAINTEXT IS NOT A SUPPORTED MODE. An operator who wants control over
+      # this key material supplies their own valid pair in the project `.env`
+      # (existing values always win over the mint); there is deliberately no
+      # way to switch encryption off. Minted as a matched pair by
+      # `_ensure_bluesky_control_plane_keys` in
+      # deployment/container_lifecycle.py, which runs on both the `osprey up`
+      # and `osprey restart` paths before compose expands anything here.
+      QSERVER_ZMQ_CONTROL_ADDRESS: "tcp://queueserver:60615"
+      QSERVER_ZMQ_PUBLIC_KEY: ${BLUESKY_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}
+      # ── document plane (bridge owns the binding element) ─────────────────
+      # The bridge runs `bluesky.callbacks.zmq.Proxy` at lifespan start and
+      # binds BOTH of its sockets, so both addresses are bind specs here:
+      # PUBLISH is the in-side the queueserver's Publisher connects to (same
+      # variable name over there, connect form — "the proxy's in-side, as seen
+      # from this container"), SUBSCRIBE is the out-side the bridge's own
+      # RemoteDispatcher connects to. The out-side binds on loopback because
+      # nothing outside this container subscribes to it.
+      BLUESKY_ZMQ_PUBLISH_ADDR: "tcp://*:5567"
+      BLUESKY_ZMQ_SUBSCRIBE_ADDR: "tcp://127.0.0.1:5568"
+      # CurveZMQ for the document plane — a SECOND keypair, independent of the
+      # control channel's, so a leak on one plane does not authenticate on the
+      # other. These are certificate PATHS, not key strings: pyzmq's CURVE
+      # helpers load `.key`/`.key_secret` files, and `bluesky.callbacks.zmq`'s
+      # ServerCurve/ClientCurve take paths straight through.
+      #
+      # The bridge binds the proxy, so it holds the SERVER half: its own secret
+      # certificate, plus a directory of the client public keys it will accept
+      # (ServerCurve.client_public_keys is a folder, not a file). Pinning that
+      # folder — rather than allowing any syntactically valid key — is what
+      # stops a rogue container on osprey-network from injecting forged run
+      # documents, which matters because the queueserver must be dual-homed.
+      #
+      # Paths are fixed by the mount below rather than passed through the
+      # project .env, and are one contract with
+      # `_ensure_bluesky_document_plane_certs` in
+      # deployment/container_lifecycle.py, which writes the certificates on
+      # every `osprey up` (idempotently, and regardless of connector
+      # type — a browse-only deploy still gets them so a later flip to the VA
+      # needs no extra step). Change either side and the bridge refuses to
+      # start.
+      #
+      # "Refuses" literally: `document_plane.DocumentPlaneConfig.from_env`
+      # raises when either path is unset or unreadable, and `start_from_env`
+      # deliberately lets that propagate while swallowing mere bind failures.
+      # Binding an unauthenticated document socket is never the fallback.
+      BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/proxy.key_secret
+      BLUESKY_ZMQ_CURVE_CLIENT_PUBLIC_KEYS: /app/curve/clients
+
+      # Facility plan directory: the plan loader
+      # (plan_loader.py) reads BLUESKY_PLAN_DIRS as an os.pathsep-separated
+      # list of IN-CONTAINER paths and scans each as a "facility"-tier
+      # layer. This MUST be the mount target below, never the host path
+      # configured in services.bluesky.plan_dir — the container environment
+      # never sees the operator's host filesystem layout.
+      BLUESKY_PLAN_DIRS: /app/project/plans
+
+
+      # Facility plan-catalog exclusions: the plan loader
+      # (plan_loader.py) reads BLUESKY_EXCLUDED_PLANS as an os.pathsep-separated
+      # list of plan IDs to DROP from the discovered catalog, so an operator can
+      # suppress specific plans without editing any plan directory. Written by
+      # _inject_bluesky (build_cmd.py) only when non-empty — an empty exclusion
+      # set omits the key entirely, so this env var never renders.
+      BLUESKY_EXCLUDED_PLANS: "pkg.a:pkg.b"
+
+
+      # Reach the co-deployed Virtual Accelerator over Channel
+      # Access. Name-server TCP transport is the one host<->container CA
+      # config proven to work — UDP broadcast discovery doesn't cross the
+      # VM boundary. Port matches services.virtual_accelerator.port so an
+      # operator override stays consistent between the two services.
+      EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"
+      EPICS_CA_AUTO_ADDR_LIST: "NO"
+      # EPICS-substrate device selection. Passthrough only — the operator or
+      # deploy env chooses the actual PVs, never hardcoded here. The devices
+      # themselves are built by the queueserver worker, which is where these
+      # same three variables are read (qserver_startup.py); the bridge no
+      # longer branches on them. The :- empty default keeps an unset value
+      # harmless: no substrate means an empty device namespace, i.e.
+      # browse-only.
+      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
+
+
+      # Tiled persistence: the bridge READS the durable catalog here to serve
+      # `GET /runs/{id}/data` once a run's live buffer is gone; the worker's
+      # TiledWriter is what writes it (same two variables, set on that service
+      # too). Reached over osprey-network at the container port, never the
+      # host-published tiled_port. No :- default on the API key — an unset key
+      # must fail closed rather than connect unauthenticated.
+      BLUESKY_TILED_URI: "http://tiled:8000"
+      BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
+
+      HTTP_PROXY: ${HTTP_PROXY}
+      NO_PROXY: ${NO_PROXY}
+    volumes:
+      # Bind-mount source is relative to the pinned compose project directory —
+      # the repo root — hence the build/services/bluesky/ prefix on this render
+      # output (mirrors dispatch_worker's config.yml:ro mount convention).
+      # Always present, unlike the VA/tiled blocks above: the bridge needs
+      # config.yml to resolve control_system settings regardless of which
+      # optional services are co-deployed.
+      - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
+      # Document-plane CURVE certificates (see the env block above). This side
+      # holds the proxy's secret certificate plus a `clients/` directory of the
+      # publisher public keys it will accept — and never the publisher's
+      # secret, which lives only in the queueserver's own mount.
+      - ./data/bluesky_curve/bridge:/app/curve:ro
+
+      # Facility plan directory: operator-supplied host path via
+      # services.bluesky.plan_dir in config.yml, mounted read-only — the
+      # bridge only discovers/execs plans from here, never writes into it.
+      # An absolute host path passes through unchanged; a relative one
+      # resolves against the compose project directory (the repo root),
+      # same rule as every other bind source in this file. The container
+      # target is fixed (matches BLUESKY_PLAN_DIRS above) so plan_loader.py
+      # never needs to know the host-side location.
+      - /facility/plans:/app/project/plans:ro
+
+
+      # Channel limits DB: only meaningful once writes are
+      # enabled — a read-only deploy never opens it. Mounted under the SAME
+      # /app/project root as config.yml above so a relative
+      # control_system.limits_checking.database_path (e.g.
+      # "data/channel_limits.json") resolves against the CONFIG_FILE
+      # directory (/app/project, set above) exactly as the connector/startup
+      # guard expect (limits_validator.py, app.py's
+      # _assert_limits_readable_if_writable) — the mounted config.yml lives
+      # there, not at the host build's project_root. Source path mirrors the
+      # Virtual Accelerator's data mount convention: the repo's own data/ tree,
+      # named relative to the pinned project directory.
+      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
+
+    networks:
+      # Dual-homed: osprey-network for the bluesky-web sidecar and Tiled,
+      # bluesky-internal to reach the RE Manager's control socket.
+      - osprey-network
+      - bluesky-internal
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — uvicorn/FastAPI startup and
+      # the first image build (which bakes in the bluesky stack's
+      # dependencies at build time, not at container start) take a few seconds.
+      start_period: 15s
+
+  # The bluesky-queueserver RE Manager: the process that actually executes
+  # plans. It spawns and supervises its own RunEngine worker at
+  # environment-open — upstream's own shape, not an OSPREY invention — so
+  # there is exactly one service here, not a manager/worker pair.
+  #
+  # The queue and its recent history live in Redis, which is what makes them
+  # survive a bridge restart. The bridge holds no queue state: it is a facade
+  # over this manager, and the only authenticated route to it.
+  queueserver:
+    # Same image as the bridge, and deliberately NO `build:` block: two
+    # services building the same tag race each other (the dispatch worker
+    # carries the same note). `bluesky-bridge` above owns the build; this
+    # service just runs the resulting image with a different command.
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-proj-bluesky-bridge:local}
+    container_name: proj-bluesky-queueserver
+    depends_on:
+      # The manager connects to Redis at startup and exits if it cannot.
+      bluesky-redis:
+        condition: service_healthy
+
+      # Same iocInit race the bridge guards against: the startup module builds
+      # ophyd-async devices against the VA's Channel Access server, so the
+      # environment must not open before the IOC is answering.
+      virtual-accelerator:
+        condition: service_healthy
+
+    # Shell form, for the one thing it buys: `$$(...)` resolves the startup
+    # script's path inside the image at container start.
+    #
+    # It MUST be `--startup-script`, not `--startup-module`. The two are not
+    # interchangeable: upstream's `load_startup_module` does a plain
+    # `import_module`, while `load_startup_script` execs the file with
+    # `__name__` patched to `"__main__"`. qserver_startup.py does its wiring
+    # under an `if __name__ == "__main__":` guard, so the module form would
+    # import it, run nothing, and hand the worker an empty namespace — no
+    # devices, no plans, and no error to explain why.
+    #
+    # Resolving the path from the installed package rather than hardcoding a
+    # site-packages location keeps this correct across interpreter bumps and
+    # follows the `--dev` wheel overlay. `$$` is compose's escape for a
+    # literal `$`, so the subshell runs in the container, not at render time.
+    #
+    # `--existing-plans-devices` is MANDATORY, not optional: upstream's
+    # `start_manager` treats an unset path as fatal (`logger.error(...);
+    # return 1`), so without it the manager exits immediately and the container
+    # restart-loops forever. Only the DIRECTORY has to exist — a missing FILE is
+    # a startup warning and nothing more, because the real list is downloaded
+    # from the worker at environment open. `/app/qserver` is guaranteed to
+    # exist by the `user_group_permissions.yaml` single-file bind mount below:
+    # Docker creates a bind's parent directory, so the manager's two config
+    # paths stay together and neither needs a directory of its own.
+    #
+    # MIND THE SPELLING. Upstream's own error message names a flag that does not
+    # exist — it says `--existing-plans-and-devices`, argparse accepts only
+    # `--existing-plans-devices` (no second "and"), exactly as in
+    # `--update-existing-plans-devices` on the next line. Following the error
+    # message verbatim earns `unrecognized arguments`.
+    #
+    # `--update-existing-plans-devices NEVER` (unchanged, and still correct
+    # alongside the path above): it governs PERSISTENCE only. With
+    # `--startup-script` (rather than a startup DIRECTORY) upstream leaves its
+    # aux_dir None, and the default ENVIRONMENT_OPEN would make every
+    # environment open attempt a write for no benefit. Nothing is lost — the
+    # manager pulls the real plan/device list from the worker on every
+    # environment open (`_load_existing_plans_and_devices_from_worker`), and the
+    # startup script is the authoritative copy anyway.
+    command:
+      - "sh"
+      - "-c"
+      - >-
+        exec start-re-manager
+        --startup-script "$$(python -c 'import osprey.services.bluesky_bridge.qserver_startup as m; print(m.__file__)')"
+        --user-group-permissions /app/qserver/user_group_permissions.yaml
+        --existing-plans-devices /app/qserver/existing_plans_and_devices.yaml
+        --redis-addr bluesky-redis:6379
+        --zmq-control-addr 'tcp://*:60615'
+        --update-existing-plans-devices NEVER
+    labels:
+      osprey.project.name: "proj"
+      com.osprey.repo-id: "abc123def456"
+      osprey.project.root: "/tmp/proj"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+    restart: unless-stopped
+    # No `ports:` — deliberately. Publishing the control socket would put a
+    # second route to plan execution next to the bridge's launch-token gate,
+    # and that gate is only meaningful if it is the only way in.
+    environment:
+      # Same CONFIG_FILE convention as the bridge: the per-put reference
+      # monitor now runs in THIS container (the RunEngine lives here), so it
+      # reads control_system.type / writes_enabled / limits_checking from the
+      # mounted config.yml, not from the image's WORKDIR.
+      CONFIG_FILE: /app/project/config.yml
+      TZ: UTC
+      # ── queue control plane (server side) ────────────────────────────────
+      # Upstream-spelled: `start-re-manager` reads the private key from
+      # QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER. It treats an EMPTY value as
+      # "encryption off" (config.py's `key or None`) — which is why both keys
+      # carry a `:?` guard instead of a bare `${VAR}`. An unset mint would
+      # otherwise start the manager with a plaintext control socket, and
+      # since this container is dual-homed onto osprey-network that makes
+      # plan execution reachable from any container on that network, around
+      # the bridge's launch-token gate entirely. Fail the deploy instead.
+      #
+      # The public key is here too, for the healthcheck's local
+      # `qserver ping`. It is NOT safe to publish: upstream's client
+      # authenticates with a fixed package-shipped keypair and the manager
+      # runs CURVE with no client allowlist, so this key alone is what
+      # authorizes driving the queue. Keep it out of panels, the sidecar and
+      # logs. Both values are minted as a matched pair by
+      # `_ensure_bluesky_control_plane_keys` in
+      # deployment/container_lifecycle.py; see the bridge's copy of this block
+      # for why plaintext is not an available fallback.
+      QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER: ${BLUESKY_QSERVER_ZMQ_PRIVATE_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}
+      QSERVER_ZMQ_PUBLIC_KEY: ${BLUESKY_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}
+      # ── document plane (publisher side) ──────────────────────────────────
+      # Connect form of the bridge's in-side bind: the startup module's
+      # `bluesky.callbacks.zmq` Publisher pushes run documents at the Proxy
+      # the bridge binds, authenticating with the CLIENT half of the document
+      # plane's keypair (its own secret certificate + the bridge's public one).
+      # Certificate paths, fixed by the mount below — see the bridge's copy of
+      # this block for why they are paths and not `.env` passthroughs.
+      #
+      # `qserver_startup.build_zmq_publisher` refuses to publish if exactly one
+      # of the two is set, so these two lines live or die together. Note the
+      # asymmetry with the bridge: a cert missing HERE is caught by the
+      # startup module's fault isolation and degrades to "no live rows" with
+      # a logged error (the worker still executes plans), whereas the same
+      # gap on the bridge stops it binding at all. Neither ever falls back to
+      # an unauthenticated socket.
+      BLUESKY_ZMQ_PUBLISH_ADDR: "tcp://bluesky-bridge:5567"
+      BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/publisher.key_secret
+      BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY: /app/curve/proxy.key
+      # Substrate wiring for the devices the startup module builds. Unlike the
+      # bridge's copy above this is NOT gated on the VA being co-deployed: a
+      # facility pointing at real EPICS has no VA container but still needs
+      # its substrate. The `:-` empty defaults keep an unset substrate
+      # harmless — the module then yields an empty namespace (browse-only).
+      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
+
+      # Same in-container path as the bridge's mount target below: the
+      # startup module builds the plan namespace with the same plan_loader,
+      # from the same facility plan directory, so the catalog the operator
+      # composes against and the plans the worker can actually run are one
+      # list. Never the operator's host path.
+      BLUESKY_PLAN_DIRS: /app/project/plans
+
+
+      # Exclusions apply worker-side too — a plan hidden from the catalog must
+      # not be reachable by name through a hand-built queue item.
+      BLUESKY_EXCLUDED_PLANS: "pkg.a:pkg.b"
+
+
+      # Name-server TCP transport, same reasoning as the bridge's block: UDP
+      # broadcast discovery does not cross the container boundary.
+      EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"
+      EPICS_CA_AUTO_ADDR_LIST: "NO"
+
+
+      # The startup module owns the TiledWriter subscription — documents are
+      # persisted from the process that produces them. The bridge keeps its
+      # own Tiled env for the READ path (results retrieval fallback).
+      BLUESKY_TILED_URI: "http://tiled:8000"
+      BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
+
+      HTTP_PROXY: ${HTTP_PROXY}
+      NO_PROXY: ${NO_PROXY}
+    volumes:
+      - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
+      # Plan/device permissions for the RE Manager. Without this file the
+      # manager knows only a `root` group and rejects every request the bridge
+      # makes as "Unknown user group: 'primary'" — see the file's own header
+      # for what it does and does not protect. Shipped in the service template
+      # (not generated), so the bind source always exists.
+      - ./build/services/bluesky/user_group_permissions.yaml:/app/qserver/user_group_permissions.yaml:ro
+      # Document-plane CURVE certificates, generated by `osprey up`.
+      # Split per container by directory rather than by file so each side can
+      # only read the secret it is supposed to hold: this one carries the
+      # publisher's secret certificate and the bridge proxy's PUBLIC one, and
+      # never the proxy's secret. Same ./data/ convention as the limits DB.
+      - ./data/bluesky_curve/queueserver:/app/curve:ro
+
+      - /facility/plans:/app/project/plans:ro
+
+
+      # The per-put reference monitor moved into this container with the
+      # RunEngine, so the limits DB has to come with it: without the file the
+      # empty-DB failsafe blocks every write and no plan can move anything.
+      # Same /app/project root as config.yml so a relative
+      # control_system.limits_checking.database_path resolves identically on
+      # both sides.
+      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
+
+    networks:
+      # Necessarily dual-homed: bluesky-internal for the bridge and Redis,
+      # osprey-network to reach the Virtual Accelerator's Channel Access
+      # server and Tiled. Network placement therefore cannot protect the
+      # control socket on its own — that is what the CurveZMQ keys above are
+      # for.
+      - osprey-network
+      - bluesky-internal
+    healthcheck:
+      # `qserver ping` round-trips the manager's own control socket, which is
+      # exactly "is the manager answering". It succeeds with the RE worker
+      # environment CLOSED — the correct reading on a mock deployment, where
+      # the environment is never opened and the service is still healthy.
+      test: ["CMD-SHELL", "qserver ping > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      # Longer than the bridge's: the manager waits on Redis and imports the
+      # bluesky/ophyd stack before its control socket answers.
+      start_period: 30s
+
+  # Redis backs the manager's queue and history. It is the reason a bridge
+  # restart no longer loses the queue.
+  bluesky-redis:
+    # Public upstream image, overridable env -> config -> default like every
+    # other service image here.
+    image: ${OSPREY_BLUESKY_REDIS_IMAGE:-redis:7.4-alpine}
+    container_name: proj-bluesky-redis
+    restart: unless-stopped
+    labels:
+      com.osprey.repo-id: "abc123def456"
+    # Append-only persistence: a queue that survives a bridge restart but not
+    # a Redis restart would be a half-kept promise.
+    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      TZ: UTC
+      HTTP_PROXY: ${HTTP_PROXY}
+      NO_PROXY: ${NO_PROXY}
+    volumes:
+      - bluesky_queueserver_redis:/data
+    networks:
+      # ONLY the internal network, and no published ports. The manager is
+      # Redis's sole client; nothing on osprey-network has any business
+      # reaching it.
+      - bluesky-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+
+  # OPTIONAL: a local Tiled server for the queueserver worker's TiledWriter
+  # subscription to persist run documents to, and the bridge's durable read
+  # source once a run's live rows are gone. Enabled by setting
+  # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
+  # only, same as the bridge itself.
+  tiled:
+    # Public upstream image, overridable like every other service image
+    # (env → config → default): set OSPREY_TILED_IMAGE, or
+    # services.bluesky.tiled_image in config.yml, to point at a mirror or a
+    # pinned digest.
+    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy Tiled on one host without colliding on one
+    # name. The bridge reaches this service by its compose service key `tiled`
+    # (BLUESKY_TILED_URI: http://tiled:8000) — unchanged here — so this rename
+    # needs no network alias.
+    container_name: proj-bluesky-tiled
+    restart: unless-stopped
+    labels:
+      com.osprey.repo-id: "abc123def456"
+    # `serve catalog` aborts without a catalog DB argument and defaults to
+    # 127.0.0.1 (unreachable from the bridge container) without --host. The
+    # duckdb:// writable target is required alongside the filesystem one:
+    # bluesky's TiledWriter appends event tables via create_appendable_table
+    # + append_partition, which need SQL-family storage.
+    #
+    # Mounted at /storage: the image ships that path pre-owned by uid=999
+    # (app), the user the container runs as, so a fresh named volume
+    # inherits that ownership from the image on first mount. Any mount
+    # point absent from the image gets created root-owned by Docker
+    # instead, and the uid=999 process can't open a catalog DB under a
+    # root-owned directory (fails closed with "unable to open database
+    # file") — so this path must stay pinned to one the image ships.
+    #
+    # The duckdb:// target below uses FOUR slashes, NOT a typo: this is
+    # the standard SQLAlchemy DBAPI URI convention (driver://[host]/path),
+    # where an empty host segment leaves the path either RELATIVE (three
+    # slashes: driver:///relative/path, resolved against the container's
+    # CWD) or ABSOLUTE (four slashes: driver:////absolute/path). Three
+    # slashes here resolves to a relative "storage/data.duckdb" against
+    # /app and fails server-side with "The directory storage does not
+    # exist." — a failure that surfaces to the client only as an opaque
+    # 409 on the run's metadata POST, not as a storage-URI error. Tiled's
+    # own catalog DB argument above (the sqlite backend under the covers)
+    # follows the identical four-slash-for-absolute convention. Do not
+    # "fix" this back to three slashes.
+    #
+    # --api-key is quoted with a `:?` guard, not the bare `${BLUESKY_TILED_API_KEY}`
+    # used elsewhere in this file: compose splits this string `command:` form
+    # shlex-style, so an unset-or-empty value contributes NO argument at all —
+    # not an empty one. `--api-key` then silently swallows the next token
+    # (`-w`) as its operand and a writable target vanishes, with the resulting
+    # error pointing at `-w`, never at the empty key. `:?` aborts `osprey up`
+    # with an explicit message instead. The quotes are belt-and-braces: if the
+    # `:?` is ever relaxed, an empty value becomes an explicit empty argument
+    # rather than a vanished one.
+    command: tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
+    ports:
+      - "127.0.0.1:8091:8000"
+    environment:
+      TZ: UTC
+      HTTP_PROXY: ${HTTP_PROXY}
+      NO_PROXY: ${NO_PROXY}
+    volumes:
+      - bluesky_tiled_catalog:/storage
+    networks:
+      - osprey-network
+    healthcheck:
+      # /healthz is unauthenticated and always 200 — curl isn't in the image,
+      # so probe in-image with python, matching the bridge's own healthcheck.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+
+networks:
+  osprey-network:
+  # Holds the bridge, the RE Manager and Redis. `internal: true` cuts the
+  # network off from the host and the outside world, which is what keeps
+  # Redis — attached to nothing else — unreachable from anywhere but the
+  # manager. The manager and the bridge are also on osprey-network for the
+  # things that genuinely live there (VA, Tiled, the bluesky-web sidecar).
+  bluesky-internal:
+    internal: true
+
+volumes:
+  bluesky_queueserver_redis:
+    labels:
+      com.osprey.repo-id: "abc123def456"
+
+  bluesky_tiled_catalog:
+    labels:
+      com.osprey.repo-id: "abc123def456"

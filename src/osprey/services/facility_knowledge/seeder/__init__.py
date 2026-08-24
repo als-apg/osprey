@@ -1,21 +1,67 @@
 """Facility knowledge seeder subpackage.
 
-Provides :func:`seed_from_ttl` for generating OKF stub documents from a
-NARAD/als-ontology RDF/TTL file.  Import this module directly — it is
-intentionally excluded from the parent ``facility_knowledge`` namespace to
-avoid pulling in the ``knowledge`` extra at import time.
+Two seeders, both offline and both driven from ``osprey knowledge``:
+
+* :func:`seed_from_ttl` (:mod:`.ttl_seeder`) turns a NARAD/als-ontology RDF/TTL
+  file into OKF stub *documents* — a text bundle on disk.
+* :func:`bootstrap` / :func:`import_ttl` and friends (:mod:`.graph_seeder`) load
+  that same TTL into a deployed Neo4j *graph store* through neosemantics.
+
+Import this subpackage directly — it is intentionally excluded from the parent
+``facility_knowledge`` namespace so that the runtime read path pulls in neither
+``rdflib`` (the ``knowledge`` extra) nor the ``neo4j`` driver.  Both are
+imported lazily inside the functions that need them.
 
 Example::
 
-    from osprey.services.facility_knowledge.seeder import seed_from_ttl
+    from osprey.services.facility_knowledge.seeder import open_session, seed_from_ttl
 
     stubs = seed_from_ttl(Path("/path/to/als_gtb.ttl"))
+
+    with open_session(conn.uri, conn.username, conn.password) as session:
+        bootstrap(session)
 """
 
+from .graph_seeder import (
+    COMMIT_SIZE,
+    CONFIG_DRIFT_MESSAGE,
+    N10S_GRAPH_CONFIG,
+    NARAD_PREFIXES,
+    SEED_MARKER_LABEL,
+    TERMINATION_OK,
+    BootstrapResult,
+    BootstrapStatus,
+    ImportResult,
+    bootstrap,
+    import_ttl,
+    open_session,
+    read_marker,
+    resource_count,
+    ttl_sha256,
+    wipe,
+    write_marker,
+)
 from .ttl_seeder import DeviceStub, local_name, seed_from_ttl
 
 __all__ = [
+    "COMMIT_SIZE",
+    "CONFIG_DRIFT_MESSAGE",
+    "N10S_GRAPH_CONFIG",
+    "NARAD_PREFIXES",
+    "SEED_MARKER_LABEL",
+    "TERMINATION_OK",
+    "BootstrapResult",
+    "BootstrapStatus",
     "DeviceStub",
+    "ImportResult",
+    "bootstrap",
+    "import_ttl",
     "local_name",
+    "open_session",
+    "read_marker",
+    "resource_count",
     "seed_from_ttl",
+    "ttl_sha256",
+    "wipe",
+    "write_marker",
 ]

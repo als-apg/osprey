@@ -38,11 +38,9 @@ from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncIterator
 
     from jinja2.runtime import Context
-
-    from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -143,87 +141,6 @@ def _launch_panel_server(app: FastAPI, key: str) -> None:
         setattr(app.state, attr, None)
 
 
-def _load_theme_registry() -> tuple[list[ThemeManifestEntry], dict[str, dict[str, str]]]:
-    """Load the baked theme manifest + per-family defaults for SSR resolution.
-
-    Thin alias for
-    :func:`osprey.interfaces.design_system.theme_config.load_theme_registry`,
-    kept because this module's lifespan and its tests both reach for it by this
-    name. The multi-user landing-page renderer resolves the same config value
-    through that same module, so the two surfaces cannot disagree about what
-    ``web.theme`` means.
-
-    Returns:
-        ``(entries, defaults)`` as produced by
-        :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`
-        and :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`.
-    """
-    from osprey.interfaces.design_system.theme_config import load_theme_registry
-
-    return load_theme_registry()
-
-
-def resolve_web_theme_id(
-    configured: str,
-    entries: Sequence[ThemeManifestEntry],
-    defaults: dict[str, dict[str, str]],
-) -> str:
-    """Resolve the ``web.theme`` config value into a concrete baked theme id.
-
-    ``web.theme``-named alias for
-    :func:`osprey.interfaces.design_system.theme_config.resolve_theme_id`,
-    which documents the full contract (family vs concrete id, the warn +
-    fallback on an unknown value, and the guarantee that the result is always a
-    real baked id — what the pre-paint ``theme-boot.js`` rung requires). The
-    multi-user landing-page renderer calls that same function, so the two
-    surfaces cannot disagree about what ``web.theme`` means.
-
-    The returned id alone does NOT say whether the deployment pinned a mode —
-    see :func:`resolve_web_theme_pinned_mode` for that half.
-
-    Args:
-        configured: The raw ``web.theme`` config value.
-        entries: The theme manifest.
-        defaults: The per-family ``{family: {mode: id}}`` map.
-
-    Returns:
-        A concrete theme id present in ``entries``.
-    """
-    from osprey.interfaces.design_system.theme_config import resolve_theme_id
-
-    return resolve_theme_id(configured, entries, defaults, config_key="web.theme")
-
-
-def resolve_web_theme_pinned_mode(
-    configured: str,
-    entries: Sequence[ThemeManifestEntry],
-) -> str | None:
-    """The light/dark mode a ``web.theme`` value *pins*, if any.
-
-    ``web.theme``-named alias for
-    :func:`osprey.interfaces.design_system.theme_config.resolve_pinned_mode`,
-    which documents why the pin has to be carried separately from the resolved
-    id at all.
-
-    The lifespan server-renders the result as ``<html data-theme-mode>``, and
-    the browser needs it: without that attribute ``theme-manager.js``'s hub
-    assumes ``mode: 'auto'`` on a first visit and immediately re-resolves the
-    mode from the OS, silently discarding a configured pin one frame after
-    paint.
-
-    Args:
-        configured: The raw ``web.theme`` config value.
-        entries: The theme manifest.
-
-    Returns:
-        ``"dark"`` or ``"light"`` when ``configured`` names a concrete theme id;
-        ``None`` when it names a family or is unknown.
-    """
-    from osprey.interfaces.design_system.theme_config import resolve_pinned_mode
-
-    return resolve_pinned_mode(configured, entries)
-
-
 #: The two supported web UI modes. ``expert`` is the full split-pane terminal
 #: workspace; ``simple`` is the pared-down operator layout. ``expert`` is the
 #: default so an absent/misconfigured ``web.ui_mode`` never strands a deployment
@@ -239,7 +156,8 @@ def resolve_ui_mode(configured: str) -> str:
     ``"simple"``). Anything else — a typo, ``None``, an empty string — is
     logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
 
-    Mirrors the warn+fallback shape of :func:`resolve_web_theme_id`: it never
+    Mirrors the warn+fallback shape of the ``web.theme`` resolver
+    (:func:`~osprey.interfaces.design_system.theme_config.resolve_theme_id`): it never
     raises, so a bad value degrades to the safe default instead of blocking
     server startup.
 
@@ -873,34 +791,24 @@ def _create_lifespan(
         # flash. Fails open on any load error — a missing/broken theme
         # registry must never block server startup.
         try:
-            from osprey.utils.config import get_config_value
+            from osprey.interfaces.design_system.theme_config import (
+                resolve_configured_web_theme,
+            )
 
-            # ``OSPREY_WEB_THEME`` takes precedence over ``web.theme``, so
-            # several containers sharing one baked config image can each be
-            # themed individually via the environment — the same shape
-            # ``OSPREY_WEB_APP_NAME`` uses above. Multi-user deployments set it
-            # per user from the roster's ``theme:`` key.
-            configured_web_theme = os.environ.get(
-                "OSPREY_WEB_THEME", ""
-            ).strip() or get_config_value("web.theme", "main")
-            theme_entries, theme_defaults = _load_theme_registry()
-            app.state.web_theme_id = resolve_web_theme_id(
-                configured_web_theme, theme_entries, theme_defaults
-            )
+            # The shared environment → ``web.theme`` → id/pin/family chain, so
+            # this page and the artifact pages the gallery serves cannot
+            # disagree about what a configured value means.
+            web_theme = resolve_configured_web_theme()
+            app.state.web_theme_id = web_theme.id
             # Whether the configured value pinned a mode (a concrete id) or only
-            # a palette (a family). Server-rendered alongside data-theme so the
-            # browser hub can honor a pin instead of assuming 'auto' — see
-            # resolve_web_theme_pinned_mode().
-            app.state.web_theme_mode = resolve_web_theme_pinned_mode(
-                configured_web_theme, theme_entries
-            )
-            # The resolved theme's family, kept for the rail-position block
-            # below (an unconfigured rail follows the family — see
-            # FAMILY_RAIL_DEFAULTS).
-            app.state.web_theme_family = next(
-                (entry.family for entry in theme_entries if entry.id == app.state.web_theme_id),
-                None,
-            )
+            # a palette (a family). Server-rendered alongside data-theme because
+            # without it theme-manager.js's hub assumes 'auto' on a first visit
+            # and re-resolves the mode from the OS one frame after paint,
+            # silently discarding the pin.
+            app.state.web_theme_mode = web_theme.pinned_mode
+            # Kept for the rail-position block below (an unconfigured rail
+            # follows the family — see FAMILY_RAIL_DEFAULTS).
+            app.state.web_theme_family = web_theme.family
         except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
             logger.warning(
                 "Could not resolve web.theme (config or theme-registry load failed); "

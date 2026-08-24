@@ -349,19 +349,60 @@ class DispatchConfig:
     """
 
 
+#: Host-port distance between a two-lane deploy's first and second bluesky lane.
+#:
+#: Lane 2's bridge port is DERIVED (``port + SECOND_LANE_PORT_STRIDE``) rather
+#: than configured, so the lane axis adds one boolean knob and not a second port
+#: an author has to keep clear of the first. The stride is wide enough to clear
+#: the ports that already sit immediately above ``bluesky.port`` — ``tiled_port``
+#: (default 8091) and the ``bluesky_web`` sidecar (default 8095) — because a
+#: derivation that lands on a neighbouring service's port would look like a
+#: working build right up to the point compose refuses to publish it.
+#: :meth:`BlueskyConfig.second_lane_port` re-checks the derived value against the
+#: profile's own ports anyway, since an author may move any of them.
+SECOND_LANE_PORT_STRIDE = 100
+
+
 @dataclass
 class BlueskyConfig:
     """Bluesky bridge configuration for a build profile (opt-in via the ``bluesky:`` key).
 
-    Consumed by the build pipeline's bluesky-injection step to deploy the
-    single ``bluesky_bridge`` service (see NAMING-ADDENDUM.md: deploy key
+    Consumed by the build pipeline's bluesky-injection step, which deploys one
+    ``bluesky_bridge`` service per PLAN LANE (see NAMING-ADDENDUM.md: deploy key
     ``bluesky``, env var ``BLUESKY_LAUNCH_TOKEN``, MCP server name ``bluesky``).
-    Ports are validated by :meth:`BuildProfile.validate`.
+    A profile gets one lane unless it opts into :attr:`second_lane`.
+    The authored ports are validated by :meth:`BuildProfile.validate`; lane 2's
+    is derived and validated by :meth:`second_lane_port`.
     """
 
     port: int = 8090
     tiled_enabled: bool = False
     tiled_port: int = 8091
+    second_lane: bool = False
+    """Render a SECOND plan lane — one full bluesky stack per control-system
+    target — instead of the single stack every build rendered before this field.
+
+    Opt-in, and default ``False`` on purpose: a single-lane deployment is what
+    every existing project has, and leaving this off renders byte-for-byte the
+    ``services.bluesky`` block it rendered before. Such a deployment is still
+    correct under the run-time target switch — it simply refuses ``queue_add`` /
+    ``queue_start`` while the session target differs from the deployment
+    baseline, which is what lets the Bluesky track ship separately from the
+    controls track.
+
+    Set ``True`` and the build renders two SIBLING service blocks: lane 1 stays
+    ``services.bluesky`` and serves the deployment baseline target, and lane 2
+    lands at ``services.bluesky_va`` or ``services.bluesky_live`` — named for the
+    target it serves, never for its index. Lane identity is fixed at render
+    time; the bridge never learns the session target. Lane 2 gets its own bridge
+    port (:meth:`second_lane_port`); tiled is the one shared component and stays
+    on lane 1 only.
+
+    The lane pair is ``live`` and ``va``, so the deployment baseline
+    (``control_system.type``) must be one of those two targets — a ``mock`` or
+    ``doocs`` baseline has no second target to serve and the injection refuses
+    rather than rendering a lane that leads nowhere.
+    """
     plan_dir: str | None = None
     """Optional host directory of facility plan files (Task 1.4),
     bind-mounted read-only into the bridge container and surfaced to the
@@ -374,6 +415,39 @@ class BlueskyConfig:
     enabled (dev/local convenience). Production uses the
     ``BLUESKY_EXCLUDED_PLANS`` env var instead.
     """
+
+    def second_lane_port(self) -> int:
+        """Host port lane 2's bridge publishes, derived from lane 1's.
+
+        Derived rather than configured (see :data:`SECOND_LANE_PORT_STRIDE`) —
+        but derived is not the same as unchecked: :attr:`port` and
+        :attr:`tiled_port` are the author's to move, so the derivation is
+        re-tested against them here rather than trusted. Raising is the point:
+        the alternative is a rendered compose file whose two lanes fight over a
+        port, which surfaces as a container that will not start long after the
+        build reported success.
+
+        Returns:
+            The derived lane-2 bridge port.
+
+        Raises:
+            ValueError: If the derived port leaves the valid range, or collides
+                with a port this profile already spends.
+        """
+        derived = self.port + SECOND_LANE_PORT_STRIDE
+        if not 1 <= derived <= 65535:
+            raise ValueError(
+                f"bluesky.second_lane needs a second bridge port at "
+                f"bluesky.port + {SECOND_LANE_PORT_STRIDE} = {derived}, which is outside "
+                f"1..65535; lower bluesky.port (currently {self.port})"
+            )
+        if self.tiled_enabled and derived == self.tiled_port:
+            raise ValueError(
+                f"bluesky.second_lane needs a second bridge port at "
+                f"bluesky.port + {SECOND_LANE_PORT_STRIDE} = {derived}, which is already "
+                f"bluesky.tiled_port; move bluesky.tiled_port or bluesky.port"
+            )
+        return derived
 
 
 @dataclass

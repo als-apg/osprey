@@ -13,6 +13,7 @@ A control system assistant for scientific facilities, built on pluggable control
 This application shows how to build an AI assistant for an accelerator control system. It includes:
 
 - **Natural Language Channel Finding** - Find control system channels using natural language
+- **Facility Knowledge Graph** - Structural queries over the graphdb store (Neo4j, seeded from a NARAD Turtle corpus) via the facility-knowledge-graph agent
 - **Live Value Retrieval** - Read current channel values using pluggable connectors
 - **Historical Data Analysis** - Retrieve and analyze time-series data from archiver
 - **Benchmarking** - Evaluate channel finder performance
@@ -33,6 +34,11 @@ This application shows how to build an AI assistant for an accelerator control s
 **Channel Finder Mode:** Middle Layer (Functional Navigation)
 - Best for: MML-organized facilities (System / Family / Field / Subfield)
 - Method: Functional hierarchy navigation via the channel-finder MCP server
+{% elif channel_finder_mode == 'graph' %}
+**Channel Finder Mode:** Graph (Relationship Queries)
+- Best for: facilities whose channels are described by a knowledge graph, and questions about how things relate — what a channel belongs to, what a subsystem contains
+- Method: read-only Cypher against the graph store, written by the agent from the schema and the worked examples the channel-finder MCP server offers
+- Configuration: this project ships no channel database for graph mode. The store under `services.graphdb` is the database — seed it from a corpus with `osprey knowledge seed-graph`
 {% endif %}
 
 ### Control-System Backends
@@ -304,7 +310,7 @@ Set the pipeline under `config:` in `profile.yml` and run `osprey build` to swit
 
 ```yaml
 channel_finder:
-  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
+  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", "middle_layer", or "graph"
 ```
 
 ### Control System & Archiver Connectors

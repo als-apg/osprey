@@ -69,6 +69,17 @@ ERROR_CLASS_MAP = {
     "execution_error": "Execution",
     "lattice_error": "Execution",
     "safety_error": "Safety",
+    # Refusals are gates saying no — guidance must say "do not work around",
+    # never "check the server logs", which is what falling through to
+    # Internal used to imply for all four of these.
+    "write_refused": "Safety",
+    "target_switched": "Safety",
+    "target_switch_refused": "Safety",
+    # A switch that was attempted and did not complete: the destination did
+    # not answer, and the previous target is still active.
+    "target_switch_failed": "Connection",
+    # This deployment simply has no such target to switch to.
+    "target_switch_unavailable": "Validation",
     "internal_error": "Internal",
     "platform_error": "Internal",
 }

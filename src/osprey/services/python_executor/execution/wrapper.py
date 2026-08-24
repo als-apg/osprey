@@ -634,6 +634,17 @@ if not _execution_dir.exists():
             # user code, so an alias bound later resolves here.
             import importlib as _osprey_importlib
 
+            # CPython resolves ``platform.uname().processor`` lazily, by
+            # shelling out to ``uname -p`` on first read — and h5py reads it
+            # while ``import at`` initialises its type layer, so the subprocess
+            # refusal below would kill the import of a pure-simulation library.
+            # Resolve it once now, while spawning is still allowed; the cached
+            # value answers every later lookup without touching subprocess.
+            import platform as _osprey_platform
+
+            _osprey_platform.processor()
+            del _osprey_platform
+
             _osprey_targets = {_READONLY_WRITE_TARGETS!r}
 
 

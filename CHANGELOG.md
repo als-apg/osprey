@@ -128,14 +128,115 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Control-system failure envelopes now name the machine they happened on: a
+  connect failure, a timeout, a limits refusal or a denied write carries the
+  active target's name, label and endpoint (`details.active_target`, plus an
+  `active target: ...` clause in the message). On a deployment with a runtime
+  live/VA switch, "the write timed out" no longer leaves the operator to
+  reconstruct *which machine* from session memory.
+- Enum channel reads (EPICS `mbbi`/`bi`/`bo` and PVA `NTEnum`) now carry
+  their state labels: the value stays the integer index on every protocol,
+  and the reading's metadata adds `enum_label` (the state the channel is in)
+  and `enum_labels` (every state in index order). An operator asking "what
+  mode is the device in?" is told `ACQUIRING`, not `2`.
+- A write the control system itself denies — EPICS access security answering
+  a put with "Write access denied" — is now reported as a refusal naming the
+  control system, instead of an `internal_error` that named nothing. The new
+  `CONTROL_SYSTEM_REFUSED` reason states that the write was sent, that the
+  control system turned it down, and that no value was written, so the
+  operator is not sent to check OSPREY's own write settings for access the
+  control system grants.
+- Sub-agents that file their answer as an artifact (channel finder, knowledge
+  graph, logbook search, facility knowledge, pyAT) now hand the orchestrator a
+  pointer — the artifact id, a short headline and the identifiers asked for —
+  instead of repeating the artifact, and the orchestrator focuses that artifact
+  in the gallery rather than re-typing its tables into the chat.
+- Readonly Python runs can import `at` (accelerator-toolbox) again: h5py's
+  import reads the processor name, which CPython resolves by running `uname -p`,
+  and the readonly guard refused that as a subprocess call — so the pyAT
+  specialist could not load its own simulation library. The guard now resolves
+  the value before it locks subprocess down; nothing user code can call was
+  loosened.
+- Container deployments now get the graph schema snapshot baked into the agent
+  prompts. `osprey up` patched only the host renders, so every container shipped
+  the "no snapshot yet" placeholder and each delegation paid a schema prelude.
+  The channel finder's graph paradigm carries the same snapshot now, with its
+  own example catalogue.
+- Interactive plot artifacts now follow the active theme everywhere: opened in
+  their own tab ("Open in new tab"), on first visit with a deployment-pinned
+  `web.theme`, and under every theme family — not just light/dark inside the
+  gallery. Previously a standalone plot page always rendered dark, and any
+  theme outside the main family fell back to the dark palette. HTML and table
+  artifacts without styling of their own now take the theme's colors too, and
+  the print view is always light.
+- The graph channel finder no longer mistakes its own row limit for the whole
+  answer: `read_cypher` now warns when a result exactly fills the query's own
+  `LIMIT`, the example catalogue gained a census query (count before listing
+  "all of X") and a composed hardware-plus-signal filter that keeps sibling
+  signals out of the match, and the agent's report now ends with a definitive
+  **Channels found** list separated from any related addresses mentioned in
+  prose.
+- The cross-paradigm benchmark's "third vertical corrector" query now names
+  the storage ring: the machine also has a third vertical corrector in the
+  transfer line, so the old wording was ambiguous and graded a guess.
+- The pyat-specialist grounding e2e no longer misreads a saved metadata key
+  ending in a plane letter (an `index` next to the betas) as the horizontal
+  value — a numerically correct results artifact could fail the check.
+- The kill-switch e2e tests no longer fail when the agent makes a
+  preparatory read before the denied write: the hook assertion is scoped to
+  the write tool instead of requiring zero approval events overall.
+- `osprey up` now refuses a Bluesky deployment on a Podman host still using
+  the legacy `cni` network backend, naming netavark as the requirement and
+  the `containers.conf` setting to change. Without aardvark-dns the
+  dual-homed `bluesky-queueserver` receives only its first network's
+  resolver, so it can never resolve `bluesky-redis`: it goes unhealthy and
+  the deploy aborts before the web slice renders — the whole deployment down
+  on a DNS fact nothing in the output pointed at. The check runs before any
+  container is touched, is skipped unless `bluesky` is deployed, and never
+  blocks a deploy on a host it could not read.
+- The package inventory the agent sees no longer names compiled `__mypyc`
+  shims as importable packages. The filter dropped them only when the shim's
+  hash happened to start with a digit (making it a non-identifier); a
+  letter-leading hash such as `ada92cb5d92a588d1b93__mypyc` passed straight
+  through and was advertised to the agent as a top-level import.
+- The session event log — and everything built on it: the agent-activity
+  view, feedback bundles, logbook context, and the agent's own `session_log`
+  tool — now records tool calls from every MCP server in the session instead
+  of a fixed five. Calls from `osprey_facility_knowledge`, `phoebus`,
+  `bluesky`, `health`, and any facility-declared custom server were silently
+  dropped, so a sub-agent's work could vanish from a feedback report while
+  the drill-down timeline still showed it.
+- Tool names from servers with underscores in their name (`osprey_workspace`,
+  `osprey_facility_knowledge`, or a facility's own) now display cleanly in
+  the web terminal. The prefix strip assumed no underscores, so the activity
+  strip showed "Mcp Osprey Workspace Submit Response" instead of
+  "Submit Response", and the facility-knowledge tools never resolved their
+  operator phrases ("browsing facility knowledge").
+- The activity view's server badges are colored again for every framework
+  server. The color map still said `workspace` after the server was renamed
+  `osprey_workspace` (so those badges rendered grey), and the facility
+  knowledge, Phoebus, Bluesky, and health servers never had a color at all.
+  A facility's own server takes the neutral badge.
+- A sub-agent that made no MCP tool calls no longer sorts to the top of the
+  event log with an empty timestamp — its start/stop now carry the dispatch
+  time of the Task that launched it.
+- A custom MCP server whose configured name contains `__` (or ends in `_`)
+  is now rejected at build time with a warning, like an `extends` clone
+  name. Tool names are `mcp__<server>__<tool>`, so such a name would make
+  the event log and the display misattribute every call the server makes.
+- Logbook composition no longer sends tool arguments to the configured LLM
+  provider — the session-activity section now carries tool names and result
+  snippets only, matching the feedback report's privacy policy.
 - Feedback sent by GitHub or Email no longer arrives without its session
-  context because nobody knew about the paste step. The context travels by
-  clipboard (it cannot fit a `mailto:` URL), and the dialog now says so:
-  ticking the context box on an outbound channel shows a paste hint, and the
-  post-send confirmation tells the sender the full report is on the clipboard.
-  The session id also rides inline in the prefilled body when context is
-  attached, so a message can be matched to the deployment's own record even
-  when the paste never happened.
+  context because nobody knew about the paste step. The context cannot fit a
+  prefilled URL, so with the context box ticked the flow is now one honest
+  paste: the whole report (text, metadata, context) is copied to the
+  clipboard, the draft opens with a single paste-here line instead of a
+  partial body that a paste would duplicate, and the dialog states both steps
+  before the button is pressed. Without context the draft opens complete and
+  the clipboard is left alone. The browser and the full session id now ride
+  in the composed report itself, and "Copy session context" moved out of the
+  action row onto the checkbox's own row, enabled whenever a session exists.
 - The prefilled issue title / mail subject is no longer the first line of the
   report text. It is now a stable "OSPREY feedback" title, suffixed with a
   short session id when context is attached.
@@ -144,6 +245,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   and rendered oversized; the old `✉` rendered small, painted full-colour
   emoji on Windows/Android, and promised email for a dialog that also files
   locally or to GitHub.
+- The rail's Documentation and Feedback controls are now labelled DOCS and
+  FEEDBACK, like every other cell in the rail. The marks alone left the
+  operator hovering over them to find out what they open.
 - The web terminal now knows its own session id from the moment it opens.
   It previously waited for the session's transcript file to appear on disk,
   which only happens once the session has content — so a terminal left idle
@@ -162,6 +266,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   numbers it describes both appeared as "Lattice Analysis", and neither the
   gallery nor the agent could tell them apart. The summary is now an "Agent
   Response", and a `data_type` you pass is no longer overridden.
+- The pyAT specialist no longer sometimes answers without filing its numbers.
+  Its computed quantities used to be saved by a separate step inside the
+  computing code that the agent could skip — and did, intermittently, leaving
+  a prose answer with no "Lattice Analysis" JSON behind it. The numbers now
+  travel with the answer: `submit_response` takes a `data` dict and files it as
+  the JSON results artifact in the category the agent's definition declares
+  (`results_category:` in its frontmatter), and refuses a hand-in that owes
+  data and carries none. Prose and numbers arrive in one call, so there is no
+  step to skip.
 - Timeseries previews in the workspace gallery render again in CDN-mode
   (non-offline) deployments: the lazy Plotly loader now uses the same
   CDN-or-vendored URL resolution as the gallery's other vendor assets
@@ -192,6 +305,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey init` now prints a composition card under its report: who can sign
+  in (each user's persona, rights, login method and port), what the agent runs
+  on (model, MCP servers, bundled toolkit), what machine it talks to
+  (connector, archiver, channel database) and what else runs beside it. The
+  card is derived from the resolved profile, so it shows exactly the
+  deployment about to be built — useful reading while a chained `--up` pulls
+  its images.
 - ARIEL search now speaks your control room's shorthand. Drop a
   `vocabulary.yml` in your project, set `ariel.vocabulary.enabled: true` and
   point `ariel.vocabulary.path` at it, and a search for `t/s bpm` also finds
@@ -344,7 +464,42 @@ Compatibility is documented in release notes, not encoded in the version string.
   and the approval-gated `setup_patch` tool. Each tier is its own profile
   (`control-assistant-readonly`, `-readwrite`, `-admin`, `-ariel`).
 
+- A session can now be pointed at a different control system while it runs.
+  `control_target_set` moves it between the real machine (`live`) and the
+  virtual accelerator (`va`), and `control_target` reports where the session is
+  and what else it could reach — so a script can be rehearsed on the simulator
+  and then run on the machine without a rebuild, a redeploy or a restart. The
+  destination is connected and proved reachable, by reading its
+  `probe_channel`, before the current one is retired, so a switch that fails
+  leaves the session where it was. Switching *to* the live machine also
+  requires strict limits checking and
+  `control_system.target_switch.live_gateway_acknowledged`, set to the live
+  gateway's hostname; returning to a deployment's own baseline requires
+  neither. No target choice outlives the session — every server start returns
+  to the deployment baseline. `osprey build` now renders both targets'
+  connector blocks, so a project from the standard template has a
+  `virtual_accelerator:` block beside its `epics:` one. See the new "Switch the
+  Control Target at Run Time" how-to.
+
+- Approval prompts now name the control target they would act on — writes, plan
+  starts, patches and executions alike — and archive reads carry the target and
+  the archiver that served them.
+
+- A deployment can render a second Bluesky plan lane, one per control target,
+  with `bluesky.second_lane: true` in the build profile. Plans are then routed
+  to the lane serving the session's target, and `queue_start` names the lane
+  `queue_add` bound the plan to. Without it a deployment keeps its single lane
+  and refuses to queue or start plans while the session is pointed at a target
+  that lane does not serve.
+
 ### Changed
+
+- `osprey-connectors` now versions with the framework's calendar stream —
+  both wheels are built from one checkout and carry one number, so the
+  independent `0.x` line (and the question of what counts as a minor) is
+  gone.
+- Docs site: the root now always shows the latest release; development docs
+  moved to `/latest/` with a development banner.
 
 - The workspace tool that registers a file on disk, or literal text, as a
   gallery artifact is now `artifact_register` (was `artifact_save`), and
@@ -503,6 +658,77 @@ Compatibility is documented in release notes, not encoded in the version string.
   value at every verification level, flipping `success` when the readback read
   fails, and labeling an infrastructure failure differently from a
   control-system failure.
+
+- A deployment can now run a facility knowledge graph as a service. Add
+  `graphdb` to `deployed_services` alongside a `services.graphdb` block naming
+  the image, host ports and a Turtle corpus (`ttl_path`), and `osprey up`
+  starts the store, mints its `GRAPHDB_PASSWORD` into the project `.env`, and
+  loads the corpus. `osprey knowledge seed-graph` re-seeds or re-checks it
+  later, and `osprey health` reports bolt connectivity and how many resources
+  the graph holds, under a new `graphdb` category. The `control-assistant` and
+  `ariel-standalone` presets ship the block already filled in.
+- Agents can query that graph through a new `graph` MCP server. `read_cypher`
+  runs Cypher in a read-only transaction — writes, extension procedures and
+  `LOAD CSV` are refused — `get_schema` reports the labels, relationship types
+  and properties actually present, and `example_queries` serves a curated,
+  parameterized set covering device rollups, channel bindings and section
+  walks. `services.graphdb.query_timeout_s` (default 15 s) and
+  `services.graphdb.query_max_rows` (default 200) bound a single query. The
+  server is rendered wherever `services.graphdb` is configured, and its tools
+  belong to a new `facility-knowledge-graph` subagent: the main agent answers
+  structural questions ("what sits in section 7, in beam order?") by
+  delegating to it, exactly as address lookups delegate to the channel finder.
+  Safety, output-style, setup-mode and diagnose prompts name the agent where
+  they enumerate its siblings.
+- The store's schema and the curated examples are baked into that agent's
+  rendered prompt at seed time: whichever verb seeds or re-verifies the store
+  (`osprey up`'s staging step, `osprey knowledge seed-graph`) captures them
+  from the live store — property lists complete, example parameters narrowed
+  to the seeded corpus — and rewrites the prompt's snapshot section, stamped
+  with the seed marker's checksum. The agent starts oriented instead of
+  spending its first turn on `example_queries`/`get_schema`; both tools stay
+  registered as the recovery path for a store re-seeded out of band.
+- `osprey knowledge build-ttl` generates a Turtle corpus from a project's
+  hierarchical channel database (`--channel-db`) and the matching in-context
+  database (`--descriptions`), deriving devices from the channel-name grammar,
+  each binding's read/write direction from the limits database, and the prose
+  describing them from both. The `control-assistant` preset seeds its graph from
+  that corpus, so its graph and channel finder describe the same machine.
+- The `control-assistant-readonly` and `control-assistant-readwrite` operator
+  terminals get the facility-knowledge-graph agent too, reading the hosting
+  deployment's store over `services.graphdb.port_host`. Move that port on the
+  deployment and move the same number in both preset files.
+
+- The graph is available as a fourth channel-finder paradigm:
+  `channel_finder.pipeline_mode: graph` (`osprey init --set
+  channel_finder_mode=graph`) answers channel questions from the deployment's
+  graph store instead of a database file. The channel-finder subagent gets four
+  tools under the usual `channel-finder` server name — `read_cypher` for
+  read-only Cypher, `get_schema`, `capabilities` for the corpus conventions a
+  query has to follow, and `example_queries` for a catalogue of worked lookups.
+  A `services.graphdb` block is the whole configuration, whether it deploys the
+  store with the project or names an external one (`uri`, `username` and
+  `GRAPHDB_PASSWORD`); there is no `pipelines.graph` block to fill in.
+- The corpus the `control-assistant` preset ships describes its machine in
+  words, so a graph-mode search can match an operator's phrasing: every channel
+  binding carries a description plus its field and subfield text, every device
+  carries family, system and ring descriptions and a `system` token, and
+  synonyms are stored as lists.
+- `osprey health` reports a graph-mode channel finder as store-backed — bolt
+  reachability and the store's resource count, with no database file to look
+  for — and the channel-finder web app serves a pane naming the graph tools,
+  answering the file-backed routes (statistics, validation, pipeline switching)
+  by pointing at `read_cypher`.
+- The channel-finder benchmark runs a fourth lane, scoring the graph paradigm
+  against the same tier-3 query set as the other three.
+
+### Changed
+
+- A missing or unknown `channel_finder.pipeline_mode` now fails with an error
+  naming the modes that exist, everywhere the mode is read: build, agent
+  render, `osprey health`, the channel-finder web app and the benchmark runner.
+- A benchmark lane fails outright when any of its queries fails to run, so a
+  score is only ever reported over the whole query set.
 
 ### Fixed
 

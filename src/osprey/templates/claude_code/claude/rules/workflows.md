@@ -46,3 +46,5 @@ For complex requests, follow this pattern:
 3. **Delegate** — Launch agent calls (parallel where possible).
 4. **Synthesize** — Combine results into a coherent answer.
 5. **Present** — Show findings with artifact references and clear structure.
+   Focus the artifact a subagent handed back rather than re-typing it (see the
+   artifacts rule).

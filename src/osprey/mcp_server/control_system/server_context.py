@@ -12,6 +12,35 @@ Usage in tools:
     connector = await registry.control_system()       # Cached connector
     archiver = await registry.archiver()              # Cached connector
     channel_finder_cfg = registry.channel_finder_config()
+    hosts = registry.connector_hosts                  # Connector-host supervisor
+
+The connector-host supervisor is this module's public face on
+:mod:`osprey.mcp_server.control_system.connector_host_manager`, which owns the
+child process, the session target and the target switch. It lives in a sibling
+module because a process supervisor and a config cache have nothing to do with
+each other beyond the config, and the switch algorithm is long enough that
+folding it in here would bury both.
+
+Where a tool's connector comes from
+-----------------------------------
+There are two serving paths, and which one a deployment gets is decided once,
+by :func:`~osprey.mcp_server.control_system.connector_host_manager.switch_capable`:
+
+* **Switch-capable** (both targets configured, and the deployment's own control
+  system is one of them): ``control_system()`` returns the proxy onto the
+  connector-host child. The in-process connector is never built — this server
+  holds no control-system client library at all, which is the only way a target
+  switch can actually move where tool calls land. A child that has died is not
+  papered over: the accessor raises
+  :class:`~osprey.mcp_server.control_system.connector_host_manager.NoConnectorHostError`
+  and every control-system-routed operation refuses with that reason until one
+  is running again.
+* **Everything else** — a mock deployment, a single-target EPICS deployment,
+  any config that never named a second target — keeps the in-process cached
+  connector, unchanged and untouched by any of this.
+
+The archiver is on neither path: it speaks HTTP or pymongo, holds no Channel
+Access context, and keeps serving whatever is happening to the child.
 """
 
 from __future__ import annotations
@@ -24,6 +53,26 @@ from typing import Any
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.errors import ConfigurationError
+from osprey.mcp_server.control_system.connector_host_manager import (
+    ConnectorHostManager,
+    NoConnectorHostError,
+    SwitchError,
+    switch_capable,
+)
+from osprey_connectors.ipc.proxy import ConnectorHostProxy
+
+__all__ = [
+    "ConnectorEntry",
+    "ConnectorHostManager",
+    "ConnectorHostProxy",
+    "ControlSystemContext",
+    "MCPServerConfig",
+    "NoConnectorHostError",
+    "SwitchError",
+    "get_server_context",
+    "initialize_server_context",
+    "reset_server_context",
+]
 
 logger = logging.getLogger("osprey.mcp_server.control_system.server_context")
 
@@ -89,6 +138,8 @@ class ControlSystemContext:
         self._config: MCPServerConfig | None = None
         self._connectors: dict[str, ConnectorEntry] = {}
         self._initialized = False
+        self._connector_hosts: ConnectorHostManager | None = None
+        self._switch_capable: bool | None = None
 
     def initialize(self) -> None:
         """Load config and register connector types.
@@ -122,10 +173,12 @@ class ControlSystemContext:
 
         self._initialized = True
         logger.info(
-            "ControlSystemContext: initialized (control_system=%s, archiver=%s, writes=%s)",
+            "ControlSystemContext: initialized (control_system=%s, archiver=%s, writes=%s, "
+            "serving=%s)",
             self._config.control_system.get("type", "not configured"),
             self._config.archiver.get("type", "not configured"),
             self._config.writes_enabled,
+            "connector-host child" if self.switch_capable else "in-process connector",
         )
 
     @property
@@ -134,6 +187,20 @@ class ControlSystemContext:
         if self._config is None:
             raise RuntimeError("ControlSystemContext not initialized — call initialize() first")
         return self._config
+
+    @property
+    def connector_hosts(self) -> ConnectorHostManager:
+        """The connector-host supervisor, created on first use.
+
+        Created lazily and never started here: a deployment that serves its
+        tools from the in-process connector never spawns a child, and asking
+        for the supervisor is not the same as running one. Whether a child is
+        alive is :meth:`ConnectorHostManager.has_child`'s answer, not this
+        property's.
+        """
+        if self._connector_hosts is None:
+            self._connector_hosts = ConnectorHostManager(self.config)
+        return self._connector_hosts
 
     def get(self, key: str, default: Any = None) -> Any:
         """Dot-path access into raw config: registry.get('archiver.type')."""
@@ -148,12 +215,42 @@ class ControlSystemContext:
                 return default
         return value
 
-    async def control_system(self) -> ControlSystemConnector:
-        """Get or create the cached control-system connector."""
+    @property
+    def switch_capable(self) -> bool:
+        """Whether this deployment serves its control system from a child.
+
+        The predicate itself lives in
+        :func:`~osprey.mcp_server.control_system.connector_host_manager.switch_capable`
+        and is spelled exactly once there; this caches the answer, which cannot
+        change while the config is loaded.
+        """
+        if self._switch_capable is None:
+            self._switch_capable = switch_capable(self.config.raw)
+        return self._switch_capable
+
+    async def control_system(self) -> ControlSystemConnector | ConnectorHostProxy:
+        """The control-system connector every tool reads and writes through.
+
+        On a switch-capable deployment this is the **proxy onto the
+        connector-host child**, which is what makes a target switch reach the
+        tools at all: the child holds the Channel Access context for the
+        session's target, and a switch replaces the child. On every other
+        deployment it is the in-process connector, cached exactly as before.
+
+        The two are not related by inheritance — the proxy mirrors the
+        connector's call surface deliberately rather than subclassing it (see
+        :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy`) — so the
+        return type names both.
+        """
         return await self._get_connector("control_system")
 
     async def archiver(self) -> ArchiverConnector:
-        """Get or create the cached archiver connector."""
+        """Get or create the cached archiver connector.
+
+        Never routed through a connector host: the archiver speaks HTTP or
+        pymongo, holds no Channel Access context, and therefore keeps serving
+        while no child is alive.
+        """
         return await self._get_connector("archiver")
 
     async def _get_connector(self, name: str) -> Any:
@@ -161,6 +258,9 @@ class ControlSystemContext:
         entry = self._connectors.get(name)
         if entry is None:
             raise ValueError(f"Unknown connector: {name}")
+
+        if name == "control_system" and self.switch_capable:
+            return await self._connector_host()
 
         if entry.instance is not None:
             return entry.instance
@@ -175,11 +275,47 @@ class ControlSystemContext:
         logger.info("ControlSystemContext: created %s connector", name)
         return entry.instance
 
+    async def _connector_host(self) -> ConnectorHostProxy:
+        """The live child's proxy, or the no-child refusal.
+
+        The in-process connector is never built on this path — building one
+        would load a control-system client into the server that is supposed to
+        hold none, and pin it to whatever target the config happened to
+        describe at start, which is precisely the bug a switch has to avoid.
+        """
+        manager = self.connector_hosts
+        await manager.ensure_started()
+        proxy = manager.active_proxy()
+        if proxy is None:
+            raise NoConnectorHostError(manager.active_target(), manager.active_generation())
+        return proxy
+
     async def invalidate_connector(self, name: str) -> None:
         """Disconnect and remove a cached connector (e.g., on error).
 
         The next call to control_system() or archiver() will recreate it.
+
+        When the control system is being served from a connector-host child,
+        "drop the instance so the next call rebuilds it" is a kill and a
+        respawn of that child on the *same* target — the generation does not
+        move, because the session is still pointed where it was. A deployment
+        with no running child takes the in-process path below, unchanged.
         """
+        if (
+            name == "control_system"
+            and self._connector_hosts is not None
+            and self._connector_hosts.is_started()
+        ):
+            try:
+                await self._connector_hosts.respawn_same_target()
+            except SwitchError as exc:
+                # Spawn-then-swap all the way down: a respawn that fails leaves
+                # the existing child in place rather than tearing down the only
+                # thing still able to serve. If it is dead too, has_child()
+                # already says so and the tools refuse on that.
+                logger.error("Could not respawn the connector host: %s", exc.detail)
+            return
+
         entry = self._connectors.get(name)
         if entry and entry.instance:
             try:
@@ -284,6 +420,8 @@ class ControlSystemContext:
 
     async def shutdown(self) -> None:
         """Disconnect all connectors. Called on server shutdown."""
+        if self._connector_hosts is not None:
+            await self._connector_hosts.shutdown()
         for name in list(self._connectors):
             await self.invalidate_connector(name)
         logger.info("ControlSystemContext: shutdown complete")

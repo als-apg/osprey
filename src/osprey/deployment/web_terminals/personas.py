@@ -31,6 +31,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -171,6 +173,67 @@ def config_needs_launch_token(config: Any) -> bool:
         return False
     servers = as_dict(as_dict(root.get("claude_code")).get("servers"))
     return as_dict(servers.get("bluesky")).get("enabled", True) is not False
+
+
+def config_needs_graphdb_password(config: Any) -> bool:
+    """True if ``config`` configures a graph store and runs the ``graph`` MCP server.
+
+    ``GRAPHDB_PASSWORD`` is the store's *single* credential: Neo4j has one
+    account, ``neo4j``, and it is write-capable. There is no read-only account
+    to hand out instead, so a persona that may query the graph at all holds the
+    password that could also rewrite it — and, because the credential arrives as
+    an environment variable in the container the agent runs in, the agent can
+    read it. Granting it is therefore a deliberate decision, not a default.
+
+    The read-only tier receives it too, and that is intended rather than an
+    oversight. Read-only-ness for the graph is enforced by the ``graph`` MCP
+    server, which runs every query through ``Session.execute_read`` — the
+    transaction never opens in write mode, whatever the credential would permit.
+    That is the same posture ``ARIEL_DB_PASSWORD`` already has: one Postgres
+    password shared by every ARIEL consumer, with the read-only guarantee living
+    in what the consumer does rather than in which password it holds. The
+    contrast is :func:`config_needs_launch_token`, which *is* gated on
+    ``control_system.writes_enabled``, because there the credential itself is
+    the capability — nothing downstream of holding it stops a queue start.
+
+    The blast radius bounds the decision: the store holds a disposable mirror of
+    a Turtle corpus, re-seedable from it with ``osprey knowledge seed-graph``, so
+    the worst case is corpus integrity rather than facility data or hardware.
+    This predicate is consequently **never** gated on ``writes_enabled`` — doing
+    so would leave the read-only operator terminal, the very tier the graph
+    search is meant to serve, unable to reach the store at all.
+
+    Two conditions, read the way each key's own default reads:
+
+    * ``services.graphdb`` must resolve to a block (see
+      :func:`osprey.deployment.graphdb_service.resolve_graphdb_service_config`).
+      That block IS the entitlement, for the reason
+      :func:`config_needs_ariel_password` gives about the ``ariel:`` section: it
+      is what
+      :func:`osprey.deployment.graphdb_service.resolve_graphdb_connection` reads
+      to decide what to dial, on the local-port path and the external-``uri:``
+      path alike, and both then read this same variable for the password. A
+      fully-defaulted ``graphdb: {}`` therefore entitles, while a bare
+      ``graphdb:`` (which YAML parses as ``None``) configures no store and does
+      not. A malformed block — a port that is not a port, a heap size the JVM
+      would reject — entitles nothing either: it configures no store this
+      deployment could reach, and refusing here would turn a typo in one
+      persona's ``config.yml`` into a failed render of the whole roster.
+    * ``claude_code.servers.graph.enabled`` must merely be **not** ``False``,
+      because that key is an *override* over the server's built-in default (see
+      :func:`osprey.registry.mcp.resolve_servers`, which likewise disables only
+      on a literal ``enabled: false``). An absent key leaves the server enabled,
+      so reading absence as "disabled" would deny the password to every
+      correctly-configured project that simply never wrote the override.
+    """
+    root = as_dict(config)
+    try:
+        if resolve_graphdb_service_config(root) is None:
+            return False
+    except ValueError:
+        return False
+    servers = as_dict(as_dict(root.get("claude_code")).get("servers"))
+    return as_dict(servers.get("graph")).get("enabled", True) is not False
 
 
 #: What a ``password_env`` name must look like to be emitted into a compose
@@ -372,6 +435,25 @@ def personas_needing_launch_token(config: Any, project_root: Any) -> set[str]:
         ``BLUESKY_LAUNCH_TOKEN`` (see :func:`config_needs_launch_token`).
     """
     return _personas_whose_config(config, project_root, config_needs_launch_token)
+
+
+def personas_needing_graphdb_password(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project queries the graph store.
+
+    Unlike :func:`personas_needing_launch_token`, this set deliberately spans
+    both tiers: a read-only persona that configures a graph store belongs in it,
+    because the store has exactly one account and the read-only guarantee lives
+    in the ``graph`` MCP server's read transactions rather than in the
+    credential. See :func:`config_needs_graphdb_password` for that reasoning and
+    for the blast radius that bounds it.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names entitled to
+        ``GRAPHDB_PASSWORD`` (see :func:`config_needs_graphdb_password`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_graphdb_password)
 
 
 def personas_needing_archiver_password(config: Any, project_root: Any) -> dict[str, str]:

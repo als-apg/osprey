@@ -5,7 +5,8 @@ under ``data/benchmarks/cross_paradigm/queries/`` resolves against the matching
 tier's channel database tree
 (``data/channel_databases/tiers/tier{N}/{in_context,hierarchical,middle_layer}.json``).
 The tiers checked and the paradigms expected per tier are driven by
-:data:`TIER_PARADIGMS` (tier 1 = in_context only; tier 3 = all three).
+:data:`TIER_PARADIGMS` (tier 1 = in_context only; tier 3 = every tier view,
+which is every registered paradigm except ``graph``).
 
 This is the cheap, no-LLM cross-paradigm drift sentinel — if the tier DBs
 diverge from the queries (as they did pre-2026-05 across paper-vs-core), this
@@ -18,6 +19,7 @@ import json
 
 import pytest
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.benchmarks.generator import (
     TEMPLATE_DATA_DIR,
     TIER_PARADIGMS,
@@ -31,6 +33,18 @@ TIERS_ROOT = TEMPLATE_DATA_DIR / "channel_databases" / "tiers"
 
 # The published tiers are exactly the keys of the paradigm map (tier 2 retired).
 _TIER_NUMS: tuple[int, ...] = tuple(TIER_PARADIGMS)
+
+
+def test_graph_is_not_a_tier_view() -> None:
+    """Tier 3 validates every paradigm except ``graph``, by subtraction.
+
+    Graph is exempt because it publishes no ``tiers/tier3/graph.json`` to
+    validate against — its store is seeded from the facility corpus TTL, whose
+    PV-set equality with the channel database is pinned by
+    ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.
+    Registering any other paradigm fails here until it ships a tier view.
+    """
+    assert set(TIER_PARADIGMS[3]) == set(VALID_CHANNEL_FINDER_MODES) - {"graph"}
 
 
 class TestUnifiedQueriesShipped:

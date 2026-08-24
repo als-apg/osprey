@@ -1,0 +1,50 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 448" role="img" aria-labelledby="ariel-ingestion-title ariel-ingestion-desc">
+  <title id="ariel-ingestion-title">ARIEL data ingestion</title>
+  <desc id="ariel-ingestion-desc">A facility adapter pulls entries from the source system and yields EnhancedLogbookEntry records; the repository upserts them idempotently into PostgreSQL, and optional enhancement modules run as a separate step to write embeddings, keywords, and summaries back.</desc>
+  <defs>
+    <marker id="ariel-ingestion-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- zone first -->
+  <rect class="zone" x="480" y="240" width="400" height="176" rx="8"/>
+  <rect class="mask" x="496" y="244" width="188" height="12" rx="2"/>
+  <text class="te" x="500" y="253">ENHANCEMENT · OPTIONAL STEP</text>
+  <!-- arrows -->
+  <line class="e" x1="200" y1="96" x2="200" y2="136" marker-end="url(#ariel-ingestion-arr)"/>
+  <line class="e" x1="200" y1="192" x2="200" y2="232" marker-end="url(#ariel-ingestion-arr)"/>
+  <line class="e" x1="200" y1="288" x2="200" y2="328" marker-end="url(#ariel-ingestion-arr)"/>
+  <line class="e e-dash" x1="312" y1="356" x2="480" y2="356" marker-end="url(#ariel-ingestion-arr)"/>
+  <rect class="mask" x="208" y="200" width="116" height="12" rx="2"/>
+  <text class="ta" x="212" y="209">EnhancedLogbookEntry</text>
+  <rect class="mask" x="372" y="336" width="48" height="12" rx="2"/>
+  <text class="ta" x="396" y="345" text-anchor="middle">ENRICH</text>
+  <!-- main chain -->
+  <rect class="mask" x="88" y="40" width="224" height="56" rx="6"/>
+  <rect class="nb-ext" x="88" y="40" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="64" text-anchor="middle">source system</text>
+  <text class="ts" x="200" y="80" text-anchor="middle">HTTP API · JSONL file</text>
+  <rect class="mask" x="88" y="136" width="224" height="56" rx="6"/>
+  <rect class="nb" x="88" y="136" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="160" text-anchor="middle">facility adapter</text>
+  <text class="ts" x="200" y="176" text-anchor="middle">yields entries one at a time</text>
+  <rect class="mask" x="88" y="232" width="224" height="56" rx="6"/>
+  <rect class="nb" x="88" y="232" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="256" text-anchor="middle">repository upsert</text>
+  <text class="ts" x="200" y="272" text-anchor="middle">dedup by ID · idempotent</text>
+  <rect class="mask" x="88" y="328" width="224" height="56" rx="6"/>
+  <rect class="nb-st" x="88" y="328" width="224" height="56" rx="6"/>
+  <text class="tn" x="200" y="352" text-anchor="middle">PostgreSQL</text>
+  <text class="ts" x="200" y="368" text-anchor="middle">enhanced_entries</text>
+  <!-- modules -->
+  <rect class="mask" x="512" y="272" width="336" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="512" y="272" width="336" height="56" rx="6"/>
+  <text class="tn" x="680" y="296" text-anchor="middle">TextEmbeddingModule</text>
+  <text class="ts" x="680" y="312" text-anchor="middle">→ per-model embedding tables</text>
+  <rect class="mask" x="512" y="344" width="336" height="56" rx="6"/>
+  <rect class="nb" x="512" y="344" width="336" height="56" rx="6"/>
+  <text class="tn" x="680" y="368" text-anchor="middle">SemanticProcessorModule</text>
+  <text class="ts" x="680" y="384" text-anchor="middle">→ keywords + summary fields</text>
+</svg>
+</div>

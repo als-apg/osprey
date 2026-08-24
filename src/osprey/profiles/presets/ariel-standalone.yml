@@ -45,6 +45,7 @@ claude_md_template: CLAUDE.ariel.md.j2
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate logbook entry creation on user approval prompt
   - error-guidance    # Post-error hook that surfaces remediation hints
@@ -66,9 +67,11 @@ skills:
   - session-report          # Summarise session actions and outcomes to the logbook
   - logbook-deep-research   # Multi-phase logbook investigation (invoked by skill)
 
-# No subagents: the deep-research workflow is invoked as a skill from the
-# main agent, not as a separate subagent.
-agents: []
+# The deep-research workflow is invoked as a skill from the main agent, not as
+# a separate subagent. The one subagent here is the graph specialist: structural
+# machine questions delegate to it, mirroring the control-system presets.
+agents:
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
 
 output_styles:
   - control-operator  # Terse, actionable output style

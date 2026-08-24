@@ -107,9 +107,10 @@ class ConnectorSettable(StandardReadable):
         """Write ``value`` through the connector, then wait for readback settle.
 
         Raises:
-            ChannelWriteBlockedError: The reference monitor refused the
-                write (writes disabled, limits, validation) — the write was
-                never attempted.
+            ChannelWriteBlockedError: The write was refused and no value was
+                written — either by the reference monitor (writes disabled,
+                limits, validation), in which case it was never attempted, or
+                by the control system itself (CONTROL_SYSTEM_REFUSED).
             ChannelWriteFailedError: The write was attempted but failed, or
                 its callback verification did not succeed.
             ConnectionError: Propagated unchanged from the connector's

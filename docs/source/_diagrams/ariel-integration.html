@@ -1,0 +1,34 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 256" role="img" aria-labelledby="ariel-integration-title ariel-integration-desc">
+  <title id="ariel-integration-title">ARIEL and agent integration</title>
+  <desc id="ariel-integration-desc">A user question goes to the Osprey agent, which calls ARIEL's MCP tools; the search service returns scored entries with metadata, and the agent answers the user with citations.</desc>
+  <defs>
+    <marker id="ariel-integration-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="224" y1="92" x2="400" y2="92" marker-end="url(#ariel-integration-arr)"/>
+  <line class="e" x1="560" y1="92" x2="736" y2="92" marker-end="url(#ariel-integration-arr)"/>
+  <path class="e e-dash" d="M816,120 V152 Q816,160 808,160 H488 Q480,160 480,152 V120" marker-end="url(#ariel-integration-arr)"/>
+  <path class="e e-dash" d="M456,120 V184 Q456,192 448,192 H152 Q144,192 144,184 V120" marker-end="url(#ariel-integration-arr)"/>
+  <rect class="mask" x="608" y="72" width="80" height="12" rx="2"/>
+  <text class="ta" x="648" y="81" text-anchor="middle">MCP TOOL CALL</text>
+  <rect class="mask" x="604" y="168" width="88" height="12" rx="2"/>
+  <text class="ta" x="648" y="177" text-anchor="middle">SCORED ENTRIES</text>
+  <rect class="mask" x="260" y="200" width="80" height="12" rx="2"/>
+  <text class="ta" x="300" y="209" text-anchor="middle">CITED ANSWER</text>
+
+  <rect class="mask" x="64" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-in" x="64" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="144" y="88" text-anchor="middle">user</text>
+  <text class="ts" x="144" y="104" text-anchor="middle">a question</text>
+  <rect class="mask" x="400" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-foc" x="400" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">osprey chat</text>
+  <rect class="mask" x="736" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb" x="736" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="816" y="88" text-anchor="middle">ARIEL MCP server</text>
+  <text class="ts" x="816" y="104" text-anchor="middle">ARIELSearchService</text>
+</svg>
+</div>

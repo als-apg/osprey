@@ -200,24 +200,8 @@ A tier is a persona file
 There is no ``tier:`` setting anywhere. A tier is what a **persona** turns out
 to be once it is built.
 
-.. mermaid::
-
-   flowchart LR
-       P["profile.yml<br/><i>the floor every tier inherits:</i><br/>setup_patch denied · Config panel off · gallery read-only"]
-       R["personas/readonly.yml<br/>writes_enabled: false"]
-       W["personas/readwrite.yml<br/>writes_enabled: true"]
-       A["personas/admin.yml<br/>writes_enabled: true<br/>+ lifts the floor"]
-       B{{"osprey build"}}
-       R2["build/…-readonly<br/>bob's container"]
-       W2["build/…-readwrite<br/>alice's container"]
-       A2["build/…-admin<br/>carol's container"]
-       P --> B
-       R --> B
-       W --> B
-       A --> B
-       B --> R2
-       B --> W2
-       B --> A2
+.. raw:: html
+   :file: ../../_diagrams/tier-render.html
 
 Each file under ``personas/`` holds only that persona's **differences** from
 ``profile.yml``. The base profile carries the floor — the three
@@ -248,17 +232,8 @@ The persona file is the *input*. What a session actually meets when it tries
 to do more than its tier allows is three layers, and the one that ultimately
 holds is file ownership, not a permission list.
 
-.. mermaid::
-
-   flowchart LR
-       T["the agent<br/>tries a write"]
-       L1["<b>1 · rendered permissions</b><br/><i>settings.json, written at build</i>"]
-       L2["<b>2 · the gates</b><br/><i>setup_patch · Config panel<br/>· gallery · Python executor</i>"]
-       L3["<b>3 · file ownership</b><br/><i>build/ belongs to root</i>"]
-       X["the control system,<br/>or the disk"]
-       PS["<b>the protected set</b><br/><i>every tier, admin included</i>"]
-       T --> L1 --> L2 --> L3 --> X
-       PS -.- L2
+.. raw:: html
+   :file: ../../_diagrams/tier-layers.html
 
 **Layer 1** is what makes the readonly tier certain. ``writes_enabled: false``
 does not merely tell the agent not to write; it renders the control-system

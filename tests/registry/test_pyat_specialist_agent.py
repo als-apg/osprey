@@ -186,14 +186,33 @@ class TestPyatSpecialistAgentTemplate:
         assert "name: pyat-specialist" in rendered
 
     def test_frontmatter_tools_exact(self, template_manager):
-        """The tools: line pins exactly the five allowed tools, in order."""
+        """The tools: line pins exactly the four allowed tools, in order."""
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         expected = (
             "tools: mcp__python__execute, mcp__osprey_workspace__submit_response, "
-            "mcp__osprey_workspace__artifact_list, mcp__osprey_workspace__artifact_read, Read"
+            "mcp__osprey_workspace__artifact_read, Read"
         )
         assert expected in rendered
+
+    def test_frontmatter_declares_results_category(self, template_manager):
+        """The agent owes its computed quantities to lattice_analysis — declared
+        where submit_response reads it (results_category_for)."""
+        from osprey.mcp_server.agent_frontmatter import results_category_for
+
+        ctx = self._full_ctx(enabled=True)
+        rendered = self._render(template_manager, ctx)
+        assert "results_category: lattice_analysis" in rendered
+
+        # And the rendered file is what the runtime reader actually resolves.
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            agents = Path(tmp) / ".claude" / "agents"
+            agents.mkdir(parents=True)
+            (agents / "pyat-specialist.md").write_text(rendered, encoding="utf-8")
+            assert results_category_for("pyat-specialist", tmp) == "lattice_analysis"
 
     def test_frontmatter_disallowed_tools_exact(self, template_manager):
         """The disallowedTools: line pins exactly the eleven blocked tools, in order."""
@@ -263,33 +282,27 @@ class TestPyatSpecialistAgentTemplate:
         rendered = self._render(template_manager, ctx)
         assert "Flag heavy runs before launching them" in rendered
 
-    def test_body_native_type_conversion_instruction(self, template_manager):
-        """Native-type coercion before save (json.dumps default=str lossily stringifies)."""
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        normalized = " ".join(rendered.split())
-        assert "convert every computed quantity to a NATIVE Python type" in normalized
-        assert "lossily stringifies" in rendered
+    def test_body_hands_in_data_with_the_response(self, template_manager):
+        """The numbers travel in submit_response(data=...) — one call, prose + data.
 
-    def test_body_requires_results_json_before_submit_response(self, template_manager):
-        """Successful compute must save a distinct lattice-analysis JSON before handoff."""
+        The agent is told the hand-in is refused without data, and that large
+        arrays go through save_artifact in the computing call instead of being
+        retyped — the one case the single-call contract deliberately leaves open.
+        """
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         normalized = " ".join(rendered.split())
 
-        assert (
-            'save_artifact( result, title="AR Optics Result", description='
-            '"Computed from the simulated ALS-U AR design lattice.", '
-            'artifact_type="json", category="lattice_analysis", )'
-        ) in normalized
-        assert "A successful computation is not complete until this artifact exists" in normalized
-        assert (
-            "The automatic notebook, the automatic `code_output` JSON, and the Markdown "
-            "from `submit_response` do **not** satisfy this requirement"
-        ) in normalized
-        assert '`artifact_list(category="lattice_analysis", last_n=1)`' in rendered
-        assert "Do **not** call `submit_response` until" in normalized
-        assert rendered.index('artifact_type="json"') < rendered.index("**Call `submit_response`**")
+        assert 'source_agent="pyat-specialist"' in rendered
+        assert "data={" in rendered
+        assert "every quantity your prose reports" in normalized
+        assert "A `submit_response` without `data` is refused" in normalized
+        assert "Hand in every computed quantity in `submit_response(data=...)`" in normalized
+        # The large-array escape hatch names the injected helper and the category.
+        assert 'category="lattice_analysis"' in rendered
+        assert "np.asarray(x).tolist()" in rendered
+        # The old self-verification step is gone — the tool does it now.
+        assert "artifact_list" not in rendered
 
 
 # ---------------------------------------------------------------------------

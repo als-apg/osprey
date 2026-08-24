@@ -280,17 +280,28 @@ async def _capability_dict() -> dict[str, Any]:
     in ``detail`` so the operator sees the real cause rather than a shrug, and
     the route still answers 200 — the container healthcheck must not go red
     over a capability probe.
+
+    The hand-built record below is the ONE capability object on the wire that
+    does not come out of ``Capability.to_dict``, so it has to carry the same
+    keys — a consumer that parses the fallback differently from every other
+    record is a consumer that breaks exactly when the bridge is already in
+    trouble. The lane identity in particular is still perfectly knowable here:
+    it comes from render-time facts (`resolve_lane_identity`, which never
+    raises), not from the probe that just failed.
     """
-    from .queue_backend import REASON_MANAGER_UNREACHABLE
+    from .queue_backend import REASON_MANAGER_UNREACHABLE, resolve_lane_identity
 
     try:
         return (await get_queue_backend().capability()).to_dict()
     except Exception as exc:
         logger.warning("capability probe failed; reporting cannot-execute: %s", exc)
+        lane, lane_target = resolve_lane_identity()
         return {
             "can_execute": False,
             "reason": REASON_MANAGER_UNREACHABLE,
             "detail": f"The bridge could not determine whether plans can execute: {exc}",
+            "lane": lane,
+            "lane_target": lane_target,
         }
 
 
@@ -302,12 +313,17 @@ async def health() -> dict:
     route of its own, so no consumer has to learn a second endpoint to find out
     what the bridge in front of it can do:
 
-    ``{"status": "ok", "capability": {"can_execute", "reason", "detail"}}``
+    ``{"status": "ok", "capability": {"can_execute", "reason", "detail",
+    "lane", "lane_target"}}``
 
     ``can_execute`` is the answer; ``reason`` is one of the machine-readable
     ``REASON_*`` codes in `queue_backend.py`, which panels and MCP tools branch
     on; ``detail`` is the operator-facing sentence, and for a browse-only mock
-    deployment it names the exact command that flips it. ``status: "ok"`` means
+    deployment it names the exact command that flips it. ``lane`` and
+    ``lane_target`` say which plan lane answered and which control target it
+    serves — render-time facts, identical before and after a session switch,
+    which the host is what composes against the session's own target.
+    ``status: "ok"`` means
     only that this process is up — it is deliberately independent of
     ``can_execute``, because a browse-only deployment is a healthy deployment.
     """

@@ -109,6 +109,16 @@ switcher — it's discovered from the token tree.
 Theme switching is entirely client-side (`theme-manager.js`): no server round
 trip, no page reload.
 
+Chart colors cross into JS only through `theme-manager.js`'s computed-style
+bridges: `chartTheme()`/`chartSeries()` build a Plotly layout fragment and
+categorical palette from the `--chart-*` tokens, and `chartRelayout(gd)`
+builds the flat relayout update that re-themes an already-plotted figure in
+place — including 3D scenes (box, axis panes via `--chart-pane-bg`, grids,
+spikes) and only for the subplots the figure actually has. The artifact
+gallery's served Plotly pages and its timeseries charts both apply exactly
+this, so a plot re-themes identically whether it was just rendered or is
+being flipped live, and no page carries a palette of its own.
+
 ## 5. Hygiene rules
 
 Enforced by `tests/interfaces/design_system/test_hygiene.py`, which scans

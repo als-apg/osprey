@@ -73,13 +73,21 @@ _ENUMERATION_TIMEOUT_SECONDS = 20.0
 
 # Reports top-level *import* names rather than distribution names: the agent
 # writes `import at`, not `import accelerator_toolbox`.  Non-identifiers and
-# private names are dropped — compiled shims such as `<hash>__mypyc` are listed
-# as top-level modules but cannot be imported by name.
+# private names are dropped, and so are the compiled `<hash>__mypyc` shims that
+# mypyc-built distributions install alongside their real package.  Those shims
+# ARE importable by name — `import ada92cb5d92a588d1b93__mypyc` resolves to the
+# `.so` — which is exactly why the `__mypyc` suffix has to be matched here: a
+# hash that happens to start with a letter passes `isidentifier()`, and only a
+# digit-leading one falls out by accident.  They are build artifacts of another
+# distribution, so naming them in a list whose whole purpose is to tell the
+# agent what it can usefully import is noise.
 _ENUMERATION_SNIPPET = (
     "import json, sys\n"
     "from importlib.metadata import packages_distributions\n"
     "names = sorted(\n"
-    "    n for n in packages_distributions() if n.isidentifier() and not n.startswith('_')\n"
+    "    n\n"
+    "    for n in packages_distributions()\n"
+    "    if n.isidentifier() and not n.startswith('_') and not n.endswith('__mypyc')\n"
     ")\n"
     "json.dump(names, sys.stdout)\n"
 )

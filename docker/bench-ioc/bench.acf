@@ -1,0 +1,31 @@
+# Access security for the bench IOC.
+#
+# Unconditional by design: no UAG (user access group), no HAG (host access
+# group), no calc conditions. Access security that depends on who is asking or
+# where they are asking from would make the outcome of a test depend on the
+# username and hostname of whatever machine ran it, which is exactly the kind of
+# result that passes on a laptop and fails in CI. Everything below applies to
+# every client equally.
+#
+# Rule levels: fields carry access level ASL0 or ASL1; VAL is ASL0. A rule
+# covers fields at or below its level, so RULE(1, ...) covers every field, while
+# a level-0 rule would cover only the ASL0 (VAL-like) fields.
+
+# The group every record belongs to unless it names another. Fully open, which
+# is what makes the one exception below mean something: a denied write here is
+# a property of that channel, not of the IOC.
+ASG(DEFAULT) {
+    RULE(1, READ)
+    RULE(1, WRITE)
+}
+
+# Readable, never writable. There is no WRITE rule at all -- the absence is the
+# mechanism, since an omitted rule denies. A caput to a record in this group
+# gets a CA "Write access denied" error raised by the server itself, before any
+# record processing happens, which is the refusal an upstream client must be
+# able to distinguish from a value that was accepted and then failed to take
+# effect. Reads must keep working; a channel that vanished would be a different
+# failure entirely and would prove nothing about write refusal.
+ASG(protected) {
+    RULE(1, READ)
+}

@@ -1,3 +1,46 @@
+# Builds the documentation and publishes it to the gh-pages branch.
+#
+# Site layout:
+#   /            written ONLY by the newest release tag, so the site root always
+#                shows the newest release — never a development build.
+#   /vX.Y.Z/     one directory per vX.Y.Z release tag, rewritten only when that
+#                tag is re-published. Pre-release and component tags
+#                (v1.0.0rc1, osprey-connectors-v*) build but are not published.
+#   /latest/     the development build from main, which renders a banner saying
+#                so and points readers at the released docs.
+#
+# After this workflow first lands: the root keeps whatever the previous workflow
+# last wrote until a release tag is published, because only a release tag build
+# rewrites it. To get the root onto the new layout without waiting for the next
+# release, publish the newest release once by hand:
+#
+#     gh workflow run docs.yml -f tag=vX.Y.Z
+#
+# All of the decision logic (which version, which directory, whether to deploy
+# at all) lives in scripts/ci/docs_publish.py; this workflow only wires it up.
+# The helper is fetched by a second, sparse checkout into .docs-ci/ from the
+# default branch, because a tag build — or a workflow_dispatch for an older
+# tag — checks out a tree that predates the helper and would not contain it.
+#
+# That default-branch copy is preferred wherever it exists, so a fix to the
+# helper reaches even a rebuild of an old tag. It can be missing exactly once:
+# on the pull request that first adds the helper, where the default branch does
+# not carry it yet and no build could ever find it there. The resolve step below
+# falls back to the build's own tree for that case, which is what lets the
+# helper bootstrap itself onto the default branch. Once it has landed, the
+# fallback arm never fires again.
+#
+# Serialisation: every deploying run shares the concurrency group `docs-deploy`,
+# so two deploys can never interleave and race each other's gh-pages commits.
+# Pull-request builds get a group of their own per run, so they are never queued
+# behind a deploy. Note what this does and does not give you: `cancel-in-progress`
+# is false, so a run that has already started always finishes — but GitHub keeps
+# at most ONE pending run per group, so a run still waiting in the queue when a
+# newer one arrives is superseded and never executes at all. A tag deploy lost
+# that way has to be re-dispatched by hand:
+#
+#     gh workflow run docs.yml -f tag=vX.Y.Z
+
 name: Build and Deploy Documentation
 
 on:
@@ -10,22 +53,28 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Version tag to build docs for (e.g., v2026.5.0). Leave empty for main branch build.'
+        description: 'Version tag to build docs for (e.g., vYYYY.M.P). Leave empty for main branch build.'
         required: false
         type: string
 
 permissions:
   contents: write   # Required to push to gh-pages branch
 
-# Allow only one concurrent deployment, canceling older runs to prevent version race conditions.
-# When both main push and tag push trigger simultaneously, the tag build (with correct version) should win.
 concurrency:
-  group: "pages"
+  group: "docs-${{ github.event_name == 'pull_request' && github.run_id || 'deploy' }}"
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # The three docs_publish.py invocations must all describe the same build.
+    # Hoisting their inputs here makes the three command lines textually
+    # identical, so no single step can drift away from the others.
+    env:
+      DOCS_REF: ${{ github.ref }}
+      DOCS_EVENT: ${{ github.event_name }}
+      DOCS_INPUT_TAG: ${{ github.event.inputs.tag || '' }}
 
     steps:
     - name: Checkout repository
@@ -34,56 +83,45 @@ jobs:
         fetch-depth: 0  # Fetch full history including all tags
         ref: ${{ github.event.inputs.tag || github.ref }}
 
-    - name: Determine version and deployment path
-      id: version
-      env:
-        INPUT_TAG: ${{ github.event.inputs.tag || '' }}
+    # Second, sparse checkout of the default branch: the tree checked out above
+    # may be an old tag that predates the publishing helper, so the helper is
+    # taken from the default branch in preference to the build's own tree.
+    - name: Checkout publishing helper
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.repository.default_branch }}
+        path: .docs-ci
+        sparse-checkout: scripts/ci
+        sparse-checkout-cone-mode: true
+
+    # Prefer the default-branch copy, so a fix to the helper applies to every
+    # build including a rebuild of an old tag. Fall back to the build's own tree
+    # only when that copy does not exist, which happens on exactly one build in
+    # the repository's history: the pull request that adds the helper, before
+    # any default branch carries it. Resolved once here rather than inline at
+    # the three call sites below, so they cannot disagree about which copy ran.
+    - name: Resolve publishing helper
+      id: helper
       run: |
-        if [[ -n "$INPUT_TAG" ]]; then
-          # Manual trigger with specific tag — build docs for that version
-          VERSION="${INPUT_TAG#v}"
-          DEPLOY_DIR="v${VERSION}"
-          NEWEST_TAG=$(git tag --sort=-version:refname | head -n1 | sed 's/^v//')
-          if [[ "$VERSION" == "$NEWEST_TAG" ]]; then
-            IS_LATEST="true"
-          else
-            IS_LATEST="false"
-          fi
-          echo "Building docs for tag: ${INPUT_TAG} (latest=${IS_LATEST})"
-        elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-          # Building a specific version tag
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          DEPLOY_DIR="v${VERSION}"
-          # Only update root if this is the newest version tag
-          NEWEST_TAG=$(git tag --sort=-version:refname | head -n1 | sed 's/^v//')
-          if [[ "$VERSION" == "$NEWEST_TAG" ]]; then
-            IS_LATEST="true"
-          else
-            IS_LATEST="false"
-          fi
-          echo "Building version: ${VERSION} (latest=${IS_LATEST})"
-        elif [[ "$GITHUB_REF" == "refs/heads/main" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-          # Building from main branch - use latest tag or dev
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "dev")
-          VERSION="${LATEST_TAG}"
-          DEPLOY_DIR="latest"
-          IS_LATEST="true"
-          echo "Building latest from main: ${VERSION}"
+        if [ -f .docs-ci/scripts/ci/docs_publish.py ]; then
+          echo "path=.docs-ci/scripts/ci/docs_publish.py" >> "$GITHUB_OUTPUT"
         else
-          # Pull request - just build, don't deploy
-          VERSION="dev"
-          DEPLOY_DIR="pr-${GITHUB_EVENT_NUMBER:-preview}"
-          IS_LATEST="false"
-          echo "Building PR preview"
+          echo "::notice::.docs-ci copy absent; using the in-tree helper (expected only on the pull request that adds it)."
+          echo "path=scripts/ci/docs_publish.py" >> "$GITHUB_OUTPUT"
         fi
 
-        echo "version=${VERSION}" >> $GITHUB_OUTPUT
-        echo "deploy_dir=${DEPLOY_DIR}" >> $GITHUB_OUTPUT
-        echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
-
-        echo "🔍 Version: ${VERSION}"
-        echo "🔍 Deploy Directory: ${DEPLOY_DIR}"
-        echo "🔍 Is Latest: ${IS_LATEST}"
+    # Runs before uv is installed: the helper is stdlib-only by design, so the
+    # deploy decision is available even if the docs build never happens.
+    # The helper reads `git tag` from its working directory — the build checkout
+    # above, not .docs-ci — which is why that checkout keeps `fetch-depth: 0` and
+    # why this step (and the two below) never set `working-directory`.
+    - name: Plan the deploy
+      id: plan
+      run: |
+        python3 "${{ steps.helper.outputs.path }}" plan \
+          --ref "$DOCS_REF" \
+          --event "$DOCS_EVENT" \
+          --input-tag "$DOCS_INPUT_TAG" >> "$GITHUB_OUTPUT"
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -101,122 +139,57 @@ jobs:
         cd docs
         uv run make html
 
-    - name: Download existing GitHub Pages (if exists)
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-      continue-on-error: true
+    # Fail-closed: a missing gh-pages branch is the first deployment, but any
+    # other failure (network, auth) must stop the run rather than be mistaken
+    # for one — publishing an "empty site" would delete every existing version.
+    - name: Fetch published site
+      id: pages
+      if: steps.plan.outputs.deploy == 'true'
       run: |
-        mkdir -p gh-pages-existing
-        cd gh-pages-existing
-        git clone --branch gh-pages --depth 1 \
-          https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git . || true
-        if [ -d ".git" ]; then
-          echo "Found existing GitHub Pages content"
-          rm -rf .git
-        else
-          echo "No existing GitHub Pages content (first deployment)"
-        fi
+        URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+        set +e
+        git ls-remote --exit-code --heads "$URL" gh-pages >/dev/null
+        rc=$?
+        set -e
+        case "$rc" in
+          0)
+            git clone --branch gh-pages --depth 1 "$URL" gh-pages-existing
+            rm -rf gh-pages-existing/.git
+            echo "first_deploy=false" >> "$GITHUB_OUTPUT"
+            ;;
+          2)
+            echo "No gh-pages branch yet — treating this as the first deployment."
+            echo "first_deploy=true" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "::error::git ls-remote failed with exit code ${rc}; refusing to guess whether the site exists."
+            exit "$rc"
+            ;;
+        esac
 
-    - name: Prepare multi-version deployment
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    - name: Stage deployment tree
+      if: steps.plan.outputs.deploy == 'true'
       run: |
-        # Create deployment directory structure
-        mkdir -p deployment
+        python3 "${{ steps.helper.outputs.path }}" stage \
+          --ref "$DOCS_REF" \
+          --event "$DOCS_EVENT" \
+          --input-tag "$DOCS_INPUT_TAG" \
+          --build docs/build/html \
+          --existing gh-pages-existing \
+          --deployment deployment ${{ steps.pages.outputs.first_deploy == 'true' && '--allow-empty-site' || '' }}
 
-        # Copy existing versions if they exist
-        if [ -d "gh-pages-existing" ] && [ "$(ls -A gh-pages-existing 2>/dev/null)" ]; then
-          echo "📋 Copying existing versions..."
-          cp -r gh-pages-existing/* deployment/ || true
-        fi
-
-        # Copy new build to appropriate directory
-        DEPLOY_DIR="${{ steps.version.outputs.deploy_dir }}"
-        echo "📦 Deploying to: ${DEPLOY_DIR}"
-
-        # Remove old version of this directory if it exists
-        rm -rf "deployment/${DEPLOY_DIR}"
-
-        # Copy new build
-        cp -r docs/build/html "deployment/${DEPLOY_DIR}"
-
-        # If this is latest or a version tag, also update root
-        if [[ "${{ steps.version.outputs.is_latest }}" == "true" ]]; then
-          echo "🔄 Updating root redirect to ${DEPLOY_DIR}"
-          # Copy to root as well
-          cp -r docs/build/html/* deployment/ || true
-        fi
-
-    - name: Generate versions.json
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Must follow the stage step: a release build's root refresh clears the root
+    # `_static/` before copying the build in, which would delete a versions.json
+    # written ahead of it. Reads the repository's tags from the build checkout's
+    # cwd, as noted at the plan step, so it sets no `working-directory` either.
+    - name: Write version switcher index
+      if: steps.plan.outputs.deploy == 'true'
       run: |
-        cat > generate_versions.py << 'EOFPYTHON'
-        import json
-        import os
-        import subprocess
-        from pathlib import Path
-
-        # Get all version tags (sorted newest-first by version)
-        result = subprocess.run(
-            ['git', 'tag', '--sort=-version:refname'],
-            capture_output=True,
-            text=True
-        )
-        tags = [tag.strip() for tag in result.stdout.split('\n') if tag.strip().startswith('v')]
-
-        versions = []
-        deployment_dir = Path('deployment')
-
-        # 1. Latest stable version -> root URL (preferred)
-        if tags:
-            latest_version = tags[0].lstrip('v')
-            versions.append({
-                "name": f"v{latest_version} (stable)",
-                "version": latest_version,
-                "url": "https://als-apg.github.io/osprey/",
-                "preferred": True
-            })
-
-        # 2. All deployed versioned snapshots (skip latest — already listed as root)
-        for tag in tags:
-            version_dir = deployment_dir / tag  # e.g., deployment/v2026.5.0
-            if version_dir.is_dir():
-                if tags and tag == tags[0]:
-                    continue  # Latest is already the root entry
-                version_num = tag.lstrip('v')
-                versions.append({
-                    "name": tag,
-                    "version": version_num,
-                    "url": f"https://als-apg.github.io/osprey/{tag}/"
-                })
-
-        # 3. Development version (only on main branch pushes)
-        github_ref = os.environ.get('GITHUB_REF', '')
-        if github_ref == 'refs/heads/main':
-            versions.append({
-                "name": "latest (development)",
-                "version": "dev",
-                "url": "https://als-apg.github.io/osprey/latest/"
-            })
-
-        # Write versions.json to root _static/
-        output_dir = Path('deployment/_static')
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        with open(output_dir / 'versions.json', 'w') as f:
-            json.dump(versions, f, indent=2)
-
-        print("Generated versions.json:")
-        print(json.dumps(versions, indent=2))
-        EOFPYTHON
-
-        uv run python generate_versions.py
-
-    - name: Prepare deployment metadata
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-      run: |
-        touch deployment/.nojekyll
+        python3 "${{ steps.helper.outputs.path }}" versions \
+          --deployment deployment
 
     - name: Deploy to GitHub Pages
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      if: steps.plan.outputs.deploy == 'true'
       uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}

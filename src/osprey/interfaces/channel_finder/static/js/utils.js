@@ -33,7 +33,7 @@ export function messageOf(e) {
 /**
  * Render a pipeline schema diagram into a container element.
  * @param {HTMLElement} container - Target element.
- * @param {string|null|undefined} pipelineType - 'hierarchical' | 'middle_layer' | 'in_context'.
+ * @param {string|null|undefined} pipelineType - 'hierarchical' | 'middle_layer' | 'in_context' | 'graph'.
  * @param {any} metadata - Pipeline metadata (e.g., hierarchy_levels).
  */
 export function renderSchema(container, pipelineType, metadata) {
@@ -62,6 +62,11 @@ export function renderSchema(container, pipelineType, metadata) {
         <span class="schema-node">Channel PV</span>
       </div>
     `;
+  } else if (pipelineType === 'graph') {
+    // The graph paradigm has no fixed schema to draw: its shape lives in the
+    // store's ontology, and Explore mounts a static pane for it rather than a
+    // level chain. Draw nothing, and clear anything a previous mode left here.
+    container.innerHTML = '';
   } else {
     container.innerHTML = `
       <div class="schema-row">

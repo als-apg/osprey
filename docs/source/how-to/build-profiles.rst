@@ -29,12 +29,8 @@ and safe to delete and rebuild at any time.
 Preset → Profile → Build
 ========================
 
-.. mermaid::
-
-   flowchart LR
-      P["Preset<br/>(bundled with OSPREY)"] -- osprey init --> F["profile.yml<br/>(yours)"]
-      F -- osprey build --> J["build/<br/>(derived)"]
-      J -- osprey up --> R["Running containers"]
+.. raw:: html
+   :file: ../_diagrams/build-profiles.html
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
   (``src/osprey/profiles/presets/``). Examples: ``hello-world``,
@@ -743,7 +739,7 @@ Profile YAML reference
      - string
      - ``control_assistant``
      - App template (data bundle) to render. Valid: ``control_assistant``,
-       ``hello_world``, ``ariel_standalone``.
+       ``hello_world``, ``ariel_standalone``, ``channel_finder_standalone``.
    * - ``data``
      - string
      - ``None``
@@ -766,12 +762,15 @@ Profile YAML reference
      - string
      - ``None``
      - Channel finder pipeline (``hierarchical``, ``middle_layer``,
-       ``in_context``).
+       ``in_context``, ``graph``). ``graph`` searches the deployment's graph
+       store instead of a channel database, so it needs a ``services.graphdb``
+       block (see :ref:`profile-graph-mode`).
    * - ``tier``
      - int
      - derived
      - Channel-database tier (1 or 3). Defaults from the channel finder mode;
-       tier 1 is ``in_context``-only.
+       tier 1 is ``in_context``-only. ``graph`` has no tiered artifacts at all —
+       leave ``tier`` unset there.
    * - ``connector``
      - string
      - *from preset*
@@ -1130,6 +1129,61 @@ declares ``network: host`` whose render does not carry it. See
 :ref:`deployment-network-attachment` for what host mode changes and for
 ``dispatch.network``, the single knob that covers the event dispatcher and its
 workers.
+
+.. _profile-graph-mode:
+
+Graph-mode channel finding
+==========================
+
+``channel_finder_mode: graph`` points the channel finder at the deployment's
+graph store: the agent searches the facility knowledge graph for channels
+instead of reading a channel database. The store *is* the database, so the
+profile ships no channel-database inputs and pins no ``tier`` — what it does
+need is a ``services.graphdb`` block, and the paradigm works with either shape
+that block comes in.
+
+A deployment that runs its own store already has one. The ``control_assistant``
+app template renders ``graphdb`` into ``services`` and ``deployed_services``,
+and ``osprey up`` starts, bootstraps and seeds it — see :doc:`deploy-project/index`:
+
+.. code-block:: yaml
+
+   name: control-room
+   app_template: control_assistant
+   provider: anthropic
+   channel_finder_mode: graph     # no `tier` — graph has no tiered artifacts
+
+To search a store the facility already runs, name it instead of deploying one.
+That takes three things: an explicit ``uri`` on the block, the store's password
+in the project ``.env`` as ``GRAPHDB_PASSWORD`` (nothing is minted for a store
+this deployment does not own), and ``graphdb`` off the ``deployed_services``
+list — otherwise the build still stands up a local Neo4j nobody queries.
+``deployed_services`` is a list, so the override replaces it whole; write out
+the services you *do* want rather than the one you are removing.
+
+.. code-block:: yaml
+
+   channel_finder_mode: graph
+   config:
+     services.graphdb.uri: bolt://graph.facility.org:7687
+     services.graphdb.username: neo4j    # default `neo4j`
+     # Whole-list replacement: the template's default is
+     # [postgresql, openobserve, qmd, graphdb].
+     deployed_services: [postgresql, openobserve, qmd]
+
+An external store has to already hold a corpus for the mode to answer anything:
+generate one with ``osprey knowledge build-ttl`` and load it with ``osprey
+knowledge seed-graph`` (see :doc:`use-facility-graph`). A store this deployment
+runs gets that during ``osprey up``; a store it only connects to does not.
+
+A profile whose app template carries no ``services.graphdb`` block at all — the
+channel-finder app template carries none — is refused at build time, naming the
+missing block, rather than rendering a channel finder with nothing to read. An
+attached project (``deploy_services: false``) is refused the same way unless it
+names an external store, because it renders ``services: {}`` whatever its app
+template says. For what the mode changes about the agent's answers, see
+:doc:`use-channel-finder`; for the corpus behind them,
+:doc:`use-facility-graph`.
 
 .. _profile-va-archiver:
 
@@ -1608,5 +1662,5 @@ relax the constraint in the profile.
    :doc:`add-mcp-server`
        How to build custom MCP servers for OSPREY
 
-   :doc:`deploy-project`
+   :doc:`deploy-project/index`
        Container deployment after building

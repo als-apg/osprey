@@ -280,8 +280,10 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     "channel_finder_mode": """
 # --- Channel-finder paradigm -------------------------------------------------
 # How the agent looks up channels: in_context (whole DB in the prompt),
-# hierarchical (system/device drill-down), or middle_layer. Drives which
-# channel database the build materializes.
+# hierarchical (system/device drill-down), middle_layer, or graph (read-only
+# Cypher over the facility knowledge graph). The first three pick which channel
+# database the build writes; graph reads the store named by services.graphdb
+# and writes no database.
 #
 # channel_finder_mode: hierarchical
 """,
@@ -623,16 +625,16 @@ def _merge_subtree(into: dict[str, Any], value: Mapping[str, Any]) -> None:
             into[key] = copy.deepcopy(item)
 
 
-def effective_web_terminals(config: Mapping[str, Any]) -> dict[str, Any]:
-    """The single ``modules.web_terminals`` subtree a ``config:`` block sets.
+def effective_config_subtree(
+    config: Mapping[str, Any], subtree_path: tuple[str, ...]
+) -> dict[str, Any]:
+    """The single subtree a ``config:`` block sets at ``subtree_path``.
 
     ORDER IS THE WHOLE POINT, and it is fixed here so no caller can get it
     wrong. A ``config:`` block is a flat bag of dotted keys applied verbatim in
-    iteration order, and the bundled persona presets inherit their parent's
-    whole ``modules.web_terminals:`` subtree (``enabled: true``, catalog and
-    all) while switching the module off with a separate
-    ``modules.web_terminals.enabled: false``. Reading either key alone answers
-    "enabled". So:
+    iteration order, and two keys may address the same path at different
+    depths — a whole subtree beside a single leaf under it — where reading
+    either key alone answers wrong. So:
 
     1. :func:`_collapse_config_prefixes` runs FIRST, folding every
        prefix-related pair deeper-key-wins;
@@ -645,15 +647,15 @@ def effective_web_terminals(config: Mapping[str, Any]) -> dict[str, Any]:
     """
     collapsed = _collapse_config_prefixes(dict(config))
     segments = _config_segments(collapsed)
-    depth = len(_WEB_TERMINALS_PATH)
+    depth = len(subtree_path)
     subtree: dict[str, Any] = {}
     for key in sorted(segments, key=lambda k: len(segments[k])):
         path = segments[key]
         value = collapsed[key]
-        if path == _WEB_TERMINALS_PATH:
+        if path == subtree_path:
             if isinstance(value, Mapping):
                 _merge_subtree(subtree, value)
-        elif path[:depth] == _WEB_TERMINALS_PATH:
+        elif path[:depth] == subtree_path:
             # A key addressing INSIDE the subtree, e.g.
             # `modules.web_terminals.personas.ops.build_profile`.
             node = subtree
@@ -664,18 +666,30 @@ def effective_web_terminals(config: Mapping[str, Any]) -> dict[str, Any]:
                     node[part] = child
                 node = child
             node[path[-1]] = copy.deepcopy(value)
-        elif _WEB_TERMINALS_PATH[: len(path)] == path:
+        elif subtree_path[: len(path)] == path:
             # An ancestor key (`modules:`) carrying the subtree nested inside
             # its own value. Bundled presets never spell it this way — they
             # warn against it, since a nested `modules:` wholesale-replaces the
             # rendered subtree — but a facility's own profile may, and a
-            # predicate that missed it would silently emit no personas.
+            # predicate that missed it would silently read no subtree.
             probe: Any = value
-            for part in _WEB_TERMINALS_PATH[len(path) :]:
+            for part in subtree_path[len(path) :]:
                 probe = probe.get(part) if isinstance(probe, Mapping) else None
             if isinstance(probe, Mapping):
                 _merge_subtree(subtree, probe)
     return subtree
+
+
+def effective_web_terminals(config: Mapping[str, Any]) -> dict[str, Any]:
+    """The single ``modules.web_terminals`` subtree a ``config:`` block sets.
+
+    The bundled persona presets inherit their parent's whole
+    ``modules.web_terminals:`` subtree (``enabled: true``, catalog and all)
+    while switching the module off with a separate
+    ``modules.web_terminals.enabled: false`` — the pair whose folding order
+    :func:`effective_config_subtree` exists to fix.
+    """
+    return effective_config_subtree(config, _WEB_TERMINALS_PATH)
 
 
 def emits_persona_profiles(config: Mapping[str, Any]) -> bool:

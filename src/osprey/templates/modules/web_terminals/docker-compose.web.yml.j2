@@ -730,6 +730,30 @@ services:
          same fail-closed outcome as never emitting this line at all. #}
       - BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}
 {%- endif %}
+{%- if svc.wants_graphdb %}
+      {#- The graph store's Neo4j password, for a persona that configures one.
+         The consumer is the `graph` MCP server in this container, which resolves
+         what to dial and with which password through
+         deployment.graphdb_service.resolve_graphdb_connection — from
+         `services.graphdb` plus this variable. Without it the server
+         authenticates with the shipped default while the store holds the
+         password `osprey up` minted, and every graph query fails on auth.
+
+         Per-user for the same reason as the credentials above: a shared
+         `.env.users` cannot say "the personas that configure a graph store".
+         Read-only personas ARE among them, unlike the launch token: Neo4j has a
+         single write-capable account, so read-only-ness is enforced by the
+         graph server's read transactions rather than by withholding this.
+
+         `:-ospreygraph` mirrors the graphdb service template's own
+         `NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-ospreygraph}"`, so a deployment
+         that minted no password behaves identically inside this container and
+         outside it. An empty value would NOT — `resolve_graphdb_connection`
+         reads the variable with a `.get` default, which falls back only on an
+         UNSET variable and would otherwise authenticate with the empty
+         string. #}
+      - GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}
+{%- endif %}
 {%- if svc.archiver_password_env %}
       {#- The archiver store's password, for a persona whose archiver connector
          authenticates with one. The consumer is the connector inside this
@@ -740,7 +764,7 @@ services:
          control-assistant preset spells it MONGO_ROOT_PASSWORD (minted by
          `osprey up`), a facility-run store may spell it anything.
 
-         Per-user for the same reason as the three credentials above: a
+         Per-user for the same reason as the four credentials above: a
          shared `.env.users` cannot say "the personas whose archiver reads
          this", and it excludes service tokens by design.
 

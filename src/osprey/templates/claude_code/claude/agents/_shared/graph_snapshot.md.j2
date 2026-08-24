@@ -1,0 +1,20 @@
+{#- The seed-time schema snapshot, shared by every agent that queries the
+    knowledge graph (facility-knowledge-graph, and the channel finder in its
+    graph paradigm). The managed region between the markers is REWRITTEN IN
+    THE RENDER by whichever verb seeds or re-verifies the store (`osprey up`'s
+    staging step, or `osprey knowledge seed-graph`): prompt_snapshot
+    .bake_snapshot() replaces marker-to-marker with the schema and the
+    including agent's own curated examples, captured from the live store and
+    stamped with the seed marker's checksum. The placeholder is what an
+    unseeded render ships. Keep the marker comments byte-identical to
+    prompt_snapshot.SNAPSHOT_BEGIN/END — a consistency test pins them. -#}
+## The Graph at Hand
+
+<!-- osprey:graph-snapshot begin -->
+
+No snapshot has been captured yet. The store is seeded at deploy time, and
+whichever verb touches it (`osprey up`, `osprey knowledge seed-graph`) fills
+this section in from the live store. Until then, start with
+`example_queries()` and `get_schema()` before writing any Cypher.
+
+<!-- osprey:graph-snapshot end -->

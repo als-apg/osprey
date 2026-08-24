@@ -48,15 +48,22 @@ repos:
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
-      # Check for merge conflict markers
+      # Check for merge conflict markers. reStructuredText is exempt: the hook
+      # treats a line of exactly seven '=' as a conflict marker, which is also
+      # how RST underlines a seven-character heading ("Secrets", "Roadmap"), so
+      # every merge touching those pages fails on prose that is perfectly fine.
       - id: check-merge-conflict
+        exclude: \.rst$
       # Check YAML syntax
       - id: check-yaml
       # Check TOML syntax
       - id: check-toml
-      # Prevent large files from being committed
+      # Prevent large files from being committed. The floor is set by the
+      # generated demo-machine graph corpus
+      # (templates/apps/control_assistant/data/demo_machine.ttl, ~1.5 MB);
+      # raise the number rather than excluding a path, so the guard stays armed.
       - id: check-added-large-files
-        args: ['--maxkb=1000']
+        args: ['--maxkb=2000']
       # Check for files that would conflict on case-insensitive filesystems
       - id: check-case-conflict
       # Detect private keys

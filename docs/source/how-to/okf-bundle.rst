@@ -220,8 +220,9 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides three operations for
-      managing an OKF bundle from the terminal.
+      The ``osprey knowledge`` command group provides five operations from the
+      terminal — three that manage an OKF bundle, one that loads the deployed
+      graph store, and one that generates the corpus it loads.
 
       .. code-block:: console
 
@@ -231,9 +232,11 @@ Working with a Bundle
            Manage OKF facility knowledge bundles.
 
          Commands:
+           build-ttl      Derive a NARAD-convention TTL corpus from the channel...
            regen-index    Regenerate index.md files throughout an OKF bundle.
-           validate       Validate all OKF documents in a bundle.
            seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.
+           seed-graph     Load a NARAD/als-ontology TTL into the deployed graph...
+           validate       Validate all OKF documents in a bundle.
 
       **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
       this after adding or removing concept documents:
@@ -297,6 +300,47 @@ Working with a Bundle
          ``--force`` overwrites existing stubs.  Omit it to protect hand-edited
          documents.
 
+      **seed-graph** — loads the same kind of TTL file into the deployed graph
+      store.  The two seeding verbs are worth telling apart: **seed-graph seeds
+      the deployed graph store; seed-from-ttl builds an OKF document bundle.**
+      One corpus, two destinations.
+
+      .. code-block:: console
+
+         $ osprey knowledge seed-graph                 # uses services.graphdb.ttl_path
+         $ osprey knowledge seed-graph devices.ttl     # or name the file
+
+      It is safe to re-run.  A store that already holds this exact file reports
+      ``unchanged`` and is left alone; a store holding a different corpus, or
+      data OSPREY did not seed, is refused rather than overwritten, and
+      ``--force`` wipes it and imports from scratch.  The seed marker is written
+      only after the import succeeds, so a run that dies partway is caught as
+      ``unmanaged-partial`` on the next one instead of passing for a good seed.
+
+      The deploy already runs this for you on a first bring-up (see
+      :doc:`deploy-project/index`); you need the verb when that step warned, or when
+      the corpus changed.  For the full list of outcomes and flags, see
+      ``osprey knowledge seed-graph --help``.
+
+      **build-ttl** — generates the corpus ``seed-graph`` loads, deriving it
+      from the project's own channel databases so the graph and the channel
+      finder describe the same machine:
+
+      .. code-block:: console
+
+         $ osprey knowledge build-ttl data/demo_machine.ttl \
+             --channel-db data/channel_databases/hierarchical.json \
+             --descriptions <your in-context database>
+
+      Two databases describe the machine — the hierarchical one for its
+      structure, the in-context one for the sentence on each channel — and a
+      rendered project names both, because it ships only the paradigm it runs.
+      The limits file comes from ``config.yml`` and the ontology table from
+      OSPREY's shipped default, and every run reports which source decided each
+      signal's read/write direction. See
+      :doc:`use-facility-graph` for the inputs, the shipped corpora, and what
+      the agent then does with the graph.
+
 
 Searching the Bundle
 ====================
@@ -311,6 +355,8 @@ tool. It has two backends and picks between them by itself:
   a document matches only if it literally contains the string.
 
 You do not choose; a deployment without the sidecar simply gets the fallback.
+:ref:`retrieval-paths` shows both branches in context, and the sidecar section
+diagrams what a ranked query does internally.
 
 Tuning ranked search
 --------------------

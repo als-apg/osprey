@@ -9,7 +9,12 @@ resolve to the SAME module object (patching/isinstance safe).
 def test_osprey_connectors_is_installed():
     import osprey_connectors
 
-    assert osprey_connectors.__version__ == "0.1.0"
+    # The package versions with the framework's calendar stream (one checkout,
+    # one number for both wheels), so the pin is the stream itself: a year-led
+    # version. The retired independent 0.x line — and the "0.0.0+unbuilt"
+    # fallback of a source tree with no installed dist — both fail here.
+    major = osprey_connectors.__version__.split(".")[0]
+    assert major.isdigit() and int(major) >= 2026, osprey_connectors.__version__
 
 
 def test_errors_shim_preserves_module_identity():

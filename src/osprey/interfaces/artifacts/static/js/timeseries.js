@@ -38,7 +38,7 @@
  * @module timeseries
  */
 
-import { chartTheme, chartSeries } from "/design-system/js/theme-manager.js";
+import { chartTheme, chartRelayout, chartSeries } from "/design-system/js/theme-manager.js";
 import { escapeHtml } from "/design-system/js/dom.js";
 import { isoToDate } from "./types.js";
 
@@ -341,15 +341,15 @@ export async function renderTimeseriesView(container, artifact) {
 
 /**
  * A Plotly layout fragment for the timeseries chart, built from
- * chartTheme()'s --chart-* computed-style bridge plus a couple of
- * gallery-specific extras (axis/legend line color, legend background)
- * that bridge doesn't cover -- read directly via getComputedStyle so
- * they still track the design tokens rather than being hardcoded.
+ * chartTheme()'s --chart-* computed-style bridge plus the axis/legend line
+ * color and legend background the initial layout also needs -- the same
+ * --chart-axis-line token chartRelayout() applies on a live re-theme, so
+ * the first render and every later one agree.
  * @returns {any}
  */
 export function _tsChartTheme() {
   const base = chartTheme();
-  const line = getComputedStyle(document.documentElement).getPropertyValue("--border-default").trim();
+  const line = getComputedStyle(document.documentElement).getPropertyValue("--chart-axis-line").trim();
   return { ...base, line: line || base.xaxis.gridcolor, legendBg: base.paper_bgcolor, legendBorder: line };
 }
 
@@ -373,17 +373,12 @@ export function restyleMountedCharts() {
   // Target the actual Plotly graph divs, not the outer viewport wrappers.
   const charts = document.querySelectorAll(".ts-viewport-container [data-ts-chart]");
   if (!charts.length) return;
-  const t = _tsChartTheme();
   const series = chartSeries();
   charts.forEach((tsChart) => {
     try {
-      Plotly.relayout(tsChart, {
-        paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
-        "font.color": t.font.color,
-        "xaxis.gridcolor": t.xaxis.gridcolor, "xaxis.linecolor": t.line,
-        "yaxis.gridcolor": t.yaxis.gridcolor, "yaxis.linecolor": t.line,
-        "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
-      });
+      // The shared token -> layout-key mapping (design-system owned); it
+      // covers yaxis2 too when a categorical channel added one.
+      Plotly.relayout(tsChart, chartRelayout(tsChart));
       // relayout doesn't touch trace colors, so the data lines and their legend
       // dots keep the prior theme's palette until reload. Restyle each trace's
       // line+marker to the current series palette so they re-theme live too.
@@ -453,8 +448,11 @@ export async function renderTimeseriesChart(el, chartData) {
     font: { family: "'JetBrains Mono', monospace", size: 11, color: t.font.color },
     margin: { t: 30, r: 20, b: 50, l: 60 },
     hovermode: "x unified",
-    xaxis: { gridcolor: t.xaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
-    yaxis: { gridcolor: t.yaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
+    // zerolinecolor too: chartRelayout() sets it on a live re-theme, so the
+    // first render must as well or the zero line changes color on the
+    // first theme flip.
+    xaxis: { gridcolor: t.xaxis.gridcolor, linecolor: t.line, zerolinecolor: t.line, tickfont: { size: 10 } },
+    yaxis: { gridcolor: t.yaxis.gridcolor, linecolor: t.line, zerolinecolor: t.line, tickfont: { size: 10 } },
     ...(hasNonNumeric
       ? {
           yaxis2: {

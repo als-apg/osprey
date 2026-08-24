@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
@@ -246,6 +247,42 @@ def _derive_runtime_interpreter(
     return sys.executable
 
 
+def _graphdb_configured(config: dict) -> bool:
+    """Whether this project declares a graph store to query.
+
+    Truthy exactly when ``services.graphdb`` is a mapping — including the
+    fully-defaulted ``graphdb: {}`` — and falsy when the key is absent or is the
+    bare ``graphdb:`` that YAML parses as ``None``. That is
+    :func:`~osprey.deployment.graphdb_service.resolve_graphdb_service_config`'s
+    own reading of the block, borrowed rather than re-implemented so the render
+    and the deploy cannot disagree about whether a store exists.
+
+    A malformed block is *warned* about and treated as absent. The resolver
+    raises on one, because a deploy that publishes a port nobody dials is worse
+    than a refusal — but this caller is a render, and aborting it over a bad
+    heap size would take out every unrelated artifact in the build. Dropping the
+    graph server instead costs the agent its graph tools and says so loudly.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+
+    Returns:
+        Whether the graph MCP server has a store to point at.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+
+    try:
+        return resolve_graphdb_service_config(config) is not None
+    except ValueError as exc:
+        logger.warning(
+            "services.graphdb is malformed (%s) — rendering as if no graph store were "
+            "configured, so the graph MCP server and its tools are left out of this "
+            "project. Fix the key named above in config.yml and re-render.",
+            exc,
+        )
+        return False
+
+
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read straight out of a project's ``config.yml``.
 
@@ -290,6 +327,16 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "control_system_write_tools": control_system.get("write_tools", []),
         # Control system type for protocol-aware safety rules
         "control_system_type": control_system.get("type", "mock"),
+        # Whether this deployment renders the target switch, for the
+        # switch-aware half of the control-system safety rule.
+        "target_switch_enabled": _renders_the_target_switch(control_system),
+        # Gate for the `graph` MCP server: a ServerDefinition condition is a
+        # plain truthiness test on this key, so it must be merged into the
+        # context BEFORE resolve_servers runs (both render paths do — see
+        # build_claude_code_context). Without a configured store the server is
+        # left out of the render entirely rather than shipped as a tool that
+        # can only fail.
+        "graphdb_configured": _graphdb_configured(config),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -303,6 +350,26 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # what it renders (and must render: writes state is not settled there).
         "killswitch_deny": [],
     }
+
+
+def _renders_the_target_switch(control_system: dict) -> bool:
+    """Whether the rendered config gives this deployment two targets to switch between.
+
+    Delegates to :func:`osprey_connectors.types.switch_capable`, the same
+    predicate the controls server uses at run time to decide whether its tools
+    are served by a connector-host child. Restating it here — "an epics block
+    and a virtual_accelerator block", say — would be a second opinion that gets
+    a ``doocs`` deployment wrong and a ``mock``-with-an-epics-block deployment
+    wrong in the other direction, and the failure would be a frozen rule
+    promising the agent a switch the runtime refuses to perform.
+
+    Deliberately not keyed on the ``control_system.target_switch`` tuning keys:
+    those have defaults and can be present in a deployment with nowhere to
+    switch to, while a connector block cannot be defaulted into existence.
+    """
+    from osprey_connectors.types import switch_capable
+
+    return switch_capable(control_system)
 
 
 def build_claude_code_context(
@@ -403,20 +470,53 @@ def build_claude_code_context(
         "selected_hooks": selected_hooks,
     }
 
+    # Everything the templates read straight out of config.yml, in the one
+    # spelling the create_project render path shares (see config_derived_context).
+    #
+    # Merged HERE, before the registry resolves servers and agents, because a
+    # `condition=` on a ServerDefinition is a plain truthiness test on a ctx key:
+    # a key that lands after resolution reads as absent, and the server is
+    # silently disabled with no warning. create_project merges the same helper
+    # before its own resolve_servers call, so this is also what keeps the two
+    # paths from forking on any server gated by a config-derived key.
+    ctx.update(config_derived_context(config, project_dir))
+
     # Derive channel finder configuration
     channel_finder = config.get("channel_finder")
     if channel_finder and "channel-finder" in artifacts.get("agents", []):
-        pipeline_mode = channel_finder.get("pipeline_mode", "hierarchical")
+        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+        from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+        # No default paradigm. A project that ships the channel-finder agent was
+        # built against one paradigm's store, and the agent's prompt and tools
+        # differ per paradigm — guessing one here would render an agent that
+        # does not match the data on disk, and the mismatch only shows up at
+        # run time as a tool that is not there.
+        pipeline_mode = channel_finder.get("pipeline_mode")
+        if not pipeline_mode:
+            raise PipelineModeError(
+                "channel_finder.pipeline_mode is required when the channel-finder "
+                "agent is selected. Set it in config.yml to one of: "
+                f"{', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            )
+        if pipeline_mode not in VALID_CHANNEL_FINDER_MODES:
+            raise PipelineModeError(
+                f"Unknown channel_finder.pipeline_mode: {pipeline_mode!r}. "
+                f"Valid modes are: {', '.join(VALID_CHANNEL_FINDER_MODES)}."
+            )
         ctx["channel_finder_pipeline"] = pipeline_mode
         ctx["channel_finder_mode"] = pipeline_mode
         ctx["default_pipeline"] = pipeline_mode
 
         # Per-pipeline tool list — shared with the registry so the agent
-        # frontmatter and the server's permissions.allow stay in lockstep.
-        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-
+        # frontmatter and the server's permissions.allow stay in lockstep. The
+        # mode is already known-good above, so a paradigm with no entry here is
+        # one served by no channel-finder MCP pipeline of its own, and the empty
+        # list is the right answer rather than a swallowed typo.
         ctx["channel_finder_tools"] = list(CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(pipeline_mode, []))
 
+        # Only the hierarchical paradigm embeds extra render context; the other
+        # paradigms need none.
         if pipeline_mode == "hierarchical":
             hierarchy = resolve_hierarchy_context(channel_finder, project_dir)
             if hierarchy is not None:
@@ -471,10 +571,6 @@ def build_claude_code_context(
                         _tool,
                         _srv["name"],
                     )
-
-    # Everything the templates read straight out of config.yml, in the one
-    # spelling the create_project render path shares (see config_derived_context).
-    ctx.update(config_derived_context(config, project_dir))
 
     apply_textbooks_root(ctx, project_dir)
 

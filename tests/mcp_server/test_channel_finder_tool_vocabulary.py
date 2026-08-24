@@ -1,6 +1,6 @@
 """Guards on the channel-finder MCP servers' agent-facing vocabulary.
 
-The three pipeline variants are interchangeable: the registry selects one by
+The pipeline variants are interchangeable: the registry selects one by
 config key, so a shared tool name across them *asserts* substitutability. It
 used to lie — both the in-context and middle-layer variants registered
 ``query_channels``, one taking a natural-language question and the other an
@@ -15,7 +15,7 @@ tool that no longer exists, and the agent quietly loses the capability.
 
 import pytest
 
-_VARIANTS = ("in_context", "middle_layer", "hierarchical")
+_VARIANTS = ("in_context", "middle_layer", "hierarchical", "graph")
 
 
 @pytest.fixture(scope="module")

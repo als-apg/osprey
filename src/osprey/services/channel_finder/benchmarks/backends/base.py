@@ -31,7 +31,8 @@ class Backend(ABC):
 
         Args:
             prompt: User query text.
-            pipeline_mode: ``in_context`` / ``hierarchical`` / ``middle_layer``.
-                ReAct backend uses this to spawn the right MCP server;
-                SDK backend ignores it (server is selected via .mcp.json).
+            pipeline_mode: ``in_context`` / ``hierarchical`` /
+                ``middle_layer`` / ``graph``. ReAct backend uses this to spawn
+                the right MCP server and has no ``graph`` path; SDK backend
+                ignores it (server is selected via .mcp.json).
         """

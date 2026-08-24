@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 _DB_PATCH = "osprey.interfaces.channel_finder.database_api._get_database"
 _FACILITY_PATCH = "osprey.interfaces.channel_finder.database_api._get_facility_name"
 
@@ -298,3 +300,83 @@ class TestInContextChunkBounds:
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/channels?chunk_idx=0")
         assert resp.status_code == 422
+
+
+class TestGraphParadigmRoutes:
+    """The graph paradigm has no database file, and the routes say so plainly."""
+
+    @staticmethod
+    def _graph(client):
+        _set_pipeline(client, "graph")
+        client.app.state.available_pipelines = ["graph"]
+        client.app.state.databases = {}
+        client.app.state.graph_backed = True
+
+    def test_info_reports_the_paradigm_and_its_tools(self, client):
+        self._graph(client)
+        client.app.state.facility_name = "ALS"
+        resp = client.get("/api/info")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["pipeline_type"] == "graph"
+        assert data["available_pipelines"] == ["graph"]
+        assert data["graph_backed"] is True
+        assert data["db_path"] is None
+        assert "read_cypher" in data["tools"]
+        assert "get_schema" in data["tools"]
+        assert data["metadata"]["facility_name"] == "ALS"
+
+    def test_info_marks_file_backed_paradigms_as_not_graph_backed(self, client):
+        _set_pipeline(client, "middle_layer")
+        mock_db = MagicMock()
+        mock_db.db_path = "/tmp/ml.json"
+        mock_db.list_systems.return_value = []
+        with patch(_DB_PATCH, return_value=mock_db):
+            resp = client.get("/api/info")
+        assert resp.status_code == 200
+        assert resp.json()["graph_backed"] is False
+
+    def test_statistics_501_naming_the_graph_tools(self, client):
+        self._graph(client)
+        resp = client.get("/api/statistics")
+        assert resp.status_code == 501
+        detail = resp.json()["detail"]
+        assert "read_cypher" in detail
+        assert "get_schema" in detail
+
+    def test_validate_501_naming_the_graph_tools(self, client):
+        self._graph(client)
+        resp = client.post("/api/validate", json={"channels": ["SR:BPM:01:X"]})
+        assert resp.status_code == 501
+        detail = resp.json()["detail"]
+        assert "read_cypher" in detail
+        assert "get_schema" in detail
+
+    def test_switch_pipeline_400_names_the_paradigm_and_read_cypher(self, client):
+        self._graph(client)
+        resp = client.put("/api/pipeline", json={"pipeline_type": "in_context"})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "graph paradigm" in detail
+        assert "read_cypher" in detail
+        # Not the generic "not available, available: []" message.
+        assert "Available:" not in detail
+        assert client.app.state.pipeline_type == "graph"
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            # One route per pipeline gate: hierarchical, middle_layer,
+            # in_context, plus the two write gates that share those checks.
+            ("get", "/api/explore/options?level=system", None),
+            ("get", "/api/explore/systems", None),
+            ("get", "/api/channels", None),
+            ("post", "/api/tree/node", {"level": "system", "name": "SR"}),
+            ("post", "/api/structure/family", {"system": "SR", "family": "BPM"}),
+        ],
+    )
+    def test_explorer_routes_404_under_graph(self, client, method, path, body):
+        self._graph(client)
+        kwargs = {"json": body} if body is not None else {}
+        resp = getattr(client, method)(path, **kwargs)
+        assert resp.status_code == 404

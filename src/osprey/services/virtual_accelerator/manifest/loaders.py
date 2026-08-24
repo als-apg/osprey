@@ -41,12 +41,14 @@ class HierarchicalChannel:
 
 
 class ParadigmMismatchError(RuntimeError):
-    """Raised when the three paradigm DBs disagree on their expanded address set.
+    """Raised when the file-backed paradigm DBs disagree on their address set.
 
     The whole premise of this generator is that the tutorial's channel-finder
-    DBs already define a single namespace in three interchangeable formats.
-    A mismatch means that premise is broken and must be fixed upstream in the
-    DB source files -- never silently reconciled here.
+    DBs already define a single namespace in three interchangeable file
+    formats: in_context, hierarchical, middle_layer. (The ``graph`` paradigm
+    has no tier file and is never read here.) A mismatch means that premise is
+    broken and must be fixed upstream in the DB source files -- never silently
+    reconciled here.
     """
 
 

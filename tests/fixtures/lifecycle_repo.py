@@ -164,7 +164,7 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 #     opus: claude-opus-4-6
 
 # How the agent searches for channels. `osprey set channel_finder_mode=...`
-# also accepts in_context or middle_layer.
+# also accepts in_context, middle_layer, or graph (the knowledge graph store).
 channel_finder_mode: hierarchical
 
 # ── What the agent can do ────────────────────────────────────────────────────
@@ -173,6 +173,7 @@ channel_finder_mode: hierarchical
 
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
+  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
   - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
   - writes-check      # Kill switch: refuse every write while writes_enabled is false
@@ -219,6 +220,7 @@ agents:
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis
   - facility-knowledge      # Look up facility documentation, procedures, and device specs
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
   - pyat-specialist         # Lattice/optics computation sub-agent (pyAT)
 
 output_styles:
@@ -762,6 +764,14 @@ config:
   # per-user containers). Without this override the inherited roster would
   # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
+  # This persona is an attached render (`services: {}` — no graphdb block of
+  # its own), so the agent's graph tools need to be told which host-published
+  # bolt port the hosting deployment's `graphdb` store listens on. Per-user
+  # web-terminal containers run `network_mode: host`, so container
+  # `localhost` IS the deployment host. If an operator moves
+  # `services.graphdb.port_host` on the hosting deployment, this number must
+  # move with it here AND in control-assistant-readwrite.
+  services.graphdb.port_host: 7687
 """
 
 PERSONA_READWRITE_YML = """\
@@ -804,6 +814,14 @@ config:
   # per-user containers). Without this override the inherited roster would
   # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
+  # This persona is an attached render (`services: {}` — no graphdb block of
+  # its own), so the agent's graph tools need to be told which host-published
+  # bolt port the hosting deployment's `graphdb` store listens on. Per-user
+  # web-terminal containers run `network_mode: host`, so container
+  # `localhost` IS the deployment host. If an operator moves
+  # `services.graphdb.port_host` on the hosting deployment, this number must
+  # move with it here AND in control-assistant-readonly.
+  services.graphdb.port_host: 7687
   # EVENTS + BLUESKY: the write-oriented panels, declared HERE and not in the
   # base so the readonly persona is built without them (a persona can only add
   # config keys, never subtract inherited ones — see the note in the base's
@@ -1093,10 +1111,13 @@ OSPREY_AUTH_PW_CAROL=carol
 # DISPATCH_WORKER_TOKEN=  # event_dispatcher, dispatch_worker — authenticates the dispatch worker back to the dispatcher
 # BLUESKY_LAUNCH_TOKEN=  # bluesky — arms the Bluesky bridge's plan-launch endpoint
 # BLUESKY_TILED_API_KEY=  # bluesky — the key the bridge presents to the co-deployed Tiled catalog
+# BLUESKY_VA_LAUNCH_TOKEN=  # bluesky_va — arms the plan-launch endpoint of the second Bluesky lane, the one serving the virtual accelerator (only on a deployment with `bluesky.second_lane`)
+# BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
+# GRAPHDB_PASSWORD=  # graphdb — graph store password (the seeder, health check and deploy staging all authenticate with it)
 """
 
 #: The committed half of the env chain, as `osprey init` authors it: every line

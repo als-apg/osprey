@@ -4,7 +4,6 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
-import subprocess
 import sys
 
 # Keep warnings visible to catch documentation issues
@@ -26,45 +25,22 @@ sys.path.insert(0, src_root)
 # Framework is now the only package we need
 # NO backwards compatibility for old paths
 
+# Imported here rather than at the top of the file: the sys.path setup above is what
+# makes ``osprey`` importable when the docs build from an uninstalled checkout.
+from osprey.version import get_running_version, is_release  # noqa: E402
+
 # -- Project information -----------------------------------------------------
-
-
-# Function to get version from git
-def get_version_from_git():
-    """Get the current version from git tags, with GitHub Actions support."""
-    try:
-        # In GitHub Actions, check if we're building for a specific tag
-        github_ref = os.environ.get("GITHUB_REF", "")
-        if github_ref.startswith("refs/tags/v"):
-            # Extract version from GitHub ref (e.g., refs/tags/v0.7.2 -> 0.7.2)
-            version = github_ref.replace("refs/tags/v", "")
-            print(f"📋 Using version from GitHub tag: {version}")
-            return version
-
-        # Fallback to git describe for local builds
-        result = subprocess.run(
-            ["git", "describe", "--tags", "--abbrev=0"],
-            capture_output=True,
-            text=True,
-            cwd=project_root,
-        )
-        if result.returncode == 0:
-            # Remove 'v' prefix if present
-            version = result.stdout.strip().lstrip("v")
-            print(f"📋 Using version from git describe: {version}")
-            return version
-        else:
-            print("⚠️  No git tags found, using fallback version")
-            return "0.0.0-dev"
-    except (subprocess.SubprocessError, FileNotFoundError):
-        print("⚠️  Git not available, using fallback version")
-        return "0.0.0-dev"
-
 
 project = "Osprey Framework"
 copyright = "2026, Osprey Developer Team"
 author = "Osprey Developer Team"
-release = get_version_from_git()
+
+# The docs version comes from the package's single source of truth. Anything that is not
+# a clean tagged release publishes as the literal "dev": that substring is what the
+# pydata-sphinx-theme development banner and the switcher's development entry key on,
+# via ``DOCUMENTATION_OPTIONS.VERSION`` (which Sphinx fills from ``release``).
+release = get_running_version() if is_release() else "dev"
+version = release
 
 # -- General configuration ---------------------------------------------------
 
@@ -83,7 +59,6 @@ extensions = [
     "sphinx.ext.graphviz",  # Graph visualization
     "sphinx.ext.todo",  # TODO notes
     "sphinx_design",  # Design components (cards, tabs, etc.)
-    "sphinxcontrib.mermaid",  # Mermaid diagram support
     "workflow_autodoc",  # Custom: Auto-document workflow files
 ]
 
@@ -94,6 +69,12 @@ exclude_patterns = []
 
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
+
+# Every build - old snapshot or /latest/ - points its canonical link at the stable root
+# (the numpy/pandas convention), so search engines rank the root rather than a snapshot.
+# A /latest/-only page's canonical 404s until the next release, which engines treat as a
+# hint to ignore rather than as an error.
+html_baseurl = "https://als-apg.github.io/osprey/"
 
 # Theme options for PyData Sphinx Theme - Clean Original Style
 html_theme_options = {
@@ -116,14 +97,18 @@ html_theme_options = {
     "secondary_sidebar_items": ["page-toc", "edit-this-page"],
     # Version switcher configuration
     "switcher": {
-        "json_url": "https://als-apg.github.io/osprey/_static/versions.json",
+        "json_url": html_baseurl + "_static/versions.json",
         "version_match": release,
     },
+    # Banner keyed off ``release``: an old snapshot gets "old version", ``dev`` gets
+    # "unstable development version", and the ``preferred`` entry gets no banner.
+    "show_version_warning_banner": True,
     # Add version switcher to navbar
     "navbar_end": ["version-switcher", "theme-switcher", "navbar-icon-links"],
 }
 
-# Repository information for edit buttons
+# Repository information for edit buttons. ``github_version`` stays on a branch name no
+# matter which version is being published, because GitHub's /edit/ route needs a branch.
 html_context = {
     "github_user": "als-apg",
     "github_repo": "osprey",
@@ -298,10 +283,13 @@ def _screenshot_caption_prolog():
     )
 
 
-# Make version (and per-screenshot capture provenance) available as RST substitutions
+# Make version (and per-screenshot capture provenance) available as RST substitutions.
+# A development build has no tag to prefix, so |release| reads "dev", never "vdev".
+_release_label = f"v{release}" if is_release() else "dev"
+
 rst_prolog = f"""
 .. |version| replace:: {release}
-.. |release| replace:: v{release}
+.. |release| replace:: {_release_label}
 {_screenshot_caption_prolog()}
 """
 
@@ -318,23 +306,3 @@ copybutton_prompt_is_regexp = True
 
 # Enable sphinx-design components
 sd_fontawesome_latex = True
-
-# -- Mermaid configuration -------------------------------------------------
-
-# Use client-side rendering (no CLI needed)
-mermaid_output_format = "raw"
-
-# Mermaid version to use
-mermaid_version = "11.8.0"
-
-# Size each diagram to its own aspect ratio. The extension's default is a flat
-# `height: 500px` on every rendered SVG, which letterboxes a wide `flowchart LR`
-# into a near-square box (the multi-user diagram is 6.5:1 but rendered at
-# 0.98:1, ~68% of it empty). "auto" lets the browser derive height from the
-# SVG's viewBox instead.
-mermaid_height = "auto"
-
-# Light/dark theming is handled by the extension itself: it detects the
-# page theme, and a MutationObserver on `data-theme` re-renders every
-# diagram when the reader toggles. Use `mermaid_init_config` if this ever
-# needs custom theme variables.

@@ -1,8 +1,9 @@
 """The build-time decision about emitting a channel-suggestions snapshot.
 
 Covers every pipeline backend the Channel Finder supports, the emission
-predicate (feature switch, absent database, empty database, size guard), and the
-fail-soft behaviour that keeps an unreadable database from blocking a build.
+predicate (feature switch, absent database, empty database, size guard), the
+graph paradigm that has no file to snapshot at all, and the fail-soft behaviour
+that keeps an unreadable database from blocking a build.
 """
 
 from __future__ import annotations
@@ -15,8 +16,10 @@ import pytest
 from osprey.deployment.channel_snapshot import (
     DEFAULT_MAX_CHANNELS,
     MAX_CHANNELS_CONFIG_KEY,
+    _load_channel_records,
     compute_channel_snapshot,
 )
+from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
 
 def _write_json(path: Path, data: object) -> Path:
@@ -255,6 +258,33 @@ class TestEmissionPredicate:
 
         assert decision.emit is True
         assert str(DEFAULT_MAX_CHANNELS) in caplog.text
+
+
+class TestGraphParadigm:
+    """The graph paradigm keeps its channels out of reach of the build."""
+
+    def test_the_graph_paradigm_emits_nothing_and_says_the_typeahead_is_off(self, caplog):
+        config = {"channel_finder": {"pipeline_mode": "graph"}}
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(config)
+
+        assert decision.emit is False
+        assert decision.channels == []
+        assert decision.count == 0
+        assert decision.source_path is None
+        assert "typeahead" in caplog.text
+        assert "graph" in caplog.text.lower()
+
+    def test_an_unknown_pipeline_mode_is_rejected_rather_than_quietly_skipped(self):
+        config = {"channel_finder": {"pipeline_mode": "telepathy"}}
+
+        with pytest.raises(PipelineModeError, match="telepathy"):
+            compute_channel_snapshot(config)
+
+    def test_loading_records_for_an_unknown_pipeline_raises_a_pipeline_mode_error(self, tmp_path):
+        with pytest.raises(PipelineModeError, match="telepathy"):
+            _load_channel_records("telepathy", {}, tmp_path / "unused.json")
 
 
 class TestFailSoft:

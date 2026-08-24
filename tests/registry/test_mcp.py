@@ -49,7 +49,7 @@ class TestResolveServers:
         # Core servers always on
         assert {"controls", "osprey_workspace", "ariel"} <= enabled
         # Conditional servers off (conditions not in ctx); opt-in servers off by default
-        assert {"channel-finder", "health"} <= disabled
+        assert {"channel-finder", "health", "graph"} <= disabled
 
     def test_resolve_disable_framework_server(self):
         """New format: servers: {ariel: {enabled: false}}."""
@@ -139,6 +139,30 @@ class TestResolveServers:
         assert not [s for s in servers if s["name"] == "typo-api"]
         assert "invalid transport" in caplog.text
 
+    def test_resolve_custom_server_double_underscore_name_rejected(self, caplog):
+        """A ``__`` in a custom server name is rejected loudly, like extends clones.
+
+        Tool names are ``mcp__<server>__<tool>``, so a server named
+        ``my__server`` would make every consumer that splits on the first
+        ``__`` (transcript reader, display formatting) silently mis-attribute
+        its calls to a server named ``my``.
+        """
+        ctx = _base_ctx()
+        cfg = {"servers": {"my__server": {"command": "node", "args": ["s.js"]}}}
+        with caplog.at_level("WARNING"):
+            servers = resolve_servers(cfg, ctx)
+        assert not [s for s in servers if s["name"] == "my__server"]
+        assert "my__server" in caplog.text
+
+    def test_resolve_custom_server_trailing_underscore_rejected(self, caplog):
+        """A trailing ``_`` makes ``mcp__<server>__`` ambiguous — rejected."""
+        ctx = _base_ctx()
+        cfg = {"servers": {"srv_": {"command": "node", "args": ["s.js"]}}}
+        with caplog.at_level("WARNING"):
+            servers = resolve_servers(cfg, ctx)
+        assert not [s for s in servers if s["name"] == "srv_"]
+        assert "srv_" in caplog.text
+
     def test_resolve_custom_server_transport_on_stdio_ignored(self, caplog):
         """A command server declaring transport keeps working; the key is ignored loudly."""
         ctx = _base_ctx()
@@ -197,10 +221,18 @@ class TestResolveServers:
         makes config resolution fall back to CWD/config.yml and fail. Regression
         guard: osprey_workspace / ariel / channel-finder used to omit it.
         """
-        ctx = _base_ctx(channel_finder_pipeline="hierarchical")
+        ctx = _base_ctx(channel_finder_pipeline="hierarchical", graphdb_configured=True)
         servers = resolve_servers({}, ctx)
         expected = "/tmp/test-project/build/config.yml"
-        for name in ("controls", "python", "osprey_workspace", "ariel", "health", "channel-finder"):
+        for name in (
+            "controls",
+            "python",
+            "osprey_workspace",
+            "ariel",
+            "health",
+            "channel-finder",
+            "graph",
+        ):
             srv = [s for s in servers if s["name"] == name][0]
             assert srv["env"].get("CONFIG_FILE") == expected, (
                 f"{name} must set CONFIG_FILE={expected!r}, got {srv['env'].get('CONFIG_FILE')!r}"

@@ -35,6 +35,7 @@ from osprey.cli.validate_claude_artifacts import (
 from osprey.registry.mcp import (
     CHANNEL_FINDER_TOOLS_BY_PIPELINE,
     FRAMEWORK_AGENTS,
+    FRAMEWORK_SERVERS,
 )
 
 # ---------------------------------------------------------------------------
@@ -210,7 +211,12 @@ def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
 _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
     "channel-finder": {
         # tools: rendered from CHANNEL_FINDER_TOOLS_BY_PIPELINE['hierarchical']
-        #        + mcp__osprey_workspace__submit_response
+        #        + mcp__osprey_workspace__submit_response, and nothing else.
+        # The subagent gets exactly its paradigm's vocabulary: the `graph`
+        # server this fixture's render also enables (control_assistant ships a
+        # `services.graphdb` block) is a MAIN-agent server and stays off this
+        # list. The tool list is read from the registry rather than spelled out,
+        # so it cannot drift from what the render uses.
         "tools": [
             *(
                 f"mcp__channel-finder__{t}"
@@ -316,7 +322,6 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
         "tools": [
             "mcp__python__execute",
             "mcp__osprey_workspace__submit_response",
-            "mcp__osprey_workspace__artifact_list",
             "mcp__osprey_workspace__artifact_read",
             "Read",
         ],
@@ -639,6 +644,90 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "approval_prefixes": [],
         "write_tools": [],
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
+
+
+# ---------------------------------------------------------------------------
+# The graph MCP server on the MAIN agent's surface
+#
+# The channel-finder subagent's own frontmatter is pinned by
+# ``_FRAMEWORK_AGENT_EXPECTED`` above and by
+# ``tests/cli/test_channel_finder_graph_tools.py``. What those cover is the
+# subagent; what they do not is the main agent, whose whole tool surface is the
+# three files asserted here — ``settings.json`` (may it call the tool),
+# ``.mcp.json`` (can the tool be launched at all) and ``hook_config.json``
+# (which hook layer sees the call). A server present in one and absent from
+# another is a build that renders without complaint and misbehaves at runtime.
+#
+# The two app templates that ship no ``services.graphdb`` block are the negative
+# half: ``hello_world`` below, and ``channel_finder_standalone`` in
+# ``tests/cli/test_graph_agent_surface.py``, which owns the renders this
+# module's single control_assistant fixture does not provide.
+# ---------------------------------------------------------------------------
+
+
+def _graph_permission_entries() -> list[str]:
+    """The four rendered permission strings, derived from the registry.
+
+    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
+    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
+    qualification happens here rather than being spelled out a second time where
+    it could drift from what the render actually emits.
+    """
+    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
+
+
+def _graph_entries(values) -> list[str]:
+    return sorted(entry for entry in values if str(entry).startswith("mcp__graph__"))
+
+
+def test_graph_server_reaches_the_main_agent_surface(built_control_assistant_project):
+    """control_assistant ships ``services.graphdb``, so the main agent gets the
+    graph server: exactly the registry's four tools in ``permissions.allow``,
+    none of them behind ``ask`` or ``deny``, a launchable ``.mcp.json`` entry
+    carrying both config-path variables, and the PostToolUse prefix.
+
+    ``approval_prefixes`` must NOT carry ``mcp__graph__``: every tool on this
+    server reads, so an approval prefix would put a human in the loop on each
+    one — the read/approve split is what makes the tools usable unprompted.
+    """
+    project = built_control_assistant_project
+
+    permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
+    assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+    for gate in ("ask", "deny"):
+        assert _graph_entries(permissions.get(gate) or []) == [], (
+            f"graph tools are read-only; nothing belongs in permissions.{gate}"
+        )
+
+    graph_server = json.loads((project / ".mcp.json").read_text())["mcpServers"]["graph"]
+    assert graph_server["args"] == ["-m", "osprey.mcp_server.graph"]
+    assert graph_server["command"], "the server must render a launchable interpreter command"
+    for var in ("OSPREY_CONFIG", "CONFIG_FILE"):
+        assert graph_server["env"][var].endswith("/config.yml"), (
+            f"{var} must name the rendered config the server resolves the store from"
+        )
+
+    hook_cfg = _read_hook_config(project)
+    assert "mcp__graph__" in hook_cfg["server_prefixes"]
+    assert "mcp__graph__" not in hook_cfg["approval_prefixes"]
+
+
+def test_hello_world_renders_no_graph_surface_at_all(built_hello_world_project):
+    """A template with no ``services.graphdb`` block renders no trace of the
+    server — asserted over every file under ``.claude/``, not just
+    ``settings.json``, because an agent file, a hook config or a rule that named
+    a tool the project cannot launch is exactly as broken and just as invisible
+    from a settings-only check.
+    """
+    project = built_hello_world_project
+
+    hits = sorted(
+        str(path.relative_to(project))
+        for path in (project / ".claude").rglob("*")
+        if path.is_file() and "mcp__graph__" in path.read_text(encoding="utf-8", errors="ignore")
+    )
+    assert hits == [], f"hello_world configures no graph store but rendered graph tools in {hits}"
+    assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
 
 
 # ---------------------------------------------------------------------------
@@ -1072,3 +1161,53 @@ def test_tier_floor_web_keys_render_into_config(tier_floor_projects):
     admin_web = _rendered_config(tier_floor_projects["control-assistant-admin"])["web"]
     assert admin_web["config_panel"]["enabled"] is True
     assert admin_web["scaffold_gallery"]["write_enabled"] is True
+
+
+# Hook helper libraries: selected everywhere, wired nowhere
+# ---------------------------------------------------------------------------
+
+
+def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
+    """Selection COPIES a hook file; docstring frontmatter WIRES it to an event.
+
+    ``osprey_hook_log.py`` and ``osprey_target_state.py`` are shared libraries
+    the real hooks import — a JSONL logger and the control-target state reader.
+    They ship in every deployment because the hooks that import them do, which
+    is why profiles name them in ``hooks:`` like any other artifact. But neither
+    declares an ``event`` in its docstring, so neither may appear in
+    ``settings.json``: a registration for a module with no handler is a hook
+    Claude Code would run on every matching tool call to no effect.
+
+    Pinning both halves together is the point. Either half alone passes while
+    the feature is broken — copied-but-wired fires a no-op hook, and
+    wired-but-not-copied is an ImportError inside the hooks that import it.
+    """
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="hook-helpers",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+        artifacts={
+            # memory-guard is along not for this test's sake but for the
+            # build's write-gate lint: a profile whose PreToolUse chain never
+            # matches `Write` refuses to build at all, and a test that pins
+            # copied-vs-wired needs a profile that builds.
+            "hooks": ["hook-log", "target-state", "hook-config", "approval", "memory-guard"],
+            "rules": ["safety"],
+        },
+    )
+
+    helpers = ("osprey_hook_log.py", "osprey_target_state.py")
+
+    # Half one: the files are on disk beside the hook that imports them.
+    hooks_dir = project / ".claude" / "hooks"
+    for helper in helpers:
+        assert (hooks_dir / helper).is_file(), f"{helper} was not copied into .claude/hooks/"
+    assert (hooks_dir / "osprey_approval.py").is_file(), "the importing hook must ship too"
+
+    # Half two: nothing in settings.json names them.
+    settings = (project / ".claude" / "settings.json").read_text(encoding="utf-8")
+    for helper in helpers:
+        assert helper not in settings, f"{helper} has no event handler and must not be wired"
+    assert "osprey_approval.py" in settings, "a real hook must still be wired"

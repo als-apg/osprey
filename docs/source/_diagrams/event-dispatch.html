@@ -1,0 +1,42 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 304" role="img" aria-labelledby="event-dispatch-title event-dispatch-desc">
+  <title id="event-dispatch-title">Event dispatch</title>
+  <desc id="event-dispatch-desc">An external webhook or cron tick posts to the event dispatcher, which matches a trigger, applies its allowlist and error policy, and forwards the run to the dispatch worker; results stream back over SSE, and the dispatcher also serves a monitoring dashboard.</desc>
+  <defs>
+    <marker id="event-dispatch-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="184" y1="124" x2="304" y2="124" marker-end="url(#event-dispatch-arr)"/>
+  <line class="e" x1="496" y1="124" x2="568" y2="124" marker-end="url(#event-dispatch-arr)"/>
+  <line class="e" x1="728" y1="124" x2="816" y2="124" marker-end="url(#event-dispatch-arr)"/>
+  <line class="e-thin" x1="400" y1="152" x2="400" y2="216"/>
+  <rect class="mask" x="204" y="104" width="80" height="12" rx="2"/>
+  <text class="ta" x="244" y="113" text-anchor="middle">POST /webhook</text>
+  <rect class="mask" x="516" y="104" width="32" height="12" rx="2"/>
+  <text class="ta" x="532" y="113" text-anchor="middle">RUN</text>
+  <rect class="mask" x="408" y="176" width="64" height="12" rx="2"/>
+  <text class="ta" x="440" y="185" text-anchor="middle">/dashboard</text>
+
+  <rect class="mask" x="40" y="96" width="144" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="96" width="144" height="56" rx="6"/>
+  <text class="tn" x="112" y="120" text-anchor="middle">external event</text>
+  <text class="ts" x="112" y="136" text-anchor="middle">webhook · cron tick</text>
+  <rect class="mask" x="304" y="96" width="192" height="56" rx="6"/>
+  <rect class="nb-foc" x="304" y="96" width="192" height="56" rx="6"/>
+  <text class="tn" x="400" y="120" text-anchor="middle">event dispatcher</text>
+  <text class="ts" x="400" y="136" text-anchor="middle">:8020 · allowlist · policy</text>
+  <rect class="mask" x="568" y="96" width="160" height="56" rx="6"/>
+  <rect class="nb" x="568" y="96" width="160" height="56" rx="6"/>
+  <text class="tn" x="648" y="120" text-anchor="middle">dispatch worker</text>
+  <text class="ts" x="648" y="136" text-anchor="middle">:9190 · headless agent</text>
+  <rect class="mask" x="816" y="96" width="104" height="56" rx="6"/>
+  <rect class="nb-st" x="816" y="96" width="104" height="56" rx="6"/>
+  <text class="tn" x="868" y="120" text-anchor="middle">result</text>
+  <text class="ts" x="868" y="136" text-anchor="middle">progress · SSE</text>
+  <rect class="mask" x="336" y="216" width="128" height="48" rx="6"/>
+  <rect class="nb-ext" x="336" y="216" width="128" height="48" rx="6"/>
+  <text class="tn" x="400" y="236" text-anchor="middle">dashboard</text>
+  <text class="ts" x="400" y="252" text-anchor="middle">monitoring</text>
+</svg>
+</div>

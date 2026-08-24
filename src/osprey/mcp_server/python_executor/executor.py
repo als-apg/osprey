@@ -12,6 +12,8 @@ in whatever environment the project installed for it.
 """
 
 import asyncio
+import contextlib
+import json
 import logging
 import os
 import sys
@@ -97,6 +99,41 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     "project",
 )
 
+#: The target stamp carried into the sandbox. These three names are the routing
+#: contract between this module (the only writer of the stamp) and
+#: :mod:`osprey.runtime` (its only reader); the same literals are spelled there
+#: as ``ENV_CONTROL_TARGET`` / ``ENV_CONTROL_TARGET_GENERATION`` /
+#: ``ENV_CONTROL_TARGET_STATE_PID``, and
+#: ``tests/runtime/test_executor_target_stamp.py`` pins the spellings equal.
+ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
+ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
+#: The controls server whose record the stamp was taken from. The sandbox cannot
+#: re-derive it — its parent is this server, not the Claude Code process that
+#: owns the state file — so the *identity* of the record travels with the stamp
+#: rather than being searched for again. Without it the sandbox would have to
+#: guess which of several sessions' records to pin against, and two sessions
+#: sharing one checkout is a supported shape.
+ENV_CONTROL_TARGET_STATE_PID = "OSPREY_CONTROL_TARGET_STATE_PID"
+
+#: Every name the stamp occupies. Cleared together when nothing is stamped.
+_STAMP_ENV_NAMES = (
+    ENV_CONTROL_TARGET,
+    ENV_CONTROL_TARGET_GENERATION,
+    ENV_CONTROL_TARGET_STATE_PID,
+)
+
+#: The in-flight marker contract, spelled here and restated in
+#: :mod:`osprey.mcp_server.control_system.tools.control_target`, which reads
+#: these files from the other MCP server process.
+#: ``tests/mcp_server/test_control_target_set.py`` pins the two spellings equal;
+#: neither process imports the other for two string constants.
+INFLIGHT_FILE_PREFIX = "exec_inflight_"
+INFLIGHT_FILE_SUFFIX = ".json"
+
+#: What :attr:`ExecutionResult.control_target` records for a run that carried no
+#: stamp: the sandbox resolved its connector from the deployment config alone.
+CONTROL_TARGET_BASELINE = "baseline"
+
 
 @dataclass
 class ExecutionResult:
@@ -110,6 +147,10 @@ class ExecutionResult:
     execution_method_used: str = EXECUTION_METHOD_SUBPROCESS
     execution_time_seconds: float | None = None
     error_message: str | None = None
+    #: The control-system target this run was actually routed to — ``live``,
+    #: ``va``, or :data:`CONTROL_TARGET_BASELINE` when no session target was
+    #: resolvable and the sandbox fell back to the deployment config.
+    control_target: str = CONTROL_TARGET_BASELINE
 
 
 def _read_config() -> dict:
@@ -295,6 +336,211 @@ def _load_limits_validator():
         return None
 
 
+def _session_target_record() -> dict[str, Any] | None:
+    """The controls server's target record for *this* session, or ``None``.
+
+    The state file is written by the controls MCP server and named for that
+    server's PID, which this process — a different MCP server — cannot know. It
+    can know its own parent: both servers are spawned by the same Claude Code
+    process, so the record whose ``owner_ppid`` equals ``os.getppid()`` here is
+    the one describing the session the execute call belongs to.
+
+    That is *exact parent equality*, deliberately narrower than the ancestor-
+    chain walk the prompt hook does. It holds for the servers Claude Code spawns
+    directly, which is how OSPREY's MCP servers are launched. A deployment that
+    interposes a process between Claude Code and this server would break the
+    equality, and the outcome of breaking it is an unstamped run on the
+    deployment baseline — the same fail-closed outcome as having no state at all,
+    never a wrong target.
+
+    Zero matches (no controls server, or a state directory this deployment never
+    created) and more than one match (an ``owner_ppid`` collision after a PID
+    was reused) both resolve to ``None``. The caller then stamps nothing, and
+    the sandbox routes off the deployment baseline: a run that is honestly
+    unstamped is recoverable, while a run stamped with a guessed target is a
+    tool call arriving somewhere nobody selected.
+
+    Never raises — a missing, corrupt, or unreadable state directory is the
+    documented "state unavailable" outcome, not an execution failure.
+    """
+    try:
+        from osprey.mcp_server.control_system import target_state
+
+        entries = sorted(target_state.state_dir().glob(target_state.STATE_FILE_GLOB))
+    except Exception:
+        logger.debug("Target state unavailable; execution runs unstamped", exc_info=True)
+        return None
+
+    owner_ppid = os.getppid()
+    matches: list[dict[str, Any]] = []
+    for entry in entries:
+        record = target_state.read_file(entry)
+        if record is None or record.get("owner_ppid") != owner_ppid:
+            continue
+        server_pid = record.get("server_pid")
+        # A record whose owner died is residue: its target describes a server
+        # nobody is talking to any more.
+        if not isinstance(server_pid, int) or not target_state.is_process_alive(server_pid):
+            continue
+        if record.get("target") in target_state.TARGET_NAMES and isinstance(
+            record.get("generation"), int
+        ):
+            matches.append(record)
+
+    if len(matches) != 1:
+        if matches:
+            logger.warning(
+                "%d control-target records share owner_ppid %s; execution runs unstamped",
+                len(matches),
+                owner_ppid,
+            )
+        elif entries:
+            # Records exist but none is ours — another session's, or a parent
+            # this process does not have. Worth seeing when a switch appears to
+            # have had no effect on execute().
+            logger.debug(
+                "%d control-target record(s) present, none owned by ppid %s; "
+                "execution runs unstamped",
+                len(entries),
+                owner_ppid,
+            )
+        return None
+    return matches[0]
+
+
+def _target_is_resolvable(target: str) -> bool:
+    """Whether this deployment can actually build a connector for *target*.
+
+    The sandbox resolves the stamp through
+    :func:`osprey_connectors.types.resolve_target`, which refuses ``live`` on a
+    deployment that has never named its real machine — a mock-only development
+    checkout, say. Asking the same question here, against the same config the
+    sandbox will read, keeps that refusal out of agent-authored code: an
+    unresolvable target is declined at stamp time and the run proceeds on the
+    baseline, instead of every execute() failing inside the sandbox on a
+    ValueError the operator did not cause.
+
+    A config that cannot be read at all also answers ``False``: not knowing
+    whether the target resolves is not the same as knowing that it does.
+    """
+    try:
+        from osprey_connectors.config import get_config_value
+        from osprey_connectors.types import resolve_target
+
+        section = get_config_value("control_system", {})
+        resolve_target(section if isinstance(section, dict) else {}, target)
+    except ValueError:
+        logger.warning(
+            "Control target %r is not resolvable on this deployment; execution runs unstamped",
+            target,
+        )
+        return False
+    except Exception:
+        logger.debug(
+            "Could not check target resolvability; execution runs unstamped", exc_info=True
+        )
+        return False
+    return True
+
+
+def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
+    """Stamp the session's control target into *sandbox_env*; return the target.
+
+    The stamp is what routes the sandbox: :func:`osprey.runtime._get_connector`
+    builds ``control_system.connector.<resolved type>`` from it, and the
+    runtime's write path refuses once the generation moves under it.
+
+    With no resolvable session record — or a record naming a target this
+    deployment cannot build — every stamp name is *removed* rather than left
+    alone. This process's own environment can carry a stamp inherited from an
+    ancestor, and passing that through would route agent code off a target this
+    session never selected — the absence of a stamp has to mean "baseline", so
+    it has to be spelled as absence.
+    """
+    record = _session_target_record()
+    if record is None or not _target_is_resolvable(str(record["target"])):
+        for name in _STAMP_ENV_NAMES:
+            sandbox_env.pop(name, None)
+        return CONTROL_TARGET_BASELINE
+
+    target = str(record["target"])
+    sandbox_env[ENV_CONTROL_TARGET] = target
+    sandbox_env[ENV_CONTROL_TARGET_GENERATION] = str(int(record["generation"]))
+    # The record's identity, so the sandbox pins against this server's file and
+    # not against whatever else is in the state directory.
+    sandbox_env[ENV_CONTROL_TARGET_STATE_PID] = str(int(record["server_pid"]))
+    return target
+
+
+@contextlib.contextmanager
+def _in_flight_marker(control_target: str):
+    """Record that an execution is running, for as long as it runs.
+
+    The control-system server refuses a target switch while a marker is live:
+    the sandbox was stamped with a target and a generation at launch, so
+    retiring the connector host under it would move the machine beneath a run
+    that is still talking to it. The two servers are separate processes, so the
+    claim travels through the directory they already share.
+
+    The file is named for THIS process, which is the one that will remove it in
+    the ``finally`` below. A marker whose PID names no live process is residue
+    from a killed executor and the reader sweeps it — without that, one killed
+    executor would make every later switch impossible.
+
+    A marker that cannot be written is logged and skipped rather than failing
+    the execution: the run is what the operator asked for, and the switch tool
+    losing sight of it is the smaller harm — the marker is ADVISORY, and the
+    guarantee that a run cannot be moved onto a machine nobody selected is the
+    generation pin, which refuses this sandbox's writes once the session moves
+    past the generation it launched under. See
+    :mod:`osprey.mcp_server.control_system.tools.control_target` for the reader
+    and for why the contract is stated on both sides.
+    """
+    path = None
+    tmp = None
+    try:
+        from osprey.mcp_server.control_system import target_state
+
+        directory = target_state.state_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = (
+            directory
+            / f"{INFLIGHT_FILE_PREFIX}{os.getpid()}_{uuid.uuid4().hex}{INFLIGHT_FILE_SUFFIX}"
+        )
+        record = {
+            "pid": os.getpid(),
+            "owner_ppid": os.getppid(),
+            "target": control_target,
+            "started_at": datetime.now().astimezone().isoformat(),
+        }
+        # Temp file in the same directory, then a rename: os.replace is atomic
+        # only within one filesystem, and a reader must never meet a half-written
+        # marker. The temp file is removed on failure so a state directory this
+        # process could not write to does not fill with litter either.
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        if tmp is not None:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
+        logger.warning(
+            "Could not record the in-flight execution marker; a target switch during "
+            "this run will not be refused",
+            exc_info=True,
+        )
+        path = None
+
+    try:
+        yield
+    finally:
+        if path is not None:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:  # pragma: no cover - unwritable state dir
+                logger.warning("Could not remove the in-flight execution marker %s", path)
+
+
 async def _execute_via_local(
     code: str,
     execution_mode: str,
@@ -343,31 +589,41 @@ async def _execute_via_local(
     # write however the call is spelled — the pre-execution regex only ever
     # saw the standard spellings.
     sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode
+    # Which machine those writes and reads reach is the second runtime property
+    # of the subprocess, and it is stamped for the same reason as the mode: the
+    # sandbox is a fresh process that builds its own connector, so the target
+    # has to travel with it rather than being re-derived there.
+    control_target = _apply_target_stamp(sandbox_env)
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            python_bin,
-            str(script_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(project_root),
-            env=sandbox_env,
-        )
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        stdout_text = stdout_bytes.decode("utf-8", errors="replace")
-        stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        elapsed = time.time() - start_time
-        return ExecutionResult(
-            success=False,
-            stdout="",
-            stderr=f"Execution timed out after {timeout} seconds",
-            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
-            execution_time_seconds=elapsed,
-            error_message=f"Execution timed out after {timeout} seconds",
-        )
+    # A switch of the session target retires the connector host this run was
+    # stamped against, so the switch tool has to be able to see that a run is
+    # under way. The marker exists for exactly as long as the sandbox process.
+    with _in_flight_marker(control_target):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                python_bin,
+                str(script_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(project_root),
+                env=sandbox_env,
+            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            elapsed = time.time() - start_time
+            return ExecutionResult(
+                success=False,
+                stdout="",
+                stderr=f"Execution timed out after {timeout} seconds",
+                execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+                execution_time_seconds=elapsed,
+                error_message=f"Execution timed out after {timeout} seconds",
+                control_target=control_target,
+            )
 
     elapsed = time.time() - start_time
 
@@ -397,6 +653,7 @@ async def _execute_via_local(
         execution_method_used=EXECUTION_METHOD_SUBPROCESS,
         execution_time_seconds=elapsed,
         error_message=error_msg,
+        control_target=control_target,
     )
 
 

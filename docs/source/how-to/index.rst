@@ -42,7 +42,7 @@ Build & Deploy a Project
       translation proxy, and benchmark their capability with ``scripts/benchmark/``.
 
    .. grid-item-card:: Deploy a Project
-      :link: deploy-project
+      :link: deploy-project/index
       :link-type: doc
 
       Create, configure, and deploy an OSPREY project from ``osprey build`` through
@@ -84,19 +84,13 @@ Run & Operate the Agent
       channels, what each attaches, and the ``osprey feedback`` verbs that read
       the results back.
 
-   .. grid-item-card:: Use the CLI Chat Interface
-      :link: use-cli-chat
+   .. grid-item-card:: Command-Line Agent
+      :link: cli-agent
       :link-type: doc
 
-      Run the Osprey agent in your native terminal with companion services accessible
-      in a browser.
-
-   .. grid-item-card:: Non-Interactive Agent Queries
-      :link: non_interactive_query
-      :link-type: doc
-
-      Run the OSPREY agent headlessly from CI pipelines and automated workflows
-      with ``osprey query`` — read-only, structured JSON output, and clear exit codes.
+      Run the Osprey agent from your terminal — interactively with ``osprey
+      chat``, or headlessly with ``osprey query`` for CI pipelines: read-only,
+      structured JSON output, and clear exit codes.
 
    .. grid-item-card:: Event Dispatch
       :link: event-dispatch
@@ -139,6 +133,13 @@ Run & Operate the Agent
 
       The report envelope, the per-check row shape, the exit codes, and the
       ``jq`` patterns for consuming all of it from a CI job.
+
+   .. grid-item-card:: Switch the Control Target
+      :link: switch-control-target
+      :link-type: doc
+
+      Rehearse work on the virtual accelerator and then run it on the real
+      machine, in one session — the roster, the live gate, and what refuses.
 
 Extend & Integrate
 ------------------
@@ -188,6 +189,14 @@ Bundled Services & Tutorials
       Search, filter, and explore control system channels using the Channel Finder
       service and its web interface.
 
+   .. grid-item-card:: Search the Facility Graph
+      :link: use-facility-graph
+      :link-type: doc
+
+      Let the Osprey agent answer structure questions — device rollups, section
+      walks, which PVs a device exposes — with read-only Cypher over the
+      facility knowledge graph.
+
    .. grid-item-card:: ARIEL Logbook Search
       :link: ariel/index
       :link-type: doc
@@ -223,24 +232,25 @@ Bundled Services & Tutorials
    deploy-a-facility
    configure-providers
    run-open-models
-   deploy-project
+   deploy-project/index
    containerize-project
    web-terminal/index
    multi-user/index
    send-feedback
-   use-cli-chat
-   non_interactive_query
+   cli-agent
    event-dispatch
    chat-bridges/index
    protected-set
    monitor-agent
    configure-health-checks
    health-json-contract
+   switch-control-target
    add-connector
    add-mcp-server
    use-python-executor
    use-facility-knowledge
    use-channel-finder
+   use-facility-graph
    ariel/index
    use-virtual-accelerator
    bluesky/index

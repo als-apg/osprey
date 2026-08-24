@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 from osprey.services.channel_finder.databases.template import ChannelDatabase
@@ -52,6 +53,16 @@ def tier3_copy(tmp_path: Path) -> Path:
 
 
 class TestCrossParadigmIdentity:
+    def test_graph_is_the_only_paradigm_this_generator_skips(self):
+        """No generated graph database, stated as a relationship.
+
+        Every registered paradigm except ``graph`` gets a tier-3 file written
+        and cross-checked here. Graph's store is seeded from the facility
+        corpus TTL instead, so it has nothing to generate — and registering
+        any other paradigm fails this assertion until it gets a writer.
+        """
+        assert set(TIER3_FILENAMES) == set(VALID_CHANNEL_FINDER_MODES) - {"graph"}
+
     def test_generated_dbs_share_one_address_set(self, tier3_copy: Path):
         written = generate(tier3_copy)
         # generate() already asserts this internally; re-derive independently

@@ -81,6 +81,16 @@ The user's current gallery selection is automatically included in your context
 via the `UserPromptSubmit` hook (reads `focus_state.txt`). Use this to
 understand what the user is looking at.
 
+## Subagent Hand-Backs
+
+A subagent that files its answer returns a pointer, not the answer:
+`**Results** (artifact_id: …)` (or `**Channels found**`), a headline of a few
+sentences, and the identifiers the question asked for. The artifact holds the
+full answer. Call `artifact_focus(artifact_id)` on it so the user sees the
+whole thing in the gallery, and relay the headline — do not re-type the
+artifact's tables or listings into your reply. Read it with
+`artifact_read(artifact_id)` only when the next step needs its detail.
+
 ## Math in Markdown Artifacts
 
 The gallery renders LaTeX math via KaTeX. Use `$...$` for inline math and

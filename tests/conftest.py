@@ -939,3 +939,20 @@ class TestRegistryProvider(RegistryConfigProvider):
     # to avoid state pollution between tests
 
     return config_file
+
+
+@pytest.fixture(scope="session")
+def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A directory holding neosemantics + APOC, resolved once per session.
+
+    Every lane that starts a real graph store mounts the same two jars, and the
+    expensive half of resolving them is a release download — so this is shared
+    across lanes even though the *stores* are not (two of them wipe the graph
+    between corpora and therefore run their own module-scoped container).
+
+    Skips, with the reason, on a host that could not start the container:
+    see :func:`tests._graphdb_container.resolve_plugin_dir`.
+    """
+    from tests._graphdb_container import resolve_plugin_dir
+
+    return resolve_plugin_dir(tmp_path_factory)

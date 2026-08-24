@@ -36,6 +36,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_facility_bundle,
+    config_needs_graphdb_password,
     config_needs_launch_token,
     effective_image_source,
     entry_requires_login,
@@ -515,6 +516,7 @@ def render_web_terminals(
     dispatcher_personas: set[str] | None = None,
     ariel_personas: set[str] | None = None,
     launch_token_personas: set[str] | None = None,
+    graphdb_personas: set[str] | None = None,
     facility_bundle_personas: set[str] | None = None,
     facility_bundle_gid: int | None = None,
     archiver_password_personas: dict[str, str] | None = None,
@@ -577,6 +579,22 @@ def render_web_terminals(
             what lets the ``bluesky`` MCP server arm a queue start without a
             second confirmation, so a read-only persona holding it would be able
             to move hardware. ``None`` emits no line.
+        graphdb_personas: Persona names whose project configures a graph store,
+            and whose users therefore need the Neo4j password ``osprey up``
+            minted into the deploy ``.env`` (see
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_graphdb_password`).
+            Same placement and same reason as ``dispatcher_personas``: the
+            consumer is the ``graph`` MCP server inside the container, which
+            resolves what to dial and with which password through
+            :func:`osprey.deployment.graphdb_service.resolve_graphdb_connection`
+            — that reads ``GRAPHDB_PASSWORD`` from the environment and otherwise
+            falls back to the shipped default, so a container that never
+            receives it authenticates with the wrong password against a store
+            initialized with the minted one, and every graph query fails on
+            auth. Unlike ``launch_token_personas`` this set is not a tier
+            boundary: Neo4j has one write-capable account, and read-only-ness is
+            enforced by that server's read transactions rather than by which
+            persona holds the credential. ``None`` emits no line.
         facility_bundle_personas: Persona names whose project names a
             ``facility_knowledge.bundle_path``, and whose container therefore
             gets the deployment's knowledge bundle bind-mounted (see
@@ -799,6 +817,15 @@ def render_web_terminals(
                     if entry.get("persona")
                     else config_needs_launch_token(root)
                 ),
+                # Whether this user's container gets the graph store's Neo4j
+                # password (see the `graphdb_personas` arg). Persona-less
+                # entries are answered from this same config, with no disk read,
+                # exactly as above.
+                "wants_graphdb": (
+                    entry["persona"] in (graphdb_personas or set())
+                    if entry.get("persona")
+                    else config_needs_graphdb_password(root)
+                ),
                 # The NAME of the variable this user's archiver connector
                 # authenticates with (see the `archiver_password_personas`
                 # arg), or None for no grant. Persona-less entries are
@@ -816,7 +843,7 @@ def render_web_terminals(
                 # container_project_dir, so the target is per service and the
                 # template must not be able to emit a mount without one.
                 # Persona-less entries are answered from this same config with
-                # no disk read, exactly as the three grants above.
+                # no disk read, exactly as the four grants above.
                 "container_bundle_dir": (
                     _container_bundle_dir(root, entry["container_project_dir"])
                     if (

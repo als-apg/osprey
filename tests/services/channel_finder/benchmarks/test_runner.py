@@ -3,6 +3,7 @@
 Tests cover:
   - BenchmarkRunner initialization
   - Config reading and query resolution
+  - Pipeline-mode validation (unresolvable mode, paradigm with no database file)
   - run_queries with mocked SDK calls
   - Query index filtering
   - JSON output saving when output_dir is provided
@@ -11,8 +12,13 @@ Tests cover:
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+import types
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,10 +26,12 @@ import yaml
 
 from osprey.services.channel_finder.benchmarks.models import BenchmarkRun
 from osprey.services.channel_finder.benchmarks.runner import (
+    PARADIGM_CONFIG_KEYS,
     BenchmarkRunner,
     model_slug,
     read_db_path_from_config,
 )
+from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
 # Module path for patching
 _RUNNER_MOD = "osprey.services.channel_finder.benchmarks.runner"
@@ -544,3 +552,293 @@ class TestReadDbPathFromConfig:
 
         with pytest.raises(KeyError):
             read_db_path_from_config(project_dir, "in_context")
+
+
+class TestPipelineModeValidation:
+    """The runner refuses to guess at a pipeline mode it cannot resolve."""
+
+    def _rewrite_config(self, project_dir: Path, config: dict) -> None:
+        (project_dir / "config.yml").write_text(yaml.dump(config), encoding="utf-8")
+
+    def test_missing_pipeline_mode_raises(self, tmp_path: Path):
+        # Construct against a valid config, then strip the mode: construction
+        # itself resolves the backend from it, so the mode has to be there first.
+        project_dir = _make_project_dir(tmp_path)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+        self._rewrite_config(project_dir, {"channel_finder": {"pipelines": {}}})
+
+        with pytest.raises(PipelineModeError) as excinfo:
+            runner._resolve_pipeline_mode()
+        assert "pipeline_mode" in str(excinfo.value)
+
+    def test_missing_channel_finder_block_raises(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+        self._rewrite_config(project_dir, {"deployment": {"bind_address": "127.0.0.1"}})
+
+        with pytest.raises(PipelineModeError):
+            runner._resolve_pipeline_mode()
+
+    def test_paradigm_without_a_database_file_raises_naming_the_mode(self, tmp_path: Path):
+        """``read_db_path_from_config`` only speaks for file-backed paradigms.
+
+        A paradigm whose store is a service rather than a database file has no
+        entry in ``PARADIGM_CONFIG_KEYS``. Asking this helper for its path is a
+        caller mistake, and the error has to name the mode so the caller can see
+        which one it asked about.
+        """
+        project_dir = _make_project_dir(tmp_path, pipeline_mode="quantum")
+
+        with pytest.raises(PipelineModeError) as excinfo:
+            read_db_path_from_config(project_dir, "quantum")
+        message = str(excinfo.value)
+        assert "quantum" in message
+        for paradigm in PARADIGM_CONFIG_KEYS:
+            assert paradigm in message
+
+    def test_count_channels_degrades_to_zero_without_a_database_file(self, tmp_path: Path):
+        """The channel count is observability, so it must not abort a run.
+
+        ``_count_channels`` reports a field on the saved run, not a score. A
+        paradigm with no database file to count leaves it at zero rather than
+        taking the whole benchmark down.
+        """
+        project_dir = _make_project_dir(tmp_path, pipeline_mode="quantum")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+
+        assert runner._count_channels() == 0
+
+
+# ---------------------------------------------------------------------------
+# Graph-paradigm channel census
+# ---------------------------------------------------------------------------
+
+_GRAPHDB_BLOCK = {"uri": "bolt://graph.example:7687", "username": "reader"}
+
+
+def _make_graph_project_dir(
+    tmp_path: Path,
+    *,
+    graphdb: dict | None = None,
+) -> Path:
+    """Create a graph-mode project: a store block and no ``database.path``."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(exist_ok=True)
+
+    queries_path = project_dir / "data" / "benchmark_queries.json"
+    queries_path.parent.mkdir(parents=True, exist_ok=True)
+    queries_path.write_text(json.dumps(SAMPLE_QUERIES, indent=2), encoding="utf-8")
+
+    config = {
+        "channel_finder": {
+            "pipeline_mode": "graph",
+            "benchmark": {"dataset_path": "data/benchmark_queries.json"},
+        },
+        "services": {"graphdb": _GRAPHDB_BLOCK if graphdb is None else graphdb},
+    }
+    (project_dir / "config.yml").write_text(yaml.dump(config), encoding="utf-8")
+    return project_dir
+
+
+@dataclass
+class _FakeGraphResult:
+    """Stand-in for a neo4j ``Result`` carrying a single count row."""
+
+    record: dict | None
+
+    def single(self) -> dict | None:
+        return self.record
+
+
+@dataclass
+class _FakeGraphSession:
+    """Records the Cypher it is asked to run and answers with a fixed row."""
+
+    record: dict | None = field(default_factory=lambda: {"n": 2908})
+    error: Exception | None = None
+    queries: list[str] = field(default_factory=list)
+
+    def run(self, query: str, **_params: object) -> _FakeGraphResult:
+        self.queries.append(query)
+        if self.error is not None:
+            raise self.error
+        return _FakeGraphResult(self.record)
+
+    def __enter__(self) -> _FakeGraphSession:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+
+@dataclass
+class _GraphSessionStub:
+    """Replacement for ``graph_seeder.open_session`` that records the dial."""
+
+    session: _FakeGraphSession = field(default_factory=_FakeGraphSession)
+    open_error: Exception | None = None
+    connections: list[tuple[str, str, str]] = field(default_factory=list)
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> _GraphSessionStub:
+        from osprey.services.facility_knowledge.seeder import graph_seeder
+
+        @contextmanager
+        def _open_session(uri: str, username: str, password: str, **_: object):
+            self.connections.append((uri, username, password))
+            if self.open_error is not None:
+                raise self.open_error
+            yield self.session
+
+        monkeypatch.setattr(graph_seeder, "open_session", _open_session)
+        return self
+
+
+class TestGraphChannelCensus:
+    """The graph paradigm counts its channels in the store, or fails loudly.
+
+    A graph project has no channel database file, so the census dials the
+    configured store instead. It is deliberately *not* wrapped in the
+    file-paradigm's degrade-to-zero handler: a run whose store is unreachable
+    must not save a plausible-looking ``channel_count`` of zero.
+    """
+
+    def test_census_counts_channel_bindings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stub = _GraphSessionStub().install(monkeypatch)
+        runner = BenchmarkRunner(_make_graph_project_dir(tmp_path), model=_HAIKU_MODEL)
+
+        assert runner._count_channels() == 2908
+        assert len(stub.session.queries) == 1
+        cypher = stub.session.queries[0]
+        assert "ChannelBinding" in cypher
+        assert "count(" in cypher
+
+    def test_census_dials_the_configured_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Address and account come from config; the password from the env."""
+        monkeypatch.setenv("GRAPHDB_PASSWORD", "s3cret")
+        stub = _GraphSessionStub().install(monkeypatch)
+        runner = BenchmarkRunner(_make_graph_project_dir(tmp_path), model=_HAIKU_MODEL)
+
+        runner._count_channels()
+
+        assert stub.connections == [("bolt://graph.example:7687", "reader", "s3cret")]
+
+    def test_census_does_not_look_for_a_database_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The graph branch pre-empts the file-paradigm path entirely."""
+        _GraphSessionStub().install(monkeypatch)
+
+        def _explode(*_args: object, **_kwargs: object) -> Path:
+            raise AssertionError("graph census must not read a database path")
+
+        monkeypatch.setattr(f"{_RUNNER_MOD}.read_db_path_from_config", _explode)
+        runner = BenchmarkRunner(_make_graph_project_dir(tmp_path), model=_HAIKU_MODEL)
+
+        assert runner._count_channels() == 2908
+
+    def test_unreachable_store_raises_instead_of_reporting_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stub = _GraphSessionStub()
+        stub.open_error = RuntimeError("Unable to connect to bolt://graph.example:7687")
+        stub.install(monkeypatch)
+        runner = BenchmarkRunner(_make_graph_project_dir(tmp_path), model=_HAIKU_MODEL)
+
+        with pytest.raises(RuntimeError, match="Unable to connect"):
+            runner._count_channels()
+
+    def test_failing_query_raises_instead_of_reporting_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stub = _GraphSessionStub()
+        stub.session.error = RuntimeError("Neo.ClientError.Statement.SyntaxError")
+        stub.install(monkeypatch)
+        runner = BenchmarkRunner(_make_graph_project_dir(tmp_path), model=_HAIKU_MODEL)
+
+        with pytest.raises(RuntimeError, match="SyntaxError"):
+            runner._count_channels()
+
+    def test_answerless_store_raises_naming_the_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A count query that returns no row is a broken answer, not a zero."""
+        stub = _GraphSessionStub()
+        stub.session.record = None
+        stub.install(monkeypatch)
+        runner = BenchmarkRunner(_make_graph_project_dir(tmp_path), model=_HAIKU_MODEL)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            runner._count_channels()
+        assert "bolt://graph.example:7687" in str(excinfo.value)
+
+    def test_census_closes_the_driver(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Through the real ``open_session``, against a fake neo4j driver.
+
+        The runner is a short-lived process that dials the store once, so the
+        driver it opens has to be closed on the way out — which is exactly what
+        ``open_session`` guarantees and why the census goes through it.
+        """
+        session = _FakeGraphSession()
+        opened: dict[str, object] = {}
+
+        class _FakeDriver:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def session(self, **kwargs: object) -> _FakeGraphSession:
+                opened["session_kwargs"] = kwargs
+                return session
+
+            def close(self) -> None:
+                self.closed = True
+
+        driver = _FakeDriver()
+
+        def _make_driver(uri: str, auth: tuple[str, str]) -> _FakeDriver:
+            opened["uri"] = uri
+            opened["auth"] = auth
+            return driver
+
+        fake_neo4j = types.ModuleType("neo4j")
+        fake_neo4j.GraphDatabase = SimpleNamespace(driver=_make_driver)  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "neo4j", fake_neo4j)
+        monkeypatch.setenv("GRAPHDB_PASSWORD", "s3cret")
+        runner = BenchmarkRunner(_make_graph_project_dir(tmp_path), model=_HAIKU_MODEL)
+
+        assert runner._count_channels() == 2908
+        assert driver.closed is True
+        assert opened["uri"] == "bolt://graph.example:7687"
+        assert opened["auth"] == ("reader", "s3cret")
+
+    def test_file_paradigm_census_never_dials_a_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The file paradigms keep counting rows in their database file."""
+        stub = _GraphSessionStub().install(monkeypatch)
+        project_dir = _make_project_dir(tmp_path, pipeline_mode="in_context")
+        db_path = project_dir / "data" / "channel_databases" / "channels.json"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.write_text(
+            json.dumps([{"name": "SR:A"}, {"name": "SR:B"}, {"name": "SR:C"}]),
+            encoding="utf-8",
+        )
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+
+        assert runner._count_channels() == 3
+        assert stub.connections == []
+
+    def test_module_import_does_not_load_neo4j(self) -> None:
+        """The driver import stays function-local, off the benchmark import path."""
+        source = (
+            "import sys\n"
+            "from osprey.services.channel_finder.benchmarks import runner\n"
+            "assert 'neo4j' not in sys.modules, 'neo4j imported at module scope'\n"
+        )
+        result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
