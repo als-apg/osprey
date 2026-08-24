@@ -1009,6 +1009,16 @@ class TestWhenTheBenchMachineGoesAway:
             message = captured["envelope"]["error_message"]
             assert PROBE_CHANNEL in message, message
             assert "timeout after" in message, message
+            # The envelope names the MACHINE, not only the channel (#697): a
+            # dead-IOC timeout on the live machine must be attributable from
+            # the payload alone, without reconstructing the session's target
+            # from memory. Label and endpoint come from config the same way the
+            # roster renders them; the name from the supervisor's own record.
+            assert "active target: LIVE MACHINE" in message, message
+            identity = captured["envelope"]["details"]["active_target"]
+            assert identity["name"] == "live"
+            assert identity["label"] == "LIVE MACHINE"
+            assert identity["endpoint"].endswith(f":{ioc.port}")
             assert invalidated == ["control_system"]
             # A dead machine is not a switch.
             assert manager.active_target() == "live"

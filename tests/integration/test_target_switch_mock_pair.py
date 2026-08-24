@@ -517,6 +517,11 @@ class TestChildDeathIsRefusedThenRecovered:
         with assert_raises_error(error_type="connection_error") as captured:
             await asyncio.wait_for(hung, SETTLE_TIMEOUT_S)
         assert "connector-host child" in captured["envelope"]["error_message"]
+        # The envelope names the machine the session was pointed at (#697):
+        # composed through the real context and the real supervisor, not the
+        # patched resolver the unit suite uses.
+        assert captured["envelope"]["details"]["active_target"]["name"] == "live"
+        assert "active target" in captured["envelope"]["error_message"]
 
         # The session is still pointed where it was — a dead child is not a
         # switch — and the seam has no child to hand out.

@@ -273,6 +273,20 @@ widget is refused, and ``osprey health`` keeps reporting against the baseline
 with an added line naming both targets. Both talk to the deployment's own
 configured stack, which the session's choice does not move.
 
+Failures name the machine they happened on
+==========================================
+
+On a deployment with two targets, "the read of ``SR:...:RB`` timed out" is a
+materially different situation on the live machine than on the simulator. So
+every control-system failure envelope — a connect failure, a timeout, a limits
+refusal, a write the control system itself denied — names the target the
+session was pointed at when it failed: a human clause in the message
+(``active target: LIVE MACHINE at 10.0.0.5:5064``) and a machine-readable
+``details.active_target`` block carrying the target name, its label, and the
+endpoint where the configuration knows one. The agent narrating a failure, and
+any script asserting on one, can attribute it to the right machine from the
+payload alone instead of reconstructing the answer from session memory.
+
 Knowing which machine you are on
 ================================
 
