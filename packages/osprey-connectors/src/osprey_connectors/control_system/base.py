@@ -9,10 +9,12 @@ subscribing to changes, and retrieving metadata from various control systems.
 import functools
 import logging
 import os
+import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("osprey_connectors.control_system")
@@ -123,25 +125,100 @@ class ChannelWriteResult:
 
 
 def is_readonly_run() -> bool:
-    """True inside a python-executor sandbox launched with ``execution_mode="readonly"``.
+    """True when this process must refuse control-system writes, whatever it is.
 
-    The executor exports ``OSPREY_EXECUTION_MODE`` into its subprocess so the
-    per-run claim is enforceable at runtime, independent of the pre-execution
-    pattern scan. Outside the sandbox the variable is unset and only the
-    deployment posture (``control_system.writes_enabled``) applies.
+    Two things set ``OSPREY_EXECUTION_MODE=readonly``, and this answers yes to
+    both:
+
+    * the python executor, onto the sandbox subprocess of a run submitted with
+      ``execution_mode="readonly"`` — so the per-run claim is enforceable at
+      runtime, independent of the pre-execution pattern scan;
+    * a terminal session switched to the **sandbox posture**, which puts the
+      variable in the environment of every process that session launched — the
+      MCP servers included, so ``mcp__controls__channel_write`` is refused
+      right here rather than only by the (best-effort) hook chain.
+
+    Both are refusals; only the operator-facing wording differs, which
+    :func:`_writes_disabled_result` decides. Outside either, the variable is
+    unset and only the deployment posture
+    (``control_system.writes_enabled``) applies. The comparison is by VALUE,
+    never presence: ``readwrite`` is the writes posture, and a stale or
+    misspelled value must not silently sandbox anything.
     """
     return os.environ.get("OSPREY_EXECUTION_MODE") == "readonly"
+
+
+#: Package path of the OSPREY MCP servers, as consecutive parts of the file
+#: they are launched with (``python -m osprey.mcp_server.<server>`` sets
+#: ``sys.argv[0]`` to that package's ``__main__.py``).
+_MCP_SERVER_PACKAGE_PARTS = ("osprey", "mcp_server")
+
+
+def _in_mcp_server_process() -> bool:
+    """True when this process is an OSPREY MCP server, not a script it ran.
+
+    This is the discriminator between the two readonly stories, and it
+    deliberately does not look at the environment: it *cannot*. The session
+    posture is env-only by design, and the executor builds its sandbox
+    subprocess from a copy of its own environment — so the same variable, at
+    the same value, arrives in both places and says nothing about which one
+    this is. What does differ is the process: an MCP server runs the server
+    package's ``__main__``, while the executor's sandbox runs a script file it
+    wrote for one submission.
+
+    Answering **False** is the safe way to be wrong. It yields the older,
+    script-shaped message, which is what every readonly refusal said before
+    the posture existed; a launch shape this check does not recognise
+    therefore degrades to that text rather than to a message inventing a
+    session posture that may not exist. The refusal itself is identical either
+    way — only the sentence telling the operator where to go changes.
+    """
+    argv = getattr(sys, "argv", None)
+    if not argv:
+        return False
+    try:
+        parts = Path(argv[0]).parts
+    except (TypeError, ValueError):
+        return False
+    span = len(_MCP_SERVER_PACKAGE_PARTS)
+    return any(parts[i : i + span] == _MCP_SERVER_PACKAGE_PARTS for i in range(len(parts)))
 
 
 def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteResult:
     """Build the refusal result for a write the monitor never attempted.
 
-    Two reasons share this shape: the deployment has writes off, or this
-    particular script was submitted readonly. The message names the right one
-    so the operator is not sent to flip ``writes_enabled`` when the deployment
-    already allows writes and the run simply was not declared readwrite.
+    Three reasons share this shape, and each sends the operator somewhere
+    different — so the message names the one that actually refused:
+
+    * the **session posture** is sandbox, which holds every process that
+      session launched in readonly execution mode. Nothing is wrong with the
+      deployment and there is no script involved: the way out is the posture
+      toggle on the terminal card.
+    * this **script** was submitted readonly. The deployment may well allow
+      writes; the run simply was not declared readwrite, and resubmitting it
+      as readwrite (with human approval) is the remedy.
+    * the **deployment** has writes off, which is the only one of the three
+      that ``writes_enabled`` governs.
+
+    Only the wording forks. ``blocked`` and ``refusal_reason`` stay the same
+    for all three: the same thing happened — the monitor refused, and the
+    control system was never asked — and every caller of
+    :func:`raise_for_write_result` already handles it under that one name.
     """
-    if is_readonly_run():
+    if is_readonly_run() and _in_mcp_server_process():
+        # Deliberately carries the same "readonly execution mode" substring the
+        # script message does (wrapper.READONLY_REFUSAL_MARKER): it is true of
+        # the posture as well, and it keeps this refusal recognisable to the
+        # stderr matcher if a future launch shape ever produces it inside a
+        # subprocess.
+        message = (
+            f"Write to '{channel_address}' blocked: this terminal session is in the "
+            "sandbox posture — readonly execution mode is in force for the whole "
+            "session, not for a single script. Switch the session to the writes "
+            "posture from the terminal card if the write is intended; config.yml "
+            "is not the gate here."
+        )
+    elif is_readonly_run():
         message = (
             f"Write to '{channel_address}' blocked: this script is running in "
             "readonly execution mode. Resubmit it with execution_mode='readwrite' "

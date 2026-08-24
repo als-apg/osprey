@@ -543,6 +543,8 @@ _EXPECTED_OPERATOR_ROUTES = [
     ("PUT", "/api/claude-memory/CLAUDE.md"),
     ("DELETE", "/api/claude-memory/CLAUDE.md"),
     ("POST", "/api/chat"),
+    ("POST", "/api/terminal/posture"),
+    ("GET", "/api/terminal/posture"),
     ("DELETE", "/api/chat/abc"),
     ("POST", "/api/feedback"),
     ("POST", "/api/feedback/bundle"),

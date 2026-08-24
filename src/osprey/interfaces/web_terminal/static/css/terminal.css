@@ -1479,3 +1479,201 @@ html[data-ui-mode="simple"] #terminal-container {
   0%, 100% { box-shadow: 0 0 3px currentColor; }
   50% { box-shadow: 0 0 8px currentColor; }
 }
+
+/* ---- Session posture badge + its confirm dialog ----
+   The per-session runtime sandbox toggle (posture-badge.js). The badge is a
+   header chip in the "+ New" idiom — bg-elevated fill, hairline border,
+   radius-xs — and, like .session-led, lets a DOT carry the state colour
+   rather than tinting the label (warning is not gated for body text in every
+   theme). It sits left of the session selector, so it rides along when
+   dock-tab.js adopts .terminal-header into the tile strip. */
+
+.posture-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  padding: 3px 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+/* `display: inline-flex` above outranks the user-agent [hidden] rule, so the
+   hidden state (no session yet) needs saying explicitly — the same trap
+   `.status-item[hidden]` in files.css documents. */
+.posture-badge[hidden] {
+  display: none;
+}
+
+.posture-badge:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+  background: var(--accent-tint-08);
+}
+
+/* Sandboxed is the state worth noticing at a glance: the label goes primary
+   and the border picks up the dot's colour. */
+.posture-badge[data-posture="sandbox"] {
+  color: var(--text-primary);
+  border-color: var(--color-warning);
+}
+
+/* Nothing to click: a sandboxed session on a render that has writes off. The
+   badge stays fully legible — it is still the state readout — and only loses
+   its affordance. */
+.posture-badge:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+/* Inside the adopted tile bar the badge joins the bar's 24px control
+   geometry, exactly as "+ New" does. */
+.tile-tab .posture-badge {
+  height: 24px;
+  padding: 0 9px;
+}
+
+.posture-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+.posture-badge[data-posture="sandbox"] .posture-badge-dot {
+  background: var(--color-warning);
+}
+
+/* The confirm dialog. Same geometry and motion as the settings drawer's
+   warning dialog, in this feature's own neutral tone: a posture switch is a
+   deliberate operator action, not an error. */
+
+.posture-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay-black-70);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--duration-base) ease;
+}
+
+.posture-modal-overlay.visible {
+  opacity: 1;
+}
+
+.posture-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dialog);
+  max-width: 460px;
+  width: 90vw;
+  padding: var(--space-5);
+  transform: scale(0.95);
+  transition: transform var(--duration-base) ease;
+}
+
+.posture-modal-overlay.visible .posture-modal {
+  transform: scale(1);
+}
+
+.posture-modal-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+}
+
+.posture-modal-body {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: var(--leading-loose);
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+.posture-modal-body p {
+  margin: 8px 0;
+}
+
+.posture-modal-body strong {
+  color: var(--text-primary);
+}
+
+/* The server's own refusal text (403 render-has-no-writes, 409 unknown
+   session). Lives inside the dialog because that is where the operator is
+   looking when it arrives. */
+.posture-modal-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-error);
+  background: var(--error-tint-15);
+  border: 1px solid var(--error-tint-40);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: var(--space-3);
+}
+
+.posture-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.posture-modal-cancel,
+.posture-modal-confirm {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all var(--wt-transition-fast);
+}
+
+.posture-modal-cancel {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+}
+
+.posture-modal-cancel:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.posture-modal-confirm {
+  color: var(--text-primary);
+  background: var(--accent-tint-08);
+  border: 1px solid var(--border-accent);
+}
+
+.posture-modal-confirm:hover:not(:disabled) {
+  background: var(--accent-tint-12);
+  border-color: var(--color-accent);
+}
+
+.posture-modal-cancel:disabled,
+.posture-modal-confirm:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}

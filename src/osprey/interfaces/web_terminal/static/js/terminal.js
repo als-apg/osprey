@@ -563,6 +563,27 @@ export function pasteToTerminal(/** @type {string} */ text) {
 }
 
 /**
+ * In-page listeners for "which session is this card on?" — the same question
+ * the panel iframes get answered by postMessage below, asked by hub modules
+ * that live in this document (the posture badge). Kept as one list rather
+ * than a DOM event so the answer travels through exactly the seam every id
+ * change already funnels into.
+ * @type {((sessionId: string) => void)[]}
+ */
+const sessionChangeListeners = [];
+
+/**
+ * Subscribe to active-session changes. The callback fires for every id the
+ * card settles on — a new session's `session_info`, a resume confirmation, a
+ * session switch — but not for the current id at subscribe time; callers that
+ * need the id now read {@link getCurrentSessionId}.
+ * @param {(sessionId: string) => void} fn
+ */
+export function onSessionChange(fn) {
+  sessionChangeListeners.push(fn);
+}
+
+/**
  * Notify all panel iframes that the active session has changed.
  * @param {string} sessionId - The new session UUID.
  */
@@ -575,6 +596,14 @@ export function notifySessionChange(sessionId) {
       );
     } catch { /* cross-origin — ignore */ }
   });
+  // One listener throwing must not cost the others their notification.
+  for (const fn of sessionChangeListeners) {
+    try {
+      fn(sessionId);
+    } catch (err) {
+      console.error('osprey web_terminal: a session-change listener threw', err);
+    }
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import hashlib
 import os
 import pty
 import signal
@@ -68,6 +69,75 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
         env.update(extra_env)
 
     return env
+
+
+#: Environment names deliberately EXCLUDED from the pool env fingerprint.
+#:
+#: The fingerprint decides whether a warm pooled PTY may be reattached or has
+#: to be killed and respawned, so its scope is a safety/liveness trade-off and
+#: is set here as a *deny* list rather than an allow list: every name a caller
+#: passes counts unless it is named below. A privilege-bearing variable added
+#: later is therefore covered by default — the worst a name nobody thought
+#: about can do is force a respawn, never let a stale child outlive the
+#: privilege change that was supposed to reach it.
+#:
+#: The three exclusions are the names that legitimately differ between two
+#: connections to the *same pool key*, as built by
+#: :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`:
+#:
+#: * ``OSPREY_SESSION_ID`` — set only when the handler knows the Claude session
+#:   id, and then equal to the pool key itself. A session spawned fresh (id
+#:   dictated on the CLI, ``claude_session_id`` still ``None``) carries no such
+#:   variable; switching back to that same session later resumes it by id and
+#:   does. Absent-or-equal-to-the-key: it names the session the pool already
+#:   keyed on, so it carries no privilege the key does not.
+#: * ``OSPREY_TELEMETRY_SESSION_ID`` — same shape. The spawn call site passes a
+#:   telemetry id, the ``switch_session`` call site does not, and when present
+#:   it is also the pool key.
+#: * ``OSPREY_TELEMETRY_SESSION_START`` — a wall-clock timestamp, minted anew on
+#:   every connection. Fingerprinting it would respawn every reattach.
+#:
+#: Fingerprinting any of these would make a mere reconnect or tab-switch kill a
+#: running agent session, which is the liveness half of this contract.
+POOL_FINGERPRINT_EXCLUDED_ENV = frozenset(
+    {
+        "OSPREY_SESSION_ID",
+        "OSPREY_TELEMETRY_SESSION_ID",
+        "OSPREY_TELEMETRY_SESSION_START",
+    }
+)
+
+
+def env_fingerprint(extra_env: dict[str, str] | None = None) -> str:
+    """Fingerprint the spawn-relevant part of a child's ``extra_env``.
+
+    Two calls that would produce the same child environment — up to the
+    per-connection names in :data:`POOL_FINGERPRINT_EXCLUDED_ENV` — produce the
+    same fingerprint. :meth:`PtyRegistry.get_or_create_session` compares the
+    caller's fingerprint against the one recorded when the pooled child was
+    spawned, and respawns on a mismatch.
+
+    The digest, rather than the dict, is what the registry keeps: ``extra_env``
+    carries the panel token, and a hash cannot be logged, repr'd into a
+    traceback, or dumped by a debugger as a live credential.
+
+    Args:
+        extra_env: The environment overlay a caller would hand to
+            :meth:`PtySession.start`. ``None`` and ``{}`` fingerprint alike.
+
+    Returns:
+        A hex SHA-256 digest of the name/value pairs that matter, sorted.
+    """
+    payload = "\x00".join(
+        f"{name}\x1f{value}"
+        for name, value in sorted((extra_env or {}).items())
+        if name not in POOL_FINGERPRINT_EXCLUDED_ENV
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+#: Fingerprint of a child spawned with no ``extra_env`` overlay at all.
+EMPTY_ENV_FINGERPRINT = env_fingerprint(None)
 
 
 class PtySession:
@@ -263,6 +333,10 @@ class PtyRegistry:
     def __init__(self, max_background: int = 5) -> None:
         self._sessions: OrderedDict[str, PtySession] = OrderedDict()
         self._attached: set[str] = set()
+        # Fingerprint of the extra_env each pooled child was spawned with, kept
+        # in lockstep with _sessions. Read by get_or_create_session to decide
+        # whether a warm entry may be reattached; see env_fingerprint().
+        self._env_fingerprints: dict[str, str] = {}
         self._max_background = max_background
 
     # ---- Pool methods ---- #
@@ -278,6 +352,29 @@ class PtyRegistry:
     ) -> tuple[PtySession, bool]:
         """Get existing session or create a new one.
 
+        A warm pooled child is reattached only when the caller's ``extra_env``
+        fingerprints identically to the one it was spawned with. A child's
+        environment is fixed at ``execvp`` time and cannot be amended
+        afterwards, so an env change that matters — above all a runtime posture
+        flip, which reaches the agent as ``OSPREY_EXECUTION_MODE`` and nothing
+        else — can only be delivered by killing the child and spawning a new
+        one. Reusing the warm entry after such a change would leave the UI
+        reporting a posture (it reads the store) that the running agent is not
+        actually under, which is precisely the state this comparison exists to
+        make unreachable.
+
+        The ``/api/terminal/posture`` route already terminates the PTY itself,
+        so in the ordinary toggle flow there is no warm entry left to compare
+        against. This check is the backstop for every other path: a stale warm
+        entry, a client that reconnects before the terminate lands, or a future
+        caller that changes the launch env without knowing it must terminate
+        first. It fails towards a respawn, never towards a stale child.
+
+        Only :data:`POOL_FINGERPRINT_EXCLUDED_ENV` is ignored in that
+        comparison — the names that legitimately differ between two connections
+        to one session. Everything else counts, so a reconnect keeps its
+        session alive while a privilege change never fails to reach the child.
+
         Args:
             cwd: Working directory for the spawned process (issue #313). Only
                 used when a new session is created; reused live sessions keep
@@ -286,16 +383,33 @@ class PtyRegistry:
         Returns:
             (session, was_reused) — True if an existing live session was reattached.
         """
+        fingerprint = env_fingerprint(extra_env)
         existing = self._sessions.get(session_key)
         if existing is not None:
-            if existing.is_alive:
+            # An entry with no recorded fingerprint never came through this
+            # registry's own spawn path (every insertion site records one), so
+            # the only thing that can be assumed about its child is the base
+            # environment — no overlay, and therefore no sandbox marker.
+            recorded = self._env_fingerprints.get(session_key, EMPTY_ENV_FINGERPRINT)
+            if existing.is_alive and recorded == fingerprint:
                 # LRU bump — move to end
                 self._sessions.move_to_end(session_key)
                 existing.resize(rows, cols)
                 return existing, True
+
+            if existing.is_alive:
+                # Launch env changed under a live child. Values are never
+                # logged — extra_env carries the panel token.
+                logger.info(
+                    "Launch env changed for session %s — terminating the warm PTY "
+                    "so the new environment reaches a fresh child",
+                    session_key,
+                )
+                self.terminate_session(session_key)
             else:
                 # Dead — remove silently, respawn below
                 self._sessions.pop(session_key, None)
+                self._env_fingerprints.pop(session_key, None)
                 self._attached.discard(session_key)
 
         # Evict if at capacity
@@ -303,6 +417,7 @@ class PtyRegistry:
 
         session = self._spawn_session(command, rows, cols, extra_env, cwd)
         self._sessions[session_key] = session
+        self._env_fingerprints[session_key] = fingerprint
         return session, False
 
     def attach_session(self, session_key: str) -> bool:
@@ -327,11 +442,22 @@ class PtyRegistry:
             self._sessions.move_to_end(session_key)
 
     def rekey_session(self, old_key: str, new_key: str) -> None:
-        """Rename a session entry (e.g. after UUID discovery)."""
+        """Rename a session entry (e.g. after UUID discovery).
+
+        The recorded env fingerprint moves with the entry. It describes the
+        child, not the key, and dropping it would leave the renamed session
+        looking unrecorded — which the next
+        :meth:`get_or_create_session` would read as "spawned with no overlay"
+        and could hand back a sandboxed child to a caller asking for a
+        writable one.
+        """
         if old_key not in self._sessions:
             return
         session = self._sessions.pop(old_key)
         self._sessions[new_key] = session
+        fingerprint = self._env_fingerprints.pop(old_key, None)
+        if fingerprint is not None:
+            self._env_fingerprints[new_key] = fingerprint
         if old_key in self._attached:
             self._attached.discard(old_key)
             self._attached.add(new_key)
@@ -344,6 +470,7 @@ class PtyRegistry:
         for key in list(self._sessions):
             if key not in self._attached:
                 evicted = self._sessions.pop(key)
+                self._env_fingerprints.pop(key, None)
                 evicted.terminate()
                 logger.info("Evicted LRU session %s", key)
                 return
@@ -384,6 +511,7 @@ class PtyRegistry:
             cwd=cwd,
         )
         self._sessions[session_id] = session
+        self._env_fingerprints[session_id] = env_fingerprint(extra_env)
         return session
 
     def get_session(self, session_id: str) -> PtySession | None:
@@ -391,8 +519,13 @@ class PtyRegistry:
         return self._sessions.get(session_id)
 
     def terminate_session(self, session_id: str) -> None:
-        """Terminate and remove a session."""
+        """Terminate and remove a session.
+
+        Drops the entry's recorded env fingerprint with it, so the key is fully
+        forgotten and a later spawn under the same key records its own.
+        """
         session = self._sessions.pop(session_id, None)
+        self._env_fingerprints.pop(session_id, None)
         if session is not None:
             session.terminate()
         self._attached.discard(session_id)
@@ -415,4 +548,5 @@ class PtyRegistry:
         """Terminate all sessions (called during shutdown)."""
         for session_id in list(self._sessions):
             self.terminate_session(session_id)
+        self._env_fingerprints.clear()
         self._attached.clear()
