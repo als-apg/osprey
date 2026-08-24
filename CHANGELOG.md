@@ -96,10 +96,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   not rewrite: the rendered config and settings, the hook and MCP wiring,
   `.env`, the `osprey_*` hooks, and everything under `.claude/skills/` and
   `.claude/rules/`. Every framework writer consults it — the scaffold
-  galleries, the Claude-setup file API, the Config panel, the `setup_patch`
-  tool and the restore that runs at session start — and a refusal names the
-  channel that does own the file. Each blocked attempt is shown in the
-  terminal's activity feed and recorded in `var/audit/protected-writes.jsonl`.
+  galleries, the Claude-setup file API, the Config panel, ARIEL's config
+  editor, the `setup_patch` tool and the restore that runs at session start —
+  and a refusal names the channel that does own the file. Each blocked attempt
+  is shown in the terminal's activity feed and recorded in
+  `var/audit/protected-writes.jsonl`.
   Executed Python is held to the same line by zone: it cannot write into
   `build/`, the profile sources, or the audit ledger. See the "Protected Set"
   how-to.

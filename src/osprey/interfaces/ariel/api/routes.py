@@ -902,15 +902,48 @@ class ConfigUpdateRequest(BaseModel):
 
 @router.put("/config")
 async def update_config(request: Request, req: ConfigUpdateRequest) -> dict:
-    """Write new content to config.yml with backup + fsync."""
+    """Write new content to config.yml with backup + fsync.
+
+    This replaces the whole document verbatim, which makes it the widest write
+    surface ARIEL has onto the file that carries the write gate, the approval
+    gate and the paths the safety layers derive their allow and deny areas from
+    -- and the only one that could change any of them without naming them,
+    simply by handing over different bytes. The protected set is consulted by
+    every framework writer, so it is consulted here too, on exactly the terms
+    the Web Terminal's ``PUT /api/config`` uses: the replacement must leave every
+    protected key exactly as it found it, and one that does not is refused with
+    the same 403, the same wording and the same ``protected-writes.jsonl``
+    record. Both surfaces share one implementation rather than two copies of it,
+    so they cannot drift into telling an operator different stories about the
+    same rule.
+
+    The check sits between the parse and the *first* thing that touches disk --
+    ahead of the backup, which is itself a write derived from a file this
+    request may turn out not to be allowed to replace.
+    """
+    # Both helpers are the Web Terminal config route's, imported rather than
+    # restated: the refusal an operator sees, the audit record it leaves and the
+    # document diff it is based on are then the same objects, not two spellings
+    # of the same intent.
+    from osprey.interfaces.web_terminal.routes.config import (
+        _as_document,
+        _changed_protected_keys,
+        _current_document,
+        _refuse_protected_keys,
+    )
+
     path = _config_path(request)
     if not path.exists():
         raise HTTPException(status_code=404, detail="config.yml not found")
 
     try:
-        yaml.safe_load(req.content)
+        parsed = yaml.safe_load(req.content)
     except yaml.YAMLError as e:
         raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}") from e
+
+    changed = _changed_protected_keys(_current_document(path), _as_document(parsed))
+    if changed:
+        raise _refuse_protected_keys(request, changed)
 
     # Into the agent-data state zone, not beside the config: this file lives in
     # the render, which the container split makes root-owned, and creating a new
