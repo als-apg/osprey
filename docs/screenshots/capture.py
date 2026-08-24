@@ -303,6 +303,42 @@ def _capture_standalone(browser: Browser, shot: DocShot) -> list[Path]:
         return capture_shot(browser, base_url, shot)
 
 
+def _capture_static_page(browser: Browser, shot: DocShot) -> list[Path]:
+    """Serve a ``static_page`` recipe's committed HTML file and capture it.
+
+    The file's parent directory is served by a throwaway threaded
+    ``http.server`` on a free port (an ``http://`` origin, because chromium
+    treats ``file://`` query parameters — the theme switch — inconsistently),
+    and :func:`capture_shot` then drives the usual theme × view matrix against
+    the file's own URL. The page maps ``?theme=`` onto its CSS itself.
+    """
+    import http.server
+    import threading
+    from dataclasses import replace
+    from functools import partial
+
+    repo_root = Path(__file__).parent.parent.parent
+    source = repo_root / shot.source_file
+    if not source.is_file():
+        raise ScreenshotSkip(f"source file not found: {shot.source_file}")
+
+    class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args: object) -> None:  # keep the run quiet
+            pass
+
+    handler = partial(_QuietHandler, directory=str(source.parent))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        return capture_shot(browser, base_url, replace(shot, path=f"/{source.name}"))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
     """Run one project-scoped lifecycle command, mapping failure to a skip.
 
@@ -683,6 +719,7 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
     """Capture the selected recipes, sharing one headless browser for the run.
 
     ``standalone_interface`` recipes are booted and captured directly;
+    ``static_page`` recipes are served from their committed HTML file;
     ``tutorial_stack`` recipes are delegated to :func:`capture_tutorial_stack`
     and skipped per-recipe (with a clear notice) where its runtime is absent.
     Absent chromium/Playwright skips the whole run gracefully. One manifest
@@ -698,6 +735,12 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
             for shot in shots:
                 if shot.environment == "standalone_interface":
                     paths = _capture_standalone(browser, shot)
+                elif shot.environment == "static_page":
+                    try:
+                        paths = _capture_static_page(browser, shot)
+                    except ScreenshotSkip as exc:
+                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                        continue
                 else:
                     try:
                         paths = capture_tutorial_stack(lambda: browser, shot, agentic=agentic)

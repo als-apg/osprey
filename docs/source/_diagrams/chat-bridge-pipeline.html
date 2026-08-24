@@ -1,0 +1,70 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 548" role="img" aria-labelledby="chat-bridge-title chat-bridge-desc">
+  <title id="chat-bridge-title">How a chat bridge works</title>
+  <desc id="chat-bridge-desc">Each chat system has its own small adapter, and everything below the adapters is shared code. The bridge polls the chat system for new messages, hands the question to the event dispatcher, and posts back what the agent returns. Every connection the bridge makes points outward, so it opens no network port and nothing has to reach it.</desc>
+  <defs>
+    <marker id="chat-bridge-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- margin brackets -->
+  <line class="e-thin" x1="150" y1="116" x2="150" y2="166"/>
+  <line class="e-thin" x1="150" y1="222" x2="150" y2="486"/>
+
+  <!-- edges -->
+  <line class="e" x1="290" y1="70" x2="290" y2="116" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="670" y1="70" x2="670" y2="116" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="290" y1="166" x2="290" y2="222" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="670" y1="166" x2="670" y2="222" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="330" y1="288" x2="330" y2="340" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e e-dash" x1="430" y1="340" x2="430" y2="288" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="370" y1="390" x2="370" y2="436" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="460" y1="461" x2="520" y2="461" marker-end="url(#chat-bridge-arr)"/>
+
+  <!-- chat systems -->
+  <rect class="nb-in" x="180" y="24" width="220" height="46" rx="6"/>
+  <text class="tn" x="290" y="45" text-anchor="middle">Nextcloud Talk</text>
+  <text class="ts" x="290" y="60" text-anchor="middle">room</text>
+  <rect class="nb-in" x="560" y="24" width="220" height="46" rx="6"/>
+  <text class="tn" x="670" y="45" text-anchor="middle">Google Chat</text>
+  <text class="ts" x="670" y="60" text-anchor="middle">space</text>
+
+  <text class="ta" x="298" y="95">bridge polls for new messages</text>
+  <text class="ta" x="678" y="95">bridge reads a message queue</text>
+
+  <!-- adapters -->
+  <rect class="nb" x="180" y="116" width="220" height="50" rx="6"/>
+  <text class="tn" x="290" y="140" text-anchor="middle">Talk adapter</text>
+  <text class="ts" x="290" y="156" text-anchor="middle">how messages arrive here</text>
+  <rect class="nb" x="560" y="116" width="220" height="50" rx="6"/>
+  <text class="tn" x="670" y="140" text-anchor="middle">Chat adapter</text>
+  <text class="ts" x="670" y="156" text-anchor="middle">how messages arrive here</text>
+
+  <text class="te" x="40" y="145">PER SYSTEM</text>
+  <text class="te" x="40" y="260">SHARED</text>
+
+  <!-- shared engine -->
+  <rect class="nb-foc" x="180" y="222" width="600" height="66" rx="6"/>
+  <text class="tn" x="480" y="250" text-anchor="middle">shared bridge engine</text>
+  <text class="ts" x="480" y="268" text-anchor="middle">remembers each question · keeps the conversation · retries failures</text>
+
+  <text class="ta" x="338" y="318">question</text>
+  <text class="ta" x="438" y="318">answer + files</text>
+
+  <!-- dispatch pipeline -->
+  <rect class="nb" x="250" y="340" width="240" height="50" rx="6"/>
+  <text class="tn" x="370" y="364" text-anchor="middle">Event dispatcher</text>
+  <text class="ts" x="370" y="380" text-anchor="middle">port 8020</text>
+
+  <rect class="nb" x="280" y="436" width="180" height="50" rx="6"/>
+  <text class="tn" x="370" y="460" text-anchor="middle">Dispatch worker</text>
+  <text class="ts" x="370" y="476" text-anchor="middle">headless session</text>
+
+  <rect class="nb" x="520" y="436" width="180" height="50" rx="6"/>
+  <text class="tn" x="610" y="460" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="610" y="476" text-anchor="middle">runs the tools</text>
+
+  <text class="ta ta-warn" x="480" y="522" text-anchor="middle">every arrow leaves the bridge outward — it opens no port and nothing can call in</text>
+</svg>
+</div>

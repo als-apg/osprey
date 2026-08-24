@@ -1,0 +1,59 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 320" role="img" aria-labelledby="va-archive-title va-archive-desc">
+  <title id="va-archive-title">The virtual accelerator's archive</title>
+  <desc id="va-archive-desc">The recorder samples the running soft-IOC every ten seconds and writes what answered into a MongoDB collection; the project's archiver connector reads history back out of that same collection, so what the agent plots is what the deployment recorded. The first deploy seeds a base series thirty days back, and the seeded past joins the recorded present on the same timestamps.</desc>
+  <defs>
+    <marker id="va-archive-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges -->
+  <line class="e" x1="180" y1="138" x2="210" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="370" y1="138" x2="400" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="560" y1="138" x2="590" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="750" y1="138" x2="780" y2="138" marker-end="url(#va-archive-arr)"/>
+  <line class="e" x1="480" y1="82" x2="480" y2="110" marker-end="url(#va-archive-arr)"/>
+  <line class="e e-dash" x1="480" y1="166" x2="480" y2="210"/>
+
+  <!-- seed -->
+  <rect class="nb-in" x="400" y="30" width="160" height="52" rx="6"/>
+  <text class="tn" x="480" y="52" text-anchor="middle">first deploy</text>
+  <text class="ts" x="480" y="68" text-anchor="middle">seeds 30 days back</text>
+
+  <!-- the loop -->
+  <rect class="nb" x="20" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="100" y="134" text-anchor="middle">PyAT soft-IOC</text>
+  <text class="ts" x="100" y="151" text-anchor="middle">the simulated machine</text>
+
+  <rect class="nb" x="210" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="290" y="134" text-anchor="middle">recorder</text>
+  <text class="ts" x="290" y="151" text-anchor="middle">every 10 seconds</text>
+
+  <rect class="nb-st" x="400" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="480" y="134" text-anchor="middle">archiver-mongodb</text>
+  <text class="ts" x="480" y="151" text-anchor="middle">one collection</text>
+
+  <rect class="nb" x="590" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="670" y="134" text-anchor="middle">archiver connector</text>
+  <text class="ts" x="670" y="151" text-anchor="middle">mongodb_archiver</text>
+
+  <rect class="nb" x="780" y="110" width="160" height="56" rx="6"/>
+  <text class="tn" x="860" y="134" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="860" y="151" text-anchor="middle">plots the history</text>
+
+  <rect class="mask" x="366" y="176" width="228" height="15"/>
+  <text class="ta" x="480" y="188" text-anchor="middle">written by the recorder, read back by the connector</text>
+
+  <!-- the timeline -->
+  <rect class="zone" x="180" y="210" width="600" height="44" rx="4"/>
+  <line class="divider e-dash" x1="560" y1="210" x2="560" y2="254"/>
+  <text class="te" x="196" y="228">SEEDED PAST</text>
+  <text class="ts" x="196" y="245">30 days — the last 48 h every 10 s, the rest every 60</text>
+  <text class="te" x="576" y="228">RECORDED PRESENT</text>
+  <text class="ts" x="576" y="245">every 10 s from deploy on</text>
+
+  <text class="ta" x="480" y="276" text-anchor="middle">the join is meant to be invisible — same timestamps, same baselines, noise rather than a step</text>
+  <text class="ta ta-warn" x="480" y="300" text-anchor="middle">on control_system: mock the recorder idles by design — history stays readable and the archive reports stale, which is a warning, not an error</text>
+</svg>
+</div>

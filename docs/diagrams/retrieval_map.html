@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<!--
+  Source of truth for the retrieval/embedding architecture diagrams committed to
+  docs/source/_static/screenshots/. Hand-authored SVG; edit here, then regenerate:
+
+      cd docs && make screenshots-retrieval_map
+      cd docs && make screenshots-qmd_query_pipeline
+
+  The screenshot runner (docs/screenshots) loads this page in headless chromium
+  with ?theme=light / ?theme=dark and crops the #fig-* figure elements at 2x.
+  The tiny script below maps that query parameter onto data-theme, which is what
+  the CSS tokens switch on. Captions live in the consuming .rst figures, not
+  here, so the PNGs stay pure diagrams.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSPREY retrieval map — docs diagram source</title>
+<script>
+  const t = new URLSearchParams(location.search).get("theme");
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+</script>
+<style>
+  :root {
+    --paper: #F6F8F6;
+    --ink: #1B2420;
+    --muted: #5D6B65;
+    --line: #C6CFCA;
+    --box: #FFFFFF;
+    --accent: #0E7A6E;        /* teal — embedding vectors */
+    --warn: #B26A08;          /* amber — model inference in the query path */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #121815;
+      --ink: #E4EAE6;
+      --muted: #93A29B;
+      --line: #35413B;
+      --box: #1A211D;
+      --accent: #33C9B4;
+      --warn: #E9A23B;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #121815;
+    --ink: #E4EAE6;
+    --muted: #93A29B;
+    --line: #35413B;
+    --box: #1A211D;
+    --accent: #33C9B4;
+    --warn: #E9A23B;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    padding: 2rem 1.5rem;
+  }
+  main { max-width: 1120px; margin: 0 auto; }
+  figure {
+    margin: 0 0 2.5rem;
+    padding: 1rem;
+    background: var(--paper);
+  }
+  figure svg { max-width: 100%; height: auto; display: block; }
+  .caption {
+    font-size: 0.85rem;
+    color: var(--muted);
+    max-width: 72ch;
+    margin: -1.5rem 0 2.5rem 1rem;
+  }
+
+  /* SVG node/edge/text styles (inline SVG inherits document CSS) */
+  .n-box  { fill: var(--box); stroke: var(--line); stroke-width: 1.2; }
+  .n-sub  { fill: var(--paper); stroke: var(--line); stroke-width: 1; }
+  .n-teal { stroke: var(--accent); }
+  .n-warn { stroke: var(--warn); }
+  .t-title { font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; font-size: 13px; font-weight: 600; fill: var(--ink); }
+  .t-sub   { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 10.5px; fill: var(--muted); }
+  .t-lane  { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: 0.12em; fill: var(--muted); }
+  .t-edge  { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--muted); }
+  .t-teal  { fill: var(--accent); }
+  .t-warn  { fill: var(--warn); }
+  .e-line  { stroke: var(--muted); stroke-width: 1.3; fill: none; }
+  .e-teal  { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+  .e-warn  { stroke: var(--warn); stroke-width: 1.4; fill: none; }
+  .e-dash  { stroke-dasharray: 5 4; }
+  .lane-rule { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 5; }
+  .lg-swatch { rx: 2; }
+
+  /* ── tokens + classes for the redrawn Figure 1 (shared grammar with
+     docs/source/_diagrams/, see custom.css .osprey-diagram) ── */
+  :root {
+    --accent-tint: rgba(14,122,110,0.08);
+    --warn-tint: rgba(178,106,8,0.08);
+    --warn-soft: rgba(178,106,8,0.60);
+    --rule: rgba(27,36,32,0.10);
+    --wash: rgba(27,36,32,0.05);
+    --wash-lt: rgba(27,36,32,0.02);
+    --input: rgba(93,107,101,0.10);
+    --ext: rgba(27,36,32,0.03);
+    --ext-stroke: rgba(27,36,32,0.30);
+    --ink-strong: rgba(27,36,32,0.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --accent-tint: rgba(51,201,180,0.10);
+      --warn-tint: rgba(233,162,59,0.10);
+      --warn-soft: rgba(233,162,59,0.60);
+      --rule: rgba(228,234,230,0.10);
+      --wash: rgba(228,234,230,0.05);
+      --wash-lt: rgba(228,234,230,0.02);
+      --input: rgba(147,162,155,0.12);
+      --ext: rgba(228,234,230,0.04);
+      --ext-stroke: rgba(228,234,230,0.30);
+      --ink-strong: rgba(228,234,230,0.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --accent-tint: rgba(51,201,180,0.10);
+    --warn-tint: rgba(233,162,59,0.10);
+    --warn-soft: rgba(233,162,59,0.60);
+    --rule: rgba(228,234,230,0.10);
+    --wash: rgba(228,234,230,0.05);
+    --wash-lt: rgba(228,234,230,0.02);
+    --input: rgba(147,162,155,0.12);
+    --ext: rgba(228,234,230,0.04);
+    --ext-stroke: rgba(228,234,230,0.30);
+    --ink-strong: rgba(228,234,230,0.55);
+  }
+
+  .nb      { fill: var(--box); stroke: var(--line); stroke-width: 1.2; }
+  .nb-ext  { fill: var(--ext); stroke: var(--ext-stroke); stroke-width: 1; }
+  .nb-st   { fill: var(--wash); stroke: var(--line); stroke-width: 1.2; }
+  .nb-warn { fill: var(--warn-tint); stroke: var(--warn); stroke-width: 1.2; }
+  .nb-acc  { stroke: var(--accent); stroke-width: 1.2; }
+  .nb-strong { stroke: var(--ink-strong); stroke-width: 1.4; }
+  .nsub      { fill: var(--wash-lt); stroke: var(--line); stroke-width: 1; }
+  .nsub-teal { fill: var(--wash-lt); stroke: var(--accent); stroke-width: 1.2; }
+  .nsub-warn { fill: var(--wash-lt); stroke: var(--warn); stroke-width: 1.2; }
+  .zone    { fill: var(--wash-lt); stroke: var(--rule); stroke-width: 0.8; }
+  .mask    { fill: var(--paper); }
+  .lg-rule { stroke: var(--rule); stroke-width: 0.8; }
+  .tn { font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; font-size: 12px; font-weight: 600; fill: var(--ink); }
+  .ts { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 9px; fill: var(--muted); }
+  .te { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 8px; font-weight: 500; fill: var(--muted); letter-spacing: 0.14em; }
+  .ta { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 8px; fill: var(--muted); letter-spacing: 0.06em; }
+  .ta-acc { fill: var(--accent); }
+  .ta-warn { fill: var(--warn); }
+  .t-acc  { fill: var(--accent); }
+  .t-warn2 { fill: var(--warn); }
+  .e     { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+  .e-acc { stroke: var(--accent); stroke-width: 1.4; fill: none; }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       Figure 1: the full retrieval & embedding surface
+       ════════════════════════════════════════════════════════════════════ -->
+  <figure id="fig-retrieval-map">
+    <svg viewBox="0 0 1280 908" role="img" aria-labelledby="retrieval-map-title retrieval-map-desc">
+    <title id="retrieval-map-title">Search architecture — every retrieval path</title>
+    <desc id="retrieval-map-desc">The three retrieval stacks — the ARIEL Postgres stack with its enhancement pipeline and query modes, the qmd sidecar sharing one hybrid index between ARIEL and facility knowledge, and the embedding-free channel finder — each feeding MCP tools the OSPREY agent calls.</desc>
+    <defs>
+      <marker id="arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+        <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+      </marker>
+    </defs>
+
+    <!-- zones -->
+    <rect class="zone" x="40" y="48" width="1048" height="320" rx="8"/>
+    <text class="te" x="56" y="68">ARIEL · LOGBOOK · POSTGRES STACK</text>
+    <rect class="zone" x="40" y="384" width="1048" height="288" rx="8"/>
+    <text class="te" x="56" y="404">QMD SIDECAR · SHARED HYBRID INDEX</text>
+    <rect class="zone" x="40" y="688" width="1048" height="156" rx="8"/>
+    <text class="te" x="56" y="706">CHANNEL FINDER · NO EMBEDDINGS ANYWHERE</text>
+
+    <!-- ── lane 1 edges ── -->
+    <line class="e" x1="232" y1="116" x2="288" y2="116" marker-end="url(#arr)"/>
+    <rect class="mask" x="238" y="96" width="44" height="12" rx="2"/>
+    <text class="ta" x="260" y="105" text-anchor="middle">INGEST</text>
+
+    <path class="e-warn" d="M232,272 H260 Q268,272 268,264 V212 Q268,204 276,204 H288" marker-end="url(#arr)"/>
+    <rect class="mask" x="216" y="232" width="44" height="12" rx="2"/>
+    <text class="ta ta-warn" x="238" y="241" text-anchor="middle">EMBED</text>
+
+    <line class="e" x1="512" y1="108" x2="576" y2="108" marker-end="url(#arr)"/>
+    <rect class="mask" x="526" y="88" width="36" height="12" rx="2"/>
+    <text class="ta" x="544" y="97" text-anchor="middle">ROWS</text>
+
+    <line class="e-acc" x1="512" y1="204" x2="576" y2="204" marker-end="url(#arr)"/>
+    <rect class="mask" x="518" y="184" width="52" height="12" rx="2"/>
+    <text class="ta t-acc" x="544" y="193" text-anchor="middle">VECTORS</text>
+
+    <path class="e" d="M400,280 V432 Q400,440 408,440 H576" marker-end="url(#arr)"/>
+    <rect class="mask" x="408" y="316" width="72" height="12" rx="2"/>
+    <text class="ta" x="412" y="325">WRITES .MD</text>
+
+    <path class="e" d="M800,156 H808 Q816,156 816,148 V118 Q816,110 824,110 H864" marker-end="url(#arr)"/>
+    <path class="e-acc" d="M800,204 H824 Q832,204 832,196 V174 Q832,166 840,166 H864" marker-end="url(#arr)"/>
+    <path class="e" d="M800,252 H840 Q848,252 848,244 V230 Q848,222 856,222 H864" marker-end="url(#arr)"/>
+
+    <path class="e-warn e-dash" d="M148,312 V332 Q148,340 156,340 H392 a 8,8 0 0,1 16,0 H832 a 8,8 0 0,1 16,0 H1064 Q1072,340 1072,332 V286 a 8,8 0 0,1 0,-16 V230 a 8,8 0 0,1 0,-16 V188 Q1072,180 1064,180 H1056" marker-end="url(#arr)"/>
+    <rect class="mask" x="560" y="320" width="184" height="12" rx="2"/>
+    <text class="ta ta-warn" x="652" y="329" text-anchor="middle">provider reachable at query time</text>
+
+    <line class="e" x1="1056" y1="110" x2="1120" y2="110" marker-end="url(#arr)"/>
+    <line class="e" x1="1056" y1="166" x2="1120" y2="166" marker-end="url(#arr)"/>
+    <line class="e" x1="1056" y1="222" x2="1120" y2="222" marker-end="url(#arr)"/>
+    <line class="e" x1="1056" y1="278" x2="1120" y2="278" marker-end="url(#arr)"/>
+
+    <!-- ── lane 2 edges ── -->
+    <line class="e" x1="688" y1="464" x2="688" y2="488" marker-end="url(#arr)"/>
+    <text class="ta" x="700" y="481">collection "ariel"</text>
+
+    <path class="e" d="M232,452 H512 Q520,452 520,460 V562 Q520,570 528,570 H576" marker-end="url(#arr)"/>
+    <rect class="mask" x="296" y="432" width="188" height="12" rx="2"/>
+    <text class="ta" x="390" y="441" text-anchor="middle">read-only mount · collection "okf"</text>
+
+    <path class="e" d="M800,520 H832 Q840,520 840,512 V286 Q840,278 848,278 H864" marker-end="url(#arr)"/>
+    <rect class="mask" x="848" y="396" width="64" height="12" rx="2"/>
+    <text class="ta" x="852" y="405">RANKED HITS</text>
+
+    <line class="e" x1="800" y1="580" x2="864" y2="580" marker-end="url(#arr)"/>
+
+    <path class="e e-dash" d="M148,480 V652 Q148,660 156,660 H952 Q960,660 960,652 V608" marker-end="url(#arr)"/>
+    <rect class="mask" x="268" y="640" width="176" height="12" rx="2"/>
+    <text class="ta" x="356" y="649" text-anchor="middle">sidecar down → substring scan</text>
+
+    <line class="e" x1="1056" y1="580" x2="1120" y2="580" marker-end="url(#arr)"/>
+
+    <!-- ── lane 3 edges ── -->
+    <line class="e" x1="232" y1="750" x2="576" y2="750" marker-end="url(#arr)"/>
+    <line class="e" x1="232" y1="806" x2="576" y2="806" marker-end="url(#arr)"/>
+    <line class="e" x1="800" y1="750" x2="864" y2="750" marker-end="url(#arr)"/>
+    <line class="e" x1="800" y1="806" x2="864" y2="806" marker-end="url(#arr)"/>
+    <line class="e" x1="1056" y1="772" x2="1120" y2="772" marker-end="url(#arr)"/>
+
+    <!-- ── lane 1 nodes ── -->
+    <rect class="mask" x="64" y="88" width="168" height="56" rx="6"/>
+    <rect class="nb-ext" x="64" y="88" width="168" height="56" rx="6"/>
+    <text class="tn" x="148" y="112" text-anchor="middle">facility logbook</text>
+    <text class="ts" x="148" y="128" text-anchor="middle">ALS · JLab · ORNL</text>
+
+    <rect class="mask" x="64" y="248" width="168" height="64" rx="6"/>
+    <rect class="nb-warn" x="64" y="248" width="168" height="64" rx="6"/>
+    <text class="tn" x="148" y="272" text-anchor="middle">embedding provider</text>
+    <text class="ts" x="148" y="288" text-anchor="middle">Ollama · nomic-embed</text>
+    <text class="ts" x="148" y="300" text-anchor="middle">or OpenAI</text>
+
+    <rect class="mask" x="288" y="80" width="224" height="200" rx="8"/>
+    <rect class="nb" x="288" y="80" width="224" height="200" rx="8"/>
+    <text class="tn" x="400" y="104" text-anchor="middle">enhancement pipeline</text>
+    <text class="ts" x="400" y="120" text-anchor="middle">runs at ingest</text>
+    <rect class="nsub" x="304" y="136" width="192" height="40" rx="4"/>
+    <text class="tn" x="400" y="152" text-anchor="middle">semantic_processor</text>
+    <text class="ts" x="400" y="166" text-anchor="middle">LLM keywords + summary</text>
+    <rect class="nsub-teal" x="304" y="184" width="192" height="40" rx="4"/>
+    <text class="tn t-acc" x="400" y="200" text-anchor="middle">text_embedding</text>
+    <text class="ts" x="400" y="214" text-anchor="middle">vectors via provider</text>
+    <rect class="nsub" x="304" y="232" width="192" height="40" rx="4"/>
+    <text class="tn" x="400" y="248" text-anchor="middle">qmd_export</text>
+    <text class="ts" x="400" y="262" text-anchor="middle">writes markdown mirror</text>
+
+    <rect class="mask" x="576" y="80" width="224" height="200" rx="8"/>
+    <rect class="nb" x="576" y="80" width="224" height="200" rx="8"/>
+    <text class="tn" x="688" y="104" text-anchor="middle">Postgres</text>
+    <text class="ts" x="688" y="120" text-anchor="middle">logbook database</text>
+    <rect class="nsub" x="592" y="136" width="192" height="40" rx="4"/>
+    <text class="tn" x="688" y="152" text-anchor="middle">tsvector index</text>
+    <text class="ts" x="688" y="166" text-anchor="middle">full-text · for keyword</text>
+    <rect class="nsub-teal" x="592" y="184" width="192" height="40" rx="4"/>
+    <text class="tn t-acc" x="688" y="200" text-anchor="middle">pgvector tables</text>
+    <text class="ts" x="688" y="214" text-anchor="middle">one table per model</text>
+    <rect class="nsub" x="592" y="232" width="192" height="40" rx="4"/>
+    <text class="tn" x="688" y="248" text-anchor="middle">enhanced_entries</text>
+    <text class="ts" x="688" y="262" text-anchor="middle">canonical rows</text>
+
+    <rect class="mask" x="864" y="88" width="192" height="44" rx="6"/>
+    <rect class="nb" x="864" y="88" width="192" height="44" rx="6"/>
+    <text class="tn" x="960" y="106" text-anchor="middle">keyword</text>
+    <text class="ts" x="960" y="122" text-anchor="middle">tsquery · ts_rank · trigram</text>
+    <rect class="mask" x="864" y="144" width="192" height="44" rx="6"/>
+    <rect class="nb nb-acc" x="864" y="144" width="192" height="44" rx="6"/>
+    <text class="tn t-acc" x="960" y="162" text-anchor="middle">semantic</text>
+    <text class="ts" x="960" y="178" text-anchor="middle">pgvector cosine</text>
+    <rect class="mask" x="864" y="200" width="192" height="44" rx="6"/>
+    <rect class="nb" x="864" y="200" width="192" height="44" rx="6"/>
+    <text class="tn" x="960" y="218" text-anchor="middle">sql_query</text>
+    <text class="ts" x="960" y="234" text-anchor="middle">read-only SQL · exact</text>
+    <rect class="mask" x="864" y="256" width="192" height="44" rx="6"/>
+    <rect class="nb" x="864" y="256" width="192" height="44" rx="6"/>
+    <text class="tn" x="960" y="274" text-anchor="middle">hybrid</text>
+    <text class="ts" x="960" y="290" text-anchor="middle">answered by qmd sidecar</text>
+
+    <!-- ── lane 2 nodes ── -->
+    <rect class="mask" x="576" y="416" width="224" height="48" rx="6"/>
+    <rect class="nb-st" x="576" y="416" width="224" height="48" rx="6"/>
+    <text class="tn" x="688" y="436" text-anchor="middle">markdown mirror</text>
+    <text class="ts" x="688" y="452" text-anchor="middle">one .md per entry</text>
+
+    <rect class="mask" x="64" y="424" width="168" height="56" rx="6"/>
+    <rect class="nb-ext" x="64" y="424" width="168" height="56" rx="6"/>
+    <text class="tn" x="148" y="448" text-anchor="middle">OKF bundle</text>
+    <text class="ts" x="148" y="464" text-anchor="middle">facility knowledge .md</text>
+
+    <rect class="mask" x="576" y="488" width="224" height="164" rx="8"/>
+    <rect class="nb" x="576" y="488" width="224" height="164" rx="8"/>
+    <text class="tn" x="688" y="512" text-anchor="middle">qmd sidecar</text>
+    <text class="ts" x="688" y="528" text-anchor="middle">self-contained container</text>
+    <rect class="nsub" x="592" y="540" width="192" height="28" rx="4"/>
+    <text class="ts" x="688" y="558" text-anchor="middle" style="fill: var(--ink)">BM25 keyword index</text>
+    <rect class="nsub-teal" x="592" y="576" width="192" height="28" rx="4"/>
+    <text class="ts t-acc" x="688" y="594" text-anchor="middle">own embedder · gemma-300M</text>
+    <rect class="nsub-warn" x="592" y="612" width="192" height="28" rx="4"/>
+    <text class="ts t-warn2" x="688" y="630" text-anchor="middle">LLM reranker · Qwen3-0.6B</text>
+
+    <rect class="mask" x="864" y="552" width="192" height="56" rx="6"/>
+    <rect class="nb" x="864" y="552" width="192" height="56" rx="6"/>
+    <text class="tn" x="960" y="576" text-anchor="middle">OKF search</text>
+    <text class="ts" x="960" y="592" text-anchor="middle">MCP tool + web panel</text>
+
+    <!-- ── lane 3 nodes ── -->
+    <rect class="mask" x="64" y="740" width="168" height="72" rx="6"/>
+    <rect class="nb-ext" x="64" y="740" width="168" height="72" rx="6"/>
+    <text class="tn" x="148" y="772" text-anchor="middle">channel database</text>
+    <text class="ts" x="148" y="788" text-anchor="middle">names + metadata</text>
+
+    <rect class="mask" x="576" y="728" width="224" height="44" rx="6"/>
+    <rect class="nb" x="576" y="728" width="224" height="44" rx="6"/>
+    <text class="tn" x="688" y="746" text-anchor="middle">DuckDB FTS</text>
+    <text class="ts" x="688" y="762" text-anchor="middle">BM25 · middle layer</text>
+
+    <rect class="mask" x="576" y="784" width="224" height="44" rx="6"/>
+    <rect class="nb" x="576" y="784" width="224" height="44" rx="6"/>
+    <text class="tn" x="688" y="802" text-anchor="middle">hierarchical tree</text>
+    <text class="ts" x="688" y="818" text-anchor="middle">agent navigates · no index</text>
+
+    <rect class="mask" x="864" y="728" width="192" height="88" rx="6"/>
+    <rect class="nb" x="864" y="728" width="192" height="88" rx="6"/>
+    <text class="tn" x="960" y="768" text-anchor="middle">CF MCP tools</text>
+    <text class="ts" x="960" y="784" text-anchor="middle">run_sql · list_* · navigate</text>
+
+    <!-- agent rail -->
+    <rect class="mask" x="1120" y="88" width="120" height="728" rx="8"/>
+    <rect class="nb nb-strong" x="1120" y="88" width="120" height="728" rx="8"/>
+    <text class="tn" x="1180" y="444" text-anchor="middle">OSPREY agent</text>
+    <text class="ts" x="1180" y="460" text-anchor="middle">via MCP tools</text>
+
+    <!-- legend -->
+    <line class="lg-rule" x1="40" y1="868" x2="1240" y2="868"/>
+    <text class="te" x="40" y="884">LEGEND</text>
+    <rect class="lg-swatch" x="120" y="876" width="10" height="10" fill="var(--accent)"/>
+    <text class="ta" x="136" y="884">embedding vectors</text>
+    <rect class="lg-swatch" x="256" y="876" width="10" height="10" fill="var(--warn)"/>
+    <text class="ta" x="272" y="884">model inference in the query path</text>
+    <line class="e e-dash" x1="470" y1="880" x2="494" y2="880"/>
+    <text class="ta" x="502" y="884">fallback</text>
+  </svg>
+  </figure>
+  <p class="caption">
+    Figure 1 — every retrieval path, left to right: sources → ingest-time
+    processing → indexes → query paths → the agent. The hybrid module and OKF
+    search share the one qmd sidecar — the only cross-stack connection.
+  </p>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       Figure 2: inside one qmd query
+       ════════════════════════════════════════════════════════════════════ -->
+  <figure id="fig-qmd-query">
+    <svg viewBox="0 0 900 340" role="img" aria-label="qmd query pipeline: lex and vec sub-queries merge into a candidate pool, optionally reranked by an LLM before returning top hits; the hyde branch exists but is unused.">
+      <defs>
+        <marker id="arr2" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+          <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+        </marker>
+      </defs>
+
+      <rect class="n-box" x="20" y="140" width="130" height="48" rx="6"/>
+      <text class="t-title" x="85" y="160" text-anchor="middle">query text</text>
+      <text class="t-sub" x="85" y="176" text-anchor="middle">+ optional intent</text>
+
+      <rect class="n-box" x="230" y="36" width="200" height="52" rx="6"/>
+      <text class="t-title" x="330" y="57" text-anchor="middle">lex</text>
+      <text class="t-sub" x="330" y="74" text-anchor="middle">BM25 keyword match</text>
+
+      <rect class="n-box n-teal" x="230" y="138" width="200" height="52" rx="6"/>
+      <text class="t-title t-teal" x="330" y="159" text-anchor="middle">vec</text>
+      <text class="t-sub" x="330" y="176" text-anchor="middle">gemma-300M embed · cosine</text>
+
+      <rect class="n-box" x="230" y="240" width="200" height="60" rx="6" style="opacity:.5" stroke-dasharray="5 4"/>
+      <text class="t-title" x="330" y="259" text-anchor="middle" style="opacity:.6">hyde</text>
+      <text class="t-sub" x="330" y="275" text-anchor="middle">1.7B writes a fake answer,</text>
+      <text class="t-sub" x="330" y="289" text-anchor="middle">embeds it — no OSPREY caller</text>
+
+      <rect class="n-box" x="494" y="112" width="152" height="74" rx="6"/>
+      <text class="t-title" x="570" y="133" text-anchor="middle">merge</text>
+      <text class="t-sub" x="570" y="150" text-anchor="middle">first type ×2 weight</text>
+      <text class="t-sub" x="570" y="167" text-anchor="middle">≤ candidateLimit (40)</text>
+
+      <rect class="n-box n-warn" x="700" y="36" width="180" height="60" rx="6"/>
+      <text class="t-title t-warn" x="790" y="58" text-anchor="middle">LLM rerank</text>
+      <text class="t-sub" x="790" y="75" text-anchor="middle">Qwen3-0.6B · ~4× latency</text>
+
+      <rect class="n-box" x="700" y="220" width="180" height="56" rx="6"/>
+      <text class="t-title" x="790" y="242" text-anchor="middle">top hits</text>
+      <text class="t-sub" x="790" y="259" text-anchor="middle">scores + line snippets</text>
+
+      <line class="e-line" x1="150" y1="152" x2="230" y2="70" marker-end="url(#arr2)"/>
+      <line class="e-line" x1="150" y1="164" x2="230" y2="164" marker-end="url(#arr2)"/>
+      <line class="e-dash e-line" x1="150" y1="176" x2="230" y2="258" marker-end="url(#arr2)" style="opacity:.5"/>
+
+      <line class="e-line" x1="430" y1="70" x2="494" y2="126" marker-end="url(#arr2)"/>
+      <line class="e-teal" x1="430" y1="164" x2="494" y2="150" marker-end="url(#arr2)"/>
+
+      <polyline class="e-warn" points="646,126 670,126 670,66 700,66" marker-end="url(#arr2)"/>
+      <text class="t-edge t-warn" x="665" y="98" text-anchor="end">rerank: true</text>
+
+      <polyline class="e-dash e-line" points="646,154 670,154 670,240 700,240" marker-end="url(#arr2)"/>
+      <text class="t-edge" x="665" y="205" text-anchor="end">rerank: false</text>
+
+      <line class="e-warn" x1="790" y1="96" x2="790" y2="220" marker-end="url(#arr2)"/>
+      <text class="t-edge t-warn" x="800" y="162">re-scored order</text>
+    </svg>
+  </figure>
+  <p class="caption">
+    Figure 2 — one qmd query: two sub-queries fan out, merge into a bounded
+    candidate pool, and the LLM reranker optionally re-scores the pool. The
+    greyed hyde branch ships in the image but has no caller.
+  </p>
+
+</main>
+</body>
+</html>

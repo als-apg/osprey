@@ -1,0 +1,37 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 240" role="img" aria-labelledby="bluesky-queue-title bluesky-queue-desc">
+  <title id="bluesky-queue-title">Scans and the queue</title>
+  <desc id="bluesky-queue-desc">A shared draft is added to the durable, ordered queue; starting the queue is the armed, deliberate step that sends plans to the machine one at a time, while stop and abort remain available in every state.</desc>
+  <defs>
+    <marker id="bluesky-queue-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="272" y1="92" x2="392" y2="92" marker-end="url(#bluesky-queue-arr)"/>
+  <line class="e" x1="568" y1="92" x2="688" y2="92" marker-end="url(#bluesky-queue-arr)"/>
+  <path class="e-warn e-dash" d="M776,120 V152 Q776,160 768,160 H488 Q480,160 480,152 V120" marker-end="url(#bluesky-queue-arr)"/>
+  <rect class="mask" x="316" y="72" width="32" height="12" rx="2"/>
+  <text class="ta" x="332" y="81" text-anchor="middle">ADD</text>
+  <rect class="mask" x="588" y="72" width="80" height="12" rx="2"/>
+  <text class="ta" x="628" y="81" text-anchor="middle">START (ARMED)</text>
+  <rect class="mask" x="590" y="168" width="76" height="12" rx="2"/>
+  <text class="ta ta-warn" x="628" y="177" text-anchor="middle">STOP / ABORT</text>
+
+  <rect class="mask" x="96" y="64" width="176" height="56" rx="6"/>
+  <rect class="nb-in" x="96" y="64" width="176" height="56" rx="6"/>
+  <text class="tn" x="184" y="88" text-anchor="middle">shared draft</text>
+  <text class="ts" x="184" y="104" text-anchor="middle">compose &amp; review</text>
+  <rect class="mask" x="392" y="64" width="176" height="56" rx="6"/>
+  <rect class="nb-st" x="392" y="64" width="176" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">queue</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">durable · ordered</text>
+  <rect class="mask" x="688" y="64" width="176" height="56" rx="6"/>
+  <rect class="nb" x="688" y="64" width="176" height="56" rx="6"/>
+  <text class="tn" x="776" y="88" text-anchor="middle">machine</text>
+  <text class="ts" x="776" y="104" text-anchor="middle">one plan at a time</text>
+
+  <text class="aside" x="96" y="212">always available — no state can lock it out</text>
+  <path class="lead" d="M368,208 Q440,200 512,176"/>
+  <circle cx="516" cy="172" r="2" fill="var(--od-warn)"/>
+</svg>
+</div>

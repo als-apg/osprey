@@ -1,0 +1,62 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 460" role="img" aria-labelledby="compose-fork-title compose-fork-desc">
+  <title id="compose-fork-title">How osprey up picks a compose command shape</title>
+  <desc id="compose-fork-desc">Before starting anything, osprey up asks the runtime which compose implementation stands behind it and reads the banner that comes back. Docker Compose v2 is handed the rendered files where they sit, one -f each, with both env files. podman-compose is handed one merged document at the repository root with one merged env file. Anything else is refused before a single container is touched.</desc>
+  <defs>
+    <marker id="compose-fork-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges -->
+  <line class="e" x1="480" y1="60" x2="480" y2="96" marker-end="url(#compose-fork-arr)"/>
+  <path class="e" d="M480,152 V180 Q480,188 472,188 H169 Q161,188 161,196 V210" marker-end="url(#compose-fork-arr)"/>
+  <line class="e" x1="480" y1="152" x2="480" y2="210" marker-end="url(#compose-fork-arr)"/>
+  <path class="e" d="M480,152 V180 Q480,188 488,188 H791 Q799,188 799,196 V210" marker-end="url(#compose-fork-arr)"/>
+  <line class="e" x1="161" y1="266" x2="161" y2="300" marker-end="url(#compose-fork-arr)"/>
+  <line class="e" x1="480" y1="266" x2="480" y2="300" marker-end="url(#compose-fork-arr)"/>
+  <line class="e-warn" x1="799" y1="266" x2="799" y2="300" marker-end="url(#compose-fork-arr)"/>
+
+  <!-- command -->
+  <rect class="nb-in" x="400" y="16" width="160" height="44" rx="6"/>
+  <text class="tn" x="480" y="43" text-anchor="middle">osprey up</text>
+
+  <!-- probe -->
+  <rect class="nb-foc" x="250" y="96" width="460" height="56" rx="6"/>
+  <text class="tn" x="480" y="120" text-anchor="middle">read the compose banner</text>
+  <text class="ts" x="480" y="138" text-anchor="middle">the provider that parses the command, not the binary that forwards it</text>
+
+  <!-- branches -->
+  <rect class="nb" x="16" y="210" width="290" height="56" rx="6"/>
+  <text class="tn" x="161" y="234" text-anchor="middle">Docker Compose v2</text>
+  <text class="ts" x="161" y="252" text-anchor="middle">any 2.x release</text>
+  <rect class="nb" x="335" y="210" width="290" height="56" rx="6"/>
+  <text class="tn" x="480" y="234" text-anchor="middle">podman-compose ≥ 1.0.6</text>
+  <text class="ts" x="480" y="252" text-anchor="middle">EPEL 8 ships 1.0.6 as standard</text>
+  <rect class="nb-warn" x="654" y="210" width="290" height="56" rx="6"/>
+  <text class="tn" x="799" y="234" text-anchor="middle">anything else</text>
+  <text class="ts" x="799" y="252" text-anchor="middle">v1 · unknown banner · probe failed</text>
+
+  <!-- artifacts -->
+  <rect class="nb-st" x="16" y="300" width="290" height="104" rx="6"/>
+  <text class="ts" x="161" y="324" text-anchor="middle">-f build/services/&lt;svc&gt;/docker-compose.yml</text>
+  <text class="ta" x="161" y="340" text-anchor="middle">one -f per rendered file, where it sits</text>
+  <line class="divider" x1="40" y1="356" x2="282" y2="356"/>
+  <text class="ts" x="161" y="376" text-anchor="middle">--env-file .env.shared</text>
+  <text class="ts" x="161" y="392" text-anchor="middle">--env-file .env</text>
+
+  <rect class="nb-st" x="335" y="300" width="290" height="104" rx="6"/>
+  <text class="ts" x="480" y="324" text-anchor="middle">-f .osprey-compose.yml</text>
+  <text class="ta" x="480" y="340" text-anchor="middle">every file merged into one, at the repo root</text>
+  <line class="divider" x1="359" y1="356" x2="601" y2="356"/>
+  <text class="ts" x="480" y="376" text-anchor="middle">--env-file build/.env.merged</text>
+  <text class="ts" x="480" y="392" text-anchor="middle">COMPOSE_PROJECT_DIR=&lt;repo&gt;</text>
+
+  <rect class="nb-warn" x="654" y="300" width="290" height="56" rx="6"/>
+  <text class="tn" x="799" y="324" text-anchor="middle">refused</text>
+  <text class="ts" x="799" y="342" text-anchor="middle">before a single container is touched</text>
+
+  <text class="ta ta-warn" x="480" y="430" text-anchor="middle">why the merge exists: podman-compose 1.0.6–1.3.0 resolves relative paths against the first -f file's directory,</text>
+  <text class="ta ta-warn" x="480" y="444" text-anchor="middle">1.4.1 and newer against COMPOSE_PROJECT_DIR — same inputs, different result, and no error on either version</text>
+</svg>
+</div>

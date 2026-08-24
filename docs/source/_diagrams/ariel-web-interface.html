@@ -1,0 +1,38 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 304" role="img" aria-labelledby="ariel-web-interface-title ariel-web-interface-desc">
+  <title id="ariel-web-interface-title">ARIEL web interface</title>
+  <desc id="ariel-web-interface-desc">A JavaScript single-page app in the browser talks over a REST API to the FastAPI application, whose endpoints all sit on the same ARIELSearchService the CLI and MCP tools use.</desc>
+  <defs>
+    <marker id="ariel-web-interface-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <text class="te" x="88" y="56">BROWSER · SPA</text>
+  <text class="te" x="568" y="56">SERVER · FASTAPI</text>
+  <!-- arrows -->
+  <line class="e" x1="392" y1="144" x2="568" y2="144" marker-end="url(#ariel-web-interface-arr)"/>
+  <line class="e e-dash" x1="568" y1="192" x2="392" y2="192" marker-end="url(#ariel-web-interface-arr)"/>
+  <rect class="mask" x="452" y="124" width="56" height="12" rx="2"/>
+  <text class="ta" x="480" y="133" text-anchor="middle">REST API</text>
+  <rect class="mask" x="460" y="200" width="40" height="12" rx="2"/>
+  <text class="ta" x="480" y="209" text-anchor="middle">JSON</text>
+  <!-- boxes -->
+  <rect class="mask" x="88" y="72" width="304" height="192" rx="6"/>
+  <rect class="nb" x="88" y="72" width="304" height="192" rx="6"/>
+  <text class="tn" x="240" y="100" text-anchor="middle">single-page app</text>
+  <line class="divider" x1="104" y1="116" x2="376" y2="116"/>
+  <text class="ts" x="104" y="140">index.html</text>
+  <text class="ts" x="104" y="160">js/app.js · js/search.js</text>
+  <text class="ts" x="104" y="180">js/entries.js · js/dashboard.js</text>
+  <text class="ts" x="104" y="200">css/*.css</text>
+  <rect class="mask" x="568" y="72" width="304" height="192" rx="6"/>
+  <rect class="nb" x="568" y="72" width="304" height="192" rx="6"/>
+  <text class="tn" x="720" y="100" text-anchor="middle">create_app()</text>
+  <line class="divider" x1="584" y1="116" x2="856" y2="116"/>
+  <text class="ts" x="584" y="140">/api/capabilities</text>
+  <text class="ts" x="584" y="160">/api/search</text>
+  <text class="ts" x="584" y="180">/api/entries</text>
+  <text class="ts" x="584" y="200">/api/status</text>
+  <text class="ts t-acc" x="584" y="220" style="font-weight:500">ARIELSearchService</text>
+</svg>
+</div>

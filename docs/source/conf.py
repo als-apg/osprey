@@ -59,7 +59,6 @@ extensions = [
     "sphinx.ext.graphviz",  # Graph visualization
     "sphinx.ext.todo",  # TODO notes
     "sphinx_design",  # Design components (cards, tabs, etc.)
-    "sphinxcontrib.mermaid",  # Mermaid diagram support
     "workflow_autodoc",  # Custom: Auto-document workflow files
 ]
 
@@ -307,23 +306,3 @@ copybutton_prompt_is_regexp = True
 
 # Enable sphinx-design components
 sd_fontawesome_latex = True
-
-# -- Mermaid configuration -------------------------------------------------
-
-# Use client-side rendering (no CLI needed)
-mermaid_output_format = "raw"
-
-# Mermaid version to use
-mermaid_version = "11.8.0"
-
-# Size each diagram to its own aspect ratio. The extension's default is a flat
-# `height: 500px` on every rendered SVG, which letterboxes a wide `flowchart LR`
-# into a near-square box (the multi-user diagram is 6.5:1 but rendered at
-# 0.98:1, ~68% of it empty). "auto" lets the browser derive height from the
-# SVG's viewBox instead.
-mermaid_height = "auto"
-
-# Light/dark theming is handled by the extension itself: it detects the
-# page theme, and a MutationObserver on `data-theme` re-renders every
-# diagram when the reader toggles. Use `mermaid_init_config` if this ever
-# needs custom theme variables.
