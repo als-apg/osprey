@@ -367,7 +367,7 @@ virtual-accelerator = [
     # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
     # everywhere, so marking them would only make the recorder's dependencies
     # silently absent on a developer's machine.
-    "aioca>=1.7",
+    "aioca>=2.1",
 ]
 
 # All optional dependencies for complete installation
