@@ -943,7 +943,11 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
         artifacts={
-            "hooks": ["hook-log", "target-state", "hook-config", "approval"],
+            # memory-guard is along not for this test's sake but for the
+            # build's write-gate lint: a profile whose PreToolUse chain never
+            # matches `Write` refuses to build at all, and a test that pins
+            # copied-vs-wired needs a profile that builds.
+            "hooks": ["hook-log", "target-state", "hook-config", "approval", "memory-guard"],
             "rules": ["safety"],
         },
     )
