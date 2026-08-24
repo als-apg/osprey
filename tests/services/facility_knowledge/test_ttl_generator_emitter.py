@@ -462,7 +462,7 @@ class TestShippedDemoMachine:
         generated corpus does not hold would return zero rows — the failure mode
         this test exists to catch.
         """
-        params = example.parameters["demo"]  # type: ignore[attr-defined]
+        params = example.parameters  # type: ignore[attr-defined]
         rdf_type = URIRef(f"{emitter.RDF_NS}type")
         for name, value in params.items():
             if name == "section":

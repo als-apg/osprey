@@ -48,11 +48,10 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
 Corpora
 -------
 The Cypher is corpus-agnostic — nothing about a particular facility is baked
-into a query, only into its parameter values. Each example carries its
-parameter sets keyed by corpus; the one shipped corpus is ``"demo"``, the
-generated demo machine. No parameter set is ever empty — every example takes at
-least one parameter, and the set supplies exactly the parameters its query
-references.
+into a query, only into its parameter values. Each example carries one
+parameter set whose values exist in the shipped demo machine. No parameter set
+is ever empty — every example takes at least one parameter, and the set
+supplies exactly the parameters its query references.
 
 The first four examples search prose the generator writes onto the corpus —
 the description predicates and the ``system`` token — which the demo corpus
@@ -106,7 +105,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"demo": {"phrase": "vacuum gauge"}},
+    parameters={"phrase": "vacuum gauge"},
 )
 
 _BY_FIELD_MEANING = ExampleQuery(
@@ -138,7 +137,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"demo": {"field_meaning": "pressure", "subfield_meaning": "gauge"}},
+    parameters={"field_meaning": "pressure", "subfield_meaning": "gauge"},
 )
 
 _BY_CLASS_AND_SIGNAL = ExampleQuery(
@@ -178,11 +177,9 @@ ORDER BY pv
 LIMIT 200
 """.strip(),
     parameters={
-        "demo": {
-            "synonym": "bpm",
-            "field_meaning": "Golden Orbit Reference",
-            "subfield_meaning": "horizontal",
-        }
+        "synonym": "bpm",
+        "field_meaning": "Golden Orbit Reference",
+        "subfield_meaning": "horizontal",
     },
 )
 
@@ -213,7 +210,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"demo": {"role": "bending magnet"}},
+    parameters={"role": "bending magnet"},
 )
 
 _BY_SYSTEM = ExampleQuery(
@@ -243,7 +240,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"demo": {"system": "VAC"}},
+    parameters={"system": "VAC"},
 )
 
 
@@ -282,7 +279,7 @@ RETURN DISTINCT b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"demo": {"synonym": "quad"}},
+    parameters={"synonym": "quad"},
 )
 
 _CENSUS = ExampleQuery(
@@ -309,7 +306,7 @@ RETURN count(DISTINCT d) AS device_count,
        count(b) AS binding_count
 LIMIT 1
 """.strip(),
-    parameters={"demo": {"synonym": "quad"}},
+    parameters={"synonym": "quad"},
 )
 
 _IN_SECTION = ExampleQuery(
@@ -334,7 +331,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"demo": {"section": "SR"}},
+    parameters={"section": "SR"},
 )
 
 _DEVICE_ADDRESSES = ExampleQuery(
@@ -368,7 +365,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"demo": {"name": "DIPOLE01", "section": "SR"}},
+    parameters={"name": "DIPOLE01", "section": "SR"},
 )
 
 _BY_ADDRESS = ExampleQuery(
@@ -396,7 +393,7 @@ RETURN b.fullPv AS pv,
        count(DISTINCT d) AS device_count
 LIMIT 5
 """.strip(),
-    parameters={"demo": {"pv": "SR:MAG:DIPOLE:01:CURRENT:SP"}},
+    parameters={"pv": "SR:MAG:DIPOLE:01:CURRENT:SP"},
 )
 
 

@@ -73,10 +73,6 @@ EXPECTED_MAGNETS = 382
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 MAGNET_CLASS_URI = _SEM + "Magnet"
 
-#: Corpus key in :data:`~osprey.mcp_server.graph.tools.examples_data.EXAMPLE_QUERIES`
-#: parameter sets.
-DEMO = "demo"
-
 #: Labels and properties ``get_schema`` must never surface.
 BOOKKEEPING_LABELS = ("_OspreySeed", "_GraphConfig", "_NsPrefDef")
 BOOKKEEPING_PROPERTIES = ("sha256", "seededAt", "kind")
@@ -280,10 +276,10 @@ def _example_keys() -> list[str]:
     return [example.key for example in EXAMPLE_QUERIES]
 
 
-def _run_example(key: str, corpus: str) -> dict[str, Any]:
-    """Run one curated example with the parameter set for *corpus*."""
+def _run_example(key: str) -> dict[str, Any]:
+    """Run one curated example with its shipped parameter set."""
     example = _example(key)
-    return _read_cypher(example.cypher, dict(example.parameters[corpus]))
+    return _read_cypher(example.cypher, dict(example.parameters))
 
 
 def _store_state(uri: str) -> tuple[int, str | None]:
@@ -517,14 +513,14 @@ def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping(demo_ctx: Any) 
 
 def test_example_q1a_counts_the_verified_devices(demo_ctx: Any) -> None:
     """The device census sums to the 512 verified devices."""
-    payload = _run_example("q1a", DEMO)
+    payload = _run_example("q1a")
     assert payload["truncated"] is False, payload
     assert sum(row["device_count"] for row in payload["rows"]) == EXPECTED_DEVICES
 
 
 def test_example_q5_reproduces_the_verified_direction_split(demo_ctx: Any) -> None:
     """The binding rollup reproduces 396 write-only / 2512 read-only / 2908 total."""
-    payload = _run_example("q5", DEMO)
+    payload = _run_example("q5")
     row = payload["rows"][0]
     assert row["write_only"] == EXPECTED_WRITE_ONLY, row
     assert row["read_only"] == EXPECTED_READ_ONLY, row
@@ -540,13 +536,13 @@ def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
     capped answer would compare 200 against 382 and say nothing about the
     hierarchy.
     """
-    assert _example("q1c").parameters[DEMO]["class_uri"] == MAGNET_CLASS_URI, (
+    assert _example("q1c").parameters["class_uri"] == MAGNET_CLASS_URI, (
         "the count below is the verified Magnet rollup, so it only means "
         "anything while the shipped parameter set still names Magnet"
     )
     demo_ctx.query_max_rows = 500
 
-    payload = _run_example("q1c", DEMO)
+    payload = _run_example("q1c")
     assert payload["truncated"] is False, payload
     assert payload["row_count"] == EXPECTED_MAGNETS, payload["row_count"]
     assert {row["device_class"] for row in payload["rows"]} > {"Quadrupole"}
@@ -554,7 +550,7 @@ def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
 
 def test_example_q1b_puts_the_magnets_under_one_branch(demo_ctx: Any) -> None:
     """The branch rollup reaches the same 382 without naming a magnet subclass."""
-    payload = _run_example("q1b", DEMO)
+    payload = _run_example("q1b")
     by_branch = {row["branch"]: row["device_count"] for row in payload["rows"]}
     assert by_branch.get("Magnet") == EXPECTED_MAGNETS, by_branch
 
@@ -562,11 +558,11 @@ def test_example_q1b_puts_the_magnets_under_one_branch(demo_ctx: Any) -> None:
 @pytest.mark.parametrize("key", _example_keys())
 def test_every_example_runs_on_the_demo_corpus(demo_ctx: Any, key: str) -> None:
     """Every shipped example returns usable rows with its demo parameter set."""
-    payload = _run_example(key, DEMO)
-    _assert_usable(key, DEMO, payload)
+    payload = _run_example(key)
+    _assert_usable(key, payload)
 
 
-def _assert_usable(key: str, corpus: str, payload: dict[str, Any]) -> None:
+def _assert_usable(key: str, payload: dict[str, Any]) -> None:
     """Assert an example returned rows whose columns carry values.
 
     No null is tolerated: every device in the generated corpus carries a
@@ -582,7 +578,7 @@ def _assert_usable(key: str, corpus: str, payload: dict[str, Any]) -> None:
 
     for row in payload["rows"]:
         for column, value in row.items():
-            assert value is not None, f"{key} returned a null {column} on {corpus}: {row}"
+            assert value is not None, f"{key} returned a null {column}: {row}"
 
 
 def test_example_q6_finds_one_owner_and_no_shared_endpoint(demo_ctx: Any) -> None:
@@ -592,10 +588,10 @@ def test_example_q6_finds_one_owner_and_no_shared_endpoint(demo_ctx: Any) -> Non
     exactly one device: ``device_count`` of 1 is the *expected* answer there
     and is what says "no shared endpoints", not a failure to find any.
     """
-    payload = _run_example("q6", DEMO)
+    payload = _run_example("q6")
     assert payload["row_count"] == 1, payload
     row = payload["rows"][0]
-    assert row["pv"] == _example("q6").parameters[DEMO]["pv"]
+    assert row["pv"] == _example("q6").parameters["pv"]
     assert row["device_count"] == 1, row
     assert row["devices"], row
 

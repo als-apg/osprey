@@ -33,9 +33,6 @@ _SERVER_CONTEXT_MODULE = "osprey.mcp_server.graph.server_context"
 
 _EXAMPLE_FIELDS = {"key", "title", "description", "cypher", "parameters"}
 
-#: The one corpus that ships, so the one every example must carry values for.
-_CORPORA = {"demo"}
-
 #: The curated keys in the order the tool must serve them. A literal, so a
 #: reordered or dropped example fails here rather than quietly changing the
 #: reading order the descriptions cross-reference.
@@ -142,30 +139,21 @@ class TestPayload:
 
 
 class TestParameterContract:
-    """Every example carries a real parameter set for the shipped corpus."""
-
-    def test_every_example_carries_the_shipped_corpus(self, payload):
-        for example in payload["examples"]:
-            assert set(example["parameters"]) == _CORPORA, (
-                f"{example['key']} carries {sorted(example['parameters'])}, "
-                f"not the shipped {sorted(_CORPORA)}"
-            )
+    """Every example carries a real parameter set that runs it."""
 
     def test_no_rendered_parameter_set_is_empty(self, payload):
         """An empty set reads as "runs here, takes no values" — the wrong answer."""
         for example in payload["examples"]:
-            for corpus, values in example["parameters"].items():
-                assert values, f"{example['key']} renders an empty parameter set for {corpus}"
+            assert example["parameters"], f"{example['key']} renders an empty parameter set"
 
-    def test_a_declared_corpus_supplies_every_placeholder(self, payload):
+    def test_the_parameter_set_supplies_every_placeholder(self, payload):
         """Rendering must not drop a value the query needs."""
         for example in payload["examples"]:
             placeholders = set(re.findall(r"\$(\w+)", example["cypher"]))
-            for corpus, values in example["parameters"].items():
-                assert placeholders == set(values), (
-                    f"{example['key']} ({corpus}): placeholders {sorted(placeholders)} "
-                    f"vs parameters {sorted(values)}"
-                )
+            assert placeholders == set(example["parameters"]), (
+                f"{example['key']}: placeholders {sorted(placeholders)} "
+                f"vs parameters {sorted(example['parameters'])}"
+            )
 
     def test_every_query_is_bounded(self, payload):
         for example in payload["examples"]:

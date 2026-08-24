@@ -31,10 +31,9 @@ text before the store is dialled, so a catalogue entry the gate would refuse
 fails here rather than in an operator's session.
 
 The corpus is seeded into a wiped store — the sequence ``seed-graph --force``
-performs — and every example that declares a parameter set for it runs.  What
-this file does pin is that every example declares the shipped corpus and that
-the lane ran a non-empty set: a catalogue that declared nothing would otherwise
-pass by running nothing.
+performs — and every example runs with its shipped parameter set.  What this
+file does pin is that the lane ran a non-empty set: a catalogue that declared
+nothing would otherwise pass by running nothing.
 
 The container recipe (pinned image, n10s jar from the pinned release or
 ``OSPREY_TEST_N10S_JAR``, APOC copied out of the image) comes from
@@ -212,16 +211,16 @@ def _read_cypher(query: str, params: dict[str, Any] | None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _applicable(corpus: str) -> list[Any]:
-    """Every catalogue example, checked to declare a parameter set for *corpus*.
+def _applicable() -> list[Any]:
+    """Every catalogue example, checked to carry a runnable parameter set.
 
-    Asserted rather than filtered: an example without a set for the shipped
-    corpus would otherwise drop out of this lane without anything saying so.
+    Asserted rather than filtered: an example without values would otherwise
+    drop out of this lane without anything saying so.
     """
     for example in EXAMPLE_QUERIES:
-        assert corpus in example.parameters, (
-            f"{example.key} declares {sorted(example.parameters)}, not {corpus!r}; "
-            "an example this lane cannot run is one an operator cannot run either"
+        assert example.parameters, (
+            f"{example.key} ships no parameter values; an example this lane "
+            "cannot run is one an operator cannot run either"
         )
     return list(EXAMPLE_QUERIES)
 
@@ -238,7 +237,7 @@ def _usability_failures(example: Any, corpus: str, payload: dict[str, Any]) -> l
     if payload.get("row_count", 0) < 1:
         failures.append(
             f"{example.key} on {corpus}: returned no rows with its shipped parameter set "
-            f"{example.parameters[corpus]!r}. To a caller that reads as 'the machine has no "
+            f"{example.parameters!r}. To a caller that reads as 'the machine has no "
             f"such channel'."
         )
         return failures
@@ -258,16 +257,13 @@ def _usability_failures(example: Any, corpus: str, payload: dict[str, Any]) -> l
 
 
 def _run_catalogue(corpus: str) -> None:
-    """Run every example applicable to *corpus* and report all the broken ones."""
-    examples = _applicable(corpus)
-    assert examples, (
-        f"no catalogue example declares a parameter set for {corpus!r}, so this "
-        "lane would pass having run nothing"
-    )
+    """Run every example against the seeded store and report all the broken ones."""
+    examples = _applicable()
+    assert examples, "an empty catalogue would let this lane pass having run nothing"
 
     failures: list[str] = []
     for example in examples:
-        payload = _read_cypher(example.cypher, dict(example.parameters[corpus]))
+        payload = _read_cypher(example.cypher, dict(example.parameters))
         failures.extend(_usability_failures(example, corpus, payload))
 
     assert not failures, (

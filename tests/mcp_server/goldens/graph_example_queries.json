@@ -5,9 +5,7 @@
       "cypher": "MATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding)\nWITH DISTINCT d\nRETURN [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       count(d) AS device_count\nORDER BY device_count DESC, device_class\nLIMIT 100",
       "description": "How many devices of each concrete kind the graph holds — Quadrupoles, BPMs, valves and so on — counted from the class label each device node carries. Run this first on an unfamiliar corpus: it is the fastest picture of what the facility is made of, and the row count tells you how many distinct device classes are in play. Only devices that have at least one channel binding are counted, so the total matches the number of devices an operator can actually address. Takes no parameters.",
       "key": "q1a",
-      "parameters": {
-        "demo": {}
-      },
+      "parameters": {},
       "title": "Device count by concrete class"
     },
     {
@@ -15,9 +13,7 @@
       "description": "The same census as q1a, but aggregated up the class hierarchy to the branches directly under a root class — magnets, instrumentation, vacuum, RF. This is the query that proves the ontology is traversable rather than merely present: a device typed as an HCorrector is counted under Magnet without the query naming HCorrector anywhere.\n\n$root_uri — the class whose immediate children become the branches. Use the ontology root to see the whole facility; pass a narrower class to break just that subtree down one level.",
       "key": "q1b",
       "parameters": {
-        "demo": {
-          "root_uri": "https://narad.example.org/schema/shared_semantics/AcceleratorDevice"
-        }
+        "root_uri": "https://narad.example.org/schema/shared_semantics/AcceleratorDevice"
       },
       "title": "Device count rolled up to top-level branches"
     },
@@ -26,9 +22,7 @@
       "description": "Answers 'give me every magnet' — or every instrument, every vacuum device — by walking the class hierarchy down from one class and listing the devices typed as it or any of its descendants. Each row is a device with its concrete class and the section it sits in. This is the payoff of having an ontology: the caller names one class and the graph supplies the subclasses.\n\n$class_uri — the class to roll up. Any class URI works; q4b lists the ones this corpus has.",
       "key": "q1c",
       "parameters": {
-        "demo": {
-          "class_uri": "https://narad.example.org/schema/shared_semantics/Magnet"
-        }
+        "class_uri": "https://narad.example.org/schema/shared_semantics/Magnet"
       },
       "title": "Every device of a class, including its subclasses"
     },
@@ -37,9 +31,7 @@
       "description": "Lists the devices in a single section in the order the beam meets them, which is the sequence operators reason in when they talk about a region of the machine. Rows are ordered by longitudinal position (``sPositionM``) where the corpus records it and fall back to the device's ordinal within the section where it does not, so the ordering is meaningful on a corpus that records only ordinals.\n\n$section — the section code to walk, exactly as the corpus spells it (a transfer line, a ring, a sector). Values come from the ``section`` column of q1c.",
       "key": "q2",
       "parameters": {
-        "demo": {
-          "section": "SR"
-        }
+        "section": "SR"
       },
       "title": "Walk one section in beamline order"
     },
@@ -48,10 +40,8 @@
       "description": "The channel-finding query: given a device, return every process variable bound to it, the semantic signal each one carries, whether it is read or written, and how confident the binding is. Use it to go from a device an operator named to the addresses a control-system connector can actually talk to.\n\n$name — the device's source name as the corpus records it.\n$section — the section that device sits in. Both are needed because a source name can repeat across sections.",
       "key": "q3",
       "parameters": {
-        "demo": {
-          "name": "DIPOLE01",
-          "section": "SR"
-        }
+        "name": "DIPOLE01",
+        "section": "SR"
       },
       "title": "Every PV of one device, split by direction"
     },
@@ -59,9 +49,7 @@
       "cypher": "MATCH (sub:Class)-[:SUBCLASSOF]->(parent:Class)\nRETURN last(split(sub.uri, \"/\")) AS subclass,\n       last(split(parent.uri, \"/\")) AS superclass,\n       sub.uri AS subclass_uri,\n       parent.uri AS superclass_uri\nORDER BY superclass, subclass\nLIMIT 500",
       "description": "Every (class, parent) edge in the ontology, one per row, with both the short names and the full URIs. This is how to find out which classes a corpus actually defines — take a ``class_uri`` from here into q1c, or read the table top to bottom to audit the taxonomy. Takes no parameters.",
       "key": "q4b",
-      "parameters": {
-        "demo": {}
-      },
+      "parameters": {},
       "title": "Class hierarchy as a flat table"
     },
     {
@@ -69,9 +57,7 @@
       "description": "The same taxonomy as q4b, but as whole chains instead of single edges: each row is the path from one class up to the root, deepest first. It shows the multi-hop structure a single-edge listing hides — that a horizontal corrector is a corrector is a magnet — which is what makes the rollups in q1b and q1c reach as far as they do.\n\n$root_uri — the class every chain must end at. Pass the ontology root for the full taxonomy, or a branch class to see only that subtree.",
       "key": "q4c",
       "parameters": {
-        "demo": {
-          "root_uri": "https://narad.example.org/schema/shared_semantics/AcceleratorDevice"
-        }
+        "root_uri": "https://narad.example.org/schema/shared_semantics/AcceleratorDevice"
       },
       "title": "Inheritance chains from a root class"
     },
@@ -79,9 +65,7 @@
       "cypher": "MATCH (b:ChannelBinding)\nWITH b,\n     EXISTS { (b)-[:WRITESSIGNAL]->() } AS is_write,\n     EXISTS { (b)-[:READSSIGNAL]->() }  AS is_read\nRETURN\n  sum(CASE WHEN is_write AND NOT is_read THEN 1 ELSE 0 END) AS write_only,\n  sum(CASE WHEN is_read  AND NOT is_write THEN 1 ELSE 0 END) AS read_only,\n  sum(CASE WHEN is_read  AND is_write     THEN 1 ELSE 0 END) AS readwrite,\n  count(b)                                                  AS total\nLIMIT 1",
       "description": "One row summarising every channel binding in the corpus: how many are write-only, how many read-only, how many are both, and the total. It is the cheapest sanity check that a corpus imported completely and that its direction facts survived — a readwrite count that should be zero but is not, or a total that does not match what was seeded, points at the corpus rather than at the query. Takes no parameters.",
       "key": "q5",
-      "parameters": {
-        "demo": {}
-      },
+      "parameters": {},
       "title": "Read/write split across all bindings"
     },
     {
@@ -89,16 +73,14 @@
       "description": "Which devices are bound to a given process variable. Normally the answer is one, and the query doubles as a reverse lookup from an address back to the device that owns it. More than one device on the row is the interesting case: it means those devices share a single control endpoint — magnets on a common power supply, for instance — so writing that address moves all of them at once. The generated demo corpus has no shared PVs by construction, so ``device_count`` is always 1 there; a facility corpus built from real wiring can have them.\n\n$pv — the full process-variable address to look up, exactly as the corpus records it in ``fullPv``. Addresses come from q3.",
       "key": "q6",
       "parameters": {
-        "demo": {
-          "pv": "SR:MAG:DIPOLE:01:CURRENT:SP"
-        }
+        "pv": "SR:MAG:DIPOLE:01:CURRENT:SP"
       },
       "title": "Devices sharing one PV"
     }
   ],
   "notes": [
     "Each example carries its parameters separately from its Cypher. Pass the chosen parameter dict to read_cypher as `params` — never paste values into the query text.",
-    "Parameter sets are keyed by corpus. The `demo` set holds values that exist in the generated demo machine; on a deployment that seeded a different corpus, take values from the rows the structural examples return. The Cypher is the same either way; only the values differ.",
+    "Each parameter set holds values that exist in the shipped demo machine; on a deployment that seeded a different corpus, take values from the rows the structural examples return. The Cypher is the same either way; only the values differ.",
     "Every example already ends in a LIMIT, so an example that comes back truncated was truncated by the server's row cap, not by the query.",
     "Results are bounded by services.graphdb.query_max_rows; a truncated result means narrow the query rather than retry it unchanged."
   ]

@@ -7,9 +7,8 @@ Three claims, each with the failure it guards against:
    asserted on the *queries issued*, not just the payload, because a collection
    that read the seed marker and filtered afterwards would leak on a store
    whose bookkeeping moves.
-2. **The block is honest about its corpus.** Parameter sets are narrowed to the
-   corpus the store itself names, and only when the store names exactly one the
-   examples know.
+2. **The block renders each example runnable.** Every example arrives with its
+   Cypher and the parameter set that runs it, or an explicit ``none``.
 3. **Applying is idempotent and refuses unmarked files.** The bake runs on
    every ``osprey up``, so a block that grew on each application — or one
    appended into a hand-edited prompt without markers — would corrupt renders
@@ -54,7 +53,6 @@ class _FakeStore:
     labels: tuple[str, ...] = _DEFAULT_LABELS
     relationship_types: tuple[str, ...] = _DEFAULT_RELTYPES
     keys_by_label: dict[str, list[str]] = field(default_factory=lambda: dict(_DEFAULT_KEYS))
-    facilities: tuple[str, ...] = ("demo",)
     queries: list[tuple[str, dict[str, Any] | None]] = field(default_factory=list)
 
     def run(self, cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -63,8 +61,6 @@ class _FakeStore:
             return [{"label": name} for name in self.labels]
         if "db.relationshipTypes" in cypher:
             return [{"relationshipType": name} for name in self.relationship_types]
-        if "d.facility" in cypher:
-            return [{"facility": name} for name in self.facilities]
         if "UNWIND keys(n)" in cypher:
             label = cypher.split("`")[1]
             return [{"key": key} for key in self.keys_by_label.get(label, [])]
@@ -124,37 +120,6 @@ class TestCollectSchema:
 
 
 # ---------------------------------------------------------------------------
-# detect_corpus
-# ---------------------------------------------------------------------------
-
-
-class TestDetectCorpus:
-    KNOWN = frozenset({"als", "demo"})
-
-    def test_single_known_facility_selects_its_corpus(self):
-        store = _FakeStore(facilities=("demo",))
-        assert mod.detect_corpus(store.run, self.KNOWN) == "demo"
-
-    def test_facility_case_is_folded_in_cypher(self):
-        """The ALS corpus spells its facility "ALS"; the Cypher lowercases it,
-        so the fake — which routes, not folds — is fed the folded value."""
-        store = _FakeStore(facilities=("als",))
-        assert mod.detect_corpus(store.run, self.KNOWN) == "als"
-
-    def test_unknown_facility_keeps_every_parameter_set(self):
-        store = _FakeStore(facilities=("bessy",))
-        assert mod.detect_corpus(store.run, self.KNOWN) is None
-
-    def test_multiple_facilities_keep_every_parameter_set(self):
-        store = _FakeStore(facilities=("als", "demo"))
-        assert mod.detect_corpus(store.run, self.KNOWN) is None
-
-    def test_no_facility_keeps_every_parameter_set(self):
-        store = _FakeStore(facilities=())
-        assert mod.detect_corpus(store.run, self.KNOWN) is None
-
-
-# ---------------------------------------------------------------------------
 # render_block / apply_snapshot
 # ---------------------------------------------------------------------------
 
@@ -165,9 +130,7 @@ class _Example:
     title: str = "Device count by concrete class"
     description: str = "How many devices of each concrete kind the graph holds."
     cypher: str = "MATCH (d:Resource) RETURN count(d) LIMIT 100"
-    parameters: dict[str, dict[str, Any]] = field(
-        default_factory=lambda: {"als": {"x": 1}, "demo": {"x": 2}}
-    )
+    parameters: dict[str, Any] = field(default_factory=lambda: {"x": 2})
 
 
 def _schema() -> dict[str, Any]:
@@ -182,7 +145,6 @@ def _schema() -> dict[str, Any]:
 
 def _block(**overrides: Any) -> str:
     kwargs: dict[str, Any] = {
-        "corpus": "demo",
         "digest": "abcdef0123456789",
         "resource_count": 512,
     }
@@ -204,16 +166,16 @@ class TestRenderBlock:
     def test_unmanaged_store_is_stamped_as_such(self):
         assert "no seed marker" in _block(digest=None)
 
-    def test_detected_corpus_narrows_the_parameters(self):
-        block = _block(corpus="demo")
-        assert '{"x": 2}' in block
-        assert '{"x": 1}' not in block, "the other corpus's values leaked into the block"
+    def test_parameters_render_with_their_example(self):
+        block = _block()
+        assert 'Parameters: `{"x": 2}`' in block
 
-    def test_undetected_corpus_keeps_every_set_with_the_pick_note(self):
-        block = _block(corpus=None)
-        assert '{"x": 1}' in block
-        assert '{"x": 2}' in block
-        assert "pick the set matching the seeded corpus" in block
+    def test_a_parameterless_example_says_none(self):
+        example = _Example(parameters={})
+        block = mod.render_block(
+            _schema(), [example], digest="abcdef0123456789", resource_count=512
+        )
+        assert "Parameters: none" in block
 
     def test_schema_and_example_render(self):
         block = _block()
