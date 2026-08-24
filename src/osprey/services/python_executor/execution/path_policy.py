@@ -28,19 +28,36 @@ The policy is applied in **every** execution mode. Readonly and readwrite runs
 alike may not write into the render zone or the profile sources — that is the
 self-change boundary, not a control-system write gate.
 
-The walker carries one check that is *not* about paths: user code naming the
-emitted guard's own identifiers. The guard cannot police attempts to unpatch
-it — code that has already reached ``_restore_patched_targets`` is past the
-boundary — so the one layer that can refuse that is a static one, here, before
-the child is ever spawned. Unlike the path checks it does not defer dynamic
-spellings, because a string literal handed to ``getattr`` is the normal way
-this is attempted rather than an edge case.
+The walker carries two checks that are *not* about paths, both aimed at code
+that takes the runtime guard down rather than spelling a path around it. The
+guard cannot police either one — nothing rendered into the child can be hidden
+from the child, and neither attempt calls a patched entry point on the way — so
+a static layer, here, before the child is spawned, is the only one that can
+refuse them:
+
+* **Naming the guard's own identifiers** (``_restore_patched_targets``,
+  ``_osprey_fs_check``, the ``_OSPREY_FS_*`` tables).
+* **Reloading a module the guard patched** (``importlib.reload(os)``). A reload
+  re-executes the module and restores its original attributes, taking the
+  guard's rebindings with them — a plainer spelling of the same disarm.
+
+Unlike the path checks these do not defer dynamic spellings, because a string
+literal handed to ``getattr`` or to ``sys.modules[...]`` is the normal way both
+are attempted rather than an edge case. What neither check reaches is a binding
+it cannot see the name of — ``import os as _o; reload(_o)`` reads as a reload of
+something unguarded. That is the honest limit of a static layer: it raises the
+cost of a disarm, it does not make one impossible. The boundary that holds
+against code deliberately attacking it is the operating system's — the
+container's privilege split, where the render zone and the profile sources
+belong to a different user than the one running agent code.
 """
 
 import ast
 import os
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+
+from osprey.services.python_executor.execution.fs_guard import GUARDED_MODULES
 
 # ``open``/``Path.open`` mode characters that mean "this call may modify the
 # file". Anything else ('r', 'rb', 'rt') is a read and is never an issue.
@@ -85,6 +102,15 @@ _GUARD_IDENTIFIER_PREFIXES = ("_osprey_fs", "_OSPREY_FS")
 # Guard identifiers that share no prefix with the others; matched exactly.
 _GUARD_IDENTIFIER_NAMES = frozenset({"_restore_patched_targets"})
 
+# The call that puts a patched module back the way it was. Matched by bare
+# name like the write-intent calls above, so ``importlib.reload``, a bare
+# ``reload`` imported from importlib, and the legacy ``imp.reload`` all read
+# the same. A bare ``reload`` call is only an issue when its arguments name a
+# module the guard actually patches, which is what keeps an unrelated
+# ``config.reload()`` clean.
+_RELOAD_CALL_NAME = "reload"
+_GUARDED_MODULE_NAMES = frozenset(GUARDED_MODULES)
+
 
 def path_policy_issues(
     code: str,
@@ -119,7 +145,7 @@ def path_policy_issues(
 
     # Guard tampering is independent of the root sets — there is no path to
     # compare, and a deployment that protects nothing still owns its guard.
-    issues: list[str] = _guard_tamper_issues(tree)
+    issues: list[str] = _guard_tamper_issues(tree) + _reload_tamper_issues(tree)
     if not protected:
         return issues
 
@@ -155,6 +181,47 @@ def _guard_tamper_issues(tree: ast.AST) -> list[str]:
                 "user code is tampering with the boundary that constrains that code"
             )
     return issues
+
+
+def _reload_tamper_issues(tree: ast.AST) -> list[str]:
+    """Return an issue per guarded module a ``reload`` call names.
+
+    One issue per distinct module, so a script that reloads ``os`` twice is
+    reported once and a script that reloads ``os`` and ``io`` is reported
+    twice.
+    """
+    issues: list[str] = []
+    seen: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or _called_name(node.func) != _RELOAD_CALL_NAME:
+            continue
+        for module in _reloaded_guarded_modules(node):
+            if module in seen:
+                continue
+            seen.add(module)
+            issues.append(
+                f"Reloading the module '{module}' is not allowed: a reload re-executes "
+                "the module and restores its original attributes, which takes the runtime "
+                "filesystem guard's patches down with them, and disarming the guard from "
+                "user code is tampering with the boundary that constrains that code"
+            )
+    return issues
+
+
+def _reloaded_guarded_modules(node: ast.Call) -> list[str]:
+    """Guarded module names spelled anywhere inside a reload call's arguments.
+
+    The whole argument subtree is inspected rather than just a bare ``Name``,
+    so ``reload(sys.modules['os'])`` is read the same as ``reload(os)`` — the
+    string constant is the module name either way.
+    """
+    names: list[str] = []
+    for arg in (*node.args, *(keyword.value for keyword in node.keywords)):
+        for inner in ast.walk(arg):
+            for name in _identifiers(inner):
+                if name in _GUARDED_MODULE_NAMES and name not in names:
+                    names.append(name)
+    return names
 
 
 def _is_guard_identifier(name: str) -> bool:

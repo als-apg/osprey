@@ -340,12 +340,79 @@ def test_roots_are_baked_in_not_re_derived(project: _Project):
         assert forbidden not in guard
 
 
+#: The patch roster, frozen by name. A count alone (``len(...) == 19``) says
+#: nothing about *which* names are in the set: swap ``os.remove`` for a second
+#: spelling of ``os.mkdir`` and the count still passes. Several of the
+#: per-target refusal tests in ``test_fs_guard.py`` would also stay green after
+#: such a swap, because they exercise a call that delegates to a primitive that
+#: is still patched (``os.makedirs`` → ``os.mkdir``, ``shutil.copy`` →
+#: ``builtins.open``). This literal is what actually pins the roster; changing
+#: it is the deliberate act of widening or narrowing the guard.
+EXPECTED_PATCH_TARGETS: tuple[str, ...] = (
+    "builtins.open",
+    "io.open",
+    # ``io.open`` and ``_io.open`` are two module-dict entries pointing at one
+    # function; rebinding either leaves the other reachable.
+    "_io.open",
+    "os.open",
+    "os.truncate",
+    "os.remove",
+    "os.unlink",
+    "os.rmdir",
+    "os.removedirs",
+    "os.rename",
+    "os.replace",
+    "os.makedirs",
+    "os.mkdir",
+    "os.symlink",
+    "os.link",
+    # The C primitives ``os`` re-exports. Same relationship as ``_io.open``:
+    # ``os.remove is posix.remove`` today, and patching one name does not
+    # reach the other. ``makedirs``/``removedirs`` have no posix twin — they
+    # are pure Python in ``os`` and delegate to ``mkdir``/``rmdir``.
+    "posix.open",
+    "posix.truncate",
+    "posix.remove",
+    "posix.unlink",
+    "posix.rmdir",
+    "posix.rename",
+    "posix.replace",
+    "posix.mkdir",
+    "posix.symlink",
+    "posix.link",
+    "shutil.copy",
+    "shutil.copy2",
+    "shutil.copyfile",
+    "shutil.move",
+    "shutil.rmtree",
+)
+
+
 def test_every_widened_patch_target_is_installed(project: _Project):
     """The widened set, not just ``builtins.open``."""
     guard = project.guard()
     for target in EXECUTOR_PATCH_TARGETS:
         assert repr(target) in guard, target
-    assert len(EXECUTOR_PATCH_TARGETS) == 19
+
+
+def test_patch_roster_is_exactly_the_frozen_name_set():
+    assert EXECUTOR_PATCH_TARGETS == EXPECTED_PATCH_TARGETS
+
+
+@pytest.mark.parametrize("dropped", EXPECTED_PATCH_TARGETS)
+def test_patch_roster_is_exactly_the_frozen_name_set__mutation_drops_one(dropped: str):
+    """Losing any single entry must fail the roster check, not just the count."""
+    mutated = tuple(name for name in EXPECTED_PATCH_TARGETS if name != dropped)
+    with pytest.raises(AssertionError):
+        assert mutated == EXPECTED_PATCH_TARGETS
+
+
+def test_patch_roster_is_exactly_the_frozen_name_set__mutation_swaps_a_name():
+    """A same-length roster with a different name must fail it too."""
+    mutated = ("os.mkdir",) + EXPECTED_PATCH_TARGETS[1:]
+    assert len(mutated) == len(EXPECTED_PATCH_TARGETS)
+    with pytest.raises(AssertionError):
+        assert mutated == EXPECTED_PATCH_TARGETS
 
 
 def test_wrapper_without_roots_still_emits_the_guard():

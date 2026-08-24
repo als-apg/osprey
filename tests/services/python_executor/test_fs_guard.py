@@ -22,6 +22,7 @@ an unresolved ``/var/...`` root would never match a resolved ``/private/var``
 candidate.
 """
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -381,6 +382,24 @@ class TestDenylistPosture:
             # as much a write to it as overwriting a file in it.
             ("os.rmdir", "os.rmdir(EMPTY_DIR)"),
             ("os.removedirs", "os.removedirs(EMPTY_DIR)"),
+            # Bytes paths. ``os.fsencode`` is how they arise by accident —
+            # ``os.listdir(b'.')`` yields bytes, and C extensions hand them
+            # back — so a guard that only understands ``str`` is a guard that
+            # any of those routes walks straight past.
+            ("bytes-open", "open(os.fsencode(VICTIM), 'w')"),
+            ("bytes-os.remove", "os.remove(os.fsencode(VICTIM))"),
+            ("bytes-os.open", "os.open(os.fsencode(VICTIM), os.O_WRONLY | os.O_TRUNC)"),
+            ("bytes-shutil.copyfile", "shutil.copyfile(SRC, os.fsencode(VICTIM))"),
+            # Private aliases of the same primitives. ``io.open`` and
+            # ``_io.open`` are two module-dict entries pointing at one
+            # function, and rebinding one leaves the other untouched; likewise
+            # ``os.open`` and ``posix.open``.
+            ("_io.open", "_io.open(VICTIM, 'w')"),
+            pytest.param(
+                "posix.open",
+                "posix.open(VICTIM, os.O_WRONLY | os.O_TRUNC)",
+                marks=pytest.mark.skipif(os.name != "posix", reason="posix module is POSIX-only"),
+            ),
         ],
     )
     def test_protected_write_refused_through_every_patched_route(
@@ -390,9 +409,14 @@ class TestDenylistPosture:
         out = roots.run(
             _denylist_guard(roots),
             f"""
+            import _io
             import io
             import os
             import shutil
+            try:
+                import posix
+            except ImportError:  # non-POSIX platform — the param is skipped there
+                posix = None
             VICTIM = r"{victim}"
             NEW_DIR = r"{roots.protected / "new_dir"}"
             NEW_LINK = r"{roots.protected / "new_link"}"
@@ -417,6 +441,94 @@ class TestDenylistPosture:
         assert not (roots.protected / "new_link").is_symlink()
         assert not (roots.protected / "new_link").exists()
         assert (roots.protected / "empty_dir").is_dir()
+
+    @pytest.mark.parametrize(
+        ("alias", "call", "delegate"),
+        [
+            ("_io.open", "_io.open(VICTIM, 'w')", "io.open"),
+            pytest.param(
+                "posix.open",
+                "posix.open(VICTIM, os.O_WRONLY | os.O_TRUNC)",
+                "os.open",
+                marks=pytest.mark.skipif(os.name != "posix", reason="posix module is POSIX-only"),
+            ),
+        ],
+    )
+    def test_alias_refusal__mutation_drops_the_alias_from_the_patch_set(
+        self, roots: _Roots, alias: str, call: str, delegate: str
+    ):
+        """The alias is refused because *it* is patched, not its public twin.
+
+        Rendering the same guard with the alias dropped — and its public
+        counterpart still in — must let the write land. Without this the alias
+        cases above would pass on any guard that happened to patch ``os.open``.
+        """
+        assert alias in EXECUTOR_PATCH_TARGETS and delegate in EXECUTOR_PATCH_TARGETS
+        without_alias = tuple(t for t in EXECUTOR_PATCH_TARGETS if t != alias)
+        victim = roots.protected / "victim.txt"
+        out = roots.run(
+            _denylist_guard(roots, patch_targets=without_alias),
+            f"""
+            import _io
+            import os
+            try:
+                import posix
+            except ImportError:  # non-POSIX platform — the param is skipped there
+                posix = None
+            VICTIM = r"{victim}"
+            try:
+                {call}
+                print("ALLOWED_WITHOUT_ALIAS")
+            except PermissionError as exc:
+                print("STILL_DENIED:", exc)
+            """,
+        )
+        assert "STILL_DENIED" not in out, alias
+        assert "ALLOWED_WITHOUT_ALIAS" in out, alias
+
+    def test_bytes_paths_outside_protected_roots_are_still_allowed(self, roots: _Roots):
+        """Decoding the candidate must not turn every bytes call into a refusal."""
+        target = roots.outside / "bytes_written.txt"
+        out = roots.run(
+            _denylist_guard(roots),
+            f"""
+            import os
+            base = os.fsencode(r"{roots.outside}")
+            target = os.path.join(base, b"bytes_written.txt")
+            with open(target, "wb") as fh:
+                fh.write(b"BYTES")
+            print("BYTES_READ:", open(target, "rb").read().decode())
+            os.rename(target, os.path.join(base, b"bytes_moved.txt"))
+            os.remove(os.path.join(base, b"bytes_moved.txt"))
+            print("BYTES_ROUTES_OK")
+            """,
+        )
+        assert "BYTES_READ: BYTES" in out
+        assert "BYTES_ROUTES_OK" in out
+        assert not target.exists()
+
+    def test_open_file_descriptor_is_not_treated_as_a_path(self, roots: _Roots):
+        """The int carve-out: an fd names no path, so there is nothing to judge.
+
+        Pinned because the bytes fix runs the candidate through ``fsdecode``,
+        which raises on an int — an fd must be recognised *before* that, or
+        every ``open(fd, ...)`` in the child starts failing.
+        """
+        target = roots.outside / "viafd.txt"
+        out = roots.run(
+            _denylist_guard(roots),
+            f"""
+            import os
+            fd = os.open(r"{target}", os.O_WRONLY | os.O_CREAT)
+            with open(fd, "w") as fh:
+                fh.write("VIA-FD")
+            fd2 = os.open(r"{target}", os.O_RDWR)
+            os.truncate(fd2, 3)
+            os.close(fd2)
+            print("FD_OK:", open(r"{target}").read())
+            """,
+        )
+        assert "FD_OK: VIA" in out
 
     def test_same_routes_still_work_outside_protected_roots(self, roots: _Roots):
         out = roots.run(

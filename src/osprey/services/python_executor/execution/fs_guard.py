@@ -53,6 +53,12 @@ can be hidden from the child. It is pinned by a characterization test
 stance stays a documented fact rather than an assumption someone later mistakes
 for a boundary.
 
+Two things the guard deliberately does *not* treat as paths: an integer file
+descriptor (it names no path) and any candidate ``os.fsdecode`` cannot read.
+Bytes are a path, though — ``fsdecode`` normalizes them before the comparison,
+because ``os.fsencode``, ``os.listdir(b'.')`` and C extensions all produce them
+in ordinary code that never meant to spell a path unusually.
+
 What this guard *is* for is the honestly-spelled-around path: the concatenated,
 computed or ``os.path``-assembled target that the static pre-execution walker
 cannot see, and the ordinary accident where analysis code writes its output one
@@ -100,23 +106,43 @@ _PATH_ARGS: dict[str, tuple[tuple[int, tuple[str, ...]], ...]] = {
     "shutil.copy": ((1, ("dst",)),),
     "shutil.copy2": ((1, ("dst",)),),
     "shutil.copyfile": ((1, ("dst",)),),
+    # ``os`` re-exports these from ``posix`` at import time, so ``os.remove``
+    # and ``posix.remove`` are two module-dict entries pointing at one C
+    # function. Rebinding one does not reach the other, which makes the
+    # private module an unpatched route to every primitive above it.
+    # ``makedirs``/``removedirs`` have no twin here: they are pure Python in
+    # ``os`` and reach the filesystem through ``mkdir``/``rmdir``.
+    "posix.truncate": ((0, ("path",)),),
+    "posix.remove": ((0, ("path",)),),
+    "posix.unlink": ((0, ("path",)),),
+    "posix.mkdir": ((0, ("path",)),),
+    "posix.rmdir": ((0, ("path",)),),
+    "posix.symlink": ((1, ("dst",)),),
+    "posix.link": ((1, ("dst",)),),
+    "posix.rename": ((0, ("src",)), (1, ("dst",))),
+    "posix.replace": ((0, ("src",)), (1, ("dst",))),
 }
 
 # Entry points whose write-ness is decided by an argument rather than by being
 # a write at all. Only these can be patched for write modes only.
-_MODE_BEARING_TARGETS = ("builtins.open", "io.open")
-_FLAG_BEARING_TARGETS = ("os.open",)
+_MODE_BEARING_TARGETS = ("builtins.open", "io.open", "_io.open")
+_FLAG_BEARING_TARGETS = ("os.open", "posix.open")
 
 #: Every entry point the executor patches. Wide on purpose: ``builtins.open``
 #: alone leaves ``os.remove``, ``shutil.rmtree`` and pathlib as open routes
 #: into the render zone. Directory removal (``os.rmdir``/``os.removedirs``) and
 #: link creation (``os.symlink``/``os.link``) are here for the same reason —
 #: dropping ``build/`` and planting a new entry inside it are both writes to the
-#: render zone, whichever call spells them. Absentees are skipped at install
-#: time, so naming a platform-specific entry point here costs nothing.
+#: render zone, whichever call spells them. The private aliases (``_io.open``,
+#: ``posix.*``) are here because a module-dict entry is what gets rebound, not
+#: the function object: ``io.open is _io.open`` and ``os.remove is
+#: posix.remove``, so patching only the public name leaves the private one as a
+#: live route to the same primitive. Absentees are skipped at install time, so
+#: naming a platform-specific entry point here costs nothing.
 EXECUTOR_PATCH_TARGETS: tuple[str, ...] = (
     "builtins.open",
     "io.open",
+    "_io.open",
     "os.open",
     "os.truncate",
     "os.remove",
@@ -129,6 +155,16 @@ EXECUTOR_PATCH_TARGETS: tuple[str, ...] = (
     "os.mkdir",
     "os.symlink",
     "os.link",
+    "posix.open",
+    "posix.truncate",
+    "posix.remove",
+    "posix.unlink",
+    "posix.rmdir",
+    "posix.rename",
+    "posix.replace",
+    "posix.mkdir",
+    "posix.symlink",
+    "posix.link",
     "shutil.copy",
     "shutil.copy2",
     "shutil.copyfile",
@@ -153,9 +189,18 @@ _SUPPORTED_TARGETS: tuple[str, ...] = (
 _MODULE_ALIASES = {
     "builtins": "_osprey_builtins",
     "io": "_osprey_io",
+    "_io": "_osprey_c_io",
     "os": "_osprey_os",
+    "posix": "_osprey_posix",
     "shutil": "_osprey_shutil",
 }
+
+#: Modules the emitted guard rebinds names in. Exported because the static
+#: walker (``path_policy``) refuses ``importlib.reload`` of any of them: a
+#: reload re-executes the module and restores its original attributes, taking
+#: the guard's patches with them, and no patched entry point is ever called on
+#: the way — so the runtime guard cannot see it happen.
+GUARDED_MODULES: tuple[str, ...] = tuple(_MODULE_ALIASES)
 
 # Refusal wording. The sandbox's two message shapes — a ``Sandbox:`` prefix
 # with a "write denied" or "access denied" fragment — are pinned by
@@ -232,7 +277,8 @@ def render_fs_guard(
         raise ValueError(
             f"write_modes_only_targets may only name mode-bearing entry points "
             f"{list(_MODE_BEARING_TARGETS)!r}; got {not_mode_bearing!r}. Everything else "
-            f"({', '.join(sorted(_PATH_ARGS))}, os.open) is a write by construction."
+            f"({', '.join(sorted((*_PATH_ARGS, *_FLAG_BEARING_TARGETS)))}) is a write "
+            f"by construction."
         )
     both = [t for t in write_modes_only_targets if t in patch_targets]
     if both:
@@ -274,6 +320,19 @@ def render_fs_guard(
         import os as _osprey_os
         import shutil as _osprey_shutil
         from pathlib import Path as _OspreyGuardPath
+
+        # Private aliases of the same primitives. Both are absent on some
+        # platforms and implementations (``posix`` on Windows), and a missing
+        # module is left as None: the install loop's ``hasattr`` check skips
+        # it exactly as it skips a missing attribute.
+        try:
+            import _io as _osprey_c_io
+        except ImportError:
+            _osprey_c_io = None
+        try:
+            import posix as _osprey_posix
+        except ImportError:
+            _osprey_posix = None
 
         _OSPREY_FS_DEFAULT_DENY = {default_deny!r}
         _OSPREY_FS_PERMITTED = {_root_tuple(permitted_roots)!r}
@@ -324,12 +383,23 @@ def render_fs_guard(
 
         def _osprey_fs_check(candidate, is_write):
             """Refuse *candidate* or return quietly. The whole policy is here."""
+            if isinstance(candidate, int):
+                # An already-open file descriptor. It names no path, so there
+                # is nothing to judge and nothing to refuse; the call goes
+                # through to the real function. Checked first because fsdecode
+                # raises on an int, and an int must not reach the fallback
+                # below — that fallback lets the call past for the same reason,
+                # but only after it has stopped trying to read a path.
+                return
             try:
-                path = _OspreyGuardPath(candidate).resolve()
+                # fsdecode, not Path() directly: bytes are a first-class path
+                # type everywhere in os, and they arrive by accident from
+                # os.fsencode, os.listdir(b'.') and C extensions handing back
+                # what they were given. Path(b'...') raises TypeError, which
+                # the fallback below would read as "no path here" and allow.
+                path = _OspreyGuardPath(_osprey_os.fsdecode(candidate)).resolve()
             except (TypeError, ValueError):
-                # Not a filesystem path — an already-open file descriptor, for
-                # instance. There is no path to judge, so there is nothing to
-                # refuse; the call goes through to the real function.
+                # Not a filesystem path at all. Nothing to refuse.
                 return
             path_str = str(path)
             for _marker in _OSPREY_FS_BYPASS:

@@ -203,3 +203,55 @@ def test_each_distinct_guard_name_is_reported_once():
     code = "_osprey_fs_check(_OSPREY_FS_PROTECTED)\n_osprey_fs_check(1)\n"
     issues = path_policy_issues(code, protected_roots=[])
     assert len(issues) == 2
+
+
+# ---------------------------------------------------------------------------
+# Reloading a guarded module
+#
+# ``importlib.reload(os)`` re-executes the module and rebinds every name in it
+# from the original C primitives — the runtime guard's patches go with them.
+# It is a plainer spelling of the disarm than the ``getattr`` form above, and
+# the runtime guard cannot see it at all (nothing calls a patched entry point),
+# so this walker is the only layer that can refuse it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("import importlib\nimportlib.reload(os)", id="importlib-dotted"),
+        pytest.param("from importlib import reload\nreload(shutil)", id="bare-reload"),
+        pytest.param("importlib.reload(builtins)", id="builtins"),
+        pytest.param("importlib.reload(io)", id="io"),
+        pytest.param("importlib.reload(sys.modules['os'])", id="sys-modules-subscript"),
+        pytest.param("imp.reload(os)", id="any-receiver"),
+    ],
+)
+def test_reloading_a_guarded_module_is_flagged(code, roots):
+    issues = path_policy_issues(code, **roots)
+    assert issues, f"no issue raised for: {code}"
+    assert "reload" in issues[0]
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("import importlib\nimportlib.reload(numpy)", id="unguarded-module"),
+        pytest.param("config.reload()", id="method-named-reload"),
+        pytest.param("reload()", id="no-argument"),
+        pytest.param("os.remove('scratch.txt')", id="ordinary-os-call"),
+    ],
+)
+def test_reloads_that_cannot_disarm_the_guard_stay_clean(code, roots):
+    assert path_policy_issues(code, **roots) == []
+
+
+def test_reload_is_flagged_without_any_protected_root():
+    """Same as guard-identifier tampering: it does not depend on the path sets."""
+    assert path_policy_issues("importlib.reload(os)", protected_roots=[])
+
+
+def test_reloading_a_guarded_module_is_flagged__mutation_renames_the_module(roots):
+    """Proves the check keys on the guarded module, not on the word 'reload'."""
+    with pytest.raises(AssertionError):
+        assert path_policy_issues("importlib.reload(os_lookalike)", **roots)
