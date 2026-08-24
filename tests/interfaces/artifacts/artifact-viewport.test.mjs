@@ -30,6 +30,15 @@ vi.mock('../../../src/osprey/interfaces/artifacts/static/js/preview-content.js',
   renderJsonView: vi.fn(),
 }));
 
+// theme-manager is mocked so the theme the viewport stamps onto embedded
+// pages is under test control: `null` (not initialised -- the default for
+// every test below) leaves srcs bare, a concrete id must ride along as
+// `?theme=` so the page first-paints in the gallery's theme.
+const themeState = vi.hoisted(() => ({ current: /** @type {string|null} */ (null) }));
+vi.mock('/design-system/js/theme-manager.js', () => ({
+  getTheme: () => themeState.current,
+}));
+
 import {
   artifactViewportHtml,
   mountArtifactViewport,
@@ -70,6 +79,42 @@ function mount(artifact, onTimeseriesNeeded = vi.fn()) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  themeState.current = null;
+});
+
+describe('artifactViewportHtml: embedded pages carry the gallery theme', () => {
+  // The old in-page bridge read the parent gallery's data-theme at load, so a
+  // freshly mounted preview always matched. The served page now resolves via
+  // theme-boot.js, whose top rung is `?theme=` -- the viewport must supply it,
+  // or a new preview can boot in the OS theme inside a gallery showing another.
+  test.each(['plot_html', 'table_html', 'dashboard_html', 'html'])(
+    'artifact_type "%s" iframe src carries the theme in force as ?theme=',
+    (artifact_type) => {
+      themeState.current = 'retro-light';
+      const container = document.createElement('div');
+      container.innerHTML = artifactViewportHtml(makeArtifact({ id: 'a1', artifact_type }));
+
+      expect(qs(container, 'iframe').getAttribute('src')).toMatch(/\?theme=retro-light$/);
+    }
+  );
+
+  test('the notebook rendered endpoint carries it too', () => {
+    themeState.current = 'high-contrast-dark';
+    const container = document.createElement('div');
+    container.innerHTML = artifactViewportHtml(makeArtifact({ id: 'nb1', artifact_type: 'notebook' }));
+
+    expect(qs(container, 'iframe').getAttribute('src')).toBe(
+      '/api/notebooks/nb1/rendered?theme=high-contrast-dark'
+    );
+  });
+
+  test('images are not iframes and get no theme param', () => {
+    themeState.current = 'retro-light';
+    const container = document.createElement('div');
+    container.innerHTML = artifactViewportHtml(makeArtifact({ artifact_type: 'plot_png' }));
+
+    expect(qs(container, 'img').getAttribute('src')).not.toContain('theme=');
+  });
 });
 
 describe('artifactViewportHtml: per-type dispatch', () => {

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import threading
 from collections.abc import AsyncIterator, Collection
@@ -28,151 +29,118 @@ from osprey.utils.timeseries import (
     extract_channel_series,
 )
 
+logger = logging.getLogger(__name__)
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
 
-# Snippet injected into Plotly/table/generic HTML artifacts so they fill the
-# iframe viewport in Focus Mode.  CSS alone is not enough for Plotly because
-# Plotly.newPlot() applies layout.width/height via JS *after* load, overriding
-# CSS.  We therefore inject a script that deletes those fixed dimensions and
-# calls Plotly.Plots.resize() once the library is ready.
-_RESPONSIVE_PLOTLY = r"""<style>
-/* OSPREY: fill iframe viewport */
-html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+# Head of every injected snippet: it makes the served artifact a design-system
+# page like any other.  theme-boot.js resolves `data-theme` pre-paint (?theme=
+# from the gallery, then the operator's stored preference, then the
+# server-rendered `web.theme` pin, then the OS) and tokens.css supplies that
+# theme's colors.  Each snippet's own module script then takes the follower
+# role, so the page also follows what the hub broadcasts while it is embedded
+# as a preview iframe.
+_DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">"""
+
+# Snippet injected into Plotly artifacts so they fill the iframe viewport in
+# Focus Mode and follow the OSPREY theme.  CSS alone is not enough for the
+# sizing: Plotly.newPlot() applies layout.width/height via JS *after* load,
+# overriding CSS, so the script below deletes those fixed dimensions and calls
+# Plotly.Plots.resize() once the library is ready.  Every color comes from the
+# --chart-* tokens via chartRelayout(), so all eight themes work and nothing
+# here needs to know what "light" or "dark" looks like.
+_RESPONSIVE_PLOTLY = (
+    _DESIGN_SYSTEM_HEAD
+    + r"""
+<style>
+/* OSPREY: fill iframe viewport; page background from the theme in force,
+   painted before any chart -- the chart itself stays hidden until it has been
+   re-themed (anti-flash: Plotly first draws the author's baked-in colors). */
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+             background: var(--chart-paper-bg) !important; }
 .plotly-graph-div { width: 100% !important; height: 100vh !important; }
 .js-plotly-plot { width: 100% !important; height: 100vh !important; visibility: hidden; }
 table { max-width: 100%; }
 </style>
-<script>
-/* OSPREY: responsive sizing + theme-aware backgrounds
- *
- * Anti-flash strategy: Plotly renders with its original colors before we can
- * re-theme it.  We hide charts via CSS (visibility:hidden) and only reveal
- * them after Plotly.relayout() applies the correct theme.  The page background
- * is set immediately from a <style> injected before any body content paints.
- */
-(function(){
-  var THEMES = {
-    dark: {
-      paper_bgcolor: '#131c2e', plot_bgcolor: '#0b1120',
-      font: { color: '#8b9ab5' },
-      xaxis: { gridcolor: 'rgba(100,116,139,0.1)', linecolor: 'rgba(100,116,139,0.18)' },
-      yaxis: { gridcolor: 'rgba(100,116,139,0.1)', linecolor: 'rgba(100,116,139,0.18)' },
-      legend: { bgcolor: 'rgba(19,28,46,0.85)', bordercolor: 'rgba(100,116,139,0.18)' },
-      scene: { bgcolor: '#0b1120', axis_bg: '#131c2e',
-               gridcolor: 'rgba(100,116,139,0.15)', spikecolor: 'rgba(100,116,139,0.4)' }
-    },
-    light: {
-      paper_bgcolor: '#f7f9fc', plot_bgcolor: '#f7f9fc',
-      font: { color: '#0c1322' },
-      xaxis: { gridcolor: 'rgba(0,0,0,0.08)', linecolor: 'rgba(0,0,0,0.12)' },
-      yaxis: { gridcolor: 'rgba(0,0,0,0.08)', linecolor: 'rgba(0,0,0,0.12)' },
-      legend: { bgcolor: 'rgba(247,249,252,0.9)', bordercolor: 'rgba(0,0,0,0.1)' },
-      scene: { bgcolor: '#f7f9fc', axis_bg: '#eef2f7',
-               gridcolor: 'rgba(0,0,0,0.1)', spikecolor: 'rgba(0,0,0,0.2)' }
-    }
-  };
+<script type="module">
+/* OSPREY: responsive sizing + live re-theming from the design tokens. */
+import { initTheme, subscribe, chartRelayout } from '/design-system/js/theme-manager.js';
 
-  function detectTheme() {
-    try { return window.parent.document.documentElement.getAttribute('data-theme') || 'dark'; }
-    catch(e) { return 'dark'; }
-  }
+function plots() { return Array.from(document.querySelectorAll('.js-plotly-plot')); }
+function reveal(gd) { gd.style.visibility = 'visible'; }
 
-  /* Set page background immediately (runs in <head>, before body paints) */
-  var _bgTheme = THEMES[detectTheme()] || THEMES.dark;
-  var _bgStyle = document.createElement('style');
-  _bgStyle.textContent = 'html, body { background: ' + _bgTheme.paper_bgcolor + ' !important; }';
-  document.head.appendChild(_bgStyle);
-
-  function revealCharts() {
-    document.querySelectorAll('.js-plotly-plot').forEach(function(gd) {
-      gd.style.visibility = 'visible';
-    });
-  }
-
-  function applyTheme(theme) {
-    var t = THEMES[theme] || THEMES.dark;
-    _bgStyle.textContent = 'html, body { background: ' + t.paper_bgcolor + ' !important; }';
-    if (document.body) document.body.style.background = t.paper_bgcolor;
-    if (typeof Plotly === 'undefined') { revealCharts(); return; }
-    var plots = document.querySelectorAll('.js-plotly-plot');
-    if (!plots.length) { return; }
-    var pending = plots.length;
-    plots.forEach(function(gd) {
-      var update = {
-        paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
-        'font.color': t.font.color,
-        'xaxis.gridcolor': t.xaxis.gridcolor, 'xaxis.linecolor': t.xaxis.linecolor,
-        'yaxis.gridcolor': t.yaxis.gridcolor, 'yaxis.linecolor': t.yaxis.linecolor,
-        'legend.bgcolor': t.legend.bgcolor, 'legend.bordercolor': t.legend.bordercolor
-      };
-      /* 3D scenes: theme the box, axis planes, grids, and spike lines */
-      if (gd.layout) {
-        Object.keys(gd.layout).forEach(function(key) {
-          if (key === 'scene' || /^scene\d+$/.test(key)) {
-            var s = t.scene, p = key + '.';
-            update[p + 'bgcolor'] = s.bgcolor;
-            ['xaxis','yaxis','zaxis'].forEach(function(ax) {
-              update[p + ax + '.backgroundcolor'] = s.axis_bg;
-              update[p + ax + '.gridcolor'] = s.gridcolor;
-              update[p + ax + '.color'] = t.font.color;
-              update[p + ax + '.spikecolor'] = s.spikecolor;
-            });
-          }
-        });
-      }
-      try {
-        Plotly.relayout(gd, update).then(function() {
-          gd.style.visibility = 'visible';
-        }).catch(function() {
-          gd.style.visibility = 'visible';
-        });
-      } catch(e) {
-        gd.style.visibility = 'visible';
-      }
-    });
-  }
-
-  function resizeAll() {
-    document.querySelectorAll('.js-plotly-plot').forEach(function(gd) {
-      if (gd.layout) { delete gd.layout.width; delete gd.layout.height; }
-      if (typeof Plotly !== 'undefined') { Plotly.Plots.resize(gd); }
-    });
-  }
-
-  function initAll() {
-    resizeAll();
-    applyTheme(detectTheme());
-    /* Safety net: if relayout somehow fails to reveal, force-show after 400ms */
-    setTimeout(revealCharts, 400);
-  }
-
-  if (document.readyState === 'complete') { initAll(); }
-  else { window.addEventListener('load', initAll); }
-  window.addEventListener('resize', resizeAll);
-  window.addEventListener('message', function(e) {
-    if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
-      applyTheme(e.data.theme);
+function applyTheme() {
+  if (typeof Plotly === 'undefined') { plots().forEach(reveal); return; }
+  plots().forEach((gd) => {
+    try {
+      Plotly.relayout(gd, chartRelayout(gd)).then(() => reveal(gd), () => reveal(gd));
+    } catch {
+      reveal(gd);
     }
   });
-  // Also observe parent document's data-theme attribute directly (bypasses
-  // postMessage chain which can be unreliable across nested iframes)
-  try {
-    var parentRoot = window.parent.document.documentElement;
-    new MutationObserver(function() {
-      applyTheme(parentRoot.getAttribute('data-theme') || 'dark');
-    }).observe(parentRoot, { attributes: true, attributeFilter: ['data-theme'] });
-  } catch(e) {}
-})();
-</script>"""
+}
 
-_RESPONSIVE_TABLE_HTML = """<style>
+function resizeAll() {
+  plots().forEach((gd) => {
+    if (gd.layout) { delete gd.layout.width; delete gd.layout.height; }
+    if (typeof Plotly !== 'undefined') { Plotly.Plots.resize(gd); }
+  });
+}
+
+let loaded = false;
+function initAll() {
+  loaded = true;
+  resizeAll();
+  applyTheme();
+  /* Safety net: if relayout somehow fails to reveal, force-show after 400ms */
+  setTimeout(() => plots().forEach(reveal), 400);
+}
+
+initTheme({ role: 'follower' });
+// Re-theme in place on every later apply (a hub broadcast, or the gallery's
+// re-send when a hidden iframe becomes visible). Before `load` there are no
+// charts to theme, and revealing them then would flash the author's own
+// colors -- so initAll() owns the first apply.
+subscribe(() => { if (loaded) applyTheme(); });
+
+if (document.readyState === 'complete') { initAll(); }
+else { window.addEventListener('load', initAll); }
+window.addEventListener('resize', resizeAll);
+</script>"""
+)
+
+# Injected into table_html, agent-authored html, and dashboard_html artifacts.
+# Beyond viewport sizing it paints THEMED DEFAULTS at zero specificity via
+# :where() -- a page that styles itself (an agent-authored report with its own
+# palette) beats every one of these rules regardless of rule order, while an
+# unstyled fragment (a pandas table, a bare snippet) stops rendering as a
+# black-on-white browser-default island inside a themed gallery.
+# ``.artifact-table`` is the class serialize_object() puts on DataFrame tables.
+_RESPONSIVE_TABLE_HTML = (
+    _DESIGN_SYSTEM_HEAD
+    + """
+<style>
 /* OSPREY: fill iframe viewport */
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: auto; }
 table { max-width: 100%; }
-</style>"""
+/* OSPREY: themed defaults -- zero specificity, author styles always win */
+:where(html) { background: var(--bg-primary); }
+:where(body) { color: var(--text-primary); }
+:where(table.artifact-table) { border-collapse: collapse; }
+:where(.artifact-table th, .artifact-table td) {
+  border: 1px solid var(--border-default); padding: 4px 8px;
+}
+:where(.artifact-table th) { background: var(--bg-secondary); }
+</style>
+<script type="module">
+import { initTheme } from '/design-system/js/theme-manager.js';
+initTheme({ role: 'follower' });
+</script>"""
+)
 
 # JupyterLab-style nbconvert uses <body class="jp-Notebook"> and .jp-Cell,
 # NOT the classic #notebook-container.
@@ -195,7 +163,9 @@ _RESPONSIVE_SNIPPETS = {
     "plot_html": _RESPONSIVE_PLOTLY,
     "table_html": _RESPONSIVE_TABLE_HTML,
     "html": _RESPONSIVE_TABLE_HTML,
-    "dashboard_html": _RESPONSIVE_TABLE_HTML,  # Bokeh handles its own JS sizing
+    # Bokeh handles its own JS sizing, and bakes its plot colors into its own
+    # model -- the page around it follows the theme, the plot itself does not.
+    "dashboard_html": _RESPONSIVE_TABLE_HTML,
 }
 
 # Standalone HTML page for server-side rendered markdown.
@@ -331,6 +301,61 @@ def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
     html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly-3.3.1.min.js\2", html)
     html = _SRI_ATTR_RE.sub("", html)
     return html.encode("utf-8")
+
+
+#: The opening ``<html`` tag, provided it carries no ``data-theme`` of its own.
+_HTML_TAG_WITHOUT_THEME_RE = re.compile(r"<html(?![^>]*\bdata-theme=)", re.IGNORECASE)
+
+
+def _stamp_data_theme(html: str, theme_id: str | None) -> str:
+    """Server-render a pinned theme as ``<html data-theme="...">``.
+
+    The same server rung the web terminal renders for its own page: a page
+    served standalone (an artifact opened in its own tab, a rendered markdown
+    or notebook page) has no hub to follow, and on a first visit -- nothing in
+    ``localStorage``, no ``?theme=`` -- ``theme-boot.js`` would otherwise fall
+    through to the OS preference and ignore a deployment's pin.
+
+    ``theme_id`` is ``None`` when nothing is pinned, and the page is then left
+    untouched. A page that already carries ``data-theme`` keeps it; a fragment
+    with no ``<html`` tag is returned unchanged.
+    """
+    if not theme_id:
+        return html
+    return _HTML_TAG_WITHOUT_THEME_RE.sub(f'<html data-theme="{theme_id}"', html, count=1)
+
+
+def _resolve_pinned_web_theme() -> str | None:
+    """The concrete theme id ``web.theme`` pins, or ``None`` if it names a family.
+
+    Resolved through the design system's shared chain, so the gallery and the
+    web terminal cannot disagree about what a configured value means.
+
+    Only a *pin* is stamped. A served artifact page is a follower: it takes a
+    server-rendered ``data-theme`` verbatim and has no mode of its own to
+    re-resolve, so stamping a family-only value -- which resolves to that
+    family's dark id -- would hand a light-OS viewer a dark page, the opposite
+    of what an unpinned terminal does with the same config.
+
+    Fails open: an unreadable config or registry must never block the gallery
+    from starting, and costs only the pin.
+    """
+    try:
+        from osprey.interfaces.design_system.theme_config import resolve_configured_web_theme
+
+        resolved = resolve_configured_web_theme()
+    except FileNotFoundError:
+        # No config primed (standalone gallery, tests) — not a fault.
+        logger.debug("No config available for web.theme; served pages are unpinned")
+        return None
+    except Exception:  # noqa: BLE001 - config/registry trouble must not block startup
+        logger.warning(
+            "Could not resolve web.theme for served artifact pages; "
+            "they will follow the viewer's own preference",
+            exc_info=True,
+        )
+        return None
+    return resolved.id if resolved.pinned_mode else None
 
 
 def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
@@ -555,6 +580,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     except Exception:
         pass  # Config may not be available in all contexts
 
+    # Resolved once, after config priming, and stamped onto every served HTML
+    # page (see _stamp_data_theme) so a pinned ``web.theme`` reaches a page
+    # opened outside the hub.
+    web_theme_pin = _resolve_pinned_web_theme()
+
     broadcaster = _SSEBroadcaster()
 
     index_watcher = StoreIndexWatcher(
@@ -625,7 +655,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.get("/")
     async def root(request: Request):
-        return templates.TemplateResponse(request, "index.html", {})
+        # A pinned web.theme reaches the gallery shell too. Embedded, the hub's
+        # ?theme= outranks it in theme-boot.js's ladder, so this only shows up
+        # on a first standalone visit.
+        return templates.TemplateResponse(request, "index.html", {"web_theme_pin": web_theme_pin})
 
     @app.get("/health")
     async def health():
@@ -869,8 +902,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 plotly_src = vendor_url("Plotly.js", "/static/js/vendor/plotly-3.3.1.min.js")
                 snippet = f'<script src="{plotly_src}"></script>\n' + snippet
         content = _inject_html_snippet(content, snippet)
+        page = _stamp_data_theme(content.decode("utf-8", errors="replace"), web_theme_pin)
         return Response(
-            content=content,
+            content=page.encode("utf-8"),
             media_type=entry.mime_type,
             headers={"Content-Disposition": f'inline; filename="{entry.filename}"'},
         )
@@ -904,7 +938,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             cache_dir = store.artifact_dir / "_notebook_cache"
             html, _ = get_or_render_html(filepath, cache_dir=cache_dir)
             html_bytes = _inject_html_snippet(html.encode("utf-8"), _NOTEBOOK_RESPONSIVE_CSS)
-            return HTMLResponse(content=html_bytes.decode("utf-8"))
+            return HTMLResponse(
+                content=_stamp_data_theme(html_bytes.decode("utf-8"), web_theme_pin)
+            )
         except Exception as exc:
             raise HTTPException(
                 status_code=500, detail=f"Notebook rendering failed: {exc}"
@@ -925,7 +961,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         md_source = filepath.read_text(encoding="utf-8", errors="replace")
         html = _build_markdown_page(md_source, entry.title or entry.filename or "Markdown")
-        return HTMLResponse(content=html)
+        return HTMLResponse(content=_stamp_data_theme(html, web_theme_pin))
 
     # Logbook entry composer
     from osprey.interfaces.artifacts.logbook import logbook_router

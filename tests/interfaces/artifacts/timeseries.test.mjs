@@ -170,7 +170,7 @@ function setChartVars({ bgPrimary = '#000', paperBg, plotBg, axisText, grid, bor
   root.setProperty('--chart-plot-bg', plotBg);
   root.setProperty('--chart-axis-text', axisText);
   root.setProperty('--chart-grid', grid);
-  root.setProperty('--border-default', border);
+  root.setProperty('--chart-axis-line', border);
 }
 
 beforeEach(() => {
@@ -186,7 +186,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  ['--bg-primary', '--chart-paper-bg', '--chart-plot-bg', '--chart-axis-text', '--chart-grid', '--border-default']
+  ['--bg-primary', '--chart-paper-bg', '--chart-plot-bg', '--chart-axis-text', '--chart-grid', '--chart-axis-line']
     .forEach((v) => document.documentElement.style.removeProperty(v));
 });
 
