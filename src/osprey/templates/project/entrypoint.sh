@@ -54,9 +54,16 @@ STATE_DIR=$(dirname -- "$RENDER_DIR")/var
 PYTHON="${OSPREY_ENTRYPOINT_PYTHON:-python}"
 
 # ── logging ──────────────────────────────────────────────────────────────────
+# Every diagnostic goes to stderr, without exception. This entrypoint runs in
+# front of whatever command the image was given, and that command's stdout is
+# its own: `docker run <image> whoami` must print `osprey` and nothing else,
+# and anything that reads a container command's output — a probe, a version
+# query, a JSON payload — breaks the moment a progress line is prepended to it.
+# stderr keeps the diagnostics visible in `docker logs`, which interleaves both
+# streams, while leaving the command's stdout untouched.
 
 log() {
-    printf '%s [osprey-entrypoint] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+    printf '%s [osprey-entrypoint] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
 }
 
 die() {
@@ -88,7 +95,7 @@ render_dir = Path(sys.argv[1])
 
 def log(message):
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"{stamp} [osprey-entrypoint] {message}", flush=True)
+    print(f"{stamp} [osprey-entrypoint] {message}", file=sys.stderr, flush=True)
 
 
 # 1. Drift regen. A dry run decides whether anything is re-rendered at all, so

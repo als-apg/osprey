@@ -245,6 +245,26 @@ class TestBehaviour:
         program = py_program.read_text()
         assert program.index("regen_if_drift") < program.index("restore_scaffold_bodies")
 
+    def test_the_command_owns_stdout(self, script: Path, tmp_path: Path):
+        """Diagnostics go to stderr, so the command keeps its own stdout.
+
+        This script runs in front of whatever the image was given, and that
+        output is read by things that cannot tolerate a preamble: `docker run
+        <image> whoami` has to print `osprey` alone, and a package probe, a
+        version query or a JSON payload all break on a prepended progress line.
+        """
+        bindir = _stub_bin(tmp_path, uid=0, with_gosu=True)
+        cmd = ["/bin/sh", "-c", 'printf "only-the-command\\n"']
+        result, _, _ = _run(script, tmp_path, bindir, *cmd)
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "only-the-command\n", (
+            f"the entrypoint wrote into the command's stdout: {result.stdout!r}"
+        )
+        assert "[osprey-entrypoint]" in result.stderr, (
+            f"the diagnostics reached neither stream: {result.stderr!r}"
+        )
+
     def test_maintenance_failure_still_drops(self, script: Path, tmp_path: Path):
         """Fail open. A container that will not boot because an artifact could
         not be re-rendered is worse than one running stale artifacts loudly."""
@@ -253,7 +273,7 @@ class TestBehaviour:
 
         assert result.returncode == 0, result.stderr
         assert order == ["python", "gosu", "osprey", "cmd"]
-        assert "WARNING" in result.stdout
+        assert "WARNING" in result.stderr
 
     def test_missing_gosu_is_fatal(self, script: Path, tmp_path: Path):
         """Fail closed, and before the maintenance step: the only alternatives
@@ -262,7 +282,7 @@ class TestBehaviour:
         result, order, _ = _run(script, tmp_path, bindir, *self._cmd(tmp_path))
 
         assert result.returncode != 0
-        assert "gosu" in result.stdout
+        assert "gosu" in result.stderr
         assert order == [], "maintenance ran for a container that cannot start"
 
     def test_already_unprivileged_skips_maintenance(self, script: Path, tmp_path: Path):
@@ -273,7 +293,7 @@ class TestBehaviour:
 
         assert result.returncode == 0, result.stderr
         assert order == ["cmd"]
-        assert "WARNING" in result.stdout
+        assert "WARNING" in result.stderr
 
     def test_no_command_is_fatal(self, script: Path, tmp_path: Path):
         """An entrypoint with nothing to exec has no useful thing to do, and
@@ -317,7 +337,7 @@ class TestStateZoneHandBack:
         result, order, _ = _run(script, tmp_path, bindir, *self._cmd(tmp_path))
 
         assert result.returncode == 0, result.stderr
-        assert "chown" in order, f"the state zone was never handed back: {order}\n{result.stdout}"
+        assert "chown" in order, f"the state zone was never handed back: {order}\n{result.stderr}"
         assert order.index("chown") < order.index("gosu"), (
             f"the hand-back runs after the privilege drop, so it never runs: {order}"
         )
