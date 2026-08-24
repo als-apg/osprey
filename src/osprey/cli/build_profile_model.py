@@ -27,6 +27,11 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     resolve_graphdb_service_config,
 )
+from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
+from osprey.deployment.qmd_service import (
+    QMD_SERVICE_NAME,
+    resolve_qmd_service_config,
+)
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 
@@ -73,8 +78,17 @@ _APP_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "templates" / "app
 _GRAPHDB_CONFIG_PREFIX = f"services.{GRAPHDB_SERVICE_NAME}"
 """Dotted-key spelling of the graph-store block on a profile's ``config:`` surface."""
 
+_QMD_CONFIG_PREFIX = f"services.{QMD_SERVICE_NAME}"
+"""Dotted-key spelling of the qmd sidecar's block on a profile's ``config:`` surface."""
+
 _CHANNEL_FINDER_SERVER_ENABLED_KEY = "claude_code.servers.channel-finder.enabled"
 """The switch a persona flips to take the channel finder out of its render."""
+
+_HYBRID_SEARCH_BLOCK_KEY = "ariel.search_modules.hybrid"
+"""The ARIEL search module the qmd sidecar answers; ``None`` here removes it."""
+
+_HYBRID_SEARCH_ENABLED_KEY = f"{_HYBRID_SEARCH_BLOCK_KEY}.enabled"
+"""The switch that takes hybrid logbook search out of a render."""
 
 _MISSING = object()
 """Sentinel for "this profile says nothing about that key"."""
@@ -113,42 +127,111 @@ def _config_lookup(config: Any, dotted_key: str) -> Any:
     return node
 
 
-def _app_template_declares_graphdb(data_bundle: str) -> bool:
-    """Whether app template *data_bundle* renders a ``services.graphdb`` block.
+def _app_template_lookup(data_bundle: str, dotted_path: str) -> Any:
+    """Read what app template *data_bundle* declares at *dotted_path*.
 
     Read off the template source rather than off a render: this validator runs
-    before anything reaches disk, and the block is a fixed part of the app
-    template — what varies per profile is the ``config:`` overlay applied after
-    the render, which :meth:`BuildProfile._renders_graphdb_block` reads itself.
+    before anything reaches disk, and what a template declares is a fixed part
+    of it — what varies per profile is the ``config:`` overlay applied after
+    the render, which the ``BuildProfile`` readers below consult themselves.
+
+    The file is walked by indentation rather than parsed: it is a Jinja
+    template, not YAML, until it is rendered. Each mapping key is pushed onto a
+    stack as its line is met and popped when a shallower line arrives, so the
+    stack at any line spells the dotted path that line sits under. Comments,
+    blank lines, Jinja statements and list items are stepped over, and the
+    body of a block scalar (``key: |``) is skipped wholesale so its prose
+    cannot pose as keys. A template that spells a section twice under
+    different Jinja branches — ``services:`` with a block, ``services: {}``
+    without — answers with the first spelling, which is the declaring one.
+
+    Args:
+        data_bundle: App template directory name (the ``app_template:`` key).
+        dotted_path: The path to read, in the dotted spelling.
+
+    Returns:
+        :data:`_MISSING` when no line of the template sits at that path — also
+        how a bundle that ships no ``config.yml.j2`` reads, and so how an
+        unknown bundle name reads: the build names that fault itself, and
+        reporting it twice would not help. ``None`` when the path heads a
+        nested mapping and so carries no scalar of its own. Otherwise the
+        scalar's source text, inline comment removed, exactly as the template
+        spells it — ``true``, ``8180``, ``{{ default_model }}``.
+    """
+    template = _APP_TEMPLATE_ROOT / data_bundle / "config.yml.j2"
+    try:
+        text = template.read_text(encoding="utf-8")
+    except OSError:
+        return _MISSING
+    target = dotted_path.split(".")
+    stack: list[tuple[int, str]] = []  # (indent, key) per enclosing mapping
+    block_scalar_indent: int | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if block_scalar_indent is not None:
+            if indent > block_scalar_indent:
+                continue
+            block_scalar_indent = None
+        if stripped.startswith(("#", "{%", "{{", "-")):
+            continue
+        key, separator, rest = stripped.partition(":")
+        if not separator or (rest and not rest[0].isspace()):
+            # `http://host` is a scalar with a colon in it, not a key.
+            continue
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        stack.append((indent, key.strip()))
+        value = rest.split(" #", 1)[0].strip()
+        if value[:1] in ("|", ">") and value[1:2] in ("", "-", "+"):
+            block_scalar_indent = indent
+        if [name for _, name in stack] == target:
+            return value or None
+    return _MISSING
+
+
+def _app_template_declares_graphdb(data_bundle: str) -> bool:
+    """Whether app template *data_bundle* renders a ``services.graphdb`` block.
 
     Args:
         data_bundle: App template directory name (the ``app_template:`` key).
 
     Returns:
         Whether that template's ``services:`` section carries a ``graphdb``
-        key. False for a bundle that ships no ``config.yml.j2``, which is also
-        how an unknown bundle name reads here — the build names that fault
-        itself, and reporting it twice would not help.
+        key; see :func:`_app_template_lookup` for how that is read.
     """
-    template = _APP_TEMPLATE_ROOT / data_bundle / "config.yml.j2"
-    try:
-        text = template.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    # Which top-level section each indented key belongs to is all this needs,
-    # so the file is walked by indentation rather than parsed: it is a Jinja
-    # template, not YAML, until it is rendered.
-    section: str | None = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("#", "{%", "{{")):
-            continue
-        if not line[0].isspace():
-            section = stripped.split(":", 1)[0]
-            continue
-        if section == "services" and stripped.split(":", 1)[0] == GRAPHDB_SERVICE_NAME:
-            return True
-    return False
+    return _app_template_lookup(data_bundle, _GRAPHDB_CONFIG_PREFIX) is not _MISSING
+
+
+def _app_template_declares_qmd(data_bundle: str) -> bool:
+    """Whether app template *data_bundle* renders a ``services.qmd`` block.
+
+    Args:
+        data_bundle: App template directory name (the ``app_template:`` key).
+
+    Returns:
+        Whether that template's ``services:`` section carries a ``qmd`` key;
+        see :func:`_app_template_lookup` for how that is read.
+    """
+    return _app_template_lookup(data_bundle, _QMD_CONFIG_PREFIX) is not _MISSING
+
+
+def _app_template_enables_hybrid_search(data_bundle: str) -> bool:
+    """Whether app template *data_bundle* switches hybrid logbook search on.
+
+    Args:
+        data_bundle: App template directory name (the ``app_template:`` key).
+
+    Returns:
+        Whether the template spells ``enabled: true`` under
+        ``ariel.search_modules.hybrid``. A template with no ``ariel:`` section
+        at all — the channel-finder one — reads as off, which is what it
+        renders.
+    """
+    value = _app_template_lookup(data_bundle, _HYBRID_SEARCH_ENABLED_KEY)
+    return isinstance(value, str) and value.lower() == "true"
 
 
 # VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
@@ -653,12 +736,15 @@ class BuildProfile:
             # A whole-block override replaces what the template rendered —
             # including the bare `services.graphdb:` that removes it.
             block = overrides[_GRAPHDB_CONFIG_PREFIX]
-        elif not self.deploy_services:
-            # An attached project renders `services: {}` whatever its app
-            # template says: it scaffolds nothing and reaches a shared stack
-            # through client config, so its store has to be named above.
-            return False
         else:
+            # An attached project renders `services: {}` whatever its app
+            # template says — but it is built beside the deployment it
+            # narrows, whose render carries the block, and the build projects
+            # the store's address into it (osprey.deployment.reach). Its
+            # profile IS that deployment's profile plus a delta, so the same
+            # question answers for both. An attached profile built with no
+            # host in its repo is caught by the build's post-render refusal,
+            # which reads the rendered config and finds nothing projected.
             return GRAPHDB_SERVICE_NAME in self.services or _app_template_declares_graphdb(
                 self.data_bundle
             )
@@ -673,6 +759,77 @@ class BuildProfile:
             # fault.
             return True
         return resolved is not None
+
+    def _renders_qmd_block(self) -> bool:
+        """Whether this profile's build renders a ``services.qmd`` block.
+
+        The same two surfaces as :meth:`_renders_graphdb_block`, read the same
+        way. The app template carries the block for a deployment that runs its
+        own sidecar; the profile's ``config:`` overlay is how an attached
+        render names the sidecar of the deployment it shares a host with
+        (``services.qmd.port``) and how a template's block is dropped. Whether
+        what those produce counts as a sidecar is
+        :func:`~osprey.deployment.qmd_service.resolve_qmd_service_config`'s
+        own decision, borrowed rather than re-implemented so this validator and
+        the hybrid search module that resolves its endpoint through the same
+        function cannot disagree about whether one exists.
+
+        Returns:
+            Whether the rendered ``config.yml`` will carry a sidecar to dial.
+        """
+        overrides = self.config if isinstance(self.config, dict) else {}
+        sub_keys = [
+            key
+            for key in overrides
+            if isinstance(key, str) and key.startswith(f"{_QMD_CONFIG_PREFIX}.")
+        ]
+        if sub_keys:
+            # `services.qmd.port:` and its siblings write into the block,
+            # creating it when the app template carries none.
+            block: Any = {key.split(".", 2)[2]: overrides[key] for key in sub_keys}
+        elif _QMD_CONFIG_PREFIX in overrides:
+            # A whole-block override replaces what the template rendered —
+            # including the bare `services.qmd:` that removes it.
+            block = overrides[_QMD_CONFIG_PREFIX]
+        else:
+            # Same reasoning as the graph store above: an attached project is
+            # told the sidecar's port by the build, from the hosting
+            # deployment's render, and the profile that decides whether that
+            # render carries a sidecar is the one this profile extends.
+            return QMD_SERVICE_NAME in self.services or _app_template_declares_qmd(self.data_bundle)
+
+        try:
+            resolved = resolve_qmd_service_config({"services": {QMD_SERVICE_NAME: block}})
+        except ValueError:
+            # A malformed key (a port that is not a positive integer, a relative
+            # models_dir) still names a sidecar this profile means to dial. The
+            # resolver raises about it where it can be acted on — the deploy
+            # preflight — and answering "no block" here would report the wrong
+            # fault.
+            return True
+        return resolved is not None
+
+    def _enables_hybrid_search(self) -> bool:
+        """Whether this profile's build switches hybrid logbook search on.
+
+        The switch lives in the rendered ``config.yml``, so it is read from the
+        two places that write it: the ``config:`` overlay first, because it is
+        applied last, and the app template for a profile whose overlay says
+        nothing — the common case, since the key is absent from every profile
+        that keeps the template's default. On the overlay only an explicit
+        ``false`` counts, the same way the channel-finder switch reads for the
+        graph rule; a bare ``ariel.search_modules.hybrid:`` that removes the
+        whole module counts as off too, since there is then no module to answer.
+
+        Returns:
+            Whether the rendered project offers the ``hybrid`` search mode.
+        """
+        if _config_lookup(self.config, _HYBRID_SEARCH_BLOCK_KEY) is None:
+            return False
+        switch = _config_lookup(self.config, _HYBRID_SEARCH_ENABLED_KEY)
+        if switch is _MISSING:
+            return _app_template_enables_hybrid_search(self.data_bundle)
+        return switch is not False
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -745,6 +902,33 @@ class BuildProfile:
                 f"template that deploys a graph store, or name one the facility "
                 f"already runs with `config: services.{GRAPHDB_SERVICE_NAME}.uri: "
                 f"bolt://host:7687` plus GRAPHDB_PASSWORD in the project .env."
+            )
+
+        # Hybrid logbook search is the one ARIEL search mode answered by a
+        # service rather than by Postgres, so it is the one with a prerequisite
+        # outside the ARIEL database: the `services.qmd` sidecar, which the
+        # module locates through that block and nothing else. Without the block
+        # the build would render the mode switched on with nothing behind it,
+        # and unlike semantic search it does not degrade — every query then
+        # fails, by design, with "no qmd sidecar is configured". Named here
+        # instead, on every configuration path, because where it would surface
+        # otherwise is the worst place for it: inside a per-user web-terminal
+        # container, on the first logbook question, for a persona whose render
+        # emptied `services:` on purpose.
+        #
+        # Skipped for a profile that switches the module off, whichever way it
+        # spells that. A deployment that drops the sidecar is expected to drop
+        # the module with it (the template's own comment says so); this is the
+        # rule that catches a deployment that dropped one and not the other.
+        if self._enables_hybrid_search() and not self._renders_qmd_block():
+            attached = "" if self.deploy_services else ", deploy_services: false"
+            errors.append(
+                f"{_HYBRID_SEARCH_BLOCK_KEY} is enabled and needs a "
+                f"{_QMD_CONFIG_PREFIX} block, and this build renders none "
+                f"(app_template: {self.data_bundle}{attached}). Name the sidecar of "
+                f"the deployment this profile shares a host with using `config: "
+                f"{_QMD_CONFIG_PREFIX}.port: {QMD_DEFAULT_PORT}`, or switch the "
+                f"module off with `config: {_HYBRID_SEARCH_ENABLED_KEY}: false`."
             )
 
         # The data tree may legitimately sit above the profile dir (persona

@@ -192,19 +192,19 @@ def test_servicedef_osprey_prefix_skips_filesystem_check(tmp_path: Path) -> None
 
 def test_control_assistant_readwrite_persona_ships_events_panel() -> None:
     """The control-assistant family exposes the event-dispatcher dashboard as
-    a custom ``events`` web panel on its write-capable tier: the readwrite
-    persona declares the panel id beside the URL override that makes
-    ``BuildProfile.validate`` accept it (custom panels require
-    ``web.panels.<id>.url``), while the base and readonly presets carry
-    neither. Guards the wiring — id and URL travel together — against
-    regressions."""
+    an ``events`` web panel on its write-capable tier: the readwrite persona
+    declares the panel id and nothing else — its URL is projected into the
+    persona's render from the hosting deployment's own, where the dispatch
+    injector derived it (``osprey.deployment.reach``), so no preset carries a
+    second copy the injector could drift from. The base preset carries
+    neither the id nor a URL."""
     presets_dir = bp._presets_dir()
     profile, _dir = bp.resolve_build_profile(None, preset="control-assistant-readwrite")
 
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
 
     assert "events" in profile.web_panels
-    assert profile.config["web.panels.events.url"]
+    assert "web.panels.events.url" not in profile.config
 
     base, _dir = bp.resolve_build_profile(None, preset="control-assistant")
     assert "events" not in base.web_panels

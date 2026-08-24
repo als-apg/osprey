@@ -104,16 +104,20 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Re-recorded again where the render-zone/posture branch met main: the
     # tier floor, the admin tier, the `target-state` hook and the
     # facility-knowledge-graph agent all sit in the resolved content now, so
-    # the five control-assistant digests below are the merged value. The admin
-    # digest moved once more when the persona gained the `services.graphdb.port_host`
-    # pin its two siblings already carried — the graph paradigm's build rule
-    # requires it on every attached render.
+    # the five control-assistant digests below are the merged value.
+    # Re-recorded once more where the Reach Contract met the tiers: the admin
+    # persona's `services.graphdb.port_host` pin left with its two siblings'
+    # (the build projects every service address into an attached render), so
+    # the four attached digests are what the merged presets hash to. The base
+    # is NOT among them — it pinned no address to lose — and its digest below
+    # is main's, unmoved, which is the check that the contract touched only
+    # the attached tiers.
     "control-assistant": "sha256:cb3ea6aecf66e90326c0be0dcead918c98a30fb3fe606ada26e07187ac2f2f64",
     "control-assistant-admin": (
-        "sha256:ec9c084fec32f0eb749b167d070a847c7510956a421b0b3ea28d3fabd49b3bac"
+        "sha256:ff2492ee9f5001ed3b385f987b6cff882834dd8fcd4d53130c8cdc7e6186c24b"
     ),
     "control-assistant-ariel": (
-        "sha256:1543570519193a43675a6caf97fcae47dd02d8db51d2c1b08db7f58e13332479"
+        "sha256:646df29c8945900f8535191a3a496df86b83d09ff23ad7f4e87746fe8ce4e16f"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -132,11 +136,30 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # content, so the digest here is neither branch's recorded value but the one
     # the merged preset actually hashes to. Deploy-visible for both reasons at
     # once, which is what the advisory should say.
+    # Moved again — with `control-assistant-ariel` this time, all three leaves
+    # and not the base — when each gained the single dotted key
+    # `services.qmd.port: 8180`: the same attached-render reasoning as the graph
+    # port above, for the qmd sidecar that hybrid logbook search dials. NOT
+    # behavior-neutral: a rebuilt persona terminal's logbook search stops
+    # failing with "no qmd sidecar is configured", so the deploy-side staleness
+    # advisory firing on already-deployed persona projects is the correct
+    # signal.
+    # Moved again — all three leaves, not the base — when the Reach Contract
+    # landed and every service-address pin left these presets: the
+    # `services.graphdb.port_host` and `services.qmd.port` keys recorded
+    # above, and (readwrite) the `web.panels.events.*`/`web.panels.bluesky.*`
+    # URL pins. The build now copies each of those facts — and more: the
+    # Postgres, the telemetry store, the bridge, the VA port — from the
+    # hosting deployment's render into every attached persona, so the presets
+    # state nothing an operator's port move could strand. Deploy-visible: a
+    # rebuilt persona's rendered config gains the projected blocks, so the
+    # staleness advisory firing on already-deployed persona projects is the
+    # correct signal.
     "control-assistant-readonly": (
-        "sha256:510040faaf8f74b06fdec79fd074802f267d72778149415c028faaa94fc9aff2"
+        "sha256:d06220d4429a3f627efb71205c9f53a1b179c194f964a662a2947bcabfbb4dc5"
     ),
     "control-assistant-readwrite": (
-        "sha256:d89ba4a562bb0281afd6215f8ce8b8031c24f0f3567730883ea8aba4e251a6e3"
+        "sha256:b5c68c2b9f64bf83eec5902ffb3cdf3697f9ae4b9d88d39a2afc400d4f6073b7"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

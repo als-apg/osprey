@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.bluesky_bridge_connection import discover_lane_keys, lane_env_prefix
 from osprey.deployment.compose_generator import (
     configured_ariel_mirror_path,
     repo_identity,
@@ -1026,6 +1027,15 @@ def render_web_terminals(
         "registry_url": registry.get("url") or "",
         "image_source": image_source,
         "services": services,
+        # The launch token of every plan lane this deployment renders, granted
+        # together to each entitled persona (`svc.wants_launch_token`): lane
+        # 1's `BLUESKY_LAUNCH_TOKEN` alone on the single-lane deployment every
+        # project is by default, plus the second lane's own on a deployment
+        # that opted into one. Read off the deploy config's `services.<lane>`
+        # blocks, which is how every other lane consumer counts lanes.
+        "launch_token_env_vars": [
+            f"{lane_env_prefix(lane)}_LAUNCH_TOKEN" for lane in discover_lane_keys(root)
+        ],
         "nginx_port": nginx_port,
         "landing_url": landing_url,
         "facility_timezone": facility.get("timezone") or "UTC",

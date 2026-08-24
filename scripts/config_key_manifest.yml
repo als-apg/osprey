@@ -130,7 +130,14 @@ keys:
   # matches exactly one file, so deleting the resolver fails the guard rather
   # than rotting quietly.
   services.qmd:
-    evidence: 'services\.get\("qmd"\)'
+    evidence: 'QMD_SERVICE_NAME = "qmd"'
+    note: >-
+      The block's name is spelled once, as `qmd_service.QMD_SERVICE_NAME`, and
+      every reader goes through that constant — the resolver, the two dotted
+      keys below that build their own paths from it, and the reach contract
+      asking whether there is a block to dial. Pinning the constant rather
+      than one reader's `services.get(...)` keeps the guard on the spelling
+      itself, which is the thing a config file has to match.
   services.qmd.path:
     evidence: 'service_config\["path"\]'
     note: >-
