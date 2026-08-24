@@ -124,6 +124,8 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "docs_url",
         "feedback_github_repo",
         "feedback_email",
+        "config_panel_enabled",
+        "scaffold_write_enabled",
     }
 
 
