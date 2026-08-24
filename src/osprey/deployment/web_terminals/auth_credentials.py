@@ -68,6 +68,7 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
+from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
 from osprey.services.auth_sidecar.passwords import hash_password
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
@@ -111,8 +112,10 @@ SESSION_SECRET_VARS = (SESSION_SECRET_VAR, STATE_SECRET_VAR)
 #: reads it (to stamp the header on every proxied request) and so does that
 #: user's own terminal container (to verify it), and ``.env.auth`` is the file
 #: only the auth sidecar ever mounts. The deploy ``.env`` is the one store both
-#: of those services already interpolate from.
-TERMINAL_SECRET_VAR_PREFIX = "OSPREY_TERMINAL_SECRET_"
+#: of those services already interpolate from. Spelled by the web gate that
+#: verifies these secrets (:data:`osprey.interfaces.web_auth.ROSTER_SECRET_ENV_PREFIX`),
+#: so the mint and the gate cannot disagree about the prefix.
+TERMINAL_SECRET_VAR_PREFIX = ROSTER_SECRET_ENV_PREFIX
 
 #: What a terminal-secret refusal calls the thing it could not provision. The
 #: mint runs in EVERY auth method, so this message reaches operators who

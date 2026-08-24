@@ -1705,6 +1705,37 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
     return True
 
 
+#: The one service whose compose environment lists the roster's per-user
+#: operator secrets: the bluesky_web sidecar, which each per-user web terminal
+#: proxies its BLUESKY tab into with the secret ITS container holds.
+_ROSTER_SECRET_SERVICE = "bluesky_web"
+
+
+def _bluesky_panel_secret_env_vars(config, source_dir):
+    """The per-user secret variables the bluesky_web sidecar's compose lists.
+
+    Empty for every other service render, and for a deployment with no
+    web-terminal roster. Resolved here, in the services render, because the
+    sidecar is part of the SERVICES compose project — the web-terminal overlay
+    is brought up by its own single-file invocation
+    (:func:`osprey.deployment.web_terminals.provision.web_stack_compose_cmd`),
+    so a ``bluesky-web:`` fragment there would never merge into this service
+    and would instead fail that stack as an image-less service.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :return: ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` names, roster order
+    :rtype: list[str]
+    """
+    if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
+        return []
+    from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
+
+    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config))
+
+
 def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     """Create complete build environment for service deployment.
 
@@ -1858,6 +1889,8 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
         **config,
         "dev_mode": dev_mode and wheel_staged,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
+        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
+        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(config, source_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
@@ -2043,6 +2076,8 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
         **config,
         "dev_mode": dev_mode and wheel_staged,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
+        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
+        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(config, source_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 

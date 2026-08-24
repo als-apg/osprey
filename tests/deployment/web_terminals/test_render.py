@@ -1417,24 +1417,27 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the two default mounts plus the persona's two
+    # Assert — bob (gui) carries the three default mounts plus the persona's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
         "bob-agent-data:/app/dls-gui/var/agent_data",
+        "./var/audit/bob:/app/dls-gui/var/audit",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
-    # alice (default persona, no extra_mounts) keeps exactly the two default mounts
+    # alice (default persona, no extra_mounts) keeps exactly the three default mounts
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-agent-data:/app/dls-assistant/var/agent_data",
+        "./var/audit/alice:/app/dls-assistant/var/audit",
     ]
 
 
-def test_no_extra_mounts_leaves_only_the_two_default_volume_lines() -> None:
-    """A no-personas config (the zero-migration default) emits exactly the two
-    default per-user volume lines — the extra_mounts loop adds nothing."""
+def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
+    """A no-personas config (the zero-migration default) emits exactly the three
+    default per-user volume lines (claude-config, agent-data, the per-user audit
+    zone) — the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1447,6 +1450,7 @@ def test_no_extra_mounts_leaves_only_the_two_default_volume_lines() -> None:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
             f"{user}-agent-data:/app/dls-assistant/var/agent_data",
+            f"./var/audit/{user}:/app/dls-assistant/var/audit",
         ]
 
 
