@@ -3,10 +3,9 @@ Send and Retrieve Feedback
 
 Anyone using the Web Terminal can report a problem, or ask for something, from
 the terminal itself — no bug tracker account, no separate form. The **Feedback**
-control sits in the utility cluster at the far end of the panel rail (bottom in
-the default left-hand rail, right-hand end when the rail runs along the top),
-next to the **Docs** link. Clicking it opens a dialog with a text box,
-a channel picker, and two attachment checkboxes.
+control sits at the far end of the panel rail, next to the **Docs** link, and
+opens a dialog with a text box, a channel picker, and two attachment
+checkboxes.
 
 Every submission is recorded on the deployment it was sent from, whichever
 channel the sender picks. Facility staff read those records back with
@@ -16,8 +15,8 @@ channel the sender picks. Facility staff read those records back with
 Choose a channel
 ----------------
 
-The dialog offers three ways out. The choice is the sender's, and switching
-between them keeps the typed text and both checkboxes as they were.
+Switching between the three channels keeps the typed text and both checkboxes
+as they were.
 
 .. list-table::
    :header-rows: 1
@@ -37,8 +36,7 @@ between them keeps the typed text and both checkboxes as they were.
        context the issue body arrives complete; with it, the whole report —
        text, metadata, session context — is copied to the clipboard and the
        issue body is a single line saying to paste it there, because the
-       context is far too large to prefill. The dialog states both steps
-       before the button is pressed.
+       context is far too large to prefill.
      - The report belongs upstream, and the sender has a GitHub account.
    * - **Email**
      - Also opens a mail draft to the configured address, following the same
@@ -63,8 +61,7 @@ What gets attached
 ------------------
 
 The dialog's ``(?)`` control opens a plain-language disclosure of exactly what
-leaves the page. It says the same thing this section does, and it is the
-authority the sender sees at the moment of deciding.
+leaves the page — the same list as this section.
 
 **Always sent**, with no checkbox to turn it off:
 
@@ -83,7 +80,7 @@ username, which travel either way.
 
 - the session's id — on the GitHub and Email channels the issue title or mail
   subject also carries a short prefix of it, so the message can be matched to
-  the deployment's own record even if the paste step below is missed,
+  the deployment's own record even if the paste step is missed,
 - the session's tool-call and agent event log,
 - its chat history,
 - the terminal scrollback,
@@ -91,45 +88,29 @@ username, which travel either way.
   this session, plus artifacts created on this deployment during the same time
   window, which may include work from other terminal tabs or the chat panel.
 
-That last clause is worth reading twice, and the dialog states it in those
-words. OSPREY does not tag every artifact with the session that produced it, so
-the inventory falls back to a time window: an artifact somebody else made in a
+OSPREY does not tag every artifact with the session that produced it, so the
+inventory falls back to a time window: an artifact somebody else made in a
 different tab during the same minutes can be listed. Only its title and id
 appear — never its contents — but a sender attaching context to a **public**
 GitHub issue should know that the list is not strictly their own work.
 
 Session context is triaged newest-first and truncated to fit a size budget, so a
-long session is attached in part rather than in full. The copy destined for a
-GitHub issue or a mail draft is trimmed harder than the copy kept on the
-deployment: the clipboard payload has to stay pasteable, while the local record
-holds a much larger version.
-
+long session is attached in part rather than in full. The outbound copy — the
+clipboard payload behind a GitHub issue or a mail draft — is trimmed harder
+than the record kept on the deployment, which holds a much larger version.
 Where the session had no readable transcript, the dialog says so and the
-**outbound** copy — the clipboard payload behind a GitHub issue or a mail draft
-— carries the text, the metadata and a one-line note in place of the four
-context tiers, never a silently empty context. The deployment's own record is
-not so trimmed: the terminal scrollback the browser uploaded is stored with it
-either way. On-disk and outbound are two different things, and a sender deciding
-what to attach should read the checkbox as governing both.
+outbound copy carries the text, the metadata and a one-line note instead of a
+silently empty context.
 
 Copy session context
 --------------------
 
-A small **Copy** button sits on the session-context row itself. It puts the
-same trimmed context on the clipboard without sending anything and without
-writing a record, on any channel. It is enabled whenever a session exists —
-ticking the checkbox is not required, because copying is an explicit act of
-its own; without a session it stays visible but greyed, so it never looks
-like a control that disappeared.
-
-The context never travels inside the prefilled issue or draft itself — a
-``mailto:`` URL in particular is far too small to carry it. With the checkbox
-ticked, sending on an outbound channel copies the whole report to the
-clipboard and opens the draft with one line saying to paste it; the dialog
-states those two steps before the button is pressed and repeats the paste
-instruction in the confirmation afterwards. Reach for the Copy button when the
-clipboard has since been overwritten, or when only the context itself is
-wanted — for a chat message, say, rather than a report.
+A small **Copy** button on the session-context row puts the same trimmed
+context on the clipboard without sending anything and without writing a
+record. It is enabled whenever a session exists — the checkbox does not need
+to be ticked. Reach for it when the clipboard has been overwritten after a
+send, or when only the context itself is wanted — for a chat message, say,
+rather than a report.
 
 .. _feedback-retrieval:
 
@@ -212,9 +193,7 @@ Exit status is ``0`` when the read succeeded — including a deployment that has
 collected no feedback — and non-zero when the repository has no build, when
 every workspace failed to read, and when an export stopped part-way. A part-way
 export still parses: it holds what was read, and the summary says how much that
-was. On a single-user deployment a ``~``-relative ``agent_data.base_dir`` is
-also non-zero; on a multi-user one it is not detected at all, per the warning
-above.
+was.
 
 Keeping the store bounded
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -246,13 +225,12 @@ the store they fill:
 
 Leaving a key out gives you the shipped default above. Setting one of the three
 **string** keys to an **explicitly blank** value (``docs_url: ""``) means "this
-deployment has no such target" and removes the affordance: an air-gapped control
-room blanks ``web.docs_url`` and gets no documentation link rather than one that
-opens a dead tab, and blanking ``web.feedback.github_repo`` retires the GitHub
-channel instead of aiming reports at the upstream maintainers' tracker.
-``max_store_bytes`` has no such posture — it wants a positive byte count, and
-anything else (blank included) is logged and replaced by the default. The Local
-channel is always available and needs no configuration.
+deployment has no such target" and removes the control. An air-gapped control
+room blanks ``web.docs_url`` rather than shipping a link that opens a dead tab;
+blanking ``web.feedback.github_repo`` retires the GitHub channel instead of
+aiming reports at the upstream maintainers' tracker. ``max_store_bytes`` wants
+a positive byte count; anything else (blank included) is logged and replaced by
+the default. The Local channel is always available and needs no configuration.
 
 :doc:`web-terminal/operate` carries the full table, including what a key written
 with no value at all does.
@@ -264,20 +242,6 @@ with no value at all does.
    draws no line *within* a session, though — anyone sitting at a signed-in
    terminal can send a report — so read a stored report as coming from that
    terminal, not from a named person.
-
-Named future work
------------------
-
-Two deliberate gaps, both recorded so nobody has to rediscover them:
-
-- **Downloadable ``.txt`` context attachments.** The session context travels as
-  a trimmed clipboard payload today. If teams report that the trimmed bundle is
-  not enough for a maintainer to act on, a downloadable full attachment is the
-  planned next step.
-- **Locally hosted documentation.** ``web.docs_url`` points at whatever site you
-  give it, so a facility can already host its own copy — but OSPREY does not yet
-  *build and serve* a local documentation bundle for you. That key is the
-  plug-in point when it does.
 
 .. seealso::
 
