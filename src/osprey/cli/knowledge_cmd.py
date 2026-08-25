@@ -559,6 +559,16 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
             _bake_prompt_snapshot(session)
     except click.ClickException:
         raise
+    except graph_seeder.MissingN10sPluginError as exc:
+        # The store answered — this is not a connection failure, and folding it
+        # into one would send the operator to check an address that works. The
+        # seeder's message names the plugin gap and the server version.
+        fail(
+            "The graph store cannot import RDF.",
+            str(exc),
+            "Nothing was seeded; the store's data was not touched.",
+        )
+        raise SystemExit(1) from exc
     except ImportError as exc:
         # The driver is a core dependency, so this means a broken install; the
         # seeder's own message says how to repair it.

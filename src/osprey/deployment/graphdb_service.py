@@ -17,7 +17,7 @@ Config shape, as it appears in a project's ``config.yml``::
     services:
       graphdb:
         path: ./services/graphdb
-        image: neo4j:5.20-community
+        image: neo4j:5.26-community
         port_host: 7687                            # bolt, the driver protocol
         http_port_host: 7474                       # Neo4j Browser / HTTP API
         ttl_path: ./data/demo_machine.ttl          # optional; corpus to seed
@@ -103,12 +103,16 @@ GRAPHDB_SERVICE_NAME = "graphdb"
 
 #: Image the store runs by default, overridable per project.
 #:
-#: Pinned to 5.20 rather than tracking a newer Neo4j: neosemantics (n10s) — the
-#: plugin that imports RDF, without which the store has no way to load the
-#: corpus at all — publishes no build for 5.23 or later. The pin is therefore a
+#: Pinned to the 5.26 LTS line rather than tracking a newer Neo4j: neosemantics
+#: (n10s) — the plugin that imports RDF, without which the store has no way to
+#: load the corpus at all — is installed at container start from its plugin
+#: manifest (https://neo4j-labs.github.io/neosemantics/versions.json), and 5.26
+#: is the newest server line that manifest covers; it does so patch-by-patch,
+#: where older lines get at most a single frozen entry. The pin is therefore a
 #: statement about the plugin's release cadence, not about Neo4j's, and it can
-#: move as soon as n10s ships for a newer server.
-DEFAULT_IMAGE = "neo4j:5.20-community"
+#: move as soon as n10s ships for a newer server. Check the manifest — and the
+#: supported-set pin test beside this module's config tests — before bumping.
+DEFAULT_IMAGE = "neo4j:5.26-community"
 
 #: Published host port for the bolt protocol, which is the only thing the neo4j
 #: driver speaks. Matches the container-internal port, so the derived
@@ -224,7 +228,7 @@ class GraphdbConnection:
 
     Consumers should keep to driver APIs common to the 5.x and 6.x lines
     (``execute_query``, ``execute_read``): the repo's ``neo4j>=5.20`` floor
-    resolves to the 6.x driver, while the server it dials is pinned to 5.20.
+    resolves to the 6.x driver, while the server it dials is pinned to 5.26.
 
     Attributes:
         uri: Address to dial — an explicit external one, or the derived
