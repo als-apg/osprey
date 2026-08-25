@@ -10,7 +10,7 @@ them.
 Four properties are asserted:
 
 * **Predicate coverage** — every ``narad_p:``/``skos:`` predicate a query
-  touches exists in every corpus the query declares a parameter set for. The
+  touches exists in the shipped corpus. The
   Cypher spells predicates the way neosemantics projects them (``handleVocabUris:
   MAP`` plus ``applyNeo4jNaming``: relationship types uppercased, property names
   kept as their local name), so the test carries the projection table and checks
@@ -18,13 +18,11 @@ Four properties are asserted:
   RDF built-ins n10s projects fails the run — the catalogue cannot grow a
   predicate this file has not been told about.
 * **Value existence** — every string an example passes as a parameter occurs
-  verbatim in the corpus it is declared for. This is what makes an example
-  *runnable as shipped* rather than merely well-formed.
-* **The parameter contract** — a declared corpus supplies exactly the
-  parameters its query references, none of them blank; a corpus named in
-  ``not_applicable`` supplies none; and between them every shipped corpus is
-  accounted for. Mirrors the main-agent catalogue's contract, extended for the
-  exclusion this catalogue needs.
+  verbatim in the corpus. This is what makes an example *runnable as shipped*
+  rather than merely well-formed.
+* **The parameter contract** — every example supplies exactly the parameters
+  its query references, none of them blank. Mirrors the main-agent
+  catalogue's contract.
 * **Two shape rules that a live run would only catch late** — synonyms are a
   list in the store, so no query may compare ``altLabel`` as a scalar; and there
   is no ``:Device`` label in the projection, so no query may ask for one.
@@ -41,11 +39,7 @@ from importlib.resources import files
 
 import pytest
 
-from osprey.mcp_server.channel_finder_graph.tools.examples_data import (
-    CORPORA,
-    EXAMPLE_QUERIES,
-    ChannelFinderExample,
-)
+from osprey.mcp_server.channel_finder_graph.tools.examples_data import EXAMPLE_QUERIES
 from osprey.mcp_server.graph.gate import vet_query
 from osprey.mcp_server.graph.tools.examples_data import ExampleQuery
 
@@ -53,21 +47,18 @@ from osprey.mcp_server.graph.tools.examples_data import ExampleQuery
 # The corpora, read from the packaged artifacts the seeder actually loads.
 # ---------------------------------------------------------------------------
 
-_CORPUS_FILES = {
-    "demo": ("apps", "control_assistant", "data", "demo_machine.ttl"),
-    "als": ("services", "graphdb", "als_gtb.ttl"),
-}
+_CORPUS_FILE = ("apps", "control_assistant", "data", "demo_machine.ttl")
 
 
-def _corpus_text(corpus: str) -> str:
-    """Return the Turtle source of one shipped corpus."""
+def _corpus_text() -> str:
+    """Return the Turtle source of the shipped corpus."""
     path = files("osprey.templates")
-    for part in _CORPUS_FILES[corpus]:
+    for part in _CORPUS_FILE:
         path = path.joinpath(part)
     return path.read_text(encoding="utf-8")
 
 
-CORPUS_TEXT = {corpus: _corpus_text(corpus) for corpus in _CORPUS_FILES}
+CORPUS_TEXT = _corpus_text()
 
 
 # ---------------------------------------------------------------------------
@@ -140,38 +131,23 @@ def _predicates_in(cypher: str) -> set[str]:
     return _tokens_in(cypher) & set(CORPUS_PREDICATES)
 
 
-def _declared_pairs() -> list[pytest.param]:
-    """Every (example, corpus) pair the catalogue claims to support."""
-    return [
-        pytest.param(query, corpus, id=f"{query.key}-{corpus}")
-        for query in EXAMPLE_QUERIES
-        for corpus in sorted(query.parameters)
-    ]
-
-
-DECLARED_PAIRS = _declared_pairs()
-
-
 # ---------------------------------------------------------------------------
 # (a) Predicate coverage.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("query,corpus", DECLARED_PAIRS)
-def test_every_predicate_a_query_uses_exists_in_that_corpus(
-    query: ChannelFinderExample, corpus: str
-) -> None:
-    text = CORPUS_TEXT[corpus]
+@pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
+def test_every_predicate_a_query_uses_exists_in_the_corpus(query: ExampleQuery) -> None:
     for token in sorted(_predicates_in(query.cypher)):
         spelling = CORPUS_PREDICATES[token]
-        assert spelling in text, (
-            f"{query.key} reads {token!r} but {corpus} has no {spelling}; "
-            f"either the corpus is missing it or the example must not declare {corpus}"
+        assert spelling in CORPUS_TEXT, (
+            f"{query.key} reads {token!r} but the corpus has no {spelling}; "
+            f"either the corpus is missing it or the example must not use it"
         )
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_every_token_a_query_uses_is_a_known_predicate(query: ChannelFinderExample) -> None:
+def test_every_token_a_query_uses_is_a_known_predicate(query: ExampleQuery) -> None:
     """Coverage is only a guard while every token is classified.
 
     An unrecognised token would slip past the coverage test silently, so the
@@ -189,16 +165,13 @@ def test_every_token_a_query_uses_is_a_known_predicate(query: ChannelFinderExamp
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("query,corpus", DECLARED_PAIRS)
-def test_every_parameter_value_occurs_in_that_corpus(
-    query: ChannelFinderExample, corpus: str
-) -> None:
+@pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
+def test_every_parameter_value_occurs_in_the_corpus(query: ExampleQuery) -> None:
     """A parameter the corpus has never seen makes an example return nothing."""
-    text = CORPUS_TEXT[corpus]
-    for name, value in sorted(query.parameters[corpus].items()):
+    for name, value in sorted(query.parameters.items()):
         if not isinstance(value, str):
             continue
-        assert value in text, f"{query.key}[{corpus}].{name} = {value!r} is not in {corpus}"
+        assert value in CORPUS_TEXT, f"{query.key}.{name} = {value!r} is not in the corpus"
 
 
 # ---------------------------------------------------------------------------
@@ -212,47 +185,30 @@ def test_keys_are_unique() -> None:
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_every_entry_is_an_example_query(query: ChannelFinderExample) -> None:
+def test_every_entry_is_an_example_query(query: ExampleQuery) -> None:
     """The catalogue reuses the graph server's dataclass rather than forking it."""
-    assert isinstance(query, ChannelFinderExample)
     assert isinstance(query, ExampleQuery)
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_title_description_and_cypher_are_non_empty(query: ChannelFinderExample) -> None:
+def test_title_description_and_cypher_are_non_empty(query: ExampleQuery) -> None:
     assert query.title.strip(), f"{query.key} has no title"
     assert query.description.strip(), f"{query.key} has no description"
     assert query.cypher.strip(), f"{query.key} has no cypher"
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_every_corpus_is_either_supplied_or_excluded(query: ChannelFinderExample) -> None:
-    supplied = set(query.parameters)
-    excluded = set(query.not_applicable)
-    assert not supplied & excluded, (
-        f"{query.key} both supplies and excludes {sorted(supplied & excluded)}"
-    )
-    assert supplied | excluded == set(CORPORA), (
-        f"{query.key} accounts for {sorted(supplied | excluded)}, not {sorted(CORPORA)}"
-    )
-    assert supplied, f"{query.key} runs against no corpus at all"
-
-
-@pytest.mark.parametrize("query,corpus", DECLARED_PAIRS)
-def test_a_declared_corpus_supplies_exactly_the_querys_parameters(
-    query: ChannelFinderExample, corpus: str
-) -> None:
-    values = query.parameters[corpus]
-    assert isinstance(values, dict), f"{query.key}[{corpus}] is not a mapping"
-    assert values, f"{query.key}[{corpus}] is empty; an example must take parameters"
+def test_the_parameter_set_is_exactly_the_querys_parameters(query: ExampleQuery) -> None:
+    values = query.parameters
+    assert isinstance(values, dict), f"{query.key}.parameters is not a mapping"
+    assert values, f"{query.key} takes no parameters; an example must take parameters"
     expected = _params_in(query.cypher)
     assert set(values) == expected, (
-        f"{query.key}[{corpus}] supplies {sorted(values)} but the query "
-        f"references {sorted(expected)}"
+        f"{query.key} supplies {sorted(values)} but the query references {sorted(expected)}"
     )
     for name, value in values.items():
-        assert value is not None, f"{query.key}[{corpus}].{name} is null"
-        assert str(value).strip(), f"{query.key}[{corpus}].{name} is blank"
+        assert value is not None, f"{query.key}.{name} is null"
+        assert str(value).strip(), f"{query.key}.{name} is blank"
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +223,7 @@ _DEVICE_LABEL_RE = re.compile(r":\s*Device\b")
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_altlabel_is_matched_as_a_list(query: ChannelFinderExample) -> None:
+def test_altlabel_is_matched_as_a_list(query: ExampleQuery) -> None:
     """The store holds synonyms as arrays; comparing one as a scalar finds nothing."""
     cypher = query.cypher
     if ".altLabel" not in cypher:
@@ -282,7 +238,7 @@ def test_altlabel_is_matched_as_a_list(query: ChannelFinderExample) -> None:
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_no_query_asks_for_a_device_label(query: ChannelFinderExample) -> None:
+def test_no_query_asks_for_a_device_label(query: ExampleQuery) -> None:
     """There is no ``:Device`` label in the projection — devices are ``:Resource``."""
     assert not _DEVICE_LABEL_RE.search(query.cypher), (
         f"{query.key} matches a :Device label, which the store does not have; "
@@ -298,7 +254,7 @@ _WRITE_TOKENS = ("CREATE", "MERGE", "DELETE", "SET", "REMOVE", "DROP")
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_cypher_contains_no_write_clause(query: ChannelFinderExample) -> None:
+def test_cypher_contains_no_write_clause(query: ExampleQuery) -> None:
     upper = query.cypher.upper()
     for token in _WRITE_TOKENS:
         assert not re.search(rf"\b{token}\b", upper), (
@@ -307,7 +263,7 @@ def test_cypher_contains_no_write_clause(query: ChannelFinderExample) -> None:
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_cypher_is_row_capped(query: ChannelFinderExample) -> None:
+def test_cypher_is_row_capped(query: ExampleQuery) -> None:
     """Every example ends in a LIMIT, so no example can be why a result truncates."""
     last_line = query.cypher.strip().splitlines()[-1].strip()
     assert re.fullmatch(r"LIMIT \d+", last_line), (
@@ -316,7 +272,7 @@ def test_cypher_is_row_capped(query: ChannelFinderExample) -> None:
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_cypher_passes_the_client_side_gate(query: ChannelFinderExample) -> None:
+def test_cypher_passes_the_client_side_gate(query: ExampleQuery) -> None:
     """A curated example the gate would refuse is a broken example."""
     vet_query(query.cypher)
 
@@ -326,7 +282,7 @@ def test_cypher_passes_the_client_side_gate(query: ChannelFinderExample) -> None
 # ---------------------------------------------------------------------------
 
 
-def _by_key(key: str) -> ChannelFinderExample:
+def _by_key(key: str) -> ExampleQuery:
     matches = [q for q in EXAMPLE_QUERIES if q.key == key]
     assert matches, f"the catalogue ships no {key!r} example"
     return matches[0]
@@ -338,15 +294,14 @@ def test_the_catalogue_teaches_a_census_before_enumeration() -> None:
     The q0 benchmark failure: the agent enumerated golden-orbit channels under
     its own LIMIT, got exactly LIMIT rows, and reported the clipped list as the
     facility's BPM total. The census example is the antidote — a count to
-    verify an enumeration's row_count against — so it must run on every corpus
-    and its description must bind it to "all" questions.
+    verify an enumeration's row_count against — so it must be runnable as
+    shipped and its description must bind it to "all" questions.
     """
     census = _by_key("census")
 
     assert "count(" in census.cypher.lower(), "a census must aggregate, not enumerate"
     assert "fullPv" not in census.cypher, "a census counts; it must not return addresses"
-    assert set(census.parameters) == set(CORPORA), "the census must run on every corpus"
-    assert census.not_applicable == ()
+    assert census.parameters, "the census must be runnable as shipped"
     lowered = census.description.lower()
     assert "all" in lowered and "count" in lowered, (
         "the description must tie the census to answering 'all of X' completely"

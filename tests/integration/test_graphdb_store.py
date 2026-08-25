@@ -6,11 +6,11 @@ n10s plugin.  Every other graphdb test mocks the driver, which can prove the
 call shapes but not the two things that decide whether the feature works: that
 ``n10s.graphconfig.init`` with :data:`~...graph_seeder.N10S_GRAPH_CONFIG`
 produces a graph the operator queries can traverse, and that the shipped
-``als_gtb.ttl`` imports into exactly the corpus those queries were verified
-against.  So the assertions here are the four counts verified on the
-als-ontology prototype snapshot (76 devices / 964 bindings / 260 write-only +
-704 read-only / 47 magnets rolled up through the class hierarchy), plus n10s's
-own ``terminationStatus`` and its 8114 triples.
+``demo_machine.ttl`` imports into exactly the corpus those queries were verified
+against.  So the assertions here are the four counts verified on the generated
+demo machine (512 devices / 2908 bindings / 396 write-only + 2512 read-only /
+382 magnets rolled up through the class hierarchy), plus n10s's own
+``terminationStatus`` and its 36624 triples.
 
 Counts only, never wall clock: seeding time depends on the host's disk and on
 whether the image was cold, and a timing assertion here would fail on a loaded
@@ -46,23 +46,24 @@ pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
 
 
 # ---------------------------------------------------------------------------
-# Verified counts for the shipped als_gtb.ttl
+# Verified counts for the shipped demo_machine.ttl
 # ---------------------------------------------------------------------------
-# Source: ~/code/als-ontology/neo4j/queries/als-operator-queries.cypher, whose
-# header records these as verified against this snapshot on 2026-05-28.
+# The device, binding and direction counts are the Turtle census pinned in
+# tests/templates/test_control_assistant_demo_ttl.py; the magnet rollup and the
+# triple count were verified against a live n10s import of the same file.
 
 #: Triples n10s reports loading from the shipped TTL.
-EXPECTED_TRIPLES_LOADED = 8114
+EXPECTED_TRIPLES_LOADED = 36624
 #: Distinct devices, i.e. resources carrying at least one channel binding.
-EXPECTED_DEVICES = 76
+EXPECTED_DEVICES = 512
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 964
-EXPECTED_WRITE_ONLY = 260
-EXPECTED_READ_ONLY = 704
+EXPECTED_BINDINGS = 2908
+EXPECTED_WRITE_ONLY = 396
+EXPECTED_READ_ONLY = 2512
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
-#: Quadrupole + Dipole + HCorrector + VCorrector + Solenoid + BuckingCoil.
+#: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector.
 #: This is the count that proves the *hierarchy* imported, not just the nodes.
-EXPECTED_MAGNETS = 47
+EXPECTED_MAGNETS = 382
 
 #: Ontology root the magnet rollup walks up to.  A driver parameter here, where
 #: the prototype's Browser-oriented file inlines it as a literal.
@@ -127,15 +128,19 @@ def graphdb_uri(graphdb_plugin_dir: Path):
 
 
 @pytest.fixture(scope="session")
-def als_gtb_ttl() -> str:
-    """The shipped example TTL, read the way installed code reads it.
+def demo_ttl() -> str:
+    """The shipped demo corpus, read the way installed code reads it.
 
     ``importlib.resources``, not a path into ``src/``: the TTL ships inside the
     package, and a filesystem path would pass here while proving nothing about
     the installed layout the seeding verb actually goes through.
     """
     resource = (
-        files("osprey.templates").joinpath("services").joinpath("graphdb").joinpath("als_gtb.ttl")
+        files("osprey.templates")
+        .joinpath("apps")
+        .joinpath("control_assistant")
+        .joinpath("data")
+        .joinpath("demo_machine.ttl")
     )
     return resource.read_text(encoding="utf-8")
 
@@ -157,7 +162,7 @@ def _scalar(session, cypher: str, **params) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, als_gtb_ttl: str) -> None:
+def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, demo_ttl: str) -> None:
     """Drive the real seeder through a store's whole life against real n10s.
 
     One test rather than five, deliberately: every step's precondition is the
@@ -168,7 +173,7 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, als_gtb_ttl: str) -> 
     """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    expected_sha = graph_seeder.ttl_sha256(als_gtb_ttl)
+    expected_sha = graph_seeder.ttl_sha256(demo_ttl)
 
     with graph_seeder.open_session(
         graphdb_uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD
@@ -184,7 +189,7 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, als_gtb_ttl: str) -> 
         assert graph_seeder.read_marker(session) is None
 
         # --- 2. Seed the shipped TTL ----------------------------------------
-        result = graph_seeder.import_ttl(session, als_gtb_ttl)
+        result = graph_seeder.import_ttl(session, demo_ttl)
         assert result.termination_status == graph_seeder.TERMINATION_OK, (
             f"n10s refused the shipped TTL: {result.extra_info}"
         )
@@ -219,7 +224,7 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, als_gtb_ttl: str) -> 
         forced = graph_seeder.bootstrap(session)
         assert forced.status is graph_seeder.BootstrapStatus.INITIALIZED, forced.message
 
-        reimport = graph_seeder.import_ttl(session, als_gtb_ttl)
+        reimport = graph_seeder.import_ttl(session, demo_ttl)
         assert reimport.termination_status == graph_seeder.TERMINATION_OK, reimport.extra_info
         assert reimport.triples_loaded == EXPECTED_TRIPLES_LOADED
         graph_seeder.write_marker(session, expected_sha)
@@ -229,7 +234,7 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, als_gtb_ttl: str) -> 
 
 
 def _assert_verified_counts(session) -> None:
-    """Assert the four counts the prototype verified for this corpus.
+    """Assert the four verified counts for this corpus.
 
     Factored out because ``--force`` has to land on the *same* graph the first
     seed did — a re-import that produced a different shape (duplicated nodes, a

@@ -287,11 +287,9 @@ services:
                           # tree and rebuild). A build profile that ships its
                           # own `data:` tree replaces this directory wholesale,
                           # so it must set this key in its `config:` overlay.
-                          # The ALS corpus stays available at
-                          # ./services/graphdb/als_gtb.ttl — point this key
-                          # there, or at your own TTL, to seed that instead.
-                          # Comment it out to bring the store up bootstrapped
-                          # but empty.
+                          # Point this key at your own TTL to seed that
+                          # instead, or comment it out to bring the store up
+                          # bootstrapped but empty.
     # JVM memory. Neo4j sizes nothing automatically inside a container — left
     # unset it reads the HOST's memory and picks numbers the container's own
     # limit will not honour — so all three are spelled out. Budget roughly

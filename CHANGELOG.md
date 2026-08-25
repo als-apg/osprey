@@ -1478,6 +1478,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
+- The ALS GTB example corpus (`als_gtb.ttl`). The generated demo-machine corpus
+  is now the only facility graph OSPREY ships; both presets seed it, the
+  `ariel_standalone` preset carries its own copy, and each curated Cypher
+  example ships one parameter set whose values exist in the demo machine.
+
 - Registry and ARIEL exports that nothing called, including a second connector
   registry that shadowed the real one.
 

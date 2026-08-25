@@ -10,19 +10,16 @@ rests on:
 * that the gate's refuse/pass matrix lines up with what the server would have
   done, i.e. that everything it passes is valid Cypher a read transaction
   accepts, and everything it refuses never reaches the wire;
-* that the nine curated examples in
+* that the curated examples in
   :mod:`osprey.mcp_server.graph.tools.examples_data` are runnable Cypher which
-  reproduces, on the shipped ALS corpus, the counts phase 1 verified — and
-  returns rows on the generated demo corpus with the parameter values shipped
-  beside them;
+  reproduces, on the shipped demo corpus, the verified counts — and returns
+  rows with the parameter values shipped beside them;
 * that the row cap and the query timeout are enforced by the *store* rather
   than by a client-side slice.
 
-Two lanes, two stores.  Neo4j Community serves exactly one database, so the
-two shipped corpora cannot share a container: ``als_gtb.ttl`` (the ALS GTB
-snapshot the verified counts come from) and ``demo_machine.ttl`` (generated
-from the control_assistant channel database) each get their own, seeded once
-per module through the same primitives ``osprey knowledge seed-graph`` uses.
+One store, seeded once per module with ``demo_machine.ttl`` (generated from
+the control_assistant channel database) through the same primitives
+``osprey knowledge seed-graph`` uses.
 
 Skips are loud and only ever about the host.  If Docker is not reachable the
 whole module skips with that reason; if Docker *is* reachable every test here
@@ -62,46 +59,19 @@ logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
 
 
-# --- Counts verified in phase 1 for the shipped als_gtb.ttl ----------------
+# --- Verified counts for the shipped demo_machine.ttl -----------------------
 # Identical to tests/integration/test_graphdb_store.py; re-stated rather than
-# imported so this module says what it is asserting, and so a change to either
+# imported so this module says what it is asserting, and so a change to the
 # corpus has to be acknowledged in both places.
 
-EXPECTED_DEVICES = 76
-EXPECTED_BINDINGS = 964
-EXPECTED_WRITE_ONLY = 260
-EXPECTED_READ_ONLY = 704
-EXPECTED_MAGNETS = 47
+EXPECTED_DEVICES = 512
+EXPECTED_BINDINGS = 2908
+EXPECTED_WRITE_ONLY = 396
+EXPECTED_READ_ONLY = 2512
+EXPECTED_MAGNETS = 382
 
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 MAGNET_CLASS_URI = _SEM + "Magnet"
-
-#: Corpus keys in :data:`~osprey.mcp_server.graph.tools.examples_data.EXAMPLE_QUERIES`
-#: parameter sets.
-ALS = "als"
-DEMO = "demo"
-
-#: Columns one example is documented to return as ``null`` **on one corpus** —
-#: a property of that corpus rather than a fault in the query.
-#:
-#: Keyed by ``(example, corpus)`` rather than by example alone, because a null
-#: tolerated everywhere is a null nobody notices: q3's ``signal`` is non-null on
-#: every row of both corpora today, so exempting it globally would retire
-#: exactly the regression q3 is here to catch.  The one real entry is q2's
-#: ``s_m`` on the ALS snapshot: the example deliberately drops the prototype's
-#: ``sPositionM IS NOT NULL`` filter and falls back to ``ordinalInSection`` for
-#: the ordering, so that a corpus recording only ordinals still walks in a
-#: meaningful order — and the ALS corpus exercises exactly that path, carrying
-#: 77 ``sectionCode`` values to 76 ``sPositionM`` ones.  Filtering the odd one
-#: out would hide a device an operator can address, so
-#: :func:`test_als_example_q2_has_exactly_one_device_without_a_position` pins
-#: which device it is instead.
-DOCUMENTED_NULL_COLUMNS: dict[tuple[str, str], frozenset[str]] = {
-    ("q2", ALS): frozenset({"s_m"}),
-}
-
-#: The one ALS device with no ``sPositionM``.
-DEVICE_WITHOUT_POSITION = "DCCT_0"
 
 #: Labels and properties ``get_schema`` must never surface.
 BOOKKEEPING_LABELS = ("_OspreySeed", "_GraphConfig", "_NsPrefDef")
@@ -174,15 +144,6 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
 
 
 @pytest.fixture(scope="module")
-def als_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
-    """A store seeded with the shipped ALS corpus."""
-    resource = (
-        files("osprey.templates").joinpath("services").joinpath("graphdb").joinpath("als_gtb.ttl")
-    )
-    yield from _seeded_store(graph_mcp_plugin_dir, resource.read_text(encoding="utf-8"), "als")
-
-
-@pytest.fixture(scope="module")
 def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
     """A store seeded with the generated demo-machine corpus."""
     resource = (
@@ -212,7 +173,8 @@ def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[An
     never logged or interpolated into the URI.
 
     The singleton is module-global, so it is installed per test rather than per
-    lane: two lanes cannot both be "the" context at once.
+    module, which is also what keeps one test's cap or timeout override from
+    leaking into the next.
     """
     from osprey.deployment.graphdb_service import GRAPHDB_PASSWORD_ENV
     from osprey.mcp_server.graph import server_context as graph_ctx
@@ -237,23 +199,10 @@ def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[An
 
 
 @pytest.fixture
-def als_ctx(als_store: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
-    """The graph tools, live against the ALS-seeded store."""
-    with _installed_context(als_store, monkeypatch) as context:
-        yield context
-
-
-@pytest.fixture
 def demo_ctx(demo_store: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     """The graph tools, live against the demo-seeded store."""
     with _installed_context(demo_store, monkeypatch) as context:
         yield context
-
-
-@pytest.fixture
-def lane_ctx(request: pytest.FixtureRequest) -> Any:
-    """Resolve ``als_ctx``/``demo_ctx`` by name for lane-parametrized tests."""
-    return request.getfixturevalue(request.param)
 
 
 # ---------------------------------------------------------------------------
@@ -327,10 +276,10 @@ def _example_keys() -> list[str]:
     return [example.key for example in EXAMPLE_QUERIES]
 
 
-def _run_example(key: str, corpus: str) -> dict[str, Any]:
-    """Run one curated example with the parameter set for *corpus*."""
+def _run_example(key: str) -> dict[str, Any]:
+    """Run one curated example with its shipped parameter set."""
     example = _example(key)
-    return _read_cypher(example.cypher, dict(example.parameters[corpus]))
+    return _read_cypher(example.cypher, dict(example.parameters))
 
 
 def _store_state(uri: str) -> tuple[int, str | None]:
@@ -347,7 +296,7 @@ def _store_state(uri: str) -> tuple[int, str | None]:
 
 
 def test_write_is_refused_by_the_read_transaction_and_changes_nothing(
-    als_ctx: Any, als_store: str
+    demo_ctx: Any, demo_store: str
 ) -> None:
     """A CREATE reaches the store, is refused there, and leaves no trace.
 
@@ -357,7 +306,7 @@ def test_write_is_refused_by_the_read_transaction_and_changes_nothing(
     separate driver session so it cannot be fooled by the transaction the tool
     used.
     """
-    before_count, before_marker = _store_state(als_store)
+    before_count, before_marker = _store_state(demo_store)
     assert before_count > 0 and before_marker is not None, (
         "the fixture must leave a seeded, marked store for this test to mean anything"
     )
@@ -370,7 +319,7 @@ def test_write_is_refused_by_the_read_transaction_and_changes_nothing(
     assert envelope["details"]["kind"] == "read_only", envelope
     assert envelope["details"]["code"] == "Neo.ClientError.Statement.AccessMode", envelope
 
-    after_count, after_marker = _store_state(als_store)
+    after_count, after_marker = _store_state(demo_store)
     assert after_count == before_count
     assert after_marker == before_marker
 
@@ -451,10 +400,10 @@ _REFUSED: list[tuple[str, str, str]] = [
     [pytest.param(query, named, id=case_id) for case_id, query, named in _REFUSED],
 )
 def test_gate_refuses_before_the_store_is_dialed(
-    als_ctx: Any, monkeypatch: pytest.MonkeyPatch, query: str, named: str
+    demo_ctx: Any, monkeypatch: pytest.MonkeyPatch, query: str, named: str
 ) -> None:
     """A refused query yields a validation_error naming it, and never dials."""
-    with _run_read_spy(als_ctx, monkeypatch) as seen:
+    with _run_read_spy(demo_ctx, monkeypatch) as seen:
         envelope = _error_envelope(query)
 
     assert envelope["error_type"] == "validation_error", envelope
@@ -478,7 +427,7 @@ _PASSED: list[tuple[str, str]] = [
 
 @pytest.mark.parametrize("query", [pytest.param(query, id=case_id) for case_id, query in _PASSED])
 def test_gate_passes_queries_the_store_then_runs(
-    als_ctx: Any, monkeypatch: pytest.MonkeyPatch, query: str
+    demo_ctx: Any, monkeypatch: pytest.MonkeyPatch, query: str
 ) -> None:
     """A passed query is not merely un-refused — it executes and returns a row.
 
@@ -487,7 +436,7 @@ def test_gate_passes_queries_the_store_then_runs(
     working gate.  Seeing the query arrive at ``run_read`` on this path is what
     makes the empty list over there mean something.
     """
-    with _run_read_spy(als_ctx, monkeypatch) as seen:
+    with _run_read_spy(demo_ctx, monkeypatch) as seen:
         payload = _read_cypher(query)
 
     assert seen == [query], f"the spy did not observe the read seam: {seen}"
@@ -500,7 +449,7 @@ def test_gate_passes_queries_the_store_then_runs(
 # ---------------------------------------------------------------------------
 
 
-def test_returning_a_node_yields_json_native_values(als_ctx: Any) -> None:
+def test_returning_a_node_yields_json_native_values(demo_ctx: Any) -> None:
     """A bare node comes back as plain JSON, not as driver objects.
 
     Two halves, and they prove different things.  The tool payload shows what
@@ -519,7 +468,7 @@ def test_returning_a_node_yields_json_native_values(als_ctx: Any) -> None:
     node = payload["rows"][0]["d"]
     assert isinstance(node, dict) and node.get("uri"), node
 
-    result = als_ctx.run_read("MATCH (d:Resource) RETURN d LIMIT 1")
+    result = demo_ctx.run_read("MATCH (d:Resource) RETURN d LIMIT 1")
     assert result.rows, result
     json.dumps(result.rows)  # raises TypeError on anything not JSON-native
 
@@ -529,8 +478,7 @@ def test_returning_a_node_yields_json_native_values(als_ctx: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("lane_ctx", ["als_ctx", "demo_ctx"], indirect=True)
-def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping(lane_ctx: Any) -> None:
+def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping(demo_ctx: Any) -> None:
     """The schema names the NARAD vocabulary and nothing the seeder wrote."""
     payload = _get_schema()
 
@@ -559,20 +507,20 @@ def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping(lane_ctx: Any) 
 
 
 # ---------------------------------------------------------------------------
-# 5. The curated examples against both corpora
+# 5. The curated examples against the corpus
 # ---------------------------------------------------------------------------
 
 
-def test_als_example_q1a_counts_the_verified_devices(als_ctx: Any) -> None:
-    """The device census sums to the 76 devices phase 1 verified."""
-    payload = _run_example("q1a", ALS)
+def test_example_q1a_counts_the_verified_devices(demo_ctx: Any) -> None:
+    """The device census sums to the 512 verified devices."""
+    payload = _run_example("q1a")
     assert payload["truncated"] is False, payload
     assert sum(row["device_count"] for row in payload["rows"]) == EXPECTED_DEVICES
 
 
-def test_als_example_q5_reproduces_the_verified_direction_split(als_ctx: Any) -> None:
-    """The binding rollup reproduces 260 write-only / 704 read-only / 964 total."""
-    payload = _run_example("q5", ALS)
+def test_example_q5_reproduces_the_verified_direction_split(demo_ctx: Any) -> None:
+    """The binding rollup reproduces 396 write-only / 2512 read-only / 2908 total."""
+    payload = _run_example("q5")
     row = payload["rows"][0]
     assert row["write_only"] == EXPECTED_WRITE_ONLY, row
     assert row["read_only"] == EXPECTED_READ_ONLY, row
@@ -580,101 +528,71 @@ def test_als_example_q5_reproduces_the_verified_direction_split(als_ctx: Any) ->
     assert row["total"] == EXPECTED_BINDINGS, row
 
 
-def test_als_example_q1c_rolls_up_the_verified_magnets(als_ctx: Any) -> None:
-    """Rolling ``Magnet`` up its subclasses lists exactly the 47 verified devices."""
-    assert _example("q1c").parameters[ALS]["class_uri"] == MAGNET_CLASS_URI, (
+def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
+    """Rolling ``Magnet`` up its subclasses lists exactly the 382 verified devices.
+
+    The rollup is larger than the shipped row cap, so the cap is lifted to the
+    example's own ``LIMIT`` for this test: the claim here is the count, and a
+    capped answer would compare 200 against 382 and say nothing about the
+    hierarchy.
+    """
+    assert _example("q1c").parameters["class_uri"] == MAGNET_CLASS_URI, (
         "the count below is the verified Magnet rollup, so it only means "
         "anything while the shipped parameter set still names Magnet"
     )
+    demo_ctx.query_max_rows = 500
 
-    payload = _run_example("q1c", ALS)
+    payload = _run_example("q1c")
     assert payload["truncated"] is False, payload
     assert payload["row_count"] == EXPECTED_MAGNETS, payload["row_count"]
     assert {row["device_class"] for row in payload["rows"]} > {"Quadrupole"}
 
 
-def test_als_example_q1b_puts_the_magnets_under_one_branch(als_ctx: Any) -> None:
-    """The branch rollup reaches the same 47 without naming a magnet subclass."""
-    payload = _run_example("q1b", ALS)
+def test_example_q1b_puts_the_magnets_under_one_branch(demo_ctx: Any) -> None:
+    """The branch rollup reaches the same 382 without naming a magnet subclass."""
+    payload = _run_example("q1b")
     by_branch = {row["branch"]: row["device_count"] for row in payload["rows"]}
     assert by_branch.get("Magnet") == EXPECTED_MAGNETS, by_branch
 
 
 @pytest.mark.parametrize("key", _example_keys())
-def test_every_example_runs_on_the_als_corpus(als_ctx: Any, key: str) -> None:
-    """Every shipped example returns usable rows with its ALS parameter set."""
-    payload = _run_example(key, ALS)
-    _assert_usable(key, ALS, payload)
-
-
-@pytest.mark.parametrize("key", _example_keys())
 def test_every_example_runs_on_the_demo_corpus(demo_ctx: Any, key: str) -> None:
     """Every shipped example returns usable rows with its demo parameter set."""
-    payload = _run_example(key, DEMO)
-    _assert_usable(key, DEMO, payload)
+    payload = _run_example(key)
+    _assert_usable(key, payload)
 
 
-def _assert_usable(key: str, corpus: str, payload: dict[str, Any]) -> None:
+def _assert_usable(key: str, payload: dict[str, Any]) -> None:
     """Assert an example returned rows whose columns carry values.
 
-    The null exemption is per ``(example, corpus)`` so that a null which is a
-    corpus fact on one lane is still a failure on the other.
+    No null is tolerated: every device in the generated corpus carries a
+    position and an ordinal, so a null column here is a projection or query
+    fault rather than a corpus fact.
 
     Truncation is deliberately not asserted here: whether an example's own
     ``LIMIT`` lands above or below the row cap is a property of the corpus (the
-    demo machine has 382 magnets to the ALS snapshot's 47), and the tests that
-    need a *complete* answer to compare against a verified count say so
-    themselves.
+    demo machine has 382 magnets to a 200-row cap), and the tests that need a
+    *complete* answer to compare against a verified count say so themselves.
     """
     assert payload["row_count"] >= 1, f"{key} returned no rows: {payload}"
 
-    allowed_null = DOCUMENTED_NULL_COLUMNS.get((key, corpus), frozenset())
     for row in payload["rows"]:
         for column, value in row.items():
-            if column in allowed_null:
-                continue
-            assert value is not None, f"{key} returned a null {column} on {corpus}: {row}"
+            assert value is not None, f"{key} returned a null {column}: {row}"
 
 
-def test_als_example_q2_has_exactly_one_device_without_a_position(als_ctx: Any) -> None:
-    """Pin the single ALS device q2's ``s_m`` exemption exists for.
-
-    The exemption in :data:`DOCUMENTED_NULL_COLUMNS` says "a null position is
-    tolerated on this lane", which on its own would also tolerate a corpus that
-    lost every ``sPositionM``.  This says which device, and how many.
-    """
-    payload = _run_example("q2", ALS)
-
-    without_position = [row for row in payload["rows"] if row["s_m"] is None]
-    assert len(without_position) == 1, without_position
-    assert without_position[0]["device"] == DEVICE_WITHOUT_POSITION, without_position[0]
-    assert without_position[0]["ordinal"] is not None, (
-        "the ordinal is what q2 falls back to for ordering, so a device with "
-        "neither position nor ordinal would sort arbitrarily"
-    )
-
-
-def test_demo_example_q6_finds_one_owner_and_no_shared_endpoint(demo_ctx: Any) -> None:
-    """The reverse PV lookup answers on the demo corpus without error.
+def test_example_q6_finds_one_owner_and_no_shared_endpoint(demo_ctx: Any) -> None:
+    """The reverse PV lookup resolves an address back to exactly one device.
 
     The generated corpus mints one binding per channel, so an address maps to
     exactly one device: ``device_count`` of 1 is the *expected* answer there
     and is what says "no shared endpoints", not a failure to find any.
     """
-    payload = _run_example("q6", DEMO)
+    payload = _run_example("q6")
     assert payload["row_count"] == 1, payload
     row = payload["rows"][0]
-    assert row["pv"] == _example("q6").parameters[DEMO]["pv"]
+    assert row["pv"] == _example("q6").parameters["pv"]
     assert row["device_count"] == 1, row
-
-
-def test_als_example_q6_reverse_lookup_names_its_device(als_ctx: Any) -> None:
-    """The same lookup resolves a real ALS address back to its device."""
-    payload = _run_example("q6", ALS)
-    assert payload["row_count"] == 1, payload
-    row = payload["rows"][0]
-    assert row["pv"] == _example("q6").parameters[ALS]["pv"]
-    assert row["device_count"] >= 1, row
     assert row["devices"], row
 
 
@@ -683,7 +601,7 @@ def test_als_example_q6_reverse_lookup_names_its_device(als_ctx: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_slow_query_comes_back_as_a_timeout_envelope(als_ctx: Any) -> None:
+def test_a_slow_query_comes_back_as_a_timeout_envelope(demo_ctx: Any) -> None:
     """The store terminates a runaway query and the tool reports it as such.
 
     A three-way cartesian product with a predicate: the predicate keeps the
@@ -691,7 +609,7 @@ def test_a_slow_query_comes_back_as_a_timeout_envelope(als_ctx: Any) -> None:
     of a billion pairs, and it streams rather than materialising, so the server
     hits the transaction timeout instead of the heap.
     """
-    als_ctx.query_timeout_s = 1
+    demo_ctx.query_timeout_s = 1
 
     envelope = _error_envelope(
         "MATCH (a:Resource), (b:Resource), (c:Resource) "
@@ -703,9 +621,9 @@ def test_a_slow_query_comes_back_as_a_timeout_envelope(als_ctx: Any) -> None:
     assert envelope["suggestions"], envelope
 
 
-def test_the_row_cap_truncates_and_says_so(als_ctx: Any) -> None:
+def test_the_row_cap_truncates_and_says_so(demo_ctx: Any) -> None:
     """A query with more matches than the cap returns exactly the cap, flagged."""
-    als_ctx.query_max_rows = 5
+    demo_ctx.query_max_rows = 5
 
     payload = _read_cypher("MATCH (b:ChannelBinding) RETURN b.fullPv AS pv")
 

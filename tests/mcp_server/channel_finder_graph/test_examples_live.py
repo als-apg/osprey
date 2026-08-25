@@ -30,23 +30,17 @@ through the tool rather than the driver is deliberate: the query gate vets the
 text before the store is dialled, so a catalogue entry the gate would refuse
 fails here rather than in an operator's session.
 
-**Both corpora, one container, one at a time.**  Neo4j Community serves a single
-database and the two corpora share ontology classes, so they are seeded
-sequentially into a wiped store — the sequence ``seed-graph --force`` performs.
-An example that declares no parameter set for a corpus names that corpus in
-``not_applicable``; the loop reads the exclusion off the catalogue rather than
-carrying its own list, so a newly excluded example is skipped and a newly
-*included* one is run without editing this file.  What this file does pin is
-that the exclusions partition the corpora and that each lane ran a non-empty
-set: a catalogue that excluded everything would otherwise pass by running
-nothing.
+The corpus is seeded into a wiped store — the sequence ``seed-graph --force``
+performs — and every example runs with its shipped parameter set.  What this
+file does pin is that the lane ran a non-empty set: a catalogue that declared
+nothing would otherwise pass by running nothing.
 
 The container recipe (pinned image, n10s jar from the pinned release or
 ``OSPREY_TEST_N10S_JAR``, APOC copied out of the image) comes from
 :mod:`tests._graphdb_container` rather than being copied; see that module's
 docstring for why the container starts without ``NEO4J_PLUGINS``.  The store
 fixture is module-scoped, not session-scoped: this module wipes the store
-between corpora, and a container shared with the integration suite's
+before seeding, and a container shared with the integration suite's
 session-scoped fixture would hand that suite an emptied graph mid-run.  The jars
 it mounts are resolved once per session by the shared ``graphdb_plugin_dir``
 fixture, which is also the skip gate — without Docker, without the image, or
@@ -65,10 +59,7 @@ from typing import Any
 
 import pytest
 
-from osprey.mcp_server.channel_finder_graph.tools.examples_data import (
-    CORPORA,
-    EXAMPLE_QUERIES,
-)
+from osprey.mcp_server.channel_finder_graph.tools.examples_data import EXAMPLE_QUERIES
 from tests._graphdb_container import (
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
@@ -82,12 +73,11 @@ logger = logging.getLogger(__name__)
 # over the port publisher.  ``integration`` because this needs a real service.
 pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
 
-ALS = "als"
 DEMO = "demo"
 
 #: The row cap this lane installs.  It sits above every example's own ``LIMIT``
-#: (all of which are at most 200) and below the smaller corpus' 964 channel
-#: bindings, which is what gives ``truncated`` its meaning here: an example that
+#: (all of which are at most 200) and below the corpus' 2908 channel bindings,
+#: which is what gives ``truncated`` its meaning here: an example that
 #: reports truncation filled this cap, and the only way to do that is to have
 #: lost the ``LIMIT`` the catalogue says every query carries.  Under the shipped
 #: default cap the two would be indistinguishable — a query bounded at 200 and a
@@ -109,8 +99,8 @@ LANE_ROW_CAP = 600
 def examples_store_uri(graphdb_plugin_dir: Path) -> Iterator[str]:
     """Start a throwaway graph store for this module and yield its bolt URI.
 
-    Module-scoped rather than session-scoped: the tests below wipe the store
-    between corpora, and a store shared with another module's session-scoped
+    Module-scoped rather than session-scoped: the test below wipes the store
+    before seeding, and a store shared with another module's session-scoped
     fixture would hand that module an emptied graph halfway through its run.
     The plugins it mounts *are* session-scoped — see ``graphdb_plugin_dir``,
     which is also this module's skip gate.
@@ -132,15 +122,6 @@ def demo_ttl() -> str:
     return resource.read_text(encoding="utf-8")
 
 
-@pytest.fixture(scope="module")
-def als_ttl() -> str:
-    """The shipped ALS corpus, read the way installed code reads it."""
-    resource = (
-        files("osprey.templates").joinpath("services").joinpath("graphdb").joinpath("als_gtb.ttl")
-    )
-    return resource.read_text(encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
 # Seeding and the server context
 # ---------------------------------------------------------------------------
@@ -150,9 +131,8 @@ def _seed(uri: str, ttl: str, label: str) -> None:
     """Wipe the store and load *ttl* into it the way ``seed-graph --force`` does.
 
     ``wipe`` takes the n10s graph config and the namespace prefixes with the
-    data, so each corpus is bootstrapped into a store in the state a fresh
-    deploy starts from — which is also what stops the second corpus inheriting
-    the first one's ontology classes.
+    data, so the corpus is bootstrapped into a store in the state a fresh
+    deploy starts from.
     """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
@@ -231,28 +211,18 @@ def _read_cypher(query: str, params: dict[str, Any] | None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _applicable(corpus: str) -> list[Any]:
-    """Every catalogue example that declares a parameter set for *corpus*.
+def _applicable() -> list[Any]:
+    """Every catalogue example, checked to carry a runnable parameter set.
 
-    The exclusions are read off the catalogue rather than listed here, and they
-    are checked to partition :data:`CORPORA` on the way past: an example that
-    neither supplies nor excludes a corpus would otherwise drop out of this lane
-    without anything saying so.
+    Asserted rather than filtered: an example without values would otherwise
+    drop out of this lane without anything saying so.
     """
-    applicable = []
     for example in EXAMPLE_QUERIES:
-        supplied = set(example.parameters)
-        excluded = set(example.not_applicable)
-        assert supplied.isdisjoint(excluded), (
-            f"{example.key} both supplies and excludes {sorted(supplied & excluded)}"
+        assert example.parameters, (
+            f"{example.key} ships no parameter values; an example this lane "
+            "cannot run is one an operator cannot run either"
         )
-        assert supplied | excluded == set(CORPORA), (
-            f"{example.key} accounts for {sorted(supplied | excluded)}, not {sorted(CORPORA)}; "
-            "a corpus that is neither supplied nor excluded is one this lane would skip silently"
-        )
-        if corpus in supplied:
-            applicable.append(example)
-    return applicable
+    return list(EXAMPLE_QUERIES)
 
 
 def _usability_failures(example: Any, corpus: str, payload: dict[str, Any]) -> list[str]:
@@ -267,7 +237,7 @@ def _usability_failures(example: Any, corpus: str, payload: dict[str, Any]) -> l
     if payload.get("row_count", 0) < 1:
         failures.append(
             f"{example.key} on {corpus}: returned no rows with its shipped parameter set "
-            f"{example.parameters[corpus]!r}. To a caller that reads as 'the machine has no "
+            f"{example.parameters!r}. To a caller that reads as 'the machine has no "
             f"such channel'."
         )
         return failures
@@ -287,16 +257,13 @@ def _usability_failures(example: Any, corpus: str, payload: dict[str, Any]) -> l
 
 
 def _run_catalogue(corpus: str) -> None:
-    """Run every example applicable to *corpus* and report all the broken ones."""
-    examples = _applicable(corpus)
-    assert examples, (
-        f"no catalogue example declares a parameter set for {corpus!r}, so this "
-        "lane would pass having run nothing"
-    )
+    """Run every example against the seeded store and report all the broken ones."""
+    examples = _applicable()
+    assert examples, "an empty catalogue would let this lane pass having run nothing"
 
     failures: list[str] = []
     for example in examples:
-        payload = _read_cypher(example.cypher, dict(example.parameters[corpus]))
+        payload = _read_cypher(example.cypher, dict(example.parameters))
         failures.extend(_usability_failures(example, corpus, payload))
 
     assert not failures, (
@@ -316,29 +283,12 @@ def test_every_demo_example_answers_on_the_demo_corpus(
     ``_usability_failures`` keeps the per-example detail that parametrizing
     would otherwise have bought.
 
-    This is the lane that covers the prose half of the catalogue — the
-    description, field/subfield and system searches — because the demo corpus is
-    generated from a channel database that carries prose and is the only shipped
-    corpus that has it.
+    Both halves of the catalogue run here: the prose searches — description,
+    field/subfield and system — which the demo corpus carries because it is
+    generated from a channel database with prose, and the structural ones —
+    synonym lookup, section listing, a device's addresses, an address back to
+    its device.
     """
     _seed(examples_store_uri, demo_ttl, DEMO)
     with _installed_context(examples_store_uri, monkeypatch):
         _run_catalogue(DEMO)
-
-
-def test_every_als_example_answers_on_the_als_corpus(
-    examples_store_uri: str, als_ttl: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Seed the shipped ALS corpus and run every example declared for it.
-
-    The structural half of the catalogue is what runs here — synonym lookup,
-    section listing, a device's addresses, an address back to its device — and
-    it runs against a corpus that was built from a real facility rather than
-    generated, which is where a query that quietly relies on the generator's
-    regularity shows up.  Re-seeding rather than a second database because Neo4j
-    Community serves one, and the two corpora share ontology classes: loaded
-    together, a class-level match would read the union of two vocabularies.
-    """
-    _seed(examples_store_uri, als_ttl, ALS)
-    with _installed_context(examples_store_uri, monkeypatch):
-        _run_catalogue(ALS)

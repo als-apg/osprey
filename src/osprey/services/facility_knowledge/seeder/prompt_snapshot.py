@@ -161,33 +161,6 @@ def collect_schema(run: RunCypher, *, sample_size: int | None = None) -> dict[st
 
 
 # ---------------------------------------------------------------------------
-# Corpus detection — which example parameter set matches this store
-# ---------------------------------------------------------------------------
-
-#: Every device node carries ``narad_p:facility`` (``"demo"``, ``"ALS"``, …),
-#: so the store itself says which curated parameter set fits it. Lowercased in
-#: Cypher because the example keys are lowercase by convention.
-_FACILITY_CYPHER = (
-    "MATCH (d:Resource) WHERE d.facility IS NOT NULL "
-    "RETURN DISTINCT toLower(d.facility) AS facility LIMIT 10"
-)
-
-
-def detect_corpus(run: RunCypher, known: frozenset[str] | set[str]) -> str | None:
-    """The single example-parameter corpus this store matches, or ``None``.
-
-    ``None`` — a store naming no facility, several, or one the curated examples
-    carry no parameters for — keeps every parameter set in the snapshot, with
-    the pick-the-matching-one note the ``example_queries`` tool ships.
-    """
-    facilities = set(_column(run(_FACILITY_CYPHER, None), "facility"))
-    matches = facilities & set(known)
-    if len(facilities) == 1 and len(matches) == 1:
-        return next(iter(matches))
-    return None
-
-
-# ---------------------------------------------------------------------------
 # Rendering and applying the block
 # ---------------------------------------------------------------------------
 
@@ -228,7 +201,6 @@ def render_block(
     schema: dict[str, Any],
     examples: Sequence[Any],
     *,
-    corpus: str | None,
     digest: str | None,
     resource_count: int,
 ) -> str:
@@ -237,8 +209,6 @@ def render_block(
     Args:
         schema: A :func:`collect_schema` result.
         examples: The curated ``ExampleQuery`` catalogue.
-        corpus: The detected example-parameter corpus, or ``None`` to keep
-            every parameter set.
         digest: The seed marker's sha256, or ``None`` on an unmanaged store.
         resource_count: ``(:Resource)`` nodes in the store, for the provenance
             line.
@@ -290,15 +260,8 @@ def render_block(
             example.cypher,
             "```",
         ]
-        if corpus is not None:
-            values = example.parameters.get(corpus, {})
-            rendered = f"`{json.dumps(values)}`" if values else "none"
-            lines.append(f"Parameters: {rendered}")
-        else:
-            sets = "; ".join(
-                f"`{key}`: `{json.dumps(values)}`" for key, values in example.parameters.items()
-            )
-            lines.append(f"Parameters (pick the set matching the seeded corpus): {sets or 'none'}")
+        values = example.parameters
+        lines.append(f"Parameters: `{json.dumps(values)}`" if values else "Parameters: none")
 
     lines += ["", SNAPSHOT_END]
     return "\n".join(lines)
@@ -383,22 +346,13 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
         return [record.data() for record in session.run(cypher, params or {})]
 
     catalogues = _example_catalogues()
-    known = frozenset(
-        corpus
-        for examples in catalogues.values()
-        for example in examples
-        for corpus in example.parameters
-    )
     # One capture, rendered once per catalogue: the schema is the store's and
     # the same for both agents; only the curated examples differ.
     schema = collect_schema(run)
-    corpus = detect_corpus(run, known)
     digest = graph_seeder.read_marker(session)
     resource_count = graph_seeder.resource_count(session)
     blocks = {
-        filename: render_block(
-            schema, examples, corpus=corpus, digest=digest, resource_count=resource_count
-        )
+        filename: render_block(schema, examples, digest=digest, resource_count=resource_count)
         for filename, examples in catalogues.items()
     }
     return apply_snapshot(render_dir, blocks)

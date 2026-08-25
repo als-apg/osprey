@@ -80,10 +80,9 @@ ring-qualified and a signal is not — ``SR:MAG:QF:01:CURRENT:SP`` and its
 booster counterpart share one signal node but are described differently.
 
 The descriptions and ``system`` come from the generator, so they are there in a
-corpus ``build-ttl`` produced — the demo machine — and not in the shipped ALS
-corpus, which OSPREY carries as a fixed artifact with no source database to
-regenerate from. On that one the way in is a name, an ``altLabel``, a section
-or a class.
+corpus ``build-ttl`` produced — the demo machine — and not necessarily in one
+imported straight from a facility's own export. On such a corpus the way in is
+a name, an ``altLabel``, a section or a class.
 
 Three spelling rules come from neosemantics and catch out anyone writing Cypher
 from memory:
@@ -113,9 +112,9 @@ fewest turns:
    device of a class including its subclasses, a section walk in beam order,
    every PV of one device split by direction, the class hierarchy as a table
    and as inheritance chains, a read/write split across all bindings, and
-   devices sharing one PV. Each carries its Cypher and a parameter set for each
-   shipped corpus. Adapting one is reliable where inventing a query is
-   guesswork.
+   devices sharing one PV. Each carries its Cypher and a parameter set whose
+   values exist in the demo machine. Adapting one is reliable where inventing
+   a query is guesswork.
 2. ``get_schema`` — the labels, relationship types and per-label property names
    actually present in *this* graph, plus the NARAD namespace prefix map for
    reading and building ``uri`` values. Call it when you need a name the
@@ -339,22 +338,19 @@ Then load it (see :doc:`okf-bundle` for the seeding verb in full):
 What the Presets Seed
 =====================
 
-* **control-assistant** seeds ``./data/demo_machine.ttl`` — the demo machine,
-  generated from the preset's own channel databases with the command above and
-  regenerable the same way. The ALS corpus still ships alongside it at
-  ``./services/graphdb/als_gtb.ttl``; point ``ttl_path`` there, or at a corpus
-  of your own, to seed that instead.
-* **ariel-standalone** seeds ``./services/graphdb/als_gtb.ttl``, a real
-  facility's corpus, as the worked non-demo example.
+Both presets seed ``./data/demo_machine.ttl`` — the demo machine, generated
+from the control-assistant preset's own channel databases with the command
+above and regenerable the same way. The ARIEL standalone preset ships the same
+corpus so that every OSPREY demo describes one facility. Point ``ttl_path`` at
+a corpus of your own to seed that instead.
 
 .. note::
 
    A build profile that ships its own ``data:`` tree replaces the bundle's
    ``data/`` directory wholesale, which takes ``demo_machine.ttl`` with it.
    Such a profile has to set ``services.graphdb.ttl_path`` in its ``config:``
-   overlay — at its own corpus, or at ``./services/graphdb/als_gtb.ttl``.
-   Otherwise the deploy warns, the store comes up empty, and every query
-   reports the empty state above.
+   overlay, at its own corpus. Otherwise the deploy warns, the store comes up
+   empty, and every query reports the empty state above.
 
 
 Pointing at a Store the Facility Runs
