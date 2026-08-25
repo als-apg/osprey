@@ -35,6 +35,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   connectors. An explicit `"callback"` write still resolves the channel's tolerance,
   since DOOCS verifies it by readback.
 
+### Changed
+
+- `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
+  of one per deleted artifact, so clearing a large gallery no longer pushes
+  everything else out of the activity history.
+
 ### Added
 
 - Build interview: an upstream fit watch — places where OSPREY cannot express what a

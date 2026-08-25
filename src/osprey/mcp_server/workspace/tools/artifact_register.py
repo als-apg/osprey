@@ -265,13 +265,25 @@ async def artifact_delete_all(scope: str) -> str:
                 ],
             )
 
+        from osprey.mcp_server.artifact_activity import (
+            notify_bulk_delete,
+            suppress_delete_frames,
+        )
+
         store = get_artifact_store()
-        if scope == _SCOPE_EVERYTHING:
-            deleted = store.delete_everything()
-        elif scope == _SCOPE_UNCATEGORIZED:
-            deleted = store.delete_category("")
-        else:
-            deleted = store.delete_category(scope)
+        # One action, one activity frame: the store fires its delete listener
+        # once per removed entry, and a scope bigger than the web terminal's
+        # 50-frame history ring would evict the ring's whole content with
+        # copies of the same delete. Suppress the per-entry frames and report
+        # the summary instead.
+        with suppress_delete_frames():
+            if scope == _SCOPE_EVERYTHING:
+                deleted = store.delete_everything()
+            elif scope == _SCOPE_UNCATEGORIZED:
+                deleted = store.delete_category("")
+            else:
+                deleted = store.delete_category(scope)
+        notify_bulk_delete(scope, len(deleted))
 
         by_category: dict[str, int] = {}
         for entry in deleted:
