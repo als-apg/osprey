@@ -33,17 +33,20 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       and the figure it draws from there matches the one it drew live.
 
 No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/
-``VA_CORR_GAIN`` in the written ``.env`` -- see ``_orm_stack.write_substrate_env``),
+``VA_CORR_GAIN`` in the written ``.env``),
 so every BPM/corrector carries the identity error state
 (``PhysicsBridge.__init__``'s default). The measured/model
 agreement is therefore bounded only by AT numerical-solve reproducibility and
 the JSON/HTTP round trip, not a physical noise floor -- see ``MATCH_ATOL``.
 
 No preset channel names are hardcoded: correctors and BPMs are derived from
-the render's own ``build/data/channel_limits.json`` -- the limits database the
-deployed containers actually read -- via ``_orm_stack.select_correctors``/
-``select_bpms`` (restricted to the pyat-coupled partition, exactly the class of
-device the ``orm`` plan and the model oracle both operate on).
+the deployment repo's own ``data/channel_limits.json`` -- the limits database
+the build copies verbatim into the build zone, where the deployed containers
+read it -- via ``_orm_stack.select_correctors``/``select_bpms`` (restricted to
+the pyat-coupled partition, exactly the class of device the ``orm`` plan and
+the model oracle both operate on). They reach the queueserver worker as the
+device file this fixture authors before the build stages it, so the names a
+plan here may address are exactly the names the worker registered.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
@@ -198,21 +201,33 @@ class DeployedOrmStack:
 @pytest.fixture(scope="module")
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
+
+    # The plan devices are authored BETWEEN `init` and `build`: the build copies
+    # <repo>/data into the build zone and stages the device file it finds there
+    # for the queueserver worker, so a set written after the build would never
+    # reach a container. Selected from the repo's own data/channel_limits.json —
+    # the same bytes the build copies to build/data, and the only copy that
+    # exists this early.
+    correctors: dict[str, tuple[str, str]] = {}
+    bpms: dict[str, str] = {}
+
+    def author_devices(repo: Path) -> None:
+        nonlocal correctors, bpms
+        limits = _orm_stack.channel_limits(repo)
+        correctors = _orm_stack.select_correctors(limits, CORRECTOR_COUNT)
+        bpms = _orm_stack.select_bpms(limits)
+        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
+
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
-        PROJECT_NAME, output_dir=base, timeout=BUILD_TIMEOUT_SEC
+        PROJECT_NAME, output_dir=base, timeout=BUILD_TIMEOUT_SEC, pre_build=author_devices
     )
+    _orm_stack.assert_devices_authored(correctors, bpms)
 
-    # The render's copy, not the operator-owned source under <repo>/data/:
-    # control_system.limits_checking.database_path resolves against the rendered
-    # config's directory, so build/data is the file the containers actually read.
-    limits = _orm_stack.channel_limits(repo / "build")
-    correctors = _orm_stack.select_correctors(limits, CORRECTOR_COUNT)
-    bpms = _orm_stack.select_bpms(limits)
-    # Writes the repo root's `.env` — the deployment's whole secret store, and
-    # the file `osprey up` refuses to start without.
-    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
+    # The repo root's `.env` — the deployment's whole secret store, and the file
+    # `osprey up` refuses to start without.
+    _orm_stack.seed_repo_env(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
