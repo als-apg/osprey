@@ -37,6 +37,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Web Terminal and every standalone panel (workspace, Channel Finder, lattice
+  dashboard, knowledge panel) now use the same display menu as ARIEL: the sliders
+  button opens one popover with the light/dark switch, the Expert/Simple view and
+  the theme family picker. A pick made on any of these pages is remembered by the
+  browser and shared with the others. The inline light/dark button and family
+  dropdown the panels used to show in their header are gone; the terminal's
+  Settings and Log out entries stay at the bottom of the card.
 - `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
   of one per deleted artifact, so clearing a large gallery no longer pushes
   everything else out of the activity history.

@@ -5,9 +5,9 @@ frame-params.js applyEmbedded()), it must not render its own top bar at all:
 the hub's tile bar owns identity and window management, and a panel's real
 toolbar controls reach that bar via the header-contribution contract
 (design_system/static/js/header-contrib.js). It must also not render a theme
-switcher (the hub owns theming). This is a static contract check on the
-shipped CSS: each panel's stylesheet must carry the body.embedded rule that
-hides the listed element. Standalone pages are unaffected (all rules are
+control (the hub owns theming) -- the shared <osprey-display-menu> hides
+itself. This is a static contract check on the shipped CSS: each panel's
+stylesheet must carry the body.embedded rule that hides the listed element. Standalone pages are unaffected (all rules are
 body.embedded-scoped by construction).
 """
 
@@ -26,15 +26,12 @@ CONTRACT = [
     ("lattice_dashboard/static/dashboard.css", "body.embedded #topbar"),
     ("health/static/dashboard.css", "body.embedded .hdr"),
     ("bluesky_web/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
-    # Theme switchers (hub owns theming). ARIEL is absent by design: it mounts
-    # <osprey-display-menu> instead, and that component injects its own
+    # Theme controls (hub owns theming) are absent by design: every panel
+    # mounts <osprey-display-menu>, and that component injects its own
     # `body.embedded osprey-display-menu { display: none }` rule, so there is
     # no panel CSS to check. The browser test
     # (tests/interfaces/web_terminal/test_contract_params.py's
-    # test_embedded_hides_branding_and_switcher[ariel]) covers it live.
-    ("channel_finder/static/css/channel-finder.css", "body.embedded osprey-theme-switcher"),
-    ("lattice_dashboard/static/dashboard.css", "body.embedded osprey-theme-switcher"),
-    ("okf_panel/static/style.css", "body.embedded osprey-theme-switcher"),
+    # test_embedded_hides_branding_and_switcher) covers it live, per panel.
 ]
 
 
