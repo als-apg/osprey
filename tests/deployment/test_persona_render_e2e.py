@@ -36,6 +36,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build as build_command
+from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.persona_images import verify_persona_renders
 from osprey.deployment.web_terminals.personas import resolve_personas
@@ -360,6 +361,32 @@ def test_a_catalog_entry_whose_delta_was_deleted_is_not_told_to_rewrite_itself(
     assert "Set modules.web_terminals.personas.readwrite.build_profile" not in message
 
 
+def _remove_persona_layer(repo: Path) -> None:
+    """Turn the exemplar into a deployment that never had personas.
+
+    That is the deltas AND the catalog that names them AND the roster's
+    ``persona:`` keys, because the three are one feature. Deleting only the
+    ``personas/`` directory leaves a catalog whose ``build_profile`` entries
+    point at files that are not there — and a persona nobody can read is
+    refused where its privileges would decide something (the
+    ``default_persona`` every unlabelled user inherits, the ``login: false``
+    entry served to anyone), which is the guard doing its job on a broken
+    catalog, not the pre-persona shape this test protects.
+    """
+    shutil.rmtree(repo / "personas")
+    profile_path = repo / PROFILE_FILENAME
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    web_terminals = profile["config"]["modules.web_terminals"]
+    del web_terminals["personas"]
+    del web_terminals["default_persona"]
+    # `image_source: local` means "one image per catalog entry, built here",
+    # so it cannot outlive the catalog; unset, the deployment pulls one image.
+    del web_terminals["image_source"]
+    for user in web_terminals["users"]:
+        user.pop("persona", None)
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+
 def test_a_repo_with_no_personas_renders_only_its_own_project(tmp_path: Path):
     """The absent-``personas/`` path, which must stay exactly as it was.
 
@@ -367,7 +394,7 @@ def test_a_repo_with_no_personas_renders_only_its_own_project(tmp_path: Path):
     which is also what keeps the persona fold out of its build hash.
     """
     repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME, seed_env=True)
-    shutil.rmtree(repo / "personas")
+    _remove_persona_layer(repo)
 
     _run_build(repo)
 

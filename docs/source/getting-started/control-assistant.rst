@@ -133,8 +133,8 @@ same safety hooks, then adds production capabilities. The most visible additions
        deploy, then recorded from the running machine; the ``data-visualizer``
        sub-agent turns it into interactive and publication-quality plots.
    * - **Operator skills**
-     - ``/diagnose``, ``/session-report``, ``setup-mode``, ``demo-gallery``, and
-       ``demo-ui`` support common control-room workflows.
+     - ``/diagnose``, ``/session-report``, ``demo-gallery``, and ``demo-ui``
+       support common control-room workflows.
    * - **Web terminal**
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
@@ -300,11 +300,20 @@ connection errors, configuration drift) and produces a structured root-cause
 report — it is for diagnosing the *assistant*, not the accelerator.
 
 **Other skills:** ``demo-gallery`` generates a showcase of plot and report
-artifacts to explore the gallery's capabilities, ``demo-ui`` runs a short
+artifacts to explore the gallery's capabilities, and ``demo-ui`` runs a short
 scripted demonstration of the agent driving the web workspace — switching
-panel tabs, focusing artifacts, composing layouts — and ``setup-mode``
-inspects and repairs the project's configuration when something looks
-misconfigured.
+panel tabs, focusing artifacts, composing layouts.
+
+.. note::
+
+   Editing this deployment's own configuration is deliberately not one of the
+   skills here. The preset withholds the ``setup-mode`` skill and the agent's
+   ``setup_patch`` tool from the control-room agent — including the one this
+   tutorial runs — because rewriting the project is administration rather than
+   control-room work. The multi-user stack grants both to a single admin
+   login; see :ref:`the tier table <multi-user-tiers>`. To change something in
+   this tutorial, edit ``profile.yml`` and run ``osprey build``, which is what
+   the rest of this page does.
 
 .. note::
 

@@ -224,16 +224,18 @@ def test_no_emitted_artifact_names_a_retired_verb(exemplar_repo: Path) -> None:
 
 
 #: Every file init RENDERS rather than authors or copies verbatim — the whole
-#: set the prose rewrite has to reach. All six are listed because this tuple is
-#: the only thing that gates them: a file left out here is a file whose emitter
-#: could drift from the exemplar forever without anything going red. One entry
-#: per persona delta, so a newly shipped tier is byte-checked from its first
-#: release rather than whenever someone remembers to add it.
+#: set the prose rewrite has to reach. All seven are listed because this tuple
+#: is the only thing that gates them: a file left out here is a file whose
+#: emitter could drift from the exemplar forever without anything going red.
+#: One entry per persona delta, so a newly shipped tier is byte-checked from
+#: its first release rather than whenever someone remembers to add it —
+#: ``personas/admin.yml`` joined this list when the ``admin`` tier landed.
 RENDERED_FILES = (
     "profile.yml",
     "personas/ariel.yml",
     "personas/readonly.yml",
     "personas/readwrite.yml",
+    "personas/admin.yml",
     ".env.example",
     "triggers.yml",
 )
@@ -305,7 +307,9 @@ def test_persona_renders_land_in_the_build_zone(exemplar_repo: Path) -> None:
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
     catalog = profile["config"]["modules.web_terminals"]["personas"]
 
-    assert sorted(catalog) == ["ariel", "readonly", "readwrite"]
+    # Fourth entry, ``admin``, joined the catalog with the admin tier:
+    # carol's login resolves to it.
+    assert sorted(catalog) == ["admin", "ariel", "readonly", "readwrite"]
     for persona_name, entry in catalog.items():
         assert entry["project"] == f"{EXEMPLAR_DIRNAME}-{persona_name}"
         assert entry["project_path"] == f"build/{EXEMPLAR_DIRNAME}-{persona_name}"
@@ -765,13 +769,17 @@ def test_unused_exported_keys_are_reported_not_dropped_silently(
 #: the console's width, a swallowed blank, a reordering, a lost trailing
 #: newline. The trailing blank line is real -- the git note is written with a
 #: leading newline, which is what separates it from the entry list.
+#:
+#: The persona list and the seeded-password list both moved when the ``admin``
+#: tier and carol's login landed: a fourth
+#: persona in the catalog and a fourth demo password in ``env.defaults``.
 EXEMPLAR_REPORT = f"""\
 ✓ Created {EXEMPLAR_DIRNAME}
 
   profile.yml   your assistant's settings; edit this
   data/         channel lists and facility docs; edit these
-  personas/     one per web login: ariel, readonly, readwrite
-  .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB. Add your API key; not in git
+  personas/     one per web login: admin, ariel, readonly, readwrite
+  .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB, OSPREY_AUTH_PW_CAROL. Add your API key; not in git
   .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does
 

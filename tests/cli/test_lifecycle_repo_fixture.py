@@ -224,8 +224,12 @@ def test_profile_resolves_and_validates(lifecycle_repo: Path) -> None:
 
     profile.validate(profile_dir)
     # The lint `osprey validate` and `osprey build` both gate on — judged on the
-    # merged view the build renders, not on the raw config block.
-    assert deploy_aware_config_errors(profile.deploy, profile.config) == []
+    # merged view the build renders, not on the raw config block. `profile_root`
+    # as both commands pass it: the catalog names `personas/<name>.yml` deltas,
+    # which are relative to the profile and not to wherever pytest is running.
+    assert (
+        deploy_aware_config_errors(profile.deploy, profile.config, profile_root=profile_dir) == []
+    )
 
     assert profile.name == "Als Exemplar"
     assert profile_dir == lifecycle_repo
@@ -239,7 +243,9 @@ def test_ci_variant_resolves_and_validates(lifecycle_repo_factory, tmp_path: Pat
     profile, profile_dir = resolve_build_profile(repo / "profile.yml", None)
 
     profile.validate(profile_dir)
-    assert deploy_aware_config_errors(profile.deploy, profile.config) == []
+    assert (
+        deploy_aware_config_errors(profile.deploy, profile.config, profile_root=profile_dir) == []
+    )
 
     assert profile.deploy is not None
     assert profile.deploy.host.fqdn == "appsdev2.example.org"
@@ -256,12 +262,15 @@ def test_persona_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, pers
     )
 
     profile.validate(profile_dir)
-    assert deploy_aware_config_errors(profile.deploy, profile.config) == []
+    assert (
+        deploy_aware_config_errors(profile.deploy, profile.config, profile_root=profile_dir) == []
+    )
 
     assert profile_dir == lifecycle_repo
     assert profile.name == f"Als Exemplar ({persona})"
     assert profile.deploy_services is False
-    assert profile.config["control_system.writes_enabled"] is (persona == "readwrite")
+    # readwrite and admin are the write-armed tiers; readonly and ariel pin writes off.
+    assert profile.config["control_system.writes_enabled"] is (persona in ("readwrite", "admin"))
 
 
 def test_persona_renders_land_under_the_output_zone(lifecycle_repo: Path) -> None:

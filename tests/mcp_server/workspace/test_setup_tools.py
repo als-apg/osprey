@@ -62,6 +62,13 @@ def project_dir(tmp_path):
             "writes_enabled": True,
             "limits_checking": {"enabled": False},
         },
+        # Cosmetic, and deliberately so: every `control_system.*` key is in the
+        # protected set, so a patch test that used one would be exercising the
+        # refusal instead of the mechanics it means to pin. The patch mechanics
+        # (YAML round-trip, JSON branch, type conversion, hot/cold note) are the
+        # same whichever key carries them — see
+        # tests/mcp_server/test_setup_patch_protected.py for the gate itself.
+        "ui": {"theme": "light", "compact": True},
     }
     (render / "config.yml").write_text(yaml.dump(config))
 
@@ -70,6 +77,10 @@ def project_dir(tmp_path):
             "workspace": {
                 "command": "python",
                 "args": ["-m", "osprey.mcp_server.workspace"],
+                # Unprotected, for the same reason the `ui:` block above exists:
+                # `command`, `args` and `env.*` are all the agent's own launch
+                # surface and no agent-side writer may set them.
+                "description": "workspace tools",
             }
         }
     }
@@ -290,17 +301,17 @@ async def test_patch_yaml_file(project_dir):
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
         result = extract_response_dict(
-            await fn(file="config.yml", key_path="control_system.writes_enabled", value="false")
+            await fn(file="config.yml", key_path="ui.compact", value="false")
         )
 
     assert result["before"] is True
     assert result["after"] is False
     assert result["file"] == "config.yml"
-    assert result["key_path"] == "control_system.writes_enabled"
+    assert result["key_path"] == "ui.compact"
 
     # Verify file was actually modified
     updated = yaml.safe_load((project_dir / "config.yml").read_text())
-    assert updated["control_system"]["writes_enabled"] is False
+    assert updated["ui"]["compact"] is False
 
 
 @pytest.mark.asyncio
@@ -312,17 +323,17 @@ async def test_patch_json_file(project_dir):
         result = extract_response_dict(
             await fn(
                 file=".mcp.json",
-                key_path="mcpServers.workspace.command",
-                value="python3",
+                key_path="mcpServers.workspace.description",
+                value="workspace helpers",
             )
         )
 
-    assert result["before"] == "python"
-    assert result["after"] == "python3"
+    assert result["before"] == "workspace tools"
+    assert result["after"] == "workspace helpers"
 
     # Verify file was actually modified
     updated = json.loads((project_dir / ".mcp.json").read_text())
-    assert updated["mcpServers"]["workspace"]["command"] == "python3"
+    assert updated["mcpServers"]["workspace"]["description"] == "workspace helpers"
 
 
 @pytest.mark.asyncio
@@ -335,7 +346,7 @@ async def test_patch_yaml_type_conversion(project_dir):
         result = extract_response_dict(
             await fn(
                 file="config.yml",
-                key_path="control_system.timeout",
+                key_path="ui.refresh_seconds",
                 value="42",
             )
         )
@@ -415,24 +426,31 @@ async def test_patch_rejects_empty_key_path(project_dir):
 
 @pytest.mark.asyncio
 @pytest.mark.unit
-async def test_patch_hot_change_classification(project_dir):
-    """setup_patch classifies known hot paths correctly.
+async def test_the_hot_path_is_classified_hot_but_no_longer_patchable(project_dir):
+    """The one hot key is protected, so the classification is asserted directly.
 
-    The limits hook runs as a fresh subprocess per call, so it really does
-    re-read config. `writes_enabled` does not qualify — see
-    tests/mcp_server/test_setup_patch_classification.py.
+    The limits hook runs as a fresh subprocess per call, so
+    `control_system.limits_checking.enabled` really does take effect live — and
+    that classification still has to be right, because the `/setup-mode` skill
+    tabulates it. But every `control_system.*` key is in the protected set now,
+    so the note can no longer be observed *through* the tool: the tool refuses
+    first. Both halves are pinned here so neither can rot unnoticed — the note
+    at the classifier, the refusal at the tool.
     """
-    fn = _get_setup_patch()
-    with _patch_config_path(project_dir):
-        result = extract_response_dict(
-            await fn(
-                file="config.yml",
-                key_path="control_system.limits_checking.enabled",
-                value="true",
-            )
-        )
+    from osprey.mcp_server.workspace.tools.setup import _classify_change
 
-    assert "hot" in result["note"]
+    assert "hot" in _classify_change("config.yml", "control_system.limits_checking.enabled")
+
+    fn = _get_setup_patch()
+    with (
+        _patch_config_path(project_dir),
+        assert_raises_error(error_type="protected_key"),
+    ):
+        await fn(
+            file="config.yml",
+            key_path="control_system.limits_checking.enabled",
+            value="true",
+        )
 
 
 @pytest.mark.asyncio
@@ -444,8 +462,8 @@ async def test_patch_cold_change_classification(project_dir):
         result = extract_response_dict(
             await fn(
                 file="config.yml",
-                key_path="control_system.type",
-                value="epics",
+                key_path="ui.theme",
+                value="dark",
             )
         )
 

@@ -171,28 +171,6 @@ describe('renderEdit', () => {
     const textarea = qs(gallery.detailContentEl, '.prompts-edit-textarea', HTMLTextAreaElement);
     expect(textarea.value).toBe('---\ndescription: no model here\n---\nBody text.');
   });
-
-  test('settings-json mounts the structured editor and clears any stale _settingsEditor first', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ content: '{"model":"anthropic/claude"}', language: 'json' }),
-    })));
-
-    const gallery = makeEditFormGallery({ selectedArtifact: { name: 'settings-json', status: 'user-owned' } });
-    // Deliberately violates the declared `_settingsEditor` shape to verify
-    // renderEdit() clears out any stale value before mounting a fresh editor.
-    gallery.detailContentEl._settingsEditor = /** @type {{getData(): string, isDirty(): boolean}} */ (
-      /** @type {unknown} */ ('stale')
-    );
-    const form = createScaffoldGalleryEditForm(gallery);
-
-    await form.renderEdit();
-
-    const settingsEditor = gallery.detailContentEl._settingsEditor;
-    expect(settingsEditor).toBeTruthy();
-    expect(settingsEditor).not.toBe('stale');
-    if (settingsEditor === null || settingsEditor === undefined) throw new Error('settings editor not mounted');
-    expect(typeof settingsEditor.getData).toBe('function');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -390,64 +368,6 @@ describe('saveOverride', () => {
 
     expect(savedBody).toContain('name: my-agent');
     expect(savedBody).toContain('Instructions here.');
-  });
-
-  test('reads from the settings.json structured editor via _settingsEditor.getData()', async () => {
-    let savedBody = null;
-    vi.stubGlobal('fetch', vi.fn((url, init) => {
-      if (init && init.method === 'PUT') savedBody = JSON.parse(init.body).content;
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
-    }));
-
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'settings-json', status: 'user-owned' } });
-    gallery.detailContentEl._settingsEditor = { getData: () => '{"model":"x"}', isDirty: () => true };
-
-    const edit = createScaffoldGalleryEdit(gallery);
-    await edit.saveOverride();
-
-    expect(savedBody).toBe('{"model":"x"}');
-  });
-
-  test('a framework-owned settings.json prompts an ownership warning before saving; cancelling aborts the save', async () => {
-    const fetchSpy = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) }));
-    vi.stubGlobal('fetch', fetchSpy);
-
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'settings-json', status: 'framework' } });
-    gallery.detailContentEl._settingsEditor = { getData: () => '{}', isDirty: () => true };
-
-    const edit = createScaffoldGalleryEdit(gallery);
-    const savePromise = edit.saveOverride();
-
-    // The ownership-warning dialog is a hand-rolled DOM overlay (not
-    // `confirm()`) -- click Cancel.
-    const cancelBtn = qs(document, '.config-ownership-cancel');
-    expect(cancelBtn).toBeTruthy();
-    cancelBtn.dispatchEvent(new Event('click'));
-    await savePromise;
-
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(document.querySelector('.config-ownership-overlay')).toBeNull();
-  });
-
-  test('confirming the ownership warning claims the file, then saves the override', async () => {
-    /** @type {{url: string, method: string|undefined}[]} */
-    const calls = [];
-    vi.stubGlobal('fetch', vi.fn((url, init) => {
-      calls.push({ url, method: init?.method });
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
-    }));
-
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'settings-json', status: 'framework' } });
-    gallery.detailContentEl._settingsEditor = { getData: () => '{}', isDirty: () => true };
-
-    const edit = createScaffoldGalleryEdit(gallery);
-    const savePromise = edit.saveOverride();
-
-    qs(document, '.config-ownership-confirm').dispatchEvent(new Event('click'));
-    await savePromise;
-
-    expect(calls.some((c) => c.url.includes('/claim') && c.method === 'POST')).toBe(true);
-    expect(calls.some((c) => c.url.includes('/override') && c.method === 'PUT')).toBe(true);
   });
 
   test('a failed save surfaces the error on gallery.errorEl and leaves editDirty untouched', async () => {

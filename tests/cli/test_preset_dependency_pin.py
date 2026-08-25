@@ -42,6 +42,12 @@ PINNED_PRESET_DEPENDENCIES: dict[str, list[str]] = {
     # Emptied when pymongo became a core OSPREY dependency. Before that this
     # read ``[pymongo>=4.0]`` — see the module docstring.
     "control-assistant": [],
+    # The admin tier, added with the tier floor. Empty like its siblings: the
+    # only thing it adds over `control-assistant-readwrite` is the `setup-mode`
+    # skill and the config keys that lift the floor, and a skill OSPREY ships
+    # needs no package a plain `pip install osprey-framework` does not already
+    # bring — the workspace MCP server it drives is framework-side.
+    "control-assistant-admin": [],
     "control-assistant-ariel": [],
     "control-assistant-readonly": [],
     "control-assistant-readwrite": [],

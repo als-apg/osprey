@@ -92,6 +92,39 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Readwrite Python executions now always require human approval under the
   `selective` policy, independent of whether the write-pattern scanner
   recognises the code's spelling.
+- One protected set now names the files and `config.yml` keys the agent may
+  not rewrite: the rendered config and settings, the hook and MCP wiring,
+  `.env`, the `osprey_*` hooks, and everything under `.claude/skills/` and
+  `.claude/rules/`. Every framework writer consults it — the scaffold
+  galleries, the Claude-setup file API, the Config panel, ARIEL's config
+  editor, the `setup_patch` tool and the restore that runs at session start —
+  and a refusal names the channel that does own the file. Each blocked attempt
+  is shown in the terminal's activity feed and recorded in
+  `var/audit/protected-writes.jsonl`.
+  Executed Python is held to the same line by zone: it cannot write into
+  `build/`, the profile sources, or the audit ledger. See the "Protected Set"
+  how-to.
+- A terminal session can now be sandboxed without changing the deployment. A
+  **Writes** / **Sandbox** badge in the card header switches the session's
+  posture after a confirmation, restarting its agent and keeping the
+  conversation. Sandbox refuses every control-system write and is enforced at
+  the hook, the connector, the Python executor and every process the agent
+  spawns. Postures are per session, persist across restarts in
+  `var/agent_data/session-postures.json`, and a deployment rendered with
+  writes off cannot leave the sandbox. See "Sandbox one session" in the Web
+  Terminal how-to.
+- Two new keys, `web.config_panel.enabled` and
+  `web.scaffold_gallery.write_enabled` (both default `true`), close the Config
+  panel with its `/api/config` and `/api/claude-setup` routes, and the scaffold
+  gallery's write and delete routes, server-side; the browser withdraws the
+  controls. Gallery reads stay open.
+- `osprey profile validate` and `osprey build` refuse a `default_persona`, or
+  a `login: false` roster entry, that resolves to a persona able to edit the
+  deployment. With authentication off deployment-wide the check warns instead.
+- `remove_deny` can no longer lift a deny the writes kill switch imposed. A
+  profile that writes a permission list as a bare string, or spells
+  `claude_code` both dotted and nested, is refused at build time instead of
+  silently changing which tools end up denied.
 
 ### Fixed
 
@@ -431,6 +464,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   `env:` that nothing on this host sets. The container would otherwise start
   with the variable set-and-empty. Advisory only; `env.required` is where a
   deployment says a variable is mandatory.
+- The `control-assistant` preset now ships tiers named `readonly`, `readwrite`
+  and `admin` beside the `ariel` research persona. Bob (`readonly`) has
+  control-system writes off; Alice (`readwrite`) has them on, supervised;
+  Carol (`admin`, demo password `carol`) has them on too and is the only
+  terminal that may edit the deployment — the Config panel, the gallery editors
+  and the approval-gated `setup_patch` tool. Each tier is its own profile
+  (`control-assistant-readonly`, `-readwrite`, `-admin`, `-ariel`).
 
 - A session can now be pointed at a different control system while it runs.
   `control_target_set` moves it between the real machine (`live`) and the
@@ -525,6 +565,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   require an auth secret to deploy or to launch a web terminal. A missing
   secret for those providers is now a note rather than a refusal. Providers
   OSPREY does not recognise keep the strict behaviour.
+- Generated container images bake no `USER`: a root entrypoint re-renders
+  drifted agent artifacts and restores gallery-claimed bodies, then drops to
+  the `osprey` user (uid 1000) via `gosu`. The render (`build/`, including
+  `.claude/` and `config.yml`) is root-owned at runtime and `var/` belongs to
+  the runtime user; `config.yml` stays writable only for a persona that may
+  edit the deployment. Starting the container as another user (`docker run
+  --user`, Kubernetes `runAsUser`) skips both startup steps, and
+  `runAsNonRoot: true` now refuses the pod because the image names no user.
+  Bare-host deployments have no second user and keep their self-healing
+  startup.
+- Config-write backups now land in `var/agent_data/config-backups/` instead of
+  beside the file as `config.yml.bak`.
+- On rebuild, a `control-assistant` deployment's `readonly` and `readwrite`
+  terminals lose the Config panel and the gallery editors; only the `admin`
+  tier keeps them. Put a roster entry on `admin` to keep an editing terminal.
 
 ### Changed
 

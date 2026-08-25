@@ -20,7 +20,7 @@ Two surfaces call in, at different altitudes:
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -29,13 +29,23 @@ import yaml
 
 from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
+    ALL_PRIVILEGES,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     as_dict,
+    auth_is_enforced,
+    deployment_wide_privileged_exposure_problems,
     effective_image_source,
+    entry_requires_login,
     env_var_suffix_collisions,
+    persona_privileges,
+    privilege_phrase,
+    privileged_default_persona_problem,
+    privileges_beyond_baseline,
+    rendered_persona_configs,
     resolve_image_tag,
     resolve_personas,
+    unauthenticated_privileged_terminal_problems,
 )
 from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
@@ -63,6 +73,17 @@ _TLS_LISTEN_PORT = 443
 # pull the whole deploy-time secret-minting path in behind it.
 _PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 
+# Appended to the unauthenticated-privileged-terminal message when it is read
+# off a RENDERED project rather than a profile. The rule is an error at both
+# altitudes (see `_check_privileged_persona_exposure`), and this is the half of
+# the remedy that only applies here: the render, not the profile, may simply
+# predate the base tier's deny floor, and the way out of that is a rebuild
+# rather than an edit.
+_STALE_RENDER_REMEDY = (
+    ". This is what the last `osprey build` rendered — if this render predates the base "
+    "tier's deny floor, `osprey build` re-renders it with the floor in place"
+)
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -84,7 +105,13 @@ class Finding:
     message: str
 
 
-def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Finding]:
+def lint_web_terminals(
+    config: Any,
+    *,
+    rendered_project: bool = True,
+    project_root: Path | None = None,
+    profile_root: Path | None = None,
+) -> list[Finding]:
     """Validate a rendered project config's ``modules.web_terminals`` stanza.
 
     Args:
@@ -94,6 +121,16 @@ def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Fi
             been rendered. False drops the two checks that can only be answered
             once it has — see :func:`lint_profile_config`, the only caller that
             passes it.
+        project_root: The directory a rendered ``project_path`` resolves
+            against — the deployment's build zone. Only the caller knows it:
+            this module is handed a config, never a location. ``None`` falls
+            back to the working directory, which is the answer for a command
+            run from the repo root and the wrong one everywhere else, so every
+            command surface passes it explicitly.
+        profile_root: The same fact at profile altitude — the directory holding
+            the ``profile.yml`` being linted, which a catalog entry's
+            ``build_profile: personas/<name>.yml`` resolves against. ``None``
+            likewise falls back to the working directory.
 
     Returns:
         A list of :class:`Finding` objects, empty if nothing is wrong. Findings
@@ -125,16 +162,35 @@ def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Fi
     findings.extend(_check_persona_seed_base(web_terminals))
     findings.extend(_check_default_persona_exists(web_terminals))
     findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
+    # Reads each referenced persona's config — a rendered `config.yml` here, a
+    # `personas/<name>.yml` delta or a bundled preset at profile time — so it
+    # takes the gate rather than riding one, and runs at both altitudes.
+    findings.extend(
+        _check_privileged_persona_exposure(
+            root,
+            web_terminals,
+            users,
+            rendered_project=rendered_project,
+            project_root=project_root,
+            profile_root=profile_root,
+        )
+    )
     findings.extend(_check_empty_facility_prefix(root, web_terminals, users))
     findings.extend(_check_unknown_image_source(web_terminals))
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
     if rendered_project:
-        findings.extend(_check_persona_project_paths(web_terminals, users))
+        findings.extend(
+            _check_persona_project_paths(web_terminals, users, project_root=project_root)
+        )
         # Reads each persona's rendered config.yml, so it rides on the same
         # gate: a profile has no rendered project to compare against yet.
-        findings.extend(_check_persona_bundle_path_agreement(root, web_terminals, users))
+        findings.extend(
+            _check_persona_bundle_path_agreement(
+                root, web_terminals, users, project_root=project_root
+            )
+        )
         # Resolves notice paths against the project directory, so it rides the
         # same gate: a profile has no rendered project to look in yet.
         findings.extend(_check_notice_docs(root, web_terminals))
@@ -150,7 +206,9 @@ def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Fi
     return findings
 
 
-def lint_profile_config(config: Mapping[str, Any]) -> list[Finding]:
+def lint_profile_config(
+    config: Mapping[str, Any], *, profile_root: Path | None = None
+) -> list[Finding]:
     """Validate the ``modules.web_terminals`` a build profile's ``config:`` sets.
 
     A ``config:`` block is a flat bag of dotted keys (``modules.web_terminals``,
@@ -174,6 +232,13 @@ def lint_profile_config(config: Mapping[str, Any]) -> list[Finding]:
     the ``config:`` block itself declares; a service declared at profile top
     level joins the collision set once the project is rendered.
 
+    ``profile_root`` is the directory the profile being linted lives in, and it
+    is not optional in practice: a catalog entry's
+    ``build_profile: personas/<name>.yml`` is relative to the profile, so
+    without it this falls back to the working directory and a validate run from
+    a subdirectory, or through ``--repo`` from outside the repo entirely, reads
+    no persona delta at all and reports every persona as unprivileged. Pass it.
+
     Call this from a COMMAND, never from ``BuildProfile.validate()``. That
     method also runs during profile *resolution*, which ``osprey init``
     goes through, and these findings would then pre-empt that command's own
@@ -181,10 +246,14 @@ def lint_profile_config(config: Mapping[str, Any]) -> list[Finding]:
     names the file-name rule a persona name really has to meet. The engine
     would replace a better error with a worse one.
     """
-    return lint_web_terminals(_nest_dotted(config), rendered_project=False)
+    return lint_web_terminals(
+        _nest_dotted(config), rendered_project=False, profile_root=profile_root
+    )
 
 
-def profile_config_errors(config: Mapping[str, Any]) -> list[str]:
+def profile_config_errors(
+    config: Mapping[str, Any], *, profile_root: Path | None = None
+) -> list[str]:
     """The messages from :func:`lint_profile_config` that must fail a command.
 
     One home for "which severity blocks", so the surfaces that gate on it
@@ -192,7 +261,29 @@ def profile_config_errors(config: Mapping[str, Any]) -> list[str]:
     never stop a build.
     """
     return [
-        finding.message for finding in lint_profile_config(config) if finding.severity == "error"
+        finding.message
+        for finding in lint_profile_config(config, profile_root=profile_root)
+        if finding.severity == "error"
+    ]
+
+
+def profile_config_warnings(
+    config: Mapping[str, Any], *, profile_root: Path | None = None
+) -> list[str]:
+    """The advisory messages from :func:`lint_profile_config`.
+
+    The other half of :func:`profile_config_errors`, and it exists for the same
+    reason: a finding nobody prints is a finding nobody has. Warnings do not
+    fail a command — an unauthenticated deployment is a legitimate loopback
+    posture, and a build that refused one would reject deployments nobody
+    exposed — but they name exposures an operator would want to know about, so
+    every surface that gates on the errors also reports these above its success
+    line.
+    """
+    return [
+        finding.message
+        for finding in lint_profile_config(config, profile_root=profile_root)
+        if finding.severity == "warn"
     ]
 
 
@@ -726,6 +817,652 @@ def _check_default_persona_exists(web_terminals: dict[str, Any]) -> list[Finding
     ]
 
 
+@dataclass(frozen=True)
+class _UnreadablePersona:
+    """Why one referenced persona's privileges could not be determined.
+
+    The alternative to a ``None`` that means both "no privilege" and "no idea".
+    At NEITHER altitude may those two answers collapse: a persona whose document
+    cannot be read may hold everything the base tier floors, and reading that as
+    "holds nothing" is how a catalog entry pointed at a file outside
+    ``personas/`` walks an unauthenticated admin terminal past the gate — and,
+    at rendered altitude, how a persona whose project was never rendered (a
+    ``project_path`` typo, a partial build) walks one past ``osprey up``.
+    """
+
+    #: The catalog entry's ``build_profile`` value, verbatim, so the message can
+    #: quote what the operator actually wrote — including a non-string one.
+    #: ``None`` at rendered altitude, where the delta is not what was read.
+    build_profile: Any
+    #: The path this tried to read, when it got as far as naming one.
+    path_tried: str | None
+    #: :func:`persona_build_profile_shape_problem`'s clause, when the value's
+    #: shape is itself the reason nothing resolved.
+    shape_problem: str | None
+    #: RENDERED altitude only: the catalog entry's ``project_path``, whose
+    #: ``config.yml`` is not there. Quoted verbatim rather than resolved — the
+    #: join that decides where it resolves lives in
+    #: :func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`
+    #: and repeating it here is exactly the second convention that walk exists
+    #: to prevent. ``None`` means "not this shape of failure", including when
+    #: the entry declares no usable ``project_path`` at all.
+    project_path: str | None = None
+
+
+#: Persona name → the privileges it holds. Two of these travel together out of
+#: :func:`_privileges_by_persona` — one absolute, one baseline-relative — and
+#: naming the shape once keeps the pair readable at the call sites.
+_PrivilegeMap = dict[str, tuple[str, ...]]
+
+
+def _profile_persona_layers(
+    root: dict[str, Any],
+    entry: dict[str, Any],
+    *,
+    profile_root: Path | None,
+) -> tuple[Any, ...] | _UnreadablePersona:
+    """The config layers that decide one catalog persona's privileges, at PROFILE altitude.
+
+    Nothing is rendered yet and the catalog's ``build_profile`` names one of two
+    things. A bundled PRESET name resolves on its own and carries its whole
+    ``extends`` chain, so it is the only layer. A persona DELTA
+    (``personas/<name>.yml``, which is what ``osprey init`` writes) is by
+    construction *only* its own layer — it is merged over the host profile
+    beside it — so the host's ``config:`` block, which is the document being
+    linted, is layered underneath it.
+
+    The delta is resolved against ``profile_root``, the directory holding the
+    profile being linted, and NOT against the working directory. Anchoring it on
+    the cwd made the whole check a no-op from anywhere but the repo root: ``cd
+    data && osprey build``, ``osprey profile validate <repo>`` from the
+    directory above, and ``osprey build --repo <path>`` each read no delta at
+    all and therefore reported every persona as unprivileged — a guard that
+    passes when it cannot see is worse than no guard, because the build says the
+    word "valid".
+
+    Returns:
+        The layers, or an :class:`_UnreadablePersona` saying why there are none.
+        "Cannot tell" is deliberately NOT "no privilege" here — see
+        :func:`_check_unreadable_persona_privileges` for what is done with it.
+    """
+    build_profile = entry.get("build_profile")
+    if not isinstance(build_profile, str) or not build_profile:
+        return _UnreadablePersona(build_profile=build_profile, path_tried=None, shape_problem=None)
+
+    shape_problem = persona_build_profile_shape_problem(build_profile)
+    if shape_problem is None:
+        # A delta beside the host profile: its own layer over the linted config.
+        delta_file = (profile_root or Path(".")) / build_profile
+        if not delta_file.is_file():
+            return _UnreadablePersona(build_profile, str(delta_file), None)
+        try:
+            with delta_file.open("r", encoding="utf-8") as fh:
+                delta = yaml.safe_load(fh)
+        except (OSError, yaml.YAMLError):
+            return _UnreadablePersona(build_profile, str(delta_file), None)
+        return (root, as_dict(as_dict(delta).get("config")))
+
+    # Not a delta reference, so the only other thing it can be is a bundled
+    # preset name — the shape the presets themselves ship with, before
+    # `osprey init` rewrites the catalog. Resolving one needs the profile
+    # engine, imported here rather than at module scope: this module is pure
+    # static validation and is imported by the deploy path, which must not pull
+    # the whole CLI resolution stack in behind it. `staleness.py` reaches the
+    # same module the same way.
+    try:
+        from osprey.cli.build_profile import resolve_build_profile
+
+        resolved, _preset_dir = resolve_build_profile(None, build_profile)
+    except Exception:
+        # The shape problem travels with the failure: a value like
+        # `../admin.yml` is neither a delta this may read nor a preset name that
+        # resolves, and naming both halves is the difference between "could not
+        # resolve" and an instruction.
+        return _UnreadablePersona(build_profile, None, shape_problem)
+    return (resolved.config,)
+
+
+def _privileges_by_persona(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    rendered_project: bool,
+    project_root: Path | None,
+    profile_root: Path | None,
+) -> tuple[_PrivilegeMap, _PrivilegeMap, dict[str, _UnreadablePersona]]:
+    """What each REFERENCED persona can edit — absolutely, and beyond its baseline.
+
+    Only referenced personas are read: a catalog entry nobody runs deploys
+    nothing, and resolving it would make an unused entry able to fail a build.
+
+    BOTH answers are returned because the two rules built on them disagree, on
+    purpose. The ``login: false`` rule reads the absolute set — a terminal
+    served to anyone hands out what its persona holds, not what it holds more
+    than its neighbours — and the ``default_persona`` rule reads the set beyond
+    the baseline, because that key is inherited by profiles written before the
+    floor existed. See
+    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
+    for the full statement of the asymmetry.
+
+    Two altitudes, two shapes of input:
+
+    * **Rendered project.** Each persona's ``build/<project_path>/config.yml``
+      exists and is already the fully composed answer, so it is the only layer.
+      Read through
+      :func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`
+      — the same walk the credential grants use, rather than a second path join
+      that would be free to disagree with them about where ``project_path``
+      resolves.
+    * **Profile.** See :func:`_profile_persona_layers`.
+
+    Returns:
+        ``(absolute, lifted, unreadable)``. A persona absent from all three is
+        readable and holds nothing at all. ``absolute`` and ``lifted`` each omit
+        the personas whose entry would be empty, so a missing key reads as "no
+        privilege" to
+        :func:`~osprey.deployment.web_terminals.personas._privileged_entries`
+        either way.
+    """
+    baseline = persona_privileges(root)
+    absolute: _PrivilegeMap = {}
+    lifted: _PrivilegeMap = {}
+    unreadable: dict[str, _UnreadablePersona] = {}
+
+    def record(persona_name: str, held: tuple[str, ...]) -> None:
+        if held:
+            absolute[persona_name] = held
+        beyond = privileges_beyond_baseline(held, baseline)
+        if beyond:
+            lifted[persona_name] = beyond
+
+    if rendered_project:
+        documents = rendered_persona_configs(root, project_root or Path("."))
+        catalog = _persona_catalog(web_terminals)
+        for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+            if persona_name in documents:
+                record(persona_name, persona_privileges(documents[persona_name]))
+                continue
+            if not isinstance(catalog.get(persona_name), dict):
+                continue  # unresolvable reference — reported elsewhere
+            # No rendered config.yml where this persona's project_path says one
+            # is. "Cannot tell" is not "holds nothing" here either: once `osprey
+            # up` gates on this belt, reading an absent render as unprivileged
+            # is fail-open on the deploy path itself, and the only other signal
+            # is `persona_project_path_not_rendered_yet` — a WARN about a
+            # different question that no error-filtering surface sees.
+            project_path = as_dict(catalog.get(persona_name)).get("project_path")
+            unreadable[persona_name] = _UnreadablePersona(
+                build_profile=None,
+                path_tried=None,
+                shape_problem=None,
+                # `""` is the "declares none at all" case, which reads as its
+                # own sentence rather than as a quoted empty path.
+                project_path=project_path if isinstance(project_path, str) else "",
+            )
+        return absolute, lifted, unreadable
+
+    catalog = _persona_catalog(web_terminals)
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        layers = _profile_persona_layers(root, entry, profile_root=profile_root)
+        if isinstance(layers, _UnreadablePersona):
+            unreadable[persona_name] = layers
+            continue
+        record(persona_name, persona_privileges(*layers))
+    return absolute, lifted, unreadable
+
+
+def _deployment_declares_a_privilege_split(root: dict[str, Any]) -> bool:
+    """Whether this deployment floors anything a persona tier could lift.
+
+    The precondition for the MIGRATION-SENSITIVE findings in this belt, asked
+    without holding a persona. A baseline that already grants the setup tool and
+    the Config panel leaves nothing for any persona to rise above, so there is
+    no split to protect and nothing to report that would not simply be "you have
+    not adopted tiers yet" — see
+    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`.
+
+    :func:`_privileges_by_persona` reaches the same verdict per persona, by
+    comparison. This is the version for the persona whose document could not be
+    read at all.
+
+    NOT a precondition for the ``login: false`` findings, in either their known
+    or their unknown form. That rule is absolute (see
+    :func:`_check_privileged_persona_exposure`), and gating it here is what let
+    a floorless profile serve an unauthenticated admin terminal past all three
+    authoring altitudes.
+    """
+    return bool(privileges_beyond_baseline(ALL_PRIVILEGES, persona_privileges(root)))
+
+
+def _check_unreadable_persona_privileges(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    resolved_entries: list[dict[str, Any]],
+    unreadable: Mapping[str, _UnreadablePersona],
+    *,
+    rendered_project: bool,
+) -> list[Finding]:
+    """Refuse a persona whose privileges cannot be read where it would matter.
+
+    ``None`` used to mean "cannot tell" and was treated as "holds nothing",
+    which is the fail-OPEN direction on the one question this belt exists to
+    answer. A catalog entry whose ``build_profile`` points at ``../admin.yml``
+    is neither a delta lint may read nor a preset name that resolves, so it read
+    as unprivileged — and a ``login: false`` entry pointed at it validated
+    clean, built clean, and rendered an unauthenticated terminal holding the
+    deployment-editing setup tool.
+
+    Reported only where the answer would decide something, which is exactly the
+    two rules this belt owns: the ``default_persona`` every unlabelled entry
+    inherits, and an entry that opted out of the login wall. A privileged
+    persona behind a login is not an exposure, so an unreadable one behind a
+    login is not one either, and refusing it would fail builds over catalog
+    entries whose real problem — an absent delta, a preset that does not
+    resolve — is already reported, in better words, by the check that owns it.
+
+    Three further narrowings, all deliberate:
+
+    * The ``default_persona`` half is reported only where the deployment
+      declares a privilege split (:func:`_deployment_declares_a_privilege_split`)
+      — the same migration argument that makes the KNOWN version of that rule
+      baseline-relative: an inherited default on a floorless deployment has no
+      unprivileged tier to be re-pointed at. The ``login: false`` half is NOT so
+      narrowed, for the same reason its known version is absolute: on a
+      floorless deployment a persona nobody can read is one nobody can show
+      holds less than everything, and that entry is served to anyone.
+    * At rendered altitude the ``default_persona`` half is further gated on
+      ``image_source: local``. A registry-mode host has no local persona render
+      by design, so an unreadable default is that mode's normal state rather
+      than drift, and no remedy the operator can execute exists there — the
+      profile altitude, where the deltas live, owns that question. Again the
+      ``login: false`` half is not gated: its subject is an entry that typed
+      itself public, and its remedy is that entry's own key.
+    * With ``auth.method: none`` an entry's own ``login`` key is inert, so no
+      entry singled itself out; the deployment-wide exposure is advisory there
+      (see
+      :func:`~osprey.deployment.web_terminals.personas.deployment_wide_privileged_exposure_problems`)
+      and an ERROR on a persona that *might* be privileged would be a harder
+      refusal than the one for a persona known to be. So the unreadable persona
+      is reported as a WARN instead — not dropped. Under that posture a READABLE
+      privileged persona still draws its own warning, and "cannot tell" must
+      never be quieter than "known privileged"; skipping the advisory rung
+      entirely was how one cell of the matrix (registry mode, no
+      authentication) came to report nothing at all.
+
+    **The remedy always includes a way out the operator holds.** The
+    altitude-specific halves ("write the delta", "re-run ``osprey build``") both
+    presuppose a document that can be made to resolve, which a deployment
+    building its images in CI (``image_source: registry``, the default) cannot
+    produce on the host it starts on. Wherever an entry's own ``login: false``
+    is what put the persona at stake, ``login: true`` for that user is offered
+    too — the same remedy the KNOWN version of this rule
+    (:func:`~osprey.deployment.web_terminals.personas.unauthenticated_privileged_terminal_problems`)
+    leads with, so the two halves of one rule do not disagree about their own
+    remedy set.
+    """
+    if not unreadable:
+        return []
+    declares_a_split = _deployment_declares_a_privilege_split(root)
+
+    # Persona name → every reason an unknown answer for it is not survivable.
+    # A persona can be at stake for BOTH halves at once — it is the
+    # `default_persona` AND a `login: false` entry resolves to it — and the two
+    # reasons have different remedies, so the finding says both rather than
+    # letting whichever ran first win.
+    at_stake: dict[str, list[str]] = {}
+    # Persona name → EVERY user whose `login: false` put it at stake, in roster
+    # order. All of them, not just the first: the known half of this rule emits
+    # one message per entry and names them all, and an operator who sets
+    # `login: true` for the one name they were given only to meet the same
+    # refusal for the next has paid for a round trip this message could have
+    # saved them.
+    exposed_by: dict[str, list[Any]] = {}
+    # Persona name → the users an `auth.method: none` deployment serves it to.
+    # Kept apart from `exposed_by` because it is the ADVISORY arm: with no wall
+    # standing, no entry singled itself out, and the deployment-wide exposure
+    # this belongs to is deliberately not build-failing.
+    open_to_everyone: dict[str, list[Any]] = {}
+
+    # The default_persona half is a RENDERED-altitude question only where a
+    # render was supposed to happen here. With `image_source: registry` — the
+    # default, and every value but the literal `local` — the images and their
+    # deltas are built in CI and the deploy host holds no persona project by
+    # design, which is why `verify_persona_renders` is skipped there too. So
+    # "cannot tell" is that mode's normal state rather than drift, nobody opted
+    # out of anything, and no remedy exists that an operator on a pull-only host
+    # can carry out. The profile altitude, where the deltas live, owns that
+    # question. The `login: false` half below is NOT so gated: there an entry
+    # typed itself public, and its remedy is its own login key, which every host
+    # holds.
+    reads_a_local_render = not rendered_project or effective_image_source(web_terminals) == "local"
+    default_persona = web_terminals.get("default_persona")
+    if (
+        declares_a_split
+        and reads_a_local_render
+        and isinstance(default_persona, str)
+        and default_persona in unreadable
+    ):
+        at_stake.setdefault(default_persona, []).append(
+            "it is this deployment's default_persona, which every roster entry with no "
+            "persona: key of its own inherits"
+        )
+
+    for entry in resolved_entries:
+        persona = entry.get("persona")
+        if not isinstance(persona, str) or persona not in unreadable:
+            continue
+        if not auth_is_enforced(web_terminals):
+            open_to_everyone.setdefault(persona, []).append(entry.get("name"))
+            continue
+        if entry_requires_login(dict(entry)):
+            continue
+        exposed_by.setdefault(persona, []).append(entry.get("name"))
+    for persona_name, names in exposed_by.items():
+        many = len(names) > 1
+        at_stake.setdefault(persona_name, []).append(
+            f"{'users' if many else 'user'} {_named_users(names)} "
+            f"{'are' if many else 'is'} served without a login (login: false) and "
+            f"{'resolve' if many else 'resolves'} to it"
+        )
+
+    # Why an unknown answer is not assumed harmless, said the way the
+    # deployment's own posture makes true — built from the same baseline reading
+    # the remedy beside it uses, so one message cannot claim a floor in one
+    # sentence and name it as missing in the next.
+    stance = _unknown_privilege_stance(persona_privileges(root))
+    findings: list[Finding] = []
+
+    def report(
+        persona_name: str, reasons: list[str], remedy: str, severity: Literal["error", "warn"]
+    ) -> None:
+        findings.append(
+            Finding(
+                severity=severity,
+                code="web_terminals.persona_privileges_unknown",
+                message=(
+                    f"modules.web_terminals persona {persona_name!r} could not be read, so "
+                    f"this build cannot tell whether it holds "
+                    f"{privilege_phrase(ALL_PRIVILEGES)} — and {', and '.join(reasons)}. "
+                    # The shape clause is a whole sentence and brings its own
+                    # full stop; the others do not.
+                    f"{_unreadable_persona_clause(unreadable[persona_name]).rstrip('.')}. "
+                    f"{stance}. {remedy}"
+                ),
+            )
+        )
+
+    def altitude_remedy(persona_name: str) -> str:
+        # The remedy is about the document that was not there, which is a
+        # different document at each altitude: a delta the operator writes, or a
+        # render `osprey build` produces.
+        if rendered_project:
+            return (
+                "Re-run `osprey build` to render it, or point the exposed terminal at a "
+                "persona whose project is rendered"
+            )
+        return (
+            f"Point build_profile at the delta beside this profile "
+            f"(personas/{persona_name}.yml), or point the exposed terminal at a persona "
+            f"that does resolve"
+        )
+
+    for persona_name in sorted(at_stake):
+        remedy = altitude_remedy(persona_name)
+        # The one remedy an operator can always carry out, and the one that
+        # actually closes the door this half of the rule is about. Both remedies
+        # above presuppose a document that resolves — a delta the operator has
+        # to write, a render this deployment may build in CI rather than here —
+        # so without this clause a registry-mode or delta-less deployment reads
+        # the refusal as a dead end. Said at BOTH altitudes, and only where an
+        # entry named itself, which is what `exposed_by` records. Kept in the
+        # same words as the KNOWN version of this rule
+        # (`unauthenticated_privileged_terminal_problems`), which leads with it.
+        if persona_name in exposed_by:
+            remedy += f", or set login: true for {_named_users(exposed_by[persona_name])}"
+        report(persona_name, at_stake[persona_name], remedy, "error")
+
+    # The advisory rung. With `auth.method: none` no entry singled itself out,
+    # so nothing here is refused — but a READABLE privileged persona under that
+    # same posture still draws `unauthenticated_privileged_deployment` as a
+    # WARN, and this belt's whole premise is that "cannot tell" is never quieter
+    # than "known privileged". Reported for the personas the error arm did not
+    # already name, so one unreadable persona is one finding.
+    for persona_name in sorted(open_to_everyone):
+        if persona_name in at_stake:
+            continue
+        names = open_to_everyone[persona_name]
+        report(
+            persona_name,
+            [
+                f"{'users' if len(names) > 1 else 'user'} {_named_users(names)} "
+                f"{'are' if len(names) > 1 else 'is'} served with no login wall at all "
+                f"(modules.web_terminals.auth.method is 'none') and "
+                f"{'resolve' if len(names) > 1 else 'resolves'} to it"
+            ],
+            f"{altitude_remedy(persona_name)}, or turn authentication on "
+            f"(auth.method: password or oidc)",
+            "warn",
+        )
+    return findings
+
+
+def _named_users(names: Sequence[Any]) -> str:
+    """``'carol'`` / ``'carol' and 'dave'`` — every user a clause points at.
+
+    Names every entry rather than the first, because the KNOWN half of this rule
+    does and says so in its own docstring: an operator fixing a roster should
+    see the whole list, not discover the second one after fixing the first. The
+    subject and its verb are left to the caller, which has two of them to
+    conjugate and one bare list to paste into a remedy.
+
+    No square brackets: these strings reach ``osprey build``, which renders its
+    refusals through rich and reads ``[...]`` as a style tag.
+    """
+    return privilege_phrase([repr(name) for name in names])
+
+
+def _unknown_privilege_stance(baseline: Sequence[str]) -> str:
+    """Why an unreadable persona is not read as holding nothing, per posture.
+
+    Built from the deployment's own baseline rather than from a "does it declare
+    a split at all" boolean, so it agrees with
+    :func:`~osprey.deployment.web_terminals.personas._floor_the_base_tier_remedy`,
+    which may be printed one sentence later in the same message family. A
+    PARTIALLY floored deployment used to be told it "floors those surfaces"
+    while one of them was open to every persona it has.
+    """
+    unfloored = tuple(privilege for privilege in ALL_PRIVILEGES if privilege in baseline)
+    if not unfloored:
+        return (
+            "This deployment floors both surfaces for its base tier, so a persona nobody "
+            "can read is not assumed harmless"
+        )
+    if len(unfloored) < len(ALL_PRIVILEGES):
+        floored = tuple(privilege for privilege in ALL_PRIVILEGES if privilege not in unfloored)
+        return (
+            f"This deployment floors {privilege_phrase(floored)} for its base tier but "
+            f"leaves {privilege_phrase(unfloored)} open to every persona, so a persona "
+            f"nobody can read is not assumed harmless"
+        )
+    return (
+        "This deployment floors neither surface, so a persona nobody can read cannot "
+        "be shown to hold anything less than both of them — and this one is served "
+        "to whoever opens its page"
+    )
+
+
+def _unreadable_persona_clause(record: _UnreadablePersona) -> str:
+    """One sentence saying what was tried and why nothing came back."""
+    if record.project_path is not None:
+        # Rendered altitude: the delta is not what was read, the render is.
+        if not record.project_path:
+            return (
+                "Its catalog entry declares no project_path, so this deployment has no "
+                "rendered project to read it from"
+            )
+        return (
+            f"Its project_path {record.project_path!r} holds no rendered config.yml, so "
+            f"nothing was built there for this deployment to read"
+        )
+    if record.shape_problem is not None:
+        # Phrased by `persona_build_profile_shape_problem` to follow exactly
+        # this subject, so the two halves are written once between them.
+        return f"Its build_profile {record.shape_problem}"
+    if not isinstance(record.build_profile, str) or not record.build_profile:
+        return f"Its build_profile is {record.build_profile!r}, which names nothing"
+    if record.path_tried is not None:
+        return (
+            f"Its build_profile {record.build_profile!r} resolves to {record.path_tried}, "
+            f"which is not a readable profile"
+        )
+    return f"Its build_profile {record.build_profile!r} did not resolve to a profile"
+
+
+def _check_privileged_persona_exposure(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    rendered_project: bool,
+    project_root: Path | None,
+    profile_root: Path | None,
+) -> list[Finding]:
+    """Deployment-editing privilege must not be inherited by accident or served openly.
+
+    The belt behind the one build-time guard —
+    :func:`osprey.cli.profile_cmd._privileged_persona_problems`, which
+    :func:`~osprey.cli.profile_cmd._persona_profile_texts` raises at ``osprey
+    init`` — catching the same two mistakes on the paths that guard does not sit
+    on: a profile edited after ``osprey init`` (``osprey profile validate``,
+    ``osprey build``) and a project already rendered (``osprey up``). Both rules
+    and both messages come from
+    :mod:`~osprey.deployment.web_terminals.personas`, so the belt and the brace
+    cannot disagree about what counts as privileged or about what to do next.
+
+    **The two rules read two different answers**, which is the one thing to know
+    before reading the code below. The ``login: false`` rule is judged on what a
+    persona ABSOLUTELY holds; the ``default_persona`` rule (and the advisory
+    ``auth.method: none`` arm) on what it holds beyond its deployment's
+    baseline. Exempting a floorless deployment from the first was a hole big
+    enough to drive the whole belt through: delete the base tier's deny floor
+    from a profile and every persona is at baseline, so a ``login: false`` admin
+    terminal validated clean, built clean and linted clean while rendering a
+    settings.json with nothing denied. See
+    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
+    for why the other rules keep the relative reading.
+
+    **An unauthenticated privileged terminal is an ERROR at BOTH altitudes.**
+    The exposure is the same one either way — a card on the landing page that
+    opens into a terminal that can edit the deployment — and the rendered
+    altitude is the only place a hand-edited ``config.yml`` is ever read, so a
+    warning there is a finding the surfaces that gate on errors discard. A
+    render that predates the base tier's deny floor is refused too, and the
+    message says so and says to rebuild: this release changes the image's
+    entrypoint and privilege split anyway, so every deployment is re-rendering
+    regardless, and "rebuild" is a remedy an operator can carry out rather than
+    a rule with no way back.
+
+    A privileged ``default_persona`` stays advisory against a RENDERED project.
+    It is an authoring mistake, not an open door — the entries that inherit it
+    are still behind whatever wall the deployment has, and the ones that are not
+    are reported by the rule above, by name. Refusing the start of a running
+    stack over the shape of its roster would stop a shift to fix a profile.
+    ``osprey up`` prints warnings as advisories, so it is said out loud either
+    way, and rebuilding turns it into the error it is at profile altitude.
+    """
+    absolute, lifted, unreadable = _privileges_by_persona(
+        root,
+        web_terminals,
+        users,
+        rendered_project=rendered_project,
+        project_root=project_root,
+        profile_root=profile_root,
+    )
+
+    if not absolute and not lifted and not unreadable:
+        return []
+
+    # Resolved only once there is something to say about an entry: this walks
+    # the whole roster, and a clean config must not pay for a report nobody is
+    # going to make.
+    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
+    registry_cfg = as_dict(root.get("registry"))
+    resolved = (
+        list(resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False))
+        if users
+        else []
+    )
+
+    findings: list[Finding] = _check_unreadable_persona_privileges(
+        root, web_terminals, resolved, unreadable, rendered_project=rendered_project
+    )
+    if not absolute and not lifted:
+        return findings
+
+    # Baseline-relative, deliberately: an inherited default on a deployment with
+    # no floor has no unprivileged tier to be pointed at. See
+    # `privileges_beyond_baseline`.
+    default_problem = privileged_default_persona_problem(
+        web_terminals.get("default_persona"),
+        lifted.get(str(web_terminals.get("default_persona")), ()),
+    )
+    if default_problem is not None:
+        findings.append(
+            Finding(
+                # See the docstring: an authored default blocks, a rendered one
+                # is advisory — the entries it exposes are named by the rule
+                # below, which does block at both altitudes.
+                severity="warn" if rendered_project else "error",
+                code="web_terminals.privileged_default_persona",
+                message=default_problem,
+            )
+        )
+
+    if not users:
+        return findings
+
+    if not auth_is_enforced(web_terminals):
+        # No wall stands, so no entry's own `login` key means anything and the
+        # exposure is the deployment's, not one entry's. WARN, not error: see
+        # `deployment_wide_privileged_exposure_problems` for why failing a build
+        # over the shipped default would reject deployments nobody exposed.
+        #
+        # Baseline-RELATIVE, unlike the `login: false` rule below. Not because
+        # the absolute exposure is smaller — it is the same door — but because
+        # this arm names every roster entry at once and never blocks: read
+        # absolutely, every legacy deployment (no floor, and `auth.method: none`
+        # is the default) would print one advisory per user on every `osprey up`
+        # for a posture it has always had. The narrower claim, `login: false`,
+        # is the one that gets the absolute reading and the refusal.
+        return findings + [
+            Finding(
+                severity="warn",
+                code="web_terminals.unauthenticated_privileged_deployment",
+                message=problem,
+            )
+            for problem in deployment_wide_privileged_exposure_problems(resolved, lifted)
+        ]
+
+    # ABSOLUTE, and the baseline only picks the remedy: a deployment that floors
+    # nothing hands both surfaces to this open terminal, and reading it
+    # relatively made that case silent at every altitude.
+    for problem in unauthenticated_privileged_terminal_problems(
+        resolved, absolute, baseline_privileges=persona_privileges(root)
+    ):
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.unauthenticated_privileged_terminal",
+                message=problem + (_STALE_RENDER_REMEDY if rendered_project else ""),
+            )
+        )
+    return findings
+
+
 def _check_unknown_persona_reference(
     root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
@@ -965,7 +1702,11 @@ def _read_bundle_path(config_yml_path: Path) -> str | None:
 
 
 def _check_persona_bundle_path_agreement(
-    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    project_root: Path | None = None,
 ) -> list[Finding]:
     """Every entitled persona must put its knowledge bundle where the deploy does.
 
@@ -987,9 +1728,10 @@ def _check_persona_bundle_path_agreement(
     agree.
 
     Read from disk on the same terms as :func:`_check_persona_project_paths` —
-    ``project_path`` resolved against the working directory, an unreadable or
-    unrendered project contributing nothing, since a persona that has not been
-    built yet is already reported by that check.
+    ``project_path`` resolved against ``project_root``, the deployment repo the
+    caller names, an unreadable or unrendered project contributing nothing,
+    since a persona that has not been built yet is already reported by that
+    check.
     """
     deploy_bundle = as_dict(root.get("facility_knowledge")).get("bundle_path")
     if not isinstance(deploy_bundle, str) or not deploy_bundle.strip():
@@ -1005,7 +1747,7 @@ def _check_persona_bundle_path_agreement(
         project_path_raw = entry.get("project_path")
         if not isinstance(project_path_raw, str) or not project_path_raw:
             continue
-        config_yml = Path(project_path_raw) / "config.yml"
+        config_yml = (project_root or Path(".")) / project_path_raw / "config.yml"
         if not config_yml.is_file():
             continue
         persona_bundle = _read_bundle_path(config_yml)
@@ -1027,7 +1769,9 @@ def _check_persona_bundle_path_agreement(
     return findings
 
 
-def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+def _check_persona_project_paths(
+    web_terminals: dict[str, Any], users: list[Any], *, project_root: Path | None = None
+) -> list[Finding]:
     """Local mode: validate every referenced persona's ``project_path``.
 
     ``project_path`` names the directory ``osprey up`` builds a persona's
@@ -1065,11 +1809,15 @@ def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]
         if not isinstance(entry, dict):
             continue  # unresolvable reference — _check_unknown_persona_reference /
             # _check_default_persona_exists already report this
-        findings.extend(_check_one_persona_project_path(persona_name, entry))
+        findings.extend(
+            _check_one_persona_project_path(persona_name, entry, project_root=project_root)
+        )
     return findings
 
 
-def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) -> list[Finding]:
+def _check_one_persona_project_path(
+    persona_name: str, entry: dict[str, Any], *, project_root: Path | None = None
+) -> list[Finding]:
     """The per-persona body of :func:`_check_persona_project_paths`: validate one
     catalog entry's ``project_path``. Early returns short-circuit the later
     checks exactly where a failed prerequisite makes them meaningless (see the
@@ -1093,7 +1841,10 @@ def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) ->
             )
         ]
 
-    project_path = Path(project_path_raw)
+    # Resolved against the deployment repo the caller names, not the working
+    # directory: `osprey scaffold web-terminals lint` run from a subdirectory
+    # otherwise reports every rendered persona as missing.
+    project_path = (project_root or Path(".")) / project_path_raw
 
     # Name invariant: the build writes each persona render at a path whose
     # basename is the catalog `project`, so project_path's basename must equal

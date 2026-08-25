@@ -285,6 +285,7 @@ def test_the_web_probes_split_the_perimeter_from_the_application(
         ("terminal (alice)", "http://localhost:9091/health"),
         ("terminal (bob)", "http://localhost:9092/health"),
         ("terminal (ariel)", "http://localhost:9093/health"),
+        ("terminal (carol)", "http://localhost:9094/health"),
     ]
 
 

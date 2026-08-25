@@ -5260,11 +5260,24 @@ def _collect_unmet_preconditions(
             has been built or started.
     """
     from osprey.deployment.errors import UnmetPreconditionsError
-    from osprey.deployment.web_terminals.provision import web_terminal_preflight_problems
+    from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
 
     findings: list[tuple[str, str]] = []
     if web_terminals_enabled:
-        findings.extend(web_terminal_preflight_problems(config, repo_root=repo_root))
+        # Both halves off ONE lint pass: they are two readings of the same
+        # findings, and asking for them separately walked every persona's
+        # rendered config.yml twice on a pass that promises to report in
+        # seconds.
+        problems, advisories = web_terminal_preflight_report(config, repo_root=repo_root)
+        findings.extend(problems)
+        # Said, not refused over -- the privilege exposures that are real but
+        # must not stop the start of a running stack (a privileged
+        # `default_persona`, an `auth.method: none` deployment). Printed rather
+        # than collected because the collection RAISES: an advisory in that list
+        # would refuse the deploy it is trying to inform. Output, not a write,
+        # so the pass keeps the purity its position depends on.
+        for advisory in advisories:
+            _warn_fact(advisory)
     # Ahead of the pin below because it is about the chain every service reads
     # rather than about one image's build, and the deploy meets it first. Sees
     # the chain as it stands AFTER every mint above, so a token the deploy just

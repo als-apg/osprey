@@ -31,6 +31,8 @@ import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
+import { applyConfigTabGate } from './config-tab.js';
+import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
 import {
   initDockIframeAdapter, focusPanel, hidePanel, concealPanel,
   setKnownServicePanels, setServerVisiblePanels, glowPanel,
@@ -330,6 +332,23 @@ export async function initPanelManager(panelId) {
   // and whether config pinned one) so a later family switch can move the rail.
   // A failed fetch leaves it inert, which is the pre-coupling behavior.
   initRailThemeCoupling(panelConfig || {});
+
+  // Withdraw the settings drawer's Config tab where the deployment gated its
+  // server surface off (web.config_panel.enabled). The tab is not a dock panel
+  // — it is static drawer markup — but the flag rides the payload this module
+  // already reads, and applying it here keeps the page to ONE /api/panels
+  // round trip. config-tab.js owns the rule; a failed fetch (null) leaves the
+  // tab alone, matching every other server-config read above.
+  applyConfigTabGate(panelConfig);
+
+  // Record whether this deployment's Scaffold gallery may write
+  // (web.scaffold_gallery.write_enabled). The gallery renders its controls
+  // lazily, when a drawer tab is first activated, so it reads the posture back
+  // at render time; applying it here rides the same single /api/panels round
+  // trip as the Config gate above. scaffold/write-gate.js owns the rule; a
+  // failed fetch (null) leaves the posture alone, matching every other
+  // server-config read in this function.
+  applyScaffoldWriteGate(panelConfig);
 
   // A human closing a dock tile is a LOCAL vacate (occupancy is per-client
   // layout state; the panel keeps its rail membership) — reconcile the local

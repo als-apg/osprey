@@ -69,7 +69,7 @@ Run & Operate the Agent
       OSPREY interface at once, and adding your own themed side panels.
 
    .. grid-item-card:: Multi-User Support
-      :link: multi-user
+      :link: multi-user/index
       :link-type: doc
 
       Serve a whole team from one host — a landing page plus a private
@@ -105,6 +105,13 @@ Run & Operate the Agent
 
       Let your team ask the Osprey agent questions from Nextcloud Talk or Google
       Chat and get answers, plots, and files back in the same conversation.
+
+   .. grid-item-card:: The Protected Set
+      :link: protected-set
+      :link-type: doc
+
+      The files and config keys the agent may not rewrite, which surfaces
+      refuse them, and where a refused attempt is recorded.
 
    .. grid-item-card:: Monitor the Agent
       :link: monitor-agent
@@ -228,11 +235,12 @@ Bundled Services & Tutorials
    deploy-project/index
    containerize-project
    web-terminal/index
-   multi-user
+   multi-user/index
    send-feedback
    cli-agent
    event-dispatch
    chat-bridges/index
+   protected-set
    monitor-agent
    configure-health-checks
    health-json-contract

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import difflib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from osprey.errors import BuildProfileError
@@ -247,7 +248,9 @@ def deploy_config_overrides(deploy: DeployConfig | None, config: Any) -> dict[st
     return {IMAGE_SOURCE_CONFIG_KEY: deploy.image_source}
 
 
-def deploy_aware_config_errors(deploy: DeployConfig | None, config: Any) -> list[str]:
+def deploy_aware_config_errors(
+    deploy: DeployConfig | None, config: Any, *, profile_root: Path | None = None
+) -> list[str]:
     """Lint a profile's web stack against the config the BUILD will render.
 
     The lint reads a ``config:`` block, but not every fact it checks is spelled
@@ -276,6 +279,13 @@ def deploy_aware_config_errors(deploy: DeployConfig | None, config: Any) -> list
     Args:
         deploy: The profile's parsed ``deploy:`` block, or ``None``.
         config: The profile's ``config:`` block.
+        profile_root: The directory the profile being linted lives in. Persona
+            deltas (``build_profile: personas/<name>.yml``) are named relative
+            to it, so a caller that omits it gets a lint that reads no delta
+            unless it happens to be running from the repo root — which is how
+            ``osprey build`` from a subdirectory, and ``--repo`` from anywhere,
+            used to pass a roster the profile gate exists to refuse. Every
+            command surface passes it.
 
     Returns:
         The lint messages that must fail the command, empty when it passes.
@@ -284,7 +294,29 @@ def deploy_aware_config_errors(deploy: DeployConfig | None, config: Any) -> list
     # the lint engine pulls in the whole web-terminals package behind it.
     from osprey.deployment.web_terminals.lint import profile_config_errors
 
-    return profile_config_errors({**config, **deploy_config_overrides(deploy, config)})
+    return profile_config_errors(
+        {**config, **deploy_config_overrides(deploy, config)}, profile_root=profile_root
+    )
+
+
+def deploy_aware_config_warnings(
+    deploy: DeployConfig | None, config: Any, *, profile_root: Path | None = None
+) -> list[str]:
+    """The advisory half of :func:`deploy_aware_config_errors`, on the same merged view.
+
+    Paired with the errors here for the same reason the merge is: a profile that
+    validates must build, and a profile that draws an advisory from one command
+    must draw the same one from the other. Both command surfaces print these
+    above their success line — an exposure nobody prints is an exposure nobody
+    has, and the whole-deployment one (``auth.method: none`` in front of a
+    privileged terminal) is deliberately not an error, so printing is the only
+    way it reaches an operator at all.
+    """
+    from osprey.deployment.web_terminals.lint import profile_config_warnings
+
+    return profile_config_warnings(
+        {**config, **deploy_config_overrides(deploy, config)}, profile_root=profile_root
+    )
 
 
 def _reject_duplicate_image_source(config: Any, image_source: str, problems: list[str]) -> None:
