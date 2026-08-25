@@ -187,6 +187,7 @@ class SwitchError(RuntimeError):
         detail: str,
         *,
         verification: Verification | None = None,
+        gateway: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(detail)
         self.target = target
@@ -194,6 +195,12 @@ class SwitchError(RuntimeError):
         self.reason = reason
         self.detail = detail
         self.verification = verification
+        #: ``{"role", "host", "port"}`` of the gateway a failed probe ran
+        #: through. Both roles usually share a hostname and differ only by
+        #: port, so a refusal that named only the probe channel would read as
+        #: "the control system is down" when one gateway beside a healthy one
+        #: is unserved.
+        self.gateway = gateway
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -204,6 +211,8 @@ class SwitchError(RuntimeError):
         }
         if self.verification is not None:
             payload["verification"] = self.verification.as_dict()
+        if self.gateway is not None:
+            payload["gateway"] = self.gateway
         return payload
 
 
@@ -831,9 +840,27 @@ class ConnectorHostManager:
                 ROLE_READ_ONLY,
             )
             derivation = read_derivation
-            candidate = await self._launch(
-                target, derivation, probe_channel, without_write_gateway=True
-            )
+            try:
+                candidate = await self._launch(
+                    target, derivation, probe_channel, without_write_gateway=True
+                )
+            except SwitchError as retry_error:
+                if retry_error.stage != STAGE_PROBE:
+                    raise
+                # Both probes failed. The surfaced error is the read-role one —
+                # the last thing actually probed — but the operator gets the
+                # whole story: the write gateway failed first, so this is not
+                # one flaky endpoint but a target with no reachable gateway.
+                raise SwitchError(
+                    retry_error.target,
+                    retry_error.stage,
+                    retry_error.reason,
+                    f"{retry_error.detail} The {ROLE_WRITE_ACCESS!r} gateway at "
+                    f"{dead.host}:{dead.port} was probed first and also failed, so no "
+                    f"configured gateway for target {target!r} is answering.",
+                    verification=retry_error.verification,
+                    gateway=retry_error.gateway,
+                ) from None
             fallback = {
                 "host": dead.host,
                 "port": dead.port,
@@ -1028,12 +1055,19 @@ class ConnectorHostManager:
                     verification=verification,
                 )
             if probe_channel:
-                await channel.request(
-                    "spawn_probe",
-                    {"channel": probe_channel, "timeout": self._probe_timeout_s},
-                    self._probe_timeout_s + 1.0,
-                    STAGE_PROBE,
-                )
+                try:
+                    await channel.request(
+                        "spawn_probe",
+                        {"channel": probe_channel, "timeout": self._probe_timeout_s},
+                        self._probe_timeout_s + 1.0,
+                        STAGE_PROBE,
+                    )
+                except SwitchError as exc:
+                    # The probe channel alone does not say which endpoint would
+                    # not answer; the derivation this child was launched from
+                    # does. Raised richer, not merely logged, because the
+                    # refusal is the only thing the operator sees.
+                    raise _name_probed_gateway(exc, derivation) from None
             else:
                 logger.info(
                     "Connector host for target %r started without a readiness probe: "
@@ -1189,6 +1223,27 @@ class ConnectorHostManager:
                 DEFAULT_DRAIN_TIMEOUT_S,
             )
             return DEFAULT_DRAIN_TIMEOUT_S
+
+
+def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:
+    """The same probe failure, naming the gateway the probe ran through.
+
+    A target that derives no endpoint (the mock, a gatewayless deployment) has
+    nothing to add, and the error passes through unchanged.
+    """
+    endpoint = derivation.selected_endpoint()
+    if endpoint is None:
+        return error
+    role = derivation.selected_role
+    return SwitchError(
+        error.target,
+        error.stage,
+        error.reason,
+        f"{error.detail} The probe ran through the {role!r} gateway at "
+        f"{endpoint.host}:{endpoint.port}.",
+        verification=error.verification,
+        gateway={"role": role, "host": endpoint.host, "port": endpoint.port},
+    )
 
 
 def _without_write_gateway(section: dict[str, Any], connector_type: str) -> dict[str, Any]:

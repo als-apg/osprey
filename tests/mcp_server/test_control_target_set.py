@@ -43,6 +43,7 @@ from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 DEAD_WRITE_PORT = switch_suite.DEAD_WRITE_PORT
+GATEWAY_HOST = switch_suite.GATEWAY_HOST
 REFUSE_CHANNEL = switch_suite.REFUSE_CHANNEL
 SETTLE_TIMEOUT_S = switch_suite.SETTLE_TIMEOUT_S
 VA_PROBE = switch_suite.VA_PROBE
@@ -406,6 +407,40 @@ class TestDelegation:
         assert "WARNING" in payload["description"]
         assert "read_only" in payload["description"]
         assert manager.active_target() == "live"
+
+    async def test_a_probe_failure_names_the_gateway_in_details_and_suggestions(
+        self, make_manager, monkeypatch, write_armed_project
+    ):
+        """Issue #718, part two, at the tool surface.
+
+        Both roles usually share a hostname and differ only by port, so a
+        refusal naming only the probe channel misreads as "the control system
+        is down". The error details carry the probed gateway's role, host and
+        port, and a suggestion tells the operator to check that endpoint —
+        not the control system beside it.
+        """
+        manager = make_manager(
+            raw=gateway_config(read_gateway=False), config_path=write_armed_project
+        )
+        install_context(manager, monkeypatch)
+        await manager.ensure_started()
+        await manager.switch("va")
+
+        with assert_raises_error(error_type=control_target.ERROR_FAILED) as ctx:
+            await TOOL(target="live")
+
+        details = ctx["envelope"]["details"]
+        assert details["gateway"] == {
+            "role": "write_access",
+            "host": GATEWAY_HOST,
+            "port": DEAD_WRITE_PORT,
+        }
+        suggestions = ctx["envelope"]["suggestions"]
+        assert any(
+            "write_access" in line and f"{GATEWAY_HOST}:{DEAD_WRITE_PORT}" in line
+            for line in suggestions
+        ), suggestions
+        assert manager.active_target() == "va"
 
     async def test_a_switch_error_becomes_the_structured_error(
         self, make_manager, monkeypatch, emitted

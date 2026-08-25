@@ -25,6 +25,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   switch retries through the `read_only` gateway and lands with a warning; writes on
   such a session still go through the unchanged write path and are refused at the
   read-only gateway. (#718)
+- Target switch: a readiness-probe failure now names the gateway role, host and port
+  it probed — in the error detail, the structured `details.gateway`, and an
+  actionable suggestion — instead of only the probe channel, which misread as "the
+  control system is down" when a single gateway beside a healthy one was unserved.
+  (#718)
 
 ### Added
 

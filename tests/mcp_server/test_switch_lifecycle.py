@@ -689,6 +689,69 @@ class TestDeadWriteGatewayFallback:
         assert manager.active_target() == "live"
 
 
+class TestProbeFailureNamesTheGateway:
+    """Issue #718, part two: a probe refusal must name the endpoint it probed.
+
+    Both gateway roles usually share a hostname and differ only by port, so a
+    refusal that names just the probe channel reads as "the control system is
+    down" when only one gateway beside a healthy one is unserved. The failure
+    carries the role, host and port it actually probed — structured, and in
+    the detail sentence.
+    """
+
+    async def test_a_probe_failure_names_the_role_host_and_port_it_probed(
+        self, make_manager, write_armed_project
+    ):
+        # A write-only gateways table: no read row, so no fallback is possible
+        # and the original write-role failure is the one that surfaces.
+        manager = make_manager(
+            raw=gateway_config(read_gateway=False), config_path=write_armed_project
+        )
+        await manager.ensure_started()
+        await manager.switch("va")
+
+        with pytest.raises(SwitchError) as raised:
+            await manager.switch("live")
+
+        error = raised.value
+        assert error.stage == "probe"
+        assert error.gateway == {
+            "role": "write_access",
+            "host": GATEWAY_HOST,
+            "port": DEAD_WRITE_PORT,
+        }
+        assert error.as_dict()["gateway"] == error.gateway
+        assert "write_access" in error.detail
+        assert f"{GATEWAY_HOST}:{DEAD_WRITE_PORT}" in error.detail
+        assert manager.active_target() == "va"
+
+    async def test_a_fallback_that_also_fails_names_both_gateways(
+        self, make_manager, write_armed_project
+    ):
+        # The read row points at the dead port too, so the fallback probe
+        # fails as well. The surfaced error is the read-role failure — the
+        # last thing actually probed — and it still names the write gateway
+        # that failed first, so the operator sees the whole story.
+        manager = make_manager(
+            raw=gateway_config(read_port=DEAD_WRITE_PORT), config_path=write_armed_project
+        )
+        await manager.ensure_started()
+        await manager.switch("va")
+
+        with pytest.raises(SwitchError) as raised:
+            await manager.switch("live")
+
+        error = raised.value
+        assert error.stage == "probe"
+        assert error.gateway["role"] == "read_only"
+        assert error.gateway["port"] == DEAD_WRITE_PORT
+        assert "write_access" in error.detail
+        assert manager.active_target() == "va"
+        # Nothing about the failed pair of launches moved the session.
+        value = await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0)
+        assert isinstance(value, ChannelValue)
+
+
 # ----------------------------------------------------------------- draining
 
 

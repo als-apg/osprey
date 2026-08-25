@@ -580,13 +580,24 @@ async def control_target_set(target: str) -> str:
         # A failed switch left the session where it was, and the operator who
         # approved the attempt is told so rather than left to infer it.
         await _emit_failure(session_target, wanted, exc.reason)
+        suggestions = [
+            f"The session is still on target {hosts.active_target()!r}; nothing was switched.",
+        ]
+        if exc.gateway:
+            # Both roles usually share a hostname and differ only by port, so
+            # without this line the failure reads as "the control system is
+            # down" when only one gateway beside a healthy one is unserved.
+            suggestions.append(
+                f"The readiness probe ran through the {exc.gateway['role']!r} gateway at "
+                f"{exc.gateway['host']}:{exc.gateway['port']}. Check that a gateway process "
+                "is actually serving that host and port — the control system itself, and "
+                "this target's other gateway roles, may be healthy."
+            )
+        suggestions.append("Fix what the detail names, then ask for the switch again.")
         return make_error(
             ERROR_FAILED,
             exc.detail,
-            [
-                f"The session is still on target {hosts.active_target()!r}; nothing was switched.",
-                "Fix what the detail names, then ask for the switch again.",
-            ],
+            suggestions,
             details=exc.as_dict(),
         )
     except BaseException:
