@@ -1,33 +1,187 @@
 {
-  "_comment": [
-    "Ontology table for the demo machine's generated knowledge graph.",
-    "",
-    "'family_to_class' maps every FAMILY token of the control_assistant tier-3 channel",
-    "database to a class in the NARAD shared-semantics vocabulary; 'classes' declares",
-    "those classes and their rdfs:subClassOf parents, closed up to the root",
-    "'AcceleratorDevice'.  The hierarchy is copied edge-for-edge from the NARAD",
-    "shared-semantics vocabulary the als-ontology project defines, so a class-rollup",
-    "query written against any NARAD graph returns the analogous answer on the demo graph.",
-    "",
-    "Every class name here exists in that vocabulary, and each one's skos:altLabel",
-    "list is the vocabulary's list verbatim.  Three classes carry additional demo-only",
-    "synonyms, because the demo machine names devices the vocabulary has no word for:",
-    "  - BeamCurrentMonitor gains 'dcct' (the demo's DCCT family).",
-    "  - BeamLossMonitor gains 'gamma monitor', 'neutron monitor', 'radiation monitor'.",
-    "  - Modulator gains 'klystron', 'modulator', 'rf modulator'.",
-    "",
-    "APPROXIMATION: the demo machine's GAMMA and NEUTRON families are radiation",
-    "monitors, and the NARAD vocabulary has no radiation-monitor class.  Both map to",
-    "BeamLossMonitor, the nearest existing class -- a diagnostic that counts particles",
-    "lost from the beam.  This is deliberate: the demo corpus stays inside the shipped",
-    "vocabulary rather than inventing a class the ALS graph would not recognise.  A",
-    "facility whose real ontology has a better class should ship its own table.",
-    "",
-    "The CAVITY family maps to AcceleratingCavity rather than to one of its subclasses",
-    "(NormalConducting / Superconducting), because the demo machine's channel database",
-    "does not say which technology the cavities use."
-  ],
-  "root": "AcceleratorDevice",
+  "_generated": "Generated from demo_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
+  "classes": {
+    "AcceleratingCavity": {
+      "altLabels": [
+        "accelerating cavity",
+        "cavity",
+        "rf cavity"
+      ],
+      "parent": "RadioFrequency"
+    },
+    "AcceleratorDevice": {
+      "altLabels": [],
+      "parent": null
+    },
+    "BeamCurrentMonitor": {
+      "altLabels": [
+        "bc",
+        "bcm",
+        "beam current monitor",
+        "current monitor",
+        "dcct"
+      ],
+      "parent": "Instrumentation"
+    },
+    "BeamLossMonitor": {
+      "altLabels": [
+        "beam loss monitor",
+        "blm",
+        "gamma monitor",
+        "lm",
+        "loss monitor",
+        "neutron monitor",
+        "radiation monitor"
+      ],
+      "parent": "Instrumentation"
+    },
+    "BeamPositionMonitor": {
+      "altLabels": [
+        "beam position monitor",
+        "bpm",
+        "drbpm",
+        "pm",
+        "position monitor",
+        "position pickup"
+      ],
+      "parent": "Instrumentation"
+    },
+    "Corrector": {
+      "altLabels": [
+        "corrector",
+        "orbit corrector",
+        "steerer",
+        "steering magnet"
+      ],
+      "parent": "Magnet"
+    },
+    "Dipole": {
+      "altLabels": [
+        "bend",
+        "bend magnet",
+        "bending magnet",
+        "dipole",
+        "dipole magnet"
+      ],
+      "parent": "Magnet"
+    },
+    "Gauge": {
+      "altLabels": [
+        "cold cathode",
+        "cold cathode gauge",
+        "coldcathode",
+        "gauge",
+        "pressure gauge",
+        "quattro",
+        "quattro gauge",
+        "quattrogauge",
+        "vacuum gauge"
+      ],
+      "parent": "Vacuum"
+    },
+    "HCorrector": {
+      "altLabels": [
+        "hcor",
+        "hcorrector",
+        "horizontal corrector",
+        "horizontal orbit corrector",
+        "horizontal steering magnet"
+      ],
+      "parent": "Corrector"
+    },
+    "Instrumentation": {
+      "altLabels": [
+        "diagnostics",
+        "instrumentation"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Magnet": {
+      "altLabels": [
+        "electromagnet",
+        "magnet"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Modulator": {
+      "altLabels": [
+        "klystron",
+        "modulator",
+        "rf modulator"
+      ],
+      "parent": "RadioFrequency"
+    },
+    "Pump": {
+      "altLabels": [
+        "ion pump",
+        "neg pump",
+        "negpump",
+        "pump",
+        "uhv pump",
+        "uhvpump",
+        "vacuum pump"
+      ],
+      "parent": "Vacuum"
+    },
+    "Quadrupole": {
+      "altLabels": [
+        "defocusing magnet",
+        "focusing magnet",
+        "qj",
+        "quad",
+        "quadrupole",
+        "quadrupole magnet",
+        "qw"
+      ],
+      "parent": "Magnet"
+    },
+    "RadioFrequency": {
+      "altLabels": [
+        "radio frequency",
+        "radiofrequency",
+        "rf"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Sextupole": {
+      "altLabels": [
+        "sext",
+        "sextupole"
+      ],
+      "parent": "Magnet"
+    },
+    "VCorrector": {
+      "altLabels": [
+        "vcor",
+        "vcorrector",
+        "vertical corrector",
+        "vertical orbit corrector",
+        "vertical steering magnet"
+      ],
+      "parent": "Corrector"
+    },
+    "Vacuum": {
+      "altLabels": [
+        "vacuum"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Valve": {
+      "altLabels": [
+        "beamline gate valve",
+        "beamline valve",
+        "beamlinevalve",
+        "bv",
+        "fast valve",
+        "fastvalve",
+        "fv",
+        "gate valve",
+        "isolation valve",
+        "valve"
+      ],
+      "parent": "Vacuum"
+    }
+  },
   "family_to_class": {
     "BPM": "BeamPositionMonitor",
     "CAVITY": "AcceleratingCavity",
@@ -49,186 +203,5 @@
     "VALVE": "Valve",
     "VCM": "VCorrector"
   },
-  "classes": {
-    "AcceleratorDevice": {
-      "parent": null,
-      "altLabels": []
-    },
-    "AcceleratingCavity": {
-      "parent": "RadioFrequency",
-      "altLabels": [
-        "accelerating cavity",
-        "cavity",
-        "rf cavity"
-      ]
-    },
-    "BeamCurrentMonitor": {
-      "parent": "Instrumentation",
-      "altLabels": [
-        "bc",
-        "bcm",
-        "beam current monitor",
-        "current monitor",
-        "dcct"
-      ]
-    },
-    "BeamLossMonitor": {
-      "parent": "Instrumentation",
-      "altLabels": [
-        "beam loss monitor",
-        "blm",
-        "gamma monitor",
-        "lm",
-        "loss monitor",
-        "neutron monitor",
-        "radiation monitor"
-      ]
-    },
-    "BeamPositionMonitor": {
-      "parent": "Instrumentation",
-      "altLabels": [
-        "beam position monitor",
-        "bpm",
-        "drbpm",
-        "pm",
-        "position monitor",
-        "position pickup"
-      ]
-    },
-    "Corrector": {
-      "parent": "Magnet",
-      "altLabels": [
-        "corrector",
-        "orbit corrector",
-        "steerer",
-        "steering magnet"
-      ]
-    },
-    "Dipole": {
-      "parent": "Magnet",
-      "altLabels": [
-        "bend",
-        "bend magnet",
-        "bending magnet",
-        "dipole",
-        "dipole magnet"
-      ]
-    },
-    "Gauge": {
-      "parent": "Vacuum",
-      "altLabels": [
-        "cold cathode",
-        "cold cathode gauge",
-        "coldcathode",
-        "gauge",
-        "pressure gauge",
-        "quattro",
-        "quattro gauge",
-        "quattrogauge",
-        "vacuum gauge"
-      ]
-    },
-    "HCorrector": {
-      "parent": "Corrector",
-      "altLabels": [
-        "hcor",
-        "hcorrector",
-        "horizontal corrector",
-        "horizontal orbit corrector",
-        "horizontal steering magnet"
-      ]
-    },
-    "Instrumentation": {
-      "parent": "AcceleratorDevice",
-      "altLabels": [
-        "diagnostics",
-        "instrumentation"
-      ]
-    },
-    "Magnet": {
-      "parent": "AcceleratorDevice",
-      "altLabels": [
-        "electromagnet",
-        "magnet"
-      ]
-    },
-    "Modulator": {
-      "parent": "RadioFrequency",
-      "altLabels": [
-        "klystron",
-        "modulator",
-        "rf modulator"
-      ]
-    },
-    "Pump": {
-      "parent": "Vacuum",
-      "altLabels": [
-        "ion pump",
-        "neg pump",
-        "negpump",
-        "pump",
-        "uhv pump",
-        "uhvpump",
-        "vacuum pump"
-      ]
-    },
-    "Quadrupole": {
-      "parent": "Magnet",
-      "altLabels": [
-        "defocusing magnet",
-        "focusing magnet",
-        "qj",
-        "quad",
-        "quadrupole",
-        "quadrupole magnet",
-        "qw"
-      ]
-    },
-    "RadioFrequency": {
-      "parent": "AcceleratorDevice",
-      "altLabels": [
-        "radio frequency",
-        "radiofrequency",
-        "rf"
-      ]
-    },
-    "Sextupole": {
-      "parent": "Magnet",
-      "altLabels": [
-        "sext",
-        "sextupole"
-      ]
-    },
-    "VCorrector": {
-      "parent": "Corrector",
-      "altLabels": [
-        "vcor",
-        "vcorrector",
-        "vertical corrector",
-        "vertical orbit corrector",
-        "vertical steering magnet"
-      ]
-    },
-    "Vacuum": {
-      "parent": "AcceleratorDevice",
-      "altLabels": [
-        "vacuum"
-      ]
-    },
-    "Valve": {
-      "parent": "Vacuum",
-      "altLabels": [
-        "beamline gate valve",
-        "beamline valve",
-        "beamlinevalve",
-        "bv",
-        "fast valve",
-        "fastvalve",
-        "fv",
-        "gate valve",
-        "isolation valve",
-        "valve"
-      ]
-    }
-  }
+  "root": "AcceleratorDevice"
 }
