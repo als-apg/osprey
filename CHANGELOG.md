@@ -11,6 +11,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- Build interview: an upstream fit watch — places where OSPREY cannot express what a
+  facility needs are recorded as candidates in `INTERVIEW.md`, verified against the
+  installed framework by a scout, and offered to the user as a GitHub issue or email
+  to the maintainers. Nothing is sent without the user approving the full text.
+
 ### Security
 
 - Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact

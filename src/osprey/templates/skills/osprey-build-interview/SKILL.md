@@ -8,6 +8,9 @@ description: >
   Also handles migration from existing OSPREY projects (including
   LangGraph-era projects) — trigger on "migrate my project", "I have an
   existing project", "upgrade from old OSPREY", "bring my project forward".
+  Also use when OSPREY cannot cleanly express something a facility needs
+  and the gap should become an upstream change request — "OSPREY can't do
+  X here", "file this with the OSPREY team", "is this an OSPREY gap".
   Resume a previous interview by invoking this skill inside a deployment
   repo that contains an INTERVIEW.md.
 ---
@@ -61,6 +64,65 @@ Practical consequences:
 - **Use AskUserQuestion for forks**, with short ASCII previews when a
   choice is easier shown than described.
 
+## Upstream fit watch
+
+OSPREY is facility-agnostic by intent but grew up with one reference
+facility. A new facility is the first real test of an abstraction
+somewhere, and this interview is where a misfit surfaces first — as a
+workaround, an "Other", or a sentence like "OSPREY can't do that yet, so
+for now we'll…". Those workarounds are signal the OSPREY team wants;
+capture them instead of letting them dissolve into the repo. Watch for
+them through the whole interview.
+
+**A candidate** is any point where the facility's reality cannot be
+expressed by the live repo: a control system or archiver the connector
+set doesn't cover, or two protocols at once (one deployment, one
+connector); a safety model beyond per-channel limits plus single-human
+approval (relational limits, two-person sign-off, per-user or per-shift
+write scopes, readback on a different channel); a provider or auth scheme
+the provider list can't name; a logbook or metadata source with no config
+surface; a migration EVALUATE module that exists because "OSPREY had no
+X" (ask why it was written). **Not a candidate:** facility data the
+deployment owns (channel names, limits, URLs, timezone), or a placeholder
+for information the user simply doesn't have yet. Before logging, ground
+the gap in the live repo — `profile.yml`'s comments,
+`osprey config --defaults`, `osprey profile artifacts` — because the most
+common "gap" is an option you hadn't read yet.
+
+Record candidates in `INTERVIEW.md` under `## Upstream candidates`, one
+entry each:
+
+```
+- <short-id>: <what the facility needs> [blocking|worked-around]
+  offered: <what OSPREY offers instead>
+  workaround: <what this deployment does about it>
+  status: open
+```
+
+`status` may only be `open`, `filed <url>`, `emailed <date>`, `dropped`,
+`profile-local`, or `already-supported (<key>)` — and only the scout
+(below) moves an entry beyond `open`/`dropped`.
+
+**Severity is one question: with the workaround in place, does the
+deployment still serve the purpose the user stated?** No → `blocking`:
+offer an investigation on the spot — "I think this is better solved by a
+change in OSPREY than by a workaround here. Want me to investigate? You
+decide afterwards whether anything gets sent." Yes, degraded but working →
+`worked-around`: acknowledge in one line and let the devil's advocate
+round review the list; don't interrupt per item. A facility safety rule
+OSPREY cannot enforce is always `blocking`, and writes stay off while it
+is open — never let "the operators will follow the rule themselves" stand
+in for enforcement. If the user declines an investigation, set
+`status: dropped` and never raise that candidate again.
+
+When the user says yes — on the spot, at the devil's advocate round, or
+on a later resume — read `references/upstream-scout.md` and follow it: it
+verifies the gap against the installed framework (a verdict of "already
+supported" fixes the deployment instead of filing anything), drafts an
+issue-quality write-up into `upstream/<short-id>.md`, and asks whether to
+file it on GitHub, email the maintainers, keep it local, or drop it.
+Nothing is ever sent without the user seeing the full text first.
+
 ## Flow
 
 ### 0. Resume check
@@ -68,7 +130,8 @@ Practical consequences:
 If the current directory (or a path the user gives) contains an
 `INTERVIEW.md`, this is a resume: read it, summarize the state in two or
 three sentences ("Decided: …; still open: …"), and continue from the Open
-section. Do not re-ask decided questions.
+section. Mention any upstream candidates still at `status: open` and
+offer to investigate them. Do not re-ask decided questions.
 
 ### 1. Pre-init round
 
@@ -158,22 +221,35 @@ Spawn one subagent with: the full `INTERVIEW.md`, the current
 
 > Find gaps and inconsistencies in this OSPREY deployment setup. Check at
 > least: write access enabled without limits or with safety hooks/rules
-> removed; provider configured but no key in `.env`; a real control system
-> selected without the connection details its comments require; declared
-> feature blocks nothing reads (comments state the pairings); decisions in
-> INTERVIEW.md not reflected in profile.yml and vice versa; use cases the
-> user described that the current selection cannot serve. Classify each
+> removed; write access enabled while an Upstream candidate records a
+> facility approval rule OSPREY cannot enforce (CRITICAL); provider
+> configured but no key in `.env`; a real control system selected without
+> the connection details its comments require; declared feature blocks
+> nothing reads (comments state the pairings); decisions in INTERVIEW.md
+> not reflected in profile.yml and vice versa; use cases the user
+> described that the current selection cannot serve; a workaround, "for
+> now", or deferred stub in INTERVIEW.md that is not in its Upstream
+> candidates section (facility data and missing-data placeholders are not
+> gaps); a logged candidate an existing profile option plausibly covers —
+> name the option, as a lead to verify, not a verdict. Classify each
 > finding CRITICAL (unsafe or broken) / RECOMMENDED / OPTIONAL. Judge only
 > against the provided artifacts, not against assumptions about OSPREY.
 
 Resolve every CRITICAL finding with the user; offer RECOMMENDED ones;
-mention OPTIONAL ones in passing.
+mention OPTIONAL ones in passing. Then, if any upstream candidates are
+still `open`, show them as one-liners and ask once whether to investigate
+now (all or some — `references/upstream-scout.md` per candidate) or leave
+them recorded for a later resume. A candidate the reviewer thinks is
+already covered gets verified against the live repo before anything
+changes — its status moves only on evidence.
 
 ### 7. Wrap-up
 
 - Final `osprey validate` and `osprey build`; fix anything they raise.
 - Set `INTERVIEW.md` status to `complete`; move anything unresolved to
-  Open/Deferred so it is not lost.
+  Open/Deferred so it is not lost. Upstream candidates keep their own
+  section and statuses — resuming the interview later offers the `open`
+  ones again.
 - Close with next steps read from the repo itself (its README and CLI
   help): typically `osprey up -d`, `osprey chat`, the web terminal, and
   where to edit `profile.yml` later.
@@ -203,6 +279,12 @@ touched: <optional topics discussed>
 ## Deferred / follow-up work
 - <custom work or later phase, with pointers>
 
+## Upstream candidates        # only when OSPREY didn't fit — see Upstream fit watch
+- <short-id>: <what the facility needs> [blocking|worked-around]
+  offered: <what OSPREY offers instead>
+  workaround: <what this deployment does about it>
+  status: open
+
 ## Migration notes            # only when migrating
 - <source path, classification decisions, ported/skipped items>
 ```
@@ -217,6 +299,9 @@ SALVAGE / OBSOLETE / TRANSFORM / EVALUATE classification rules (that file
 describes the frozen legacy architecture, so its hardcoded knowledge is
 safe). Then:
 
+- For each EVALUATE item, ask why it was written before deciding its
+  fate — "because OSPREY had no X" makes it an upstream candidate (see
+  Upstream fit watch) as well as a port decision.
 - Channel databases and data files → the new repo's `data/` tree.
 - Config values (gateways, archiver URLs, provider) → `osprey set` into the
   live profile, guided by the new profile's own comments.
