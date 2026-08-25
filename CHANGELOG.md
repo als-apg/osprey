@@ -135,6 +135,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The graphdb container's healthcheck now probes with `wget`, which the Neo4j
+  community image ships, instead of `curl`, which it does not — the container
+  no longer sits at `unhealthy` forever while the store is serving.
 - Dependabot pull requests no longer fail CI: the Deploy E2E lane now skips on
   Dependabot runs (which get no Actions secrets) like every other secret-gated
   lane, and the run summary names it among the lanes to revalidate. Dependency

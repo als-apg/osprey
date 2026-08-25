@@ -178,7 +178,12 @@ services:
       # becoming a second place the minted password has to be spelled. A pass
       # means the server is up and serving, which is the condition the seeder
       # waits on before it bootstraps the graph config and imports the corpus.
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:{{ probe_port }}/"]
+      #
+      # wget, not curl: the neo4j community image ships wget (its own
+      # entrypoint fetches the n10s jar with it) and no curl at all — a curl
+      # probe fails on every attempt and parks the container at `unhealthy`
+      # while the store serves normally.
+      test: ["CMD-SHELL", "wget -q -O /dev/null -T 5 http://127.0.0.1:{{ probe_port }}/"]
       interval: 10s
       timeout: 5s
       retries: 5
