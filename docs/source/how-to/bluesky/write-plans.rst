@@ -124,6 +124,79 @@ Two ways to add a plan
    more. Facility-tier plans carry no fingerprint bookkeeping — their trust
    comes from being installed by you.
 
+Declare the devices a plan may drive
+====================================
+
+A plan names channels through its parameters, but *which* devices exist at all
+is the deployment's answer, not the plan's. One short file gives it: a list of
+every device the queue server may drive or record, named in the build profile
+by ``bluesky.devices_file`` — ``data/bluesky_devices.yml`` inside your project
+unless you point it elsewhere.
+
+.. code-block:: yaml
+
+   # data/bluesky_devices.yml
+   settables:
+     - name: SR:MAG:HCM:01
+       setpoint: SR:MAG:HCM:01:CURRENT:SP
+       readback: SR:MAG:HCM:01:CURRENT:RB
+     - name: BTS:QF3
+       setpoint: BTS:QF3,PS:CURRENT:SP   # a comma in an address is fine, and
+                                         # no readback means "read the setpoint"
+
+   readables:
+     - name: SR:DIAG:BPM:01:X
+       pv: SR:DIAG:BPM:01:X:RB
+
+**Settables** are devices a plan may drive: a name, the channel a value is
+written to, and — optionally — a separate channel it is read back from. Leave
+the readback out and the device reads its own setpoint. **Readables** are
+recorded and never written. The name is what a plan and the agent refer to, and
+it is also the column heading in the run's data, so each name may appear only
+once across both lists.
+
+Nothing in the file is split on any character, which is the point of writing it
+this way: an address containing a comma — as some real magnet power supplies
+have — is written out plainly and needs no escaping.
+
+``osprey build`` reads the file and refuses to build on an entry it cannot use,
+naming ``bluesky.devices_file`` and the entry at fault. That refusal is
+deliberate: the queue server itself skips a bad entry with a warning, so a
+deployment built from an unchecked file would come up looking healthy while
+missing exactly the devices you meant to add.
+
+A deployment ends up with its device set in one of three ways:
+
+- **You write the file.** The normal case at a real facility. A path inside the
+  project travels with the built deployment; an absolute path is yours alone —
+  OSPREY reads it where it is and never rewrites or moves it. Either way the
+  build takes its own copy for the queue server to mount, so an edit to your
+  file reaches a running deployment at the next ``osprey build``.
+- **The build writes one for you.** A deployment running the bundled Virtual
+  Accelerator, with no file yet at the path inside the project, gets a device
+  set derived from the project's own channel-limits database: its correctors as
+  settables, its BPMs as readables. That derived set is written straight into
+  the build output and rewritten every time you build, so it is not a file to
+  edit — to take over, put your own file at the path the key names.
+- **Neither.** The queue server comes up able to browse and describe plans and
+  to run none of them. That is a plain statement about the deployment, not a
+  fault, and the build says so in its output. A deployment pointed at the
+  ``mock`` control system is browse-only this way whatever file is present.
+
+.. note::
+
+   **Two lanes, one device file.** A profile that turns on ``second_lane`` runs
+   one plan lane for the live machine and one for the virtual accelerator — and
+   both mount the *same* device file, because a facility has one namespace, not
+   one per lane. So a lane can only drive the devices that file names: a file
+   written for the live machine leaves the virtual-accelerator lane with
+   nothing to address unless those channels are served there too.
+
+Which channels count as scan devices, and which readback belongs to which
+setpoint, is one view of your facility's namespace — the same namespace the
+channel finder and the knowledge graph describe. The three are meant to stay in
+step; bringing them under one description is work still ahead.
+
 A plan says what it touches
 ===========================
 
@@ -228,4 +301,5 @@ Three rules keep a view honest, and the framework enforces all three:
       How a queued plan actually runs, and what refusals mean.
 
    :doc:`/how-to/build-profiles`
-      The build profile that owns ``plan_dir`` and ``excluded_plans``.
+      The build profile that owns ``plan_dir``, ``excluded_plans`` and
+      ``devices_file``.

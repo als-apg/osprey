@@ -878,13 +878,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   `.claude/skills/`. The "Run your first scan" how-to is now "Run your first
   plan" at a new URL.
 
-- The bluesky bridge's plan-device env vars are now named for what a control
-  room calls them: `BLUESKY_EPICS_MOTORS` is `BLUESKY_EPICS_SETPOINTS` and
-  `BLUESKY_EPICS_DETECTORS` is `BLUESKY_EPICS_READBACKS`. Their values and format
-  are unchanged. `osprey up` writes the new names; a project whose `.env` still
-  holds the old ones will find them ignored, so remove those two lines (or run
-  `osprey reset` then `osprey up`, which rewrites the block) to get plan devices
-  back.
+- A Bluesky deployment declares the devices its plans may drive in one device
+  file — `data/bluesky_devices.yml` by default, or wherever
+  `bluesky.devices_file` points. `osprey build` validates it and refuses to
+  build on an entry it cannot use, and the file travels with the built
+  deployment. A project that co-deploys the virtual accelerator and has no file
+  of its own gets one derived from its channel-limits database. With no file at
+  all the queue server can browse and describe plans but run none of them. The
+  bluesky lane mounts the limits database named by
+  `control_system.limits_checking.database_path`, and an edit to it takes
+  effect at the next `osprey build`.
 
 - The two shipped plans now name their read side `readbacks` instead of
   `detectors`, in the plan form, the queue summary, the approval prompt and the

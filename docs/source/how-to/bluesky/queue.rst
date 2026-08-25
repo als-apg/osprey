@@ -207,7 +207,7 @@ quirks worth knowing:
    8091). The launch token is minted automatically at deploy time and stored
    in the project's ``.env``.
 
-   The build profile's ``bluesky:`` block accepts exactly five keys — a
+   The build profile's ``bluesky:`` block accepts exactly seven keys — a
    misspelled or unknown key **fails the build** and prints the valid set:
 
    .. list-table::
@@ -222,11 +222,17 @@ quirks worth knowing:
         - Deploy the Tiled data store alongside the stack.
       * - ``tiled_port``
         - Tiled's port (default 8091).
+      * - ``second_lane``
+        - Run a second plan lane, so one deployment serves both its live
+          machine and its virtual accelerator.
       * - ``plan_dir``
         - A directory of your facility's own plans — see
           :doc:`write-plans`.
       * - ``excluded_plans``
         - Plans to remove from the catalog entirely, e.g. ``[orm]``.
+      * - ``devices_file``
+        - The file listing the devices plans may drive or record
+          (default ``data/bluesky_devices.yml``) — see :doc:`write-plans`.
 
    Whether a deployment can execute plans at all is decided by its control
    system: ``virtual_accelerator`` and ``epics`` can, ``mock`` is
@@ -243,6 +249,14 @@ quirks worth knowing:
    works; one still reading the mock archiver is refused at build time, and told
    to point ``archiver.type`` at a store its deployment writes first — see
    :doc:`../use-virtual-accelerator`.
+
+   One timing detail worth knowing: the channel limits a plan's writes are
+   checked against come from the file
+   ``control_system.limits_checking.database_path`` names, and ``osprey build``
+   stages its **own copy** of that file for the plan lane. So widening or
+   tightening a limit in your deployment repository reaches the queue server at
+   the next ``osprey build`` (and ``osprey up``) — not the moment you save the
+   file.
 
 .. seealso::
 
