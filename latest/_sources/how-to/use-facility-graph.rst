@@ -426,7 +426,7 @@ Multi-User Operator Terminals
 =============================
 
 The ``control-assistant-readonly`` and ``control-assistant-readwrite`` personas
-(:doc:`multi-user`) get the same facility-knowledge-graph agent and its tools,
+(:doc:`multi-user/index`) get the same facility-knowledge-graph agent and its tools,
 reading the hosting deployment's store. They are attached renders — they deploy no services of their own — so
 they have to be told which port that store is published on. Per-user web
 terminal containers run with ``network_mode: host``, so a container's

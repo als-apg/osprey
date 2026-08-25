@@ -1,0 +1,946 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Require a Login &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/multi-user/login';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/multi-user/login.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Send and Retrieve Feedback" href="../send-feedback.html" />
+    <link rel="prev" title="Privilege Tiers" href="tiers.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 25, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Multi-User Support</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Require a Login</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../protected-set.html">The Protected Set</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Multi-User Support</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Require a Login</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="require-a-login">
+<span id="multi-user-require-a-login"></span><h1>Require a Login<a class="headerlink" href="#require-a-login" title="Link to this heading">#</a></h1>
+<p>The landing page lists the roster; a login decides who may open a card. This
+page covers the two ways to require one — passwords OSPREY manages, or the
+single sign-on your facility already runs — the HTTPS that either needs, where
+passwords live, and what to do when someone leaves.</p>
+<p>With no <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza nginx asks for no credentials and speaks plain HTTP —
+but the terminals behind it are not open. Each one authenticates every request
+against its own operator secret, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints into the
+deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> for every roster user whether or not authentication is
+on. Clicking a card on the landing page therefore reaches a terminal that
+refuses you until you have opened that user’s login URL once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>login-url<span class="w"> </span>alice
+</pre></div>
+</div>
+<p>The URL carries alice’s secret and trades it for a session cookie. Send each
+person only their own, the way you would send a password; it stays valid until
+you rotate it, which means deleting that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code>
+line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names the
+verb in its summary but never prints the URLs.)</p>
+<p>What this posture does <em>not</em> do is tell one person from another at the front
+door: whoever holds a URL is that user. It suits a <strong>single trusted host</strong> —
+a workstation or control-room machine you already trust — and nothing beyond
+it.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships with password login switched on, in its
+demo posture: each roster user’s password is seeded into the repository’s
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> (<code class="docutils literal notranslate"><span class="pre">alice</span></code>/<code class="docutils literal notranslate"><span class="pre">alice</span></code>, <code class="docutils literal notranslate"><span class="pre">bob</span></code>/<code class="docutils literal notranslate"><span class="pre">bob</span></code>,
+<code class="docutils literal notranslate"><span class="pre">carol</span></code>/<code class="docutils literal notranslate"><span class="pre">carol</span></code> — change them there, or rotate with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code>), the ARIEL entry stays public
+via <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> (see below), and <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code> keeps the
+demo on plain HTTP. Those passwords authenticate a demo, not a facility: for
+any reachable host, set real passwords and serve TLS as described here.</p>
+<p>Set <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> and every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> — pages, APIs and
+the terminal’s live connection alike — is refused unless the browser holds a
+valid session for <em>that</em> user. The check happens at the front door: a small
+authentication service joins the stack in its own container, and nginx asks it
+about each request before proxying anything. Nothing depends on the per-user
+containers policing themselves.</p>
+<p>Note that the persona split is a <em>capability</em> boundary, enforced per project —
+it decides what a session may do, never who may open it. Login answers the
+separate question of who may open a session. In this multi-user stack that login
+is the per-user auth described above; note that even single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>
+gates every request on a session cookie, handed out by the login URL it prints
+at startup, so “no login” is never the single-user default either.</p>
+<section id="choose-a-method">
+<h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
+<p><strong>Passwords</strong>, managed by OSPREY. Nothing extra to run or operate:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span><span class="w">     </span><span class="c1"># host side; mounted for you</span>
+<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span><span class="w">   </span><span class="c1"># container side</span>
+<span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
+</pre></div>
+</div>
+<p><strong>OIDC</strong>, against the single sign-on your facility already runs. Each roster
+entry names the identity that maps to it, so a valid login as somebody else
+cannot open this user’s terminal:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span><span class="w">     </span><span class="c1"># host side; mounted for you</span>
+<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span><span class="w">   </span><span class="c1"># container side</span>
+<span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span>
+<span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub</span><span class="w">                       </span><span class="c1"># ID-token claim to match on</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span><span class="w">     </span><span class="c1"># alice&#39;s value of that claim</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;b7d9a340-...&quot;</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">*_env</span></code> keys hold environment-variable <strong>names</strong>, not credentials: put the
+client id and secret in the project’s <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> under those names — that is
+the only file the authentication service reads credentials from. The names
+shown are the ones OSPREY reads when you omit the keys, and <code class="docutils literal notranslate"><span class="pre">claim</span></code> falls back
+to <code class="docutils literal notranslate"><span class="pre">sub</span></code> in the authentication service itself. <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> is not a
+secret — it is the identifier your provider already publishes for that person.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>No secret may contain a dollar sign</strong> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and not in
+the <code class="docutils literal notranslate"><span class="pre">.env</span></code> and <code class="docutils literal notranslate"><span class="pre">.env.users</span></code> that carry your provider API key and
+facility passwords. Depending on which container stack reads these files,
+<code class="docutils literal notranslate"><span class="pre">$</span></code> sequences inside the <em>values</em> are substituted on the way through —
+with Docker Compose, <code class="docutils literal notranslate"><span class="pre">secret$abc</span></code> arrives as <code class="docutils literal notranslate"><span class="pre">secret</span></code> and <code class="docutils literal notranslate"><span class="pre">P&#64;$$w0rd</span></code>
+arrives as <code class="docutils literal notranslate"><span class="pre">P&#64;$w0rd</span></code>; other stacks mangle a different set. Either way the
+file on disk still reads correctly, so the only symptom is a login or a
+token exchange that refuses for no visible reason.</p>
+<p>This bites hardest with a client secret your identity provider generated for
+you, since you did not choose those characters. If yours contains a <code class="docutils literal notranslate"><span class="pre">$</span></code>,
+issue a new one rather than trying to escape it — escaping is not portable
+between container runtimes, so there is no spelling that works everywhere.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start a stack whose secrets would be corrupted
+this way and names the offending variables, so you find out before the
+deployment is running rather than after someone cannot log in.</p>
+<p>The same rule extends to each user’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>, which travels a
+different route (the rendered compose file rather than an env file) but is
+rewritten the same way: lint refuses a subject containing <code class="docutils literal notranslate"><span class="pre">$</span></code> and names
+the user. If your provider genuinely issues one, map a different claim via
+<code class="docutils literal notranslate"><span class="pre">auth.oidc.claim</span></code>.</p>
+</div>
+<p>Three more keys are optional. <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> is the port the authentication
+service listens on (default <code class="docutils literal notranslate"><span class="pre">9070</span></code>); <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> is how long a
+session stays valid, in <strong>whole seconds</strong> (default <code class="docutils literal notranslate"><span class="pre">43200</span></code>, twelve hours); and
+<code class="docutils literal notranslate"><span class="pre">auth.image</span></code> names the service’s image, which is <strong>required</strong> when
+<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code> — your CI publishes that image the same way it
+publishes the terminal images. In <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> mode
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds it for you and <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> is not needed.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">auth.port</span></code> and <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> must be plain positive integers.
+A duration string like <code class="docutils literal notranslate"><span class="pre">&quot;12h&quot;</span></code>, a decimal, zero or a negative number is
+<strong>silently replaced by the default</strong> — nothing warns you — so a deployment
+that meant eight-hour sessions would quietly keep twelve-hour ones.</p>
+</div>
+<p>The service listens on <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> on the deploy host itself (the web stack
+uses host networking), so nginx reaches it and nothing off-host does. It is not
+published as a container port, and anyone with a shell on the deploy host can
+reach it — the same as every per-user terminal.</p>
+</section>
+<section id="leave-one-entry-public">
+<h2>Leave one entry public<a class="headerlink" href="#leave-one-entry-public" title="Link to this heading">#</a></h2>
+<p>Not every card on the landing page is a person’s terminal. A roster entry that
+fronts a read-only service — the preset’s ARIEL logbook assistant, say — can
+opt out of the login wall:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">users</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">    </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">    </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">    </span><span class="nt">login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p>With authentication on, that entry sits outside the login wall: nginx never
+asks the authentication service about it, and no password is provisioned for it
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code> refuses the name and says why). Outside the wall is not
+the same as open — the entry is gated exactly as the whole deployment is with
+authentication off, by its own operator secret, so a browser still has to open
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span> <span class="pre">ariel</span></code> once. Cookies from the login wall never reach
+its container.</p>
+<p>Only the literal <code class="docutils literal notranslate"><span class="pre">false</span></code> opts an entry out. Absence, <code class="docutils literal notranslate"><span class="pre">true</span></code>, and any typo
+all mean “login required” — a misspelling can lock an entry down, never open it
+up — and lint reports a non-boolean value. The key is inert while
+<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> is <code class="docutils literal notranslate"><span class="pre">none</span></code>, which lint points out as well.</p>
+<p>Opting out is for entries whose <em>content</em> is public by design. Anything that
+can reach a control system, write anywhere, or spend provider tokens belongs
+behind the wall.</p>
+<p>For the capability it would be worst to leave open, that is a check rather
+than advice: a <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> entry resolving to a persona holding either
+deployment-editing surface — the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool or the web
+Config panel — fails <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> with the
+user named, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start a stack whose render still
+carries one. It holds whether or not your profile floors those surfaces for
+its other tiers; see <a class="reference internal" href="tiers.html"><span class="doc">Privilege Tiers</span></a> for what the
+check reads and what it tells you to do about it. The
+preset’s own admin card sits behind the wall for exactly that reason, and is
+last in the roster so the operator cards keep their ports.</p>
+</section>
+<section id="serve-it-over-https">
+<span id="multi-user-https"></span><h2>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h2>
+<p>A session cookie sent over plain HTTP is readable by anything on the path, so a
+deployment with <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> other than <code class="docutils literal notranslate"><span class="pre">none</span></code> and <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code>
+<strong>refuses to render at all</strong> rather than hand out cookies in the clear. You
+therefore have to pick one of two ways to get the connection encrypted.</p>
+<p><strong>Let this nginx terminate TLS.</strong> Set <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">true</span></code> with a certificate
+and key, and nginx serves HTTPS on 443, redirects the plain port to it, and marks
+session cookies — the login wall’s and each terminal’s own — so browsers only
+ever send them over HTTPS. Bringing the
+certificate is still your job, but getting it <em>into</em> the container is not:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span><span class="w">          </span><span class="c1"># on the deploy host</span>
+<span class="w">  </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span><span class="w">        </span><span class="c1"># inside the container</span>
+<span class="w">  </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is the only key here that names a path on the <strong>deploy host</strong>;
+<code class="docutils literal notranslate"><span class="pre">cert</span></code> and <code class="docutils literal notranslate"><span class="pre">key</span></code> are paths <strong>inside the nginx container</strong>. Setting
+<code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> bind-mounts that directory, read-only, at the directory
+<code class="docutils literal notranslate"><span class="pre">cert</span></code> sits in — so the certificate is where nginx looks without you writing
+any compose of your own. Renewals need nothing extra: the mount is a directory,
+so a replaced file is picked up on the next nginx reload.</p>
+<p>Because one mount has to deliver both files, <code class="docutils literal notranslate"><span class="pre">cert</span></code> and <code class="docutils literal notranslate"><span class="pre">key</span></code> must sit in
+the same directory, and <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> must be absolute. A deployment that
+breaks either rule is refused at render time, naming the reason — rather than
+starting an nginx that immediately dies looking for a file nobody mounted.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is optional. Leave it out and nothing is mounted: the
+compose overlay renders exactly as it does without TLS, and supplying the
+certificate is yours to arrange — a bind mount from a small compose file of
+your own, listed after the web overlay in <code class="docutils literal notranslate"><span class="pre">runtime.compose_files</span></code>, or
+whatever your facility’s certificate management already does. That is the
+route to take when a plain directory bind cannot express how certificates
+reach this host.</p>
+</div>
+<p><strong>Or terminate TLS in front of this nginx.</strong> If a facility load balancer or
+ingress proxy already presents the certificate and forwards to this host, set
+<code class="docutils literal notranslate"><span class="pre">auth.allow_insecure_http:</span> <span class="pre">true</span></code> and leave <code class="docutils literal notranslate"><span class="pre">tls.enabled</span></code> off. This is a
+normal deployment, not a workaround: the browser’s connection is encrypted by
+the thing in front, and the hop it forwards over is yours to keep private.</p>
+<p>This shape needs one key more, and it is <strong>required</strong>, not optional:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">external_origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://terminals.example.org</span><span class="w">   </span><span class="c1"># what the browser reaches</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
+<span class="w">      </span><span class="nt">allow_insecure_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">external_origin</span></code> is the address <strong>browsers</strong> open, which here is the load
+balancer’s, not this host’s. Every terminal refuses a request that would change
+something — a chat message, an approval, a file write — unless the browser says
+it came from that address, and nothing in the rest of this configuration can
+work out what the thing in front answers on. Leave it unset and the
+deployment looks entirely healthy: the containers are up, the landing page
+renders, each terminal opens — and every action taken in one is refused.</p>
+<p>Write it as a bare origin: a scheme, a host, and a port if it is not the
+scheme’s default. No path, no trailing slash. Anything else is refused when you
+build, which is the point — the alternative is finding out from a browser.</p>
+<p>Set it in any deployment where the address people type is not this nginx’s own,
+including a plain reverse proxy or a DNS alias in front of it. When browsers
+reach this nginx directly — every other shape on this page — leave it out and
+the address is derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> and the published port.</p>
+<p>What <code class="docutils literal notranslate"><span class="pre">allow_insecure_http</span></code> is <em>not</em> is a way to postpone certificates on a
+reachable host. With it set and nothing terminating TLS, anyone who can watch
+the traffic can copy a session cookie and become that user. An isolated network
+where you accept that risk is the only other case for it.</p>
+</section>
+<section id="passwords-and-where-they-live">
+<h2>Passwords, and where they live<a class="headerlink" href="#passwords-and-where-they-live" title="Link to this heading">#</a></h2>
+<p>In password mode <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> makes sure every user on the roster has a
+password hash before it starts anything, and aborts before a single container
+starts if it cannot — an unwritable file is caught here rather than becoming a
+stack nobody can log in to. The same check covers the keys used to sign session
+cookies, so an OIDC deployment can abort the same way even though it provisions
+no passwords at all. The usual cause either way is permissions on <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>
+or on the project directory.</p>
+<p>The hashes and signing keys live in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> in the project root — mode
+<code class="docutils literal notranslate"><span class="pre">0600</span></code>, listed in the generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> next to <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>,
+and handed to the authentication service alone. No terminal container ever sees
+it.</p>
+<p>For each user, in order:</p>
+<ol class="arabic simple">
+<li><p>An existing hash in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is kept. Deploying again never resets
+anyone’s password.</p></li>
+<li><p>Otherwise, a plaintext <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_&lt;USER&gt;</span></code> in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is
+hashed into <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> — the way to set a password you already chose. The
+plaintext stays on the deploy host; only the hash reaches a container.</p></li>
+<li><p>Otherwise a password is generated, hashed, and <strong>printed once</strong>, on that
+deploy’s output. Nothing can recover it afterwards, so capture it and hand it
+to the person.</p></li>
+</ol>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;USER&gt;</span></code> is the username uppercased with <code class="docutils literal notranslate"><span class="pre">-</span></code> turned into <code class="docutils literal notranslate"><span class="pre">_</span></code>. That mapping
+is what keeps one user’s credentials out of another user’s terminal, and it keys
+each terminal’s operator secret as well as its password — so <em>every</em> deployment,
+authenticated or not, refuses to render when two roster names collide under it
+(<code class="docutils literal notranslate"><span class="pre">alice-b</span></code> and <code class="docutils literal notranslate"><span class="pre">alice_b</span></code>), or when a name falls outside
+<code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code>.</p>
+<p>To change a password later:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>passwd<span class="w"> </span>alice
+</pre></div>
+</div>
+<p>It prompts (never echoing), rewrites that one hash, and restarts the
+authentication service. Alice’s existing sessions stop working immediately, and
+nobody else’s are touched.</p>
+</section>
+<section id="sessions-logging-out-and-rolling-back">
+<h2>Sessions, logging out, and rolling back<a class="headerlink" href="#sessions-logging-out-and-rolling-back" title="Link to this heading">#</a></h2>
+<p>The landing page stays public — it lists the roster so people can find their own
+card, and a card is a prompt, not a door. One browser may hold several unlocked
+users at once, which is what a shared control-room machine needs; logging out
+ends that one user’s session and leaves the others alone.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The list of logged-out sessions is held in the authentication service’s
+memory, so restarting that container forgets it. A cookie captured before a
+logout could be replayed until it expires on its own — within
+<code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p>
+</div>
+<p>Removing someone needs care, because a credential can outlive the person’s
+account in three different ways:</p>
+<p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">alice</span></code> <strong>, not a hand-edit.</strong> Deleting a
+roster entry and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> removes alice’s container, and the
+authentication service stops answering for a name that is no longer on the
+roster — but her hash stays in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>. Add the name back months later and
+her old password works again. <code class="docutils literal notranslate"><span class="pre">decommission</span></code> (or <code class="docutils literal notranslate"><span class="pre">prune</span></code>, for names already
+edited out) is what actually retires the credential.</p>
+<p><strong>A plaintext password in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives decommission.</strong> If you seeded
+alice’s password by putting <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
+decommissioning her clears the hash but leaves that line — and the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> for a new alice hashes it straight back in, handing the new
+person the departed one’s password. The decommission warns you, but the warning
+scrolls past in a deploy log weeks before anyone reuses the name. <strong>Delete the</strong>
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>line by hand when the person leaves.</strong></p>
+<p><strong>In OIDC mode,</strong> <code class="docutils literal notranslate"><span class="pre">decommission</span></code> <strong>is the verb that ends a session.</strong>
+<code class="docutils literal notranslate"><span class="pre">prune</span></code> cleans up users already off the roster, but it only restarts the
+authentication service when it actually removed a password entry — and an OIDC
+user has none. Their container is gone either way, so the stale route just
+fails; but if what you need is that person’s <em>session</em> closed now, run
+<code class="docutils literal notranslate"><span class="pre">decommission</span></code>.</p>
+<p>To turn login back off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.
+That re-renders nginx and the compose file, drops the authentication service,
+and returns the stack to the open posture described at the top of this section.
+<code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is left in place, so turning login on again keeps everyone’s
+existing password.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="tiers.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Privilege Tiers</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../send-feedback.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Send and Retrieve Feedback</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-method">Choose a method</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leave-one-entry-public">Leave one entry public</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-it-over-https">Serve it over HTTPS</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passwords-and-where-they-live">Passwords, and where they live</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sessions-logging-out-and-rolling-back">Sessions, logging out, and rolling back</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/multi-user/login.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

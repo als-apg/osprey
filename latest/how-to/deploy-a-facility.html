@@ -386,7 +386,11 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
@@ -396,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="protected-set.html">The Protected Set</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
@@ -642,7 +647,7 @@ that <code class="docutils literal notranslate"><span class="pre">osprey</span> 
 (<code class="docutils literal notranslate"><span class="pre">alice</span></code>/<code class="docutils literal notranslate"><span class="pre">alice</span></code>, <code class="docutils literal notranslate"><span class="pre">bob</span></code>/<code class="docutils literal notranslate"><span class="pre">bob</span></code>) and <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code>
 keeping the login flow on plain HTTP. That is a demo posture. For a facility
 host, set real passwords in <code class="docutils literal notranslate"><span class="pre">.env</span></code> (or rotate with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code>)
-and serve TLS — <a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a> walks through both, and through single
+and serve TLS — <a class="reference internal" href="multi-user/login.html"><span class="doc">Require a Login</span></a> walks through both, and through single
 sign-on if your site runs one.</p>
 <p>Then confirm the persona catalog, further down the same <code class="docutils literal notranslate"><span class="pre">config:</span></code> block
 under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> derived these names from the
@@ -1100,7 +1105,7 @@ of a framework artifact.</p>
 <dt><a class="reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a></dt><dd><p>The container-deployment reference: service configuration, compose template
 variables, image overrides, and the <code class="docutils literal notranslate"><span class="pre">--dev</span></code> workflow.</p>
 </dd>
-<dt><a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a></dt><dd><p>The web tier this facility deploys — the landing page and one
+<dt><a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a></dt><dd><p>The web tier this facility deploys — the landing page and one
 containerized terminal per operator.</p>
 </dd>
 <dt><a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>The PyAT soft-IOC, and driving it from the agent.</p>

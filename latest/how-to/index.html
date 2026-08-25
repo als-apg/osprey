@@ -386,7 +386,11 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
@@ -396,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="protected-set.html">The Protected Set</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
@@ -581,7 +586,7 @@ Multi-User Support</div>
 containerized Web Terminal per user, in read-only and write-capable
 capability tiers.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
@@ -624,6 +629,16 @@ Chat Bridges</div>
 Chat and get answers, plots, and files back in the same conversation.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="chat-bridges/index.html"><span class="doc">Chat Bridges</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+The Protected Set</div>
+<p class="sd-card-text">The files and config keys the agent may not rewrite, which surfaces
+refuse them, and where a refused attempt is recorded.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="protected-set.html"><span class="doc">The Protected Set</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">

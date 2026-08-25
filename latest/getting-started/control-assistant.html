@@ -552,8 +552,8 @@ deploy, then recorded from the running machine; the <code class="docutils litera
 sub-agent turns it into interactive and publication-quality plots.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Operator skills</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code>, <code class="docutils literal notranslate"><span class="pre">/session-report</span></code>, <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">demo-ui</span></code> support common control-room workflows.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code>, <code class="docutils literal notranslate"><span class="pre">/session-report</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code>, and <code class="docutils literal notranslate"><span class="pre">demo-ui</span></code>
+support common control-room workflows.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Web terminal</strong></p></td>
 <td><p>A browser split-pane UI with logbook and channel-finder panels
@@ -691,11 +691,20 @@ HTML report to the artifact gallery.</p>
 connection errors, configuration drift) and produces a structured root-cause
 report — it is for diagnosing the <em>assistant</em>, not the accelerator.</p>
 <p><strong>Other skills:</strong> <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code> generates a showcase of plot and report
-artifacts to explore the gallery’s capabilities, <code class="docutils literal notranslate"><span class="pre">demo-ui</span></code> runs a short
+artifacts to explore the gallery’s capabilities, and <code class="docutils literal notranslate"><span class="pre">demo-ui</span></code> runs a short
 scripted demonstration of the agent driving the web workspace — switching
-panel tabs, focusing artifacts, composing layouts — and <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>
-inspects and repairs the project’s configuration when something looks
-misconfigured.</p>
+panel tabs, focusing artifacts, composing layouts.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Editing this deployment’s own configuration is deliberately not one of the
+skills here. The preset withholds the <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code> skill and the agent’s
+<code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool from the control-room agent — including the one this
+tutorial runs — because rewriting the project is administration rather than
+control-room work. The multi-user stack grants both to a single admin
+login; see <a class="reference internal" href="../how-to/multi-user/tiers.html#multi-user-tiers"><span class="std std-ref">the tier table</span></a>. To change something in
+this tutorial, edit <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, which is what
+the rest of this page does.</p>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This project also ships a browser-based <strong>web terminal</strong> with logbook

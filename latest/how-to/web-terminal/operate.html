@@ -386,7 +386,11 @@
 <li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
@@ -396,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../protected-set.html">The Protected Set</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
@@ -551,6 +556,111 @@ Option (macOS) or Shift while dragging, then copy with Cmd+C or Ctrl+Shift+C;
 plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain <code class="docutils literal notranslate"><span class="pre">http://</span></code> page copying falls
 back to an older browser mechanism that Safari may refuse.</p>
+</section>
+<section id="sandbox-one-session">
+<span id="web-terminal-session-posture"></span><h2>Sandbox one session<a class="headerlink" href="#sandbox-one-session" title="Link to this heading">#</a></h2>
+<p>Every terminal session carries a <strong>posture</strong>, shown as a badge in the terminal
+card’s header:</p>
+<ul class="simple">
+<li><p><strong>Writes</strong> — the session runs whatever the deployment permits, under its
+usual approval and write-verification rules. This is the baseline.</p></li>
+<li><p><strong>Sandbox</strong> — the session refuses every control-system write, for as long as
+it stays sandboxed. Reads are untouched: the agent keeps its full view of the
+control system and of the project, and can still run analysis, plots and
+readonly Python.</p></li>
+</ul>
+<p>Click the badge to switch. Both directions ask you to confirm, every time and
+with nothing remembered between switches, because switching restarts the agent
+for that session: the turn it is running right now stops immediately. Your
+conversation history is preserved — the terminal reconnects to the same
+session and you pick up where you left off.</p>
+<p>The posture belongs to <strong>one session</strong>, not to the deployment. Nothing is
+written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>; the session’s agent is respawned with the sandbox
+marker in its environment, and every process it launches inherits it. Two
+people working in two sessions of the same deployment can hold different
+postures, and one of them sandboxing theirs does not touch the other.</p>
+<p>It narrows, and never widens. On a deployment rendered with
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> off, no session can leave the sandbox: the
+request is refused with <em>“This deployment is rendered with
+control_system.writes_enabled off; no session can step out of the sandbox”</em>,
+and the badge on a sandboxed session there is shown disabled rather than
+offering a switch that is certain to fail.</p>
+<p>A session has to have started before it can be given a posture — a session
+only exists on disk once it has been sent a prompt. Until then the request is
+refused with <em>“This session has not started yet — send one prompt first, then
+set its posture.”</em></p>
+<p>Postures survive a restart. They are stored in
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/session-postures.json</span></code>, written as soon as you switch and
+read back when the server starts, so restarting the container never quietly
+returns a sandboxed session to writes.</p>
+<section id="what-refuses-a-write-and-how-firmly">
+<h3>What refuses a write, and how firmly<a class="headerlink" href="#what-refuses-a-write-and-how-firmly" title="Link to this heading">#</a></h3>
+<p>Nothing about the posture is a single choke point — each write route is
+refused by the layer that owns it. The difference between those layers is worth
+knowing, because one of them is a belt rather than the buckle:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>What the agent tries</p></th>
+<th class="head"><p>What refuses it</p></th>
+<th class="head"><p>What that means</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — any control-system write</p></td>
+<td><p>The connector, before the control system is asked</p></td>
+<td><p><strong>Enforced.</strong> The writes-check hook denies it first as well, but the
+connector is the layer that holds if the hook does not run.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">execute</span></code> with <code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code></p></td>
+<td><p>The Python executor’s own gate</p></td>
+<td><p><strong>Enforced.</strong> The run is refused outright; a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> <code class="docutils literal notranslate"><span class="pre">execute</span></code> is
+unaffected and runs normally.</p></td>
+</tr>
+<tr class="row-even"><td><p>Any other write tool the writes-check hook covers — for example the
+Bluesky queue’s arming tools, where that server is enabled</p></td>
+<td><p>The writes-check hook</p></td>
+<td><p><strong>Best-effort.</strong> It is the first hook in the chain and the only
+posture-aware layer those tools have; a hook that fails to run does not
+refuse.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Each layer says which gate refused, in its own words, so the message never
+sends you to the wrong control:</p>
+<ul class="simple">
+<li><p>The hook — <em>“SANDBOX POSTURE — this terminal session refuses
+control-system writes. Switch the session to writes posture from the terminal
+card; config.yml is not the gate here.”</em></p></li>
+<li><p>The connector — <em>“Write to ‘&lt;channel&gt;’ blocked: this terminal session is in
+the sandbox posture — readonly execution mode is in force for the whole
+session, not for a single script. Switch the session to the writes posture
+from the terminal card if the write is intended; config.yml is not the gate
+here.”</em></p></li>
+<li><p>The executor — <em>“This terminal session is in the sandbox posture, which
+refuses control-system writes regardless of what the run asks for.”</em></p></li>
+</ul>
+<p>None of them mentions <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, deliberately: changing
+that key would not lift a posture refusal, and a message that pointed at it
+would send an operator to rebuild a deployment when a single click was the
+remedy. The reverse holds too — a write refused because the deployment has
+writes off says so in its own words and says nothing about postures.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Simple mode’s chat and the operator websocket run their agent through the
+Agent SDK rather than a terminal, and they apply the posture at the moment
+they start that agent, exactly as the terminal does. What is not connected
+yet is the switch: the posture route accepts only a terminal session’s id,
+so those two surfaces cannot be addressed from the badge today. A follow-up
+closes that gap; until then, treat the posture as a control over terminal
+sessions.</p>
+</div>
+</section>
 </section>
 <section id="documentation-and-feedback-settings">
 <h2>Documentation and feedback settings<a class="headerlink" href="#documentation-and-feedback-settings" title="Link to this heading">#</a></h2>
@@ -716,6 +826,10 @@ verbs that read the results back.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-get">What you get</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sandbox-one-session">Sandbox one session</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-refuses-a-write-and-how-firmly">What refuses a write, and how firmly</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-settings">Documentation and feedback settings</a></li>
 </ul>
   </nav></div>

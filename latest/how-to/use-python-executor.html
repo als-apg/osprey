@@ -386,7 +386,11 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
@@ -396,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="protected-set.html">The Protected Set</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
@@ -494,8 +499,9 @@ subprocess with layered safety checks, a process boundary, and timeout
 enforcement. It is a process boundary on the host, not a sandbox or container:
 the code runs with the executor’s own environment (from which sensitive
 credentials are stripped), not inside an isolated machine. Code it runs can
-write anywhere the executor process can — including the project’s
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and its hook scripts.
+write anywhere the executor process can, apart from the deployment’s own
+sources and render — see <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>, which also
+says plainly how far that protection goes.
 The Osprey agent uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.</p>
 <section id="what-it-does">
@@ -653,11 +659,15 @@ project’s own environment, so executed code sees the same imports either way.<
 </section>
 <section id="security-model">
 <h2>Security Model<a class="headerlink" href="#security-model" title="Link to this heading">#</a></h2>
-<p>Seven safety layers are applied in sequence:</p>
+<p>Nine safety layers are applied in sequence:</p>
 <ol class="arabic simple">
 <li><p><strong>Static safety check</strong> (<code class="docutils literal notranslate"><span class="pre">quick_safety_check</span></code>)—blocks dangerous
 patterns such as dynamic code evaluation, dynamic imports, and
 <code class="docutils literal notranslate"><span class="pre">subprocess</span></code> calls before execution begins.</p></li>
+<li><p><strong>Protected-path policy</strong> (<code class="docutils literal notranslate"><span class="pre">path_policy_issues</span></code>)—reads the submitted
+source and refuses code that aims a write at the deployment’s own
+sources or render. Applied in <strong>every</strong> execution mode; see
+<a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>.</p></li>
 <li><p><strong>Readonly import denylist</strong> (<code class="docutils literal notranslate"><span class="pre">check_readonly_imports</span></code>)—a
 <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run may not import control-system client libraries
 (<code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">caproto</span></code>, <code class="docutils literal notranslate"><span class="pre">pvaccess</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>) at all.
@@ -673,6 +683,9 @@ replaced with a refusing function, the connectors refuse
 <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>, and the EPICS connector stays on the <code class="docutils literal notranslate"><span class="pre">read_only</span></code>
 gateway — so a write is refused at runtime and at the network layer
 however it is spelled.</p></li>
+<li><p><strong>Filesystem guard</strong>—the runtime half of layer 2, patched into the
+subprocess so it also sees paths the source did not spell out. Emitted
+in <strong>every</strong> execution mode.</p></li>
 <li><p><strong>Limits monkeypatch</strong> (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> /
 <code class="docutils literal notranslate"><span class="pre">LimitsValidator</span></code>)—at runtime, <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> calls are
 intercepted and validated against the channel limits database.
@@ -732,6 +745,106 @@ to the control system. Resubmit such work with
 <code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code>, which requires human approval.</p>
 </div>
 </section>
+<section id="what-executed-code-may-not-change">
+<span id="python-executor-protected-paths"></span><h3>What executed code may not change<a class="headerlink" href="#what-executed-code-may-not-change" title="Link to this heading">#</a></h3>
+<p>Refusing control-system writes is one boundary; this is a different one. Whatever
+mode a run is submitted in, it may not rewrite the deployment that runs it.
+Three locations are protected:</p>
+<ul class="simple">
+<li><p><strong>The render zone</strong> (<code class="docutils literal notranslate"><span class="pre">build/</span></code>) — rebuilt wholesale by every
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, and the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> inside it is where the next
+run reads its own permissions from. A write here is either lost at the next
+build or, worse, survives as a rendered setting nobody wrote.</p></li>
+<li><p><strong>The profile sources</strong> — what the build reads to produce that render:
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (with <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> beside it), the <code class="docutils literal notranslate"><span class="pre">personas/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">profiles/</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">scripts/</span></code> directories, the convention
+directories (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, <code class="docutils literal notranslate"><span class="pre">agents/</span></code>, <code class="docutils literal notranslate"><span class="pre">commands/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">output-styles/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">services/</span></code>) and the <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror.</p></li>
+<li><p><strong>The audit ledger</strong> (<code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>) — the record of what was refused. A
+run that could rewrite it could erase the evidence of its own refusal.</p></li>
+</ul>
+<p>A protected entry that does not exist yet is protected all the same: in a repo
+with no <code class="docutils literal notranslate"><span class="pre">personas/</span></code> directory, creating one is exactly the write to refuse.</p>
+<p>This boundary is about <em>zones</em> — whole trees, wherever inside them a path lands.
+A companion boundary, <a class="reference internal" href="protected-set.html"><span class="doc">the protected set</span></a>, closes named
+files and config keys to every agent-side writer (the settings panels, the
+galleries, the <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool) rather than to executed code.</p>
+<p>The agent’s own data zone (<code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>) and the run’s execution folder
+are carved back out, so analysis output, figures and saved artifacts keep
+working normally — as does everything else on disk the executor process can
+reach.</p>
+<p><strong>Both modes, same answer.</strong> <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> buys a run human approval to move a
+magnet; it buys no approval to rewrite <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Only the wording of the
+refusal changes — a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run is told the mode, a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run is
+told the path — and re-running as <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> never lifts it. To change any
+of these, edit the profile source yourself and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> is deliberately <strong>not</strong> in this set. What matters about the secrets
+zone is that executed code should not <em>read</em> it, and this is a write-side
+guard; listing the path here would advertise it while protecting nothing that
+matters. Read that omission as “a different problem, not yet solved”, not as a
+verdict that <code class="docutils literal notranslate"><span class="pre">.env</span></code> is safe for executed code to touch.</p>
+<p>Two layers enforce the set:</p>
+<ol class="arabic simple">
+<li><p><strong>Before the run.</strong> The submitted source is walked for write calls —
+<code class="docutils literal notranslate"><span class="pre">open()</span></code> in a write mode, <code class="docutils literal notranslate"><span class="pre">Path.write_text</span></code>/<code class="docutils literal notranslate"><span class="pre">Path.open</span></code>, the
+<code class="docutils literal notranslate"><span class="pre">shutil</span></code> copy/move/remove family, <code class="docutils literal notranslate"><span class="pre">os.remove</span></code>/<code class="docutils literal notranslate"><span class="pre">rename</span></code>/<code class="docutils literal notranslate"><span class="pre">mkdir</span></code> and
+friends — and any whose path is written out as a literal landing inside a
+protected location is refused before anything is spawned, so the agent gets
+a readable message instead of a traceback. A path the code computes at
+runtime is deliberately <em>not</em> guessed at here; it is left to layer 2.
+The same pass refuses code that names the runtime guard’s own internals,
+which is the one thing that guard cannot police for itself.</p></li>
+<li><p><strong>During the run.</strong> A guard is emitted into the subprocess, ahead of the
+submitted code, that intercepts the filesystem entry points (<code class="docutils literal notranslate"><span class="pre">open</span></code>,
+<code class="docutils literal notranslate"><span class="pre">io.open</span></code>, <code class="docutils literal notranslate"><span class="pre">os.open</span></code>, <code class="docutils literal notranslate"><span class="pre">os.truncate</span></code>, <code class="docutils literal notranslate"><span class="pre">os.remove</span></code>, <code class="docutils literal notranslate"><span class="pre">os.unlink</span></code>,
+<code class="docutils literal notranslate"><span class="pre">os.rmdir</span></code>, <code class="docutils literal notranslate"><span class="pre">os.removedirs</span></code>, <code class="docutils literal notranslate"><span class="pre">os.rename</span></code>, <code class="docutils literal notranslate"><span class="pre">os.replace</span></code>,
+<code class="docutils literal notranslate"><span class="pre">os.makedirs</span></code>, <code class="docutils literal notranslate"><span class="pre">os.mkdir</span></code>, <code class="docutils literal notranslate"><span class="pre">os.symlink</span></code>, <code class="docutils literal notranslate"><span class="pre">os.link</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">shutil.copy</span></code>, <code class="docutils literal notranslate"><span class="pre">copy2</span></code>, <code class="docutils literal notranslate"><span class="pre">copyfile</span></code>, <code class="docutils literal notranslate"><span class="pre">move</span></code> and <code class="docutils literal notranslate"><span class="pre">rmtree</span></code>) and
+raises <code class="docutils literal notranslate"><span class="pre">PermissionError</span></code> for a write landing in a protected location,
+however the path was assembled. The protected locations are resolved by
+the parent process and baked into the guard as fixed strings; the
+subprocess never works them out for itself.</p></li>
+</ol>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The runtime guard is <strong>defense in depth, not a security boundary.</strong> It runs
+inside the same process as the code it is guarding, so code written to
+defeat it can simply switch it off — nothing placed <em>inside</em> a process can
+be hidden from that process. What the guard reliably stops is the honest
+miss: the computed or concatenated path the pre-run pass cannot see, and the
+everyday accident of writing output one directory too high.</p>
+<p>What contains code that is deliberately attacking this boundary is the
+operating system. In a container deployment the render zone and the profile
+sources are owned by a different user than the one the agent runs as, so the
+refusal is the kernel’s rather than Python’s. On a bare host, treat the
+guard as a safety net and not as a wall.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The workspace server’s visualization sandbox is built from the same guard
+with the verdict inverted — nothing is reachable unless a directory says
+so. It intercepts only <code class="docutils literal notranslate"><span class="pre">open</span></code> and <code class="docutils literal notranslate"><span class="pre">io.open</span></code>, and <code class="docutils literal notranslate"><span class="pre">io.open</span></code> for write
+modes alone: CPython routes <code class="docutils literal notranslate"><span class="pre">pathlib</span></code> through it, so guarding reads there
+would change what plotting code is allowed to <em>read</em> today.</p>
+</div>
+</section>
+<section id="session-posture">
+<span id="python-executor-session-posture"></span><h3>Session posture<a class="headerlink" href="#session-posture" title="Link to this heading">#</a></h3>
+<p>An operator can step a whole Web Terminal session into a <strong>sandbox posture</strong>
+from its session card (see <a class="reference internal" href="web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">Sandbox one session</span></a>). Every process
+that session launches, this server included, then runs with
+<code class="docutils literal notranslate"><span class="pre">OSPREY_EXECUTION_MODE=readonly</span></code>, and a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> <code class="docutils literal notranslate"><span class="pre">execute</span></code> is refused
+by the executor’s own posture gate, whatever the deployment itself permits:</p>
+<blockquote>
+<div><p>This terminal session is in the sandbox posture, which refuses
+control-system writes regardless of what the run asks for.</p>
+</div></blockquote>
+<p>The agent is told to re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code> — reads are untouched by the
+posture — or to ask the operator to switch the session back. The deployment’s
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is not the gate here and the message does not point at it.</p>
+</section>
 <section id="when-a-write-is-refused">
 <h3>When a write is refused<a class="headerlink" href="#when-a-write-is-refused" title="Link to this heading">#</a></h3>
 <p>Three things happen, at whichever layer catches it:</p>
@@ -744,6 +857,12 @@ timestamp, the layer that refused, and the offending source. That
 directory is durable: builds never touch it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps
 it unless you pass <code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code>.</p></li>
 </ol>
+<p>One case is deliberately not written to that ledger: a protected-path write
+refused at runtime inside a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run. The ledger is keyed on runs that
+were readonly, and filing a readwrite refusal there would put “readonly
+execution mode” in front of an operator whose run was approved for writes. The
+refusal still holds and still reaches the agent and the operator; only the
+ledger entry is missing.</p>
 <div class="admonition-control-system-operations-in-user-code admonition">
 <p class="admonition-title">Control system operations in user code</p>
 <p>Python code interacts with control systems using
@@ -838,6 +957,8 @@ safety checks, and pattern detection.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-execution-environment">The Execution Environment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security-model">Security Model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-counts-as-a-control-system-write">What counts as a control-system write</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-executed-code-may-not-change">What executed code may not change</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-posture">Session posture</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-write-is-refused">When a write is refused</a></li>
 </ul>
 </li>

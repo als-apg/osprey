@@ -386,7 +386,11 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
@@ -396,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="protected-set.html">The Protected Set</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
@@ -696,7 +701,7 @@ unrecognized top-level entries in a profile for exactly this reason — read
 that warning rather than wondering why an artifact never arrived.</p>
 </div>
 <section id="paths-the-profile-may-not-write">
-<h3>Paths the profile may not write<a class="headerlink" href="#paths-the-profile-may-not-write" title="Link to this heading">#</a></h3>
+<span id="profile-reserved-paths"></span><h3>Paths the profile may not write<a class="headerlink" href="#paths-the-profile-may-not-write" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">project/</span></code> is the escape hatch for anything without a home in the table above.
 It cannot write paths the build already owns, because each of those has its own
 channel:</p>
@@ -740,6 +745,11 @@ channel:</p>
 </div>
 <p>A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).</p>
+<p>This table is about <em>build channels</em> — which part of the profile is allowed to
+produce a file. A separate question is which files the running agent may not
+rewrite, whatever channel produced them; that is
+<a class="reference internal" href="protected-set.html"><span class="doc">the protected set</span></a>, and it is neither a subset nor a
+superset of this one.</p>
 <p><code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code> is the one worth understanding: the write-safety hook reads
 it to decide what counts as a hardware write. A hand-written copy would be
 treated as yours and never regenerate, quietly freezing that decision.</p>
@@ -951,11 +961,13 @@ sharing the deployment. For those presets (<code class="docutils literal notrans
   personas/
     readonly.yml       # a read-only terminal
     readwrite.yml      # a write-capable terminal
+    admin.yml          # the one terminal that may edit the deployment
     ariel.yml          # the standalone ARIEL logbook terminal
 </pre></div>
 </div>
 <p>Each file holds only that persona’s <strong>differences</strong> — for the read-only persona,
-chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code>. Sitting in <code class="docutils literal notranslate"><span class="pre">personas/</span></code> beside
+chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code>; for the admin one, the
+privileges the profile below it deliberately withholds. Sitting in <code class="docutils literal notranslate"><span class="pre">personas/</span></code> beside
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is what makes it a persona: the build merges it over that profile
 automatically. There is no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> line to maintain, and no second data tree
 or set of convention directories — everything else comes from the profile above
@@ -1008,7 +1020,7 @@ green build as proof the exclusion took.</p>
 want is “may not write,” prefer flipping the enforcement switch instead —
 the bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-readonly</span></code> preset differs from its
 write-capable sibling only on <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, leaving
-the tool surface identical (see <a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a>).</p>
+the tool surface identical (see <a class="reference internal" href="multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>).</p>
 </div>
 <p>To keep the bluesky server <strong>on</strong> while hiding an individual plan, set
 <code class="docutils literal notranslate"><span class="pre">bluesky.excluded_plans</span></code> instead:</p>
@@ -1434,8 +1446,10 @@ are overridable per facility from <code class="docutils literal notranslate"><sp
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">remove_deny</span></code></p></td>
-<td><p>Remove entries from the built-in deny defaults. Removing a write-capable
-tool that nothing else gates fails the build — see below</p></td>
+<td><p>Remove entries from the deny list. Matches an entry <strong>exactly</strong> — the
+string has to be the one being denied, character for character.
+Removing a write-capable tool that nothing else gates fails the build —
+see below</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">deny</span></code></p></td>
 <td><p>Add facility-specific deny entries</p></td>
@@ -1477,6 +1491,71 @@ really denies. Matchers are read the way the agent runtime reads them: the
 bare tool name, a <code class="docutils literal notranslate"><span class="pre">|</span></code> alternation, any regex that matches the name
 (unanchored), or <code class="docutils literal notranslate"><span class="pre">*</span></code>/<code class="docutils literal notranslate"><span class="pre">.*</span></code>/empty for every tool.</p>
 </div>
+<section id="how-the-deny-list-is-assembled">
+<span id="profile-deny-assembly"></span><h3>How the deny list is assembled<a class="headerlink" href="#how-the-deny-list-is-assembled" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> array in the rendered <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> is
+built from three sources, in this order:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Source</p></th>
+<th class="head"><p>How it is treated</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>The framework’s deny defaults</p></td>
+<td><p>Minus anything the profile lists under <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>The profile’s own <code class="docutils literal notranslate"><span class="pre">deny</span></code></p></td>
+<td><p>Minus anything the profile lists under <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> — a profile may
+subtract what a profile added</p></td>
+</tr>
+<tr class="row-even"><td><p>The write kill switch</p></td>
+<td><p>Appended last and <strong>never</strong> filtered</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The third source is the one to know about. Setting
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code> does not merely stop the write path
+at run time; it also puts the write tools into the rendered deny list. Those
+entries are generated, not authored, and no <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> reaches them. A
+profile that sets <code class="docutils literal notranslate"><span class="pre">writes_enabled:</span> <span class="pre">false</span></code> and also writes
+<code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;mcp__controls__channel_write&quot;]</span></code> still renders that deny —
+which is the point. A read-only posture that a later edit could quietly lift
+would not be a posture at all.</p>
+<div class="important admonition">
+<p class="admonition-title">Permission lists grow across <code class="docutils literal notranslate"><span class="pre">extends</span></code>; they never shrink</p>
+<p>The permission lists under <code class="docutils literal notranslate"><span class="pre">config:</span></code> — <code class="docutils literal notranslate"><span class="pre">deny</span></code>, <code class="docutils literal notranslate"><span class="pre">ask</span></code> and their
+<code class="docutils literal notranslate"><span class="pre">remove_*</span></code> companions — <strong>union</strong> with the ones they inherit. A child
+profile or a persona delta can add to an inherited permission list, but it
+has no way to take an entry out of it: <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> subtracts from the
+convention lists (<code class="docutils literal notranslate"><span class="pre">skills</span></code>, <code class="docutils literal notranslate"><span class="pre">agents</span></code>, <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> and their
+siblings — see <a class="reference internal" href="#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>) and does not reach inside <code class="docutils literal notranslate"><span class="pre">config:</span></code>
+at all.</p>
+<p>That is why a preset that wants to withhold a privilege from every tier and
+grant it back to one writes the floor as <code class="docutils literal notranslate"><span class="pre">deny</span></code>, and lets the privileged
+tier lift it with <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code>. Writing the floor the other way round —
+putting the tool under <code class="docutils literal notranslate"><span class="pre">ask</span></code> at the base and expecting a child to
+<code class="docutils literal notranslate"><span class="pre">remove_ask</span></code> it — does the opposite of what it looks like: the base’s
+<code class="docutils literal notranslate"><span class="pre">remove_ask</span></code> would union into <em>every</em> child, including the one meant to
+keep the approval prompt, and strip that prompt away. <code class="docutils literal notranslate"><span class="pre">deny</span></code> is
+subtractable per tier, which is the direction a floor has to work in.</p>
+<p>The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset is built exactly this way: its
+base denies the agent’s own deployment-editing tool, and the <code class="docutils literal notranslate"><span class="pre">admin</span></code>
+persona is the single delta that removes that deny. Writing the floor is
+not only a convention. A web terminal served without a login by a persona
+that can edit the deployment is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> alike, wherever the deployment has a login wall
+at all — with <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> there is no wall to be exempt from, and
+the same exposure is reported as an advisory instead. On a profile that
+wrote no floor at all, where every persona holds everything, the only
+remedy that refusal can offer is to write one. See <a class="reference internal" href="multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>.</p>
+</div>
+</section>
 </section>
 <section id="services">
 <span id="profile-services"></span><h2>Services<a class="headerlink" href="#services" title="Link to this heading">#</a></h2>
@@ -2090,7 +2169,10 @@ relax the constraint in the profile.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#shipping-the-server-s-code">Shipping the server’s code</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-permissions">Tool permissions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-permissions">Tool permissions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-deny-list-is-assembled">How the deny list is assembled</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-mode-channel-finding">Graph-mode channel finding</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-va-archiver-block">The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block</a><ul class="visible nav section-nav flex-column">

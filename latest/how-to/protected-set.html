@@ -1,0 +1,1041 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>The Protected Set &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/protected-set';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/protected-set.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Monitor Your OSPREY Agent" href="monitor-agent.html" />
+    <link rel="prev" title="Add Your Own Chat Service" href="chat-bridges/add-a-channel.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 25, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">The Protected Set</a></li>
+<li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l1"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">The Protected Set</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="the-protected-set">
+<span id="how-to-protected-set"></span><h1>The Protected Set<a class="headerlink" href="#the-protected-set" title="Link to this heading">#</a></h1>
+<p>The OSPREY agent authors a great deal inside a deployment: subagents, slash
+commands, notes, analysis scripts, plots. What it may not do is rewrite the
+framework that decides what it is allowed to do — the write gate, the approval
+chain, the limits table, the safety hooks, and the config keys those read. That
+closed list of files and keys is the <strong>protected set</strong>.</p>
+<p>It is a policy about <em>writers</em>, not about a directory. One table answers the
+question “may a running agent rewrite this”, and every agent-side writer
+consults it before it puts bytes on disk: the settings drawer’s galleries, the
+Claude-setup file API, the config panel, the <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool, and the
+restore that runs when a session starts. A path refused in one is refused in
+all of them.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Two neighbouring boundaries answer different questions. It is worth knowing
+which one you have hit, because the way past each is different:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="use-python-executor.html#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>
+is about <strong>zones</strong>. A Python run may not write into the render zone
+(<code class="docutils literal notranslate"><span class="pre">build/</span></code>), the profile sources, or the audit ledger, wherever inside
+them the path lands.</p></li>
+<li><p><a class="reference internal" href="build-profiles.html#profile-reserved-paths"><span class="std std-ref">Paths the profile may not write</span></a> is about
+<strong>build channels</strong>. It says which part of your profile is allowed to
+produce a given file, so two channels never both write one artifact.</p></li>
+</ul>
+<p>This page is the third question: may the running agent rewrite this file, or
+this config key, at all. The answer does not change with execution mode,
+session posture, or who is logged in.</p>
+</div>
+<section id="files-by-name">
+<h2>Files, by name<a class="headerlink" href="#files-by-name" title="Link to this heading">#</a></h2>
+<p>Eleven project paths are protected exactly. Each is owned by the channel that
+<em>does</em> write it, and a refusal names that channel — the way in, if you have one:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 45.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Path</p></th>
+<th class="head"><p>Written by</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></td>
+<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code></p></td>
+<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys — <code class="docutils literal notranslate"><span class="pre">claude_code.permissions</span></code>,
+<code class="docutils literal notranslate"><span class="pre">claude_code.hooks</span></code>, <code class="docutils literal notranslate"><span class="pre">artifacts.hooks</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.claude/hooks/hook_config.json</span></code></p></td>
+<td><p>the framework render, from the enabled <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code>. It is the runtime configuration of the
+write-safety layer: <code class="docutils literal notranslate"><span class="pre">osprey_writes_check.py</span></code> reads its <code class="docutils literal notranslate"><span class="pre">write_tools</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code></p></td>
+<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> block</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code></p></td>
+<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">claude_md_template:</span></code> key</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.example</span></code></p></td>
+<td><p>the profile’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> file and <code class="docutils literal notranslate"><span class="pre">env:</span></code> keys</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code></p></td>
+<td><p>the build itself — it stamps the manifest from the resolved profile</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data/simulation/channel_manifest.json</span></code></p></td>
+<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> directory</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data/simulation/channel_limits.json</span></code></p></td>
+<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> directory</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">docker/web-terminal-context/base.md</span></code></p></td>
+<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">web-terminal-context/base.md</span></code> slot</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="whole-classes-of-file">
+<h2>Whole classes of file<a class="headerlink" href="#whole-classes-of-file" title="Link to this heading">#</a></h2>
+<p>Some protected artifacts have no fixed name — you can add a rule or a skill, and
+the new one has to be protected the moment it exists. Those are matched by
+shape:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 35.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Pattern</p></th>
+<th class="head"><p>Why it is closed</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.claude/hooks/osprey_*.py</span></code></p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">osprey_</span></code> hooks <em>are</em> the write-safety layer. An agent editing one
+would be disarming the check that guards its own writes.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.claude/skills/**</span></code></p></td>
+<td><p>A skill is instruction text the agent would otherwise be rewriting for
+itself.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.claude/rules/**</span></code></p></td>
+<td><p>A rule is instruction text the agent would otherwise be rewriting for
+itself.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.claude/settings.local.json</span></code></p></td>
+<td><p>A local settings overlay silently widens the permissions the build
+rendered.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code></p></td>
+<td><p>The limits table every setpoint is checked against before it reaches the
+control system.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Three things make the answer depend on which <em>file</em> is named rather than on how
+the writer spelled it:</p>
+<ul class="simple">
+<li><p><strong>Paths are normalized first.</strong> <code class="docutils literal notranslate"><span class="pre">./x</span></code>, <code class="docutils literal notranslate"><span class="pre">a//b</span></code> and
+<code class="docutils literal notranslate"><span class="pre">foo/../.claude/skills/x</span></code> all ask the same question as their plain
+spellings, so nothing dodges the set by spelling a path the long way round.</p></li>
+<li><p><strong>Matching ignores case.</strong> OSPREY runs on case-insensitive filesystems, where
+<code class="docutils literal notranslate"><span class="pre">.CLAUDE/Skills/x</span></code> opens exactly the file <code class="docutils literal notranslate"><span class="pre">.claude/skills/x</span></code> names. The
+answer is the same on every host.</p></li>
+<li><p><strong>A path that cannot be judged is refused, not allowed.</strong> A path that is
+absolute, or that still climbs above the project root after normalization, is
+not project-relative; “not a path I can judge” must never read as “writable”.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">.claude/agents/</span></code> and <code class="docutils literal notranslate"><span class="pre">.claude/commands/</span></code> are deliberately <strong>not</strong> in the
+set. Authoring a subagent or a slash command is the point of those directories,
+and neither changes what the agent is permitted to do.</p>
+</section>
+<section id="config-keys">
+<h2>Config keys<a class="headerlink" href="#config-keys" title="Link to this heading">#</a></h2>
+<p>Two files carry keys an agent-side writer may not set.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Protected key families</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">control_system.*</span></code>, <code class="docutils literal notranslate"><span class="pre">approval.*</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks.*</span></code>,
+<code class="docutils literal notranslate"><span class="pre">claude_code.permissions.*</span></code>, <code class="docutils literal notranslate"><span class="pre">claude_code.hooks.*</span></code>,
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers.*</span></code>, <code class="docutils literal notranslate"><span class="pre">artifacts.hooks</span></code>, <code class="docutils literal notranslate"><span class="pre">agent_data.*</span></code>,
+<code class="docutils literal notranslate"><span class="pre">file_paths.*</span></code>, <code class="docutils literal notranslate"><span class="pre">artifacts.*</span></code>, plus the runtime write paths below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">mcpServers.*.command</span></code>, <code class="docutils literal notranslate"><span class="pre">mcpServers.*.args</span></code>, <code class="docutils literal notranslate"><span class="pre">mcpServers.*.env.*</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>How a pattern reads: a <code class="docutils literal notranslate"><span class="pre">*</span></code> segment stands for exactly one level, so
+<code class="docutils literal notranslate"><span class="pre">mcpServers.*.command</span></code> covers every server’s command line. A <em>trailing</em> <code class="docutils literal notranslate"><span class="pre">*</span></code>
+also covers the family’s own key, so replacing the whole <code class="docutils literal notranslate"><span class="pre">control_system:</span></code>
+block with a scalar is refused as well as editing a key inside it. And a key
+that is a strict ancestor of a protected key is protected too, because writing
+the ancestor rewrites what is underneath it — <code class="docutils literal notranslate"><span class="pre">services</span></code> is protected because
+a runtime write path lives beneath it, while <code class="docutils literal notranslate"><span class="pre">services.orbit.enabled</span></code> is not.</p>
+<p>The rule for what belongs in this table:</p>
+<blockquote class="pull-quote">
+<div><p>Any key that gates writes/approval/limits, anchors a filesystem path the
+safety layers derive zones from, or is rendered into
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>/<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>.</p>
+</div></blockquote>
+<section id="runtime-write-paths-derived-rather-than-copied">
+<h3>Runtime write paths, derived rather than copied<a class="headerlink" href="#runtime-write-paths-derived-rather-than-copied" title="Link to this heading">#</a></h3>
+<p>Two <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys name a path something writes to at run time:
+<code class="docutils literal notranslate"><span class="pre">simulation.state_dir</span></code> and
+<code class="docutils literal notranslate"><span class="pre">services.channel_finder.pipelines.hierarchical.feedback.store_path</span></code>. They are
+protected under the rule’s second clause — repointing one moves the area a
+safety layer treats as writable.</p>
+<p>They are not typed out in the protected table. That list is <em>imported</em> from the
+connector configuration, where the runtime write paths are already enumerated
+once for their own reasons. Adding a key there protects it here with no second
+edit, and no second copy can drift out of step with the first.</p>
+</section>
+<section id="the-one-exemption-hooks-debug">
+<h3>The one exemption: <code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code><a class="headerlink" href="#the-one-exemption-hooks-debug" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">hooks.*</span></code> is in the table for the hook <em>wiring</em>, and it over-matches one key
+that does not meet the inclusion rule. <code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code> toggles diagnostic
+verbosity inside the hook scripts and does nothing else: it gates nothing, moves
+no zone, and is rendered into no artifact. It is also a shipped operator control
+— the Web Terminal’s Hook Debug switch sets it. So it is exempted by name.</p>
+<p>The exemption names exactly one key and has none of a pattern’s reach.
+<code class="docutils literal notranslate"><span class="pre">hooks</span></code> itself stays protected: replacing the whole block still rewrites the
+wiring.</p>
+</section>
+</section>
+<section id="which-surfaces-ask">
+<h2>Which surfaces ask<a class="headerlink" href="#which-surfaces-ask" title="Link to this heading">#</a></h2>
+<p>Five writers consult the set. Each records its own name in the audit ledger, so
+one query can be narrowed to a single surface or span all of them:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 40.0%" />
+<col style="width: 35.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Surface name</p></th>
+<th class="head"><p>What it is</p></th>
+<th class="head"><p>What it refuses</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">http_config</span></code></p></td>
+<td><p>The settings drawer’s Config tab — <code class="docutils literal notranslate"><span class="pre">PATCH</span></code> and <code class="docutils literal notranslate"><span class="pre">PUT</span></code> on
+<code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
+<td><p>Protected keys in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, whether set, deleted, or reshaped by a
+whole-document replace</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">setup_patch</span></code></p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> MCP tool the agent calls directly</p></td>
+<td><p>Protected keys in the file it was pointed at</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude_setup</span></code></p></td>
+<td><p>The Claude-setup file API (<code class="docutils literal notranslate"><span class="pre">/api/claude-setup</span></code>), which edits files
+under <code class="docutils literal notranslate"><span class="pre">.claude/</span></code></p></td>
+<td><p>Reserved paths, on both saving an existing file and creating a new one</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">scaffold_gallery</span></code></p></td>
+<td><p>The artifact galleries in the settings drawer (Behavior, Safety, Memory,
+Config)</p></td>
+<td><p>Reserved paths, across all six of its write and delete operations</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">scaffold_restore</span></code></p></td>
+<td><p>The startup restore that puts durably-saved artifact bodies back</p></td>
+<td><p>Store records naming a reserved path</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<section id="the-artifact-galleries">
+<h3>The artifact galleries<a class="headerlink" href="#the-artifact-galleries" title="Link to this heading">#</a></h3>
+<p>Every operation in the galleries that can put bytes on disk or take a file off
+it is gated, and each refusal says what did not happen:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Operation</p></th>
+<th class="head"><p>Refusal ends with</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Saving an artifact body</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NOTHING</span> <span class="pre">WAS</span> <span class="pre">WRITTEN</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Creating a new artifact</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NOTHING</span> <span class="pre">WAS</span> <span class="pre">CREATED</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Claiming a framework artifact</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NOTHING</span> <span class="pre">WAS</span> <span class="pre">CLAIMED</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Releasing a claim <em>and deleting the file</em></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NOTHING</span> <span class="pre">WAS</span> <span class="pre">DELETED</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Deleting an untracked file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NOTHING</span> <span class="pre">WAS</span> <span class="pre">DELETED</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Registering an untracked file as yours</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NOTHING</span> <span class="pre">WAS</span> <span class="pre">REGISTERED</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Releasing a claim <em>without</em> deleting stays open: it changes no file, and the
+protected set is about who writes the bytes.</p>
+<p><strong>The judgement is on the resolved path.</strong> A name that looks clean and
+unprotected can still address a different file through a symlink — every writer
+here follows the link, so a save opens the target and a delete removes what the
+link points at. The gallery asks where the bytes actually land, which is what
+holds the set against a link planted inside the render:
+<code class="docutils literal notranslate"><span class="pre">.claude/agents/x.md</span></code> pointing at <code class="docutils literal notranslate"><span class="pre">../rules/safety.md</span></code> is lexically an agent
+and physically a rule.</p>
+<p><strong>The read-only badge mirrors the gates exactly.</strong> A card carrying the
+<code class="docutils literal notranslate"><span class="pre">READ-ONLY</span></code> badge is one the gates would refuse, because the badge is a
+rename of the same answer rather than a second copy of the policy. A card
+offering an edit that the save would then reject is worse than one that says
+plainly it is not yours to edit.</p>
+</section>
+<section id="restoring-artifacts-at-startup">
+<h3>Restoring artifacts at startup<a class="headerlink" href="#restoring-artifacts-at-startup" title="Link to this heading">#</a></h3>
+<p>Artifact bodies you save are kept in a durable store, so a container that is
+recreated comes back with your copies rather than the ones the image shipped.
+That restore runs in both deployment shapes — at Web Terminal startup on a bare
+host, and in the container entrypoint before the server starts — and it is the
+same code in both, so the answer cannot depend on how the deployment is run.</p>
+<p>A store record naming a reserved path is skipped and audited, not obeyed. The
+store sits on a volume the agent can write, so a poisoned record would otherwise
+be a way to have the restore install agent-authored instruction text — and under
+the container entrypoint, install it as root into a tree the agent cannot
+otherwise reach. The restore skips that one record and carries on: one bad
+record must not cost you every other body you saved, and a container that will
+not start is a worse outcome than one that starts with a single file left as the
+image shipped it.</p>
+</section>
+<section id="the-claude-setup-file-api">
+<h3>The Claude-setup file API<a class="headerlink" href="#the-claude-setup-file-api" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> and the rules and skills
+below <code class="docutils literal notranslate"><span class="pre">.claude/</span></code> are rendered by the build profile. Edit them in the profile
+and rebuild the project; saves aimed at them here are refused, because a profile
+that no longer describes the project it built is worse than an edit that did not
+happen. Reserved entries are reported as read-only in the file listing, so the
+surface never offers an edit it would then reject.</p>
+</section>
+</section>
+<section id="where-a-refusal-shows-up">
+<h2>Where a refusal shows up<a class="headerlink" href="#where-a-refusal-shows-up" title="Link to this heading">#</a></h2>
+<p>Three things happen on every refusal, at whichever surface caught it.</p>
+<p><strong>The message names the channel and says nothing happened.</strong> A refusal an
+operator has to interpret is one they will assume was partially carried out, so
+the wording is explicit. An artifact refusal reads
+<code class="docutils literal notranslate"><span class="pre">'&lt;name&gt;'</span> <span class="pre">belongs</span> <span class="pre">to</span> <span class="pre">&lt;channel&gt;.</span> <span class="pre">NOTHING</span> <span class="pre">WAS</span> <span class="pre">WRITTEN.</span></code>; a config refusal ends
+<code class="docutils literal notranslate"><span class="pre">config.yml</span> <span class="pre">is</span> <span class="pre">unchanged</span> <span class="pre">—</span> <span class="pre">no</span> <span class="pre">field</span> <span class="pre">in</span> <span class="pre">this</span> <span class="pre">request</span> <span class="pre">was</span> <span class="pre">applied.</span></code> Both point
+at the profile and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, never at a retry.</p>
+<p><strong>The agent-activity feed reports it.</strong> Each refusal publishes one frame to the
+Web Terminal’s activity feed, so a blocked attempt is something you see rather
+than something only the agent saw. Config refusals are phrased identically
+whichever surface produced them — <code class="docutils literal notranslate"><span class="pre">BLOCKED</span> <span class="pre">a</span> <span class="pre">protected</span> <span class="pre">config</span> <span class="pre">key</span></code> — and carry
+key names only, never values.</p>
+<p><strong>The attempt is recorded in</strong> <code class="docutils literal notranslate"><span class="pre">var/audit/protected-writes.jsonl</span></code>. It sits in
+the state zone beside <code class="docutils literal notranslate"><span class="pre">readonly-refusals.jsonl</span></code>, and it is durable by
+construction: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> wholesale and never
+touches <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps <code class="docutils literal notranslate"><span class="pre">var/audit</span></code> unless you pass
+<code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code>. The two ledgers are separate because they answer different
+questions — “did the agent try to move the machine” versus “did the agent try to
+rewrite the framework that constrains it”.</p>
+<p>One JSON object per line, six fields:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>What it holds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ts</span></code></p></td>
+<td><p>UTC timestamp, <code class="docutils literal notranslate"><span class="pre">YYYY-MM-DDTHH:MM:SSZ</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">surface</span></code></p></td>
+<td><p>Which writer refused — one of the five surface names above</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">target_file</span></code></p></td>
+<td><p>The file the write was aimed at</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">key_or_path</span></code></p></td>
+<td><p>What inside it was protected: a dotted config key, or the
+project-relative path when the whole file is the target</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel</span></code></p></td>
+<td><p>The channel that owns the target, named the same way the refusal message
+names it</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">reason</span></code></p></td>
+<td><p>Short machine-readable reason — <code class="docutils literal notranslate"><span class="pre">protected_key</span></code>, <code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span></code>,
+<code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span> <span class="pre">in</span> <span class="pre">ownership</span> <span class="pre">store</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A <code class="docutils literal notranslate"><span class="pre">PUT</span></code> that would have changed many protected keys at once names the first
+ten and counts the rest in the message, but every changed key reaches the
+ledger. The cap trims the message, never the audit.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Recording is best-effort; refusing is not.</strong> An unwritable audit zone or an
+unreachable feed degrades the trail and never turns a refusal into a server
+error — an error that reads like the gate malfunctioned is the one shape an
+operator could mistake for a gate that failed open.</p>
+</div>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="use-python-executor.html#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a> —
+the zone boundary for Python runs, and the two layers that enforce it.</p></li>
+<li><p><a class="reference internal" href="build-profiles.html#profile-reserved-paths"><span class="std std-ref">Paths the profile may not write</span></a> — which build
+channel owns which artifact, checked at build time.</p></li>
+<li><p><a class="reference internal" href="web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">Sandbox one session</span></a> — the per-session
+posture that refuses control-system writes. It is a separate control: no
+posture opens the protected set, and no posture closes anything on this page
+further.</p></li>
+<li><p><a class="reference internal" href="multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a> — what each login may do, and
+the three layers that hold it. This page is the line every tier shares,
+admin included.</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="chat-bridges/add-a-channel.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Add Your Own Chat Service</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="monitor-agent.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Monitor Your OSPREY Agent</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#files-by-name">Files, by name</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#whole-classes-of-file">Whole classes of file</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#config-keys">Config keys</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-write-paths-derived-rather-than-copied">Runtime write paths, derived rather than copied</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-one-exemption-hooks-debug">The one exemption: <code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-surfaces-ask">Which surfaces ask</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-artifact-galleries">The artifact galleries</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#restoring-artifacts-at-startup">Restoring artifacts at startup</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-claude-setup-file-api">The Claude-setup file API</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-a-refusal-shows-up">Where a refusal shows up</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/protected-set.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
