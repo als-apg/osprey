@@ -62,6 +62,55 @@ The interface has four views, accessible via the navigation bar. All views are r
 The four ARIEL views above were captured with OSPREY |captured_ariel| from the
 ``control-assistant`` tutorial's seeded logbook.
 
+Advanced Options
+================
+
+The **Filters & Options** panel is built from whatever the enabled search
+modules declare, so the controls in it depend on the deployment. Two things
+about how it behaves are worth knowing before you tune anything.
+
+**Every knob shows its own explanation.** The description a module writes for a
+parameter is rendered as a line of hint text under the control, rather than
+hidden behind a hover tooltip --- readable on a touch screen, and readable
+without having to discover that there was something to hover over.
+
+**Knobs you have not touched follow the deployment's configuration.** The panel
+opens on the deployment's configured value for every control that has one, and
+on the shipped default for the rest; a search sends only the controls you
+actually changed. Anything you left alone is not sent at all, so it resolves on
+the server to whatever the configuration says --- which means a change to the
+deployment's config reaches the panel without anyone re-picking anything, after
+the service restarts and the page is reloaded. **Reset** clears the whole set:
+values return to the configured defaults, and every knob counts as untouched
+again.
+
+That is also why the reranking control behaves the way it does. **Rerank
+Results** opens showing ``search_modules.hybrid.settings.rerank`` exactly as the
+deployment set it, and clicking it overrides the configured value for your
+searches from then on, without changing the deployment. **Reset** returns it to
+the deployment's value. The key itself is described in :doc:`search-modes`.
+
+Watching a reranked search run
+------------------------------
+
+Reranking costs seconds, and the interface does not ask you to spend them
+looking at a spinner. A search that will be reranked runs in two phases: the
+fast ranking is fetched and drawn first, then the reranked ranking replaces it
+when it arrives. A status line above the results says which of the two you are
+looking at. Expert view names the mechanism --- *Search complete --- reranking
+with LLM…*, then *Results updated after reranking*. Simple view says the same
+thing in one plain line --- *Showing quick results --- improving the order
+now…*, then *Order improved --- best matches first*.
+
+The second response is drawn from a larger candidate pool, so entries can appear
+or drop out between the phases: the list is redrawn, not merely reordered.
+
+If the reranker cannot answer --- most often on the first query after the search
+sidecar starts, while its model is still loading --- the fast results stay on
+screen under *Could not improve the ranking --- showing fast results*. Nothing
+is lost, and there is nothing to do about it; the next query is normally
+reranked.
+
 Display Preferences
 ===================
 

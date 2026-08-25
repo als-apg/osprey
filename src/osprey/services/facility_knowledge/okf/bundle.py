@@ -110,11 +110,12 @@ class OKFSearchSettings:
     Args:
         rerank: Whether qmd reranks candidates with its LLM reranker. qmd's own
             default is ``True``; OKF's is ``False``, because reranking is the
-            dominant latency term — roughly 4x — and its cost is near-constant
-            in corpus size, so no bundle is small enough to outrun it. The OKF
-            surfaces are interactive and hold a sub-second budget that
-            reranking does not fit in. A deployment that values ranking quality
-            over latency sets ``facility_knowledge.search.rerank: true``.
+            dominant latency term — an LLM reviews each candidate — at a cost
+            that is near-constant in corpus size, so no bundle is small enough
+            to outrun it. The OKF surfaces are interactive and hold a sub-second
+            budget that reranking does not fit in. A deployment that values
+            ranking quality over latency sets
+            ``facility_knowledge.search.rerank: true``.
         candidate_limit: qmd's ``candidateLimit`` — how many candidates the
             reranker considers (qmd's default is 40). Lowering it trades recall
             for latency. ``None`` leaves qmd's default in place.

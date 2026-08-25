@@ -392,14 +392,16 @@ quietly defaulted — silently ignoring ``rerank: "false"`` would leave the
 deployment on the path it explicitly asked to leave.
 
 **``rerank`` defaults to ``false`` here, and to ``true`` on the ARIEL side.**
-That split is deliberate. qmd's reranker improves ranking quality but costs
-roughly **4x** the query budget — measured p95 3927 ms with it against 811 ms
-without, on a 135,000-document corpus — and its cost barely changes with corpus
-size, so no bundle is small enough to outrun it. The OKF surfaces are
-interactive and hold a sub-second budget that reranking does not fit in. The
-ARIEL ``hybrid_search`` tool is an agent tool with no such budget, so it keeps the
-quality path. Set ``rerank: true`` if you would rather have the ranking than
-the latency.
+That split is deliberate. qmd's reranker improves ranking quality at a real
+latency cost — an LLM reviews each candidate before the results come back,
+measured p95 3927 ms with it against 811 ms without, on a 135,000-document
+corpus — and that cost barely changes with corpus size, so no bundle is small
+enough to outrun it. The OKF surfaces are interactive and hold a sub-second
+budget that reranking does not fit in. ARIEL's ``hybrid`` module keeps the
+quality path instead: one key there serves both the agent tool and the search
+panel, and the panel absorbs the wait by showing the fast ranking first and
+replacing it when the reranked one arrives.
+Set ``rerank: true`` if you would rather have the ranking than the latency.
 
 ``candidate_limit`` is how many candidates the reranker considers. Lowering it
 trades recall for latency.

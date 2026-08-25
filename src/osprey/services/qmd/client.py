@@ -376,10 +376,12 @@ class QMDClient:
                 ``candidateLimit``, default 40). Lowering it trades recall for
                 latency. ``None`` leaves qmd's default in place.
             rerank: Whether to rerank with the LLM reranker. qmd defaults this
-                to ``True``, and reranking dominates query latency — roughly 4x
-                — so an interactive caller will usually pass ``False`` and an
-                agent-facing caller ``True``. ``None`` leaves qmd's default in
-                place; the choice belongs to the caller's config, not here.
+                to ``True``. An LLM reviews each candidate, so reranking
+                dominates query latency, at a cost driven by the candidate pool
+                that grows far more slowly than the corpus does — which is why
+                a caller holding an interactive budget usually passes
+                ``False``. ``None`` leaves qmd's default in place; the choice
+                belongs to the caller's config, not here.
             intent: Background context disambiguating the query. It does not
                 search on its own.
 

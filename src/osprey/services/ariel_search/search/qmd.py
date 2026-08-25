@@ -36,10 +36,16 @@ would starve the result set, so a filtered query asks the sidecar for
 :data:`MAX_FETCH_LIMIT`.
 
 **Reranking is the deployment's choice, not this module's.** qmd's LLM reranker
-dominates query latency — roughly 4x — and its cost is near-constant in corpus
-size. This is an agent-facing tool with no interactive budget to blow, so the
-default is qmd's own (``True``), and a deployment that wants the fast path sets
-``search_modules.hybrid.settings.rerank: false``.
+reads every candidate, so a reranked query is markedly slower than a plain one,
+at a cost driven by the candidate pool that grows far more slowly than the
+corpus does. One key — ``search_modules.hybrid.settings.rerank`` — governs both
+surfaces this module serves: the agent-facing tool, whose ``rerank`` argument
+overrides the key for the one call, and the search panel, whose toggle opens
+showing the configured value and whose click overrides it for that session's
+later searches, until Reset, rather than changing the config. The default is
+qmd's own (``True``), because an agent has no interactive budget to blow; a
+deployment that wants the fast path sets the key to ``false``. Reranking is also not load-bearing for correctness: a query whose
+rerank fails degrades to the non-reranked ordering rather than failing.
 """
 
 from __future__ import annotations
@@ -53,6 +59,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
+from osprey.services.ariel_search.exceptions import SearchConfigurationError
+from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
     ParameterDescriptor,
@@ -285,17 +293,32 @@ async def hybrid_search(
         conditional so that direct callers keep the return value they have
         always received; the service unwraps either form.
 
+        A `ModuleOutput` is also returned — with or without an expansion —
+        when the query produced a diagnostic, which today means the reranked
+        query failed and the results come from the unreranked retry.
+
     Raises:
         QMDUnavailableError: If no sidecar is configured, or the configured one
             is not answering. This is deliberately not an empty result: "search
             is down" and "nothing matched" must not look alike to the agent.
-        QMDClientError: If the sidecar was reached but could not answer.
-        ValueError: If the module's config block holds a malformed knob.
+        QMDClientError: If the sidecar was reached but could not answer. A
+            reranked query that fails is retried once without the reranker, so
+            what surfaces here is the retry's failure, not the first attempt's.
+        SearchConfigurationError: If the module's config block holds a
+            malformed knob. Typed so the service can report it as a
+            configuration problem rather than a generic module failure.
     """
     if not query.strip():
         return module_result([], query_expansion)
 
-    settings = HybridSearchSettings.from_ariel_config(config)
+    try:
+        settings = HybridSearchSettings.from_ariel_config(config)
+    except ValueError as exc:
+        # The parse refuses a bad knob with a ValueError naming the key. On the
+        # query path that has to reach the service as a *configuration* failure:
+        # an untyped crash is reported to the agent as a broken sidecar, and it
+        # goes looking at a service that is perfectly healthy. Message verbatim.
+        raise SearchConfigurationError(str(exc)) from exc
     effective_rerank = settings.rerank if rerank is None else bool(rerank)
     effective_candidates = settings.candidate_limit if candidate_limit is None else candidate_limit
 
@@ -315,11 +338,8 @@ async def hybrid_search(
         f"rerank={effective_rerank}, candidate_limit={effective_candidates}"
     )
 
-    # The client is synchronous by design (stdlib urllib, no new dependency), and
-    # a reranked query is measured in seconds — running it inline would stall the
-    # event loop for every other request in the process.
-    hits = await asyncio.to_thread(
-        qmd.query,
+    hits, diagnostics = await _fetch_hits(
+        qmd,
         settings.collection,
         query_expansion.flattened_text if query_expansion else query,
         limit=fetch_limit,
@@ -327,10 +347,27 @@ async def hybrid_search(
         candidate_limit=effective_candidates,
     )
 
+    def shaped(
+        entries: list[tuple[EnhancedLogbookEntry, float, list[str]]],
+    ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
+        """Return `entries` in the shape this call's contract asks for.
+
+        Same rule as `module_result`, with diagnostics folded in: a caller that
+        gets neither an expansion nor a diagnostic keeps the bare list it has
+        always received, and anything richer travels as one `ModuleOutput`.
+        """
+        if not diagnostics:
+            return module_result(entries, query_expansion)
+        return ModuleOutput(
+            entries=entries,
+            diagnostics=diagnostics,
+            expansion=query_expansion.groups if query_expansion else (),
+        )
+
     ranked = _decode_hits(hits)
     if not ranked:
         logger.info("hybrid_search: returning 0 results")
-        return module_result([], query_expansion)
+        return shaped([])
 
     entries = await repository.get_entries_by_ids([entry_id for entry_id, _ in ranked])
     by_id = {entry["entry_id"]: entry for entry in entries}
@@ -349,7 +386,81 @@ async def hybrid_search(
             break
 
     logger.info(f"hybrid_search: returning {len(results)} results")
-    return module_result(results, query_expansion)
+    return shaped(results)
+
+
+async def _fetch_hits(
+    qmd: QMDClient,
+    collection: str,
+    text: str,
+    *,
+    limit: int,
+    rerank: bool,
+    candidate_limit: int | None,
+) -> tuple[list[QMDSearchResult], tuple[SearchDiagnostic, ...]]:
+    """Ask the sidecar to rank, degrading to the unreranked ordering if it must.
+
+    Reranking is not load-bearing for correctness — it improves an ordering that
+    is already usable — so a reranker fault costs the query its ranking quality
+    rather than its results.
+
+    Args:
+        qmd: The resolved sidecar client, already known to be answering.
+        collection: qmd collection to search.
+        text: The query text as the sidecar should see it.
+        limit: How many hits to ask for.
+        rerank: Whether to run the reranker at all.
+        candidate_limit: qmd's ``candidateLimit``; ``None`` leaves qmd's own.
+
+    Returns:
+        The hits, and the diagnostics to carry back with them — one WARNING
+        when the hits came from the unreranked retry, otherwise empty.
+
+    Raises:
+        Exception: Whatever the client raised, when the unreranked query fails
+            too. One retry, not a loop: if the fast path is down, search is down.
+    """
+
+    async def run(*, rerank: bool) -> list[QMDSearchResult]:
+        # The client is synchronous by design (stdlib urllib, no new dependency),
+        # and a reranked query is measured in seconds — running it inline would
+        # stall the event loop for every other request in the process.
+        return await asyncio.to_thread(
+            qmd.query,
+            collection,
+            text,
+            limit=limit,
+            rerank=rerank,
+            candidate_limit=candidate_limit,
+        )
+
+    if not rerank:
+        return await run(rerank=False), ()
+
+    try:
+        return await run(rerank=True), ()
+    except Exception as exc:  # noqa: BLE001 - any reranker fault falls back
+        # The client already proved /health answers at resolve time, so a
+        # failure here is the reranker itself: the model is still loading
+        # after a sidecar restart and the query outran the timeout, or the
+        # reranked query took the daemon down with it. Either way the
+        # unreranked path is a different code path in the daemon and is
+        # worth one try — a dead daemon refuses it fast.
+        logger.warning(
+            f"hybrid_search: reranked query failed ({type(exc).__name__}: {exc}); "
+            "retrying without the reranker"
+        )
+        return await run(rerank=False), (
+            SearchDiagnostic(
+                level=DiagnosticLevel.WARNING,
+                source="hybrid",
+                message=(
+                    "Reranker unavailable — results are not reranked, so the "
+                    "ordering may be less relevant than usual."
+                ),
+                category="rerank",
+            ),
+        )
 
 
 def _fetch_limit(max_results: int, has_filters: bool) -> int:
@@ -594,18 +705,46 @@ def format_qmd_result(
     return {**_format_entry_base(entry), "score": score, "highlights": highlights}
 
 
-def get_parameter_descriptors() -> list[ParameterDescriptor]:
-    """Return tunable parameter descriptors for the capabilities API."""
+def get_parameter_descriptors(config: ARIELConfig | None = None) -> list[ParameterDescriptor]:
+    """Return tunable parameter descriptors for the capabilities API.
+
+    The defaults reported here are the deployment's, not the shipped ones: a
+    panel that opened on ``rerank: true`` while the deployment had turned
+    reranking off would invite an operator to "leave the default alone" and get
+    the opposite of it. Reading them from the same
+    ``search_modules.hybrid.settings`` block the query path reads keeps the two
+    in step.
+
+    Describing the module never fails on bad config. ``/api/capabilities``, the
+    search page and the MCP capabilities tool all walk this function, and a
+    deployment with one malformed key should still see a described, usable
+    module; the key itself is reported by startup validation, which is the
+    surface that can explain it. So a refusal from the settings parser falls
+    back to the shipped defaults here rather than propagating.
+
+    Args:
+        config: The loaded ARIEL configuration. ``None`` — the case for a
+            caller that has no config in hand — yields the shipped defaults.
+
+    Returns:
+        One descriptor per tunable knob, in panel order.
+    """
+    try:
+        settings = HybridSearchSettings.from_ariel_config(config)
+    except ValueError:
+        settings = HybridSearchSettings()
+
     return [
         ParameterDescriptor(
             name="rerank",
             label="Rerank Results",
             description=(
-                "Re-order candidates with the sidecar's reranker model. "
-                "Improves ranking quality at roughly 4x the query latency."
+                "Re-order candidates with the sidecar's reranker model for better "
+                "ordering. Significantly slower — an LLM reviews each result. If "
+                "reranking fails, the results are shown without it."
             ),
             param_type="bool",
-            default=DEFAULT_RERANK,
+            default=settings.rerank,
             section="Retrieval",
         ),
         ParameterDescriptor(
@@ -615,7 +754,7 @@ def get_parameter_descriptors() -> list[ParameterDescriptor]:
                 "How many candidates the reranker considers. Lowering it trades recall for latency."
             ),
             param_type="int",
-            default=DEFAULT_CANDIDATE_LIMIT,
+            default=settings.candidate_limit,
             min_value=1,
             max_value=MAX_FETCH_LIMIT,
             step=1,
