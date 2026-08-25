@@ -10,6 +10,13 @@ This reads them and says so, in the run's step summary, so nobody has to
 download the artifact to learn whether a freeze was one stuck test or the whole
 runner going away.
 
+The lane also tees pytest's own output into the same directory as
+``pytest.log``. When that file holds a ``--durations`` report, its top entries
+are rendered here too: the ranking is the one fact that tells "one group of
+tests got expensive" apart from "the whole suite is uniformly slower", and the
+job log it would otherwise live in is truncated by ``gh run view --log`` to a
+fraction of its length, so the table was unreachable from the CLI.
+
 Deliberately standalone — no imports from ``tests/`` — so the reader cannot be
 broken by the writer, and so it still runs in a job that never installed the
 project. Usage::
@@ -20,6 +27,7 @@ project. Usage::
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -73,6 +81,44 @@ def stalled_tests(directory: Path | str) -> dict[str, str]:
     return stalled
 
 
+PYTEST_LOG = "pytest.log"
+"""File name the lane tees pytest's output into, inside the diagnostics dir."""
+
+SLOWEST_ROWS = 15
+"""Rows of the durations report shown in the summary. The full report stays in
+``pytest.log`` in the uploaded artifact; the summary is a screen, not a log."""
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_DURATIONS_HEADER = re.compile(r"slowest \d+ durations")
+_DURATION_ROW = re.compile(r"^\s*(\d+(?:\.\d+)?)s\s+(call|setup|teardown)\s+(\S.*?)\s*$")
+
+
+def slowest_tests(directory: Path | str) -> list[tuple[float, str, str]] | None:
+    """The ``--durations`` report from ``pytest.log`` as (seconds, phase, nodeid).
+
+    ``None`` when there is no log to read; an empty list when the log exists
+    but never reached the report (the lane was killed first). pytest writes
+    the report with ``--color=yes`` escapes on its rule lines, so the text is
+    stripped of ANSI sequences before matching.
+    """
+    path = Path(directory) / PYTEST_LOG
+    try:
+        text = _ANSI.sub("", path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return None
+    rows: list[tuple[float, str, str]] = []
+    in_report = False
+    for line in text.splitlines():
+        if not in_report:
+            in_report = bool(_DURATIONS_HEADER.search(line))
+            continue
+        match = _DURATION_ROW.match(line)
+        if match is None:
+            break
+        rows.append((float(match.group(1)), match.group(2), match.group(3)))
+    return rows
+
+
 def _counts(directory: Path) -> dict[str, int]:
     return {
         path.stem.removeprefix("events-"): sum(
@@ -121,6 +167,26 @@ def render_report(directory: Path | str) -> str:
     stacks = sorted(directory.glob("stacks-*.txt"))
     if stacks:
         lines += ["", f"**Stack dumps captured:** {', '.join(p.name for p in stacks)}"]
+
+    slowest = slowest_tests(directory)
+    if slowest:
+        lines += [
+            "",
+            f"**Slowest tests (top {min(SLOWEST_ROWS, len(slowest))} of {len(slowest)} "
+            f"reported; the full report is `{PYTEST_LOG}` in the artifact):**",
+            "",
+            "| Seconds | Phase | Test |",
+            "| ---: | --- | --- |",
+        ]
+        lines += [
+            f"| {seconds:.1f} | {phase} | `{nodeid}` |"
+            for seconds, phase, nodeid in slowest[:SLOWEST_ROWS]
+        ]
+    elif slowest is not None:
+        lines += [
+            "",
+            f"No durations report in `{PYTEST_LOG}`: the suite never reached its final summary.",
+        ]
 
     return "\n".join(lines) + "\n"
 
