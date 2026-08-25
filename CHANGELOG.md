@@ -561,6 +561,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   and refuses to queue or start plans while the session is pointed at a target
   that lane does not serve.
 
+- The facility ontology is now authored as a LinkML schema (`demo_ontology.yaml`)
+  and compiled to the JSON table format with `osprey knowledge compile-ontology`;
+  `--check` fails if the compiled output would differ from what's checked in,
+  guarding against drift. The shipped `demo_ontology.json` is now a generated
+  artifact. `linkml-runtime` joins the `knowledge` extra.
+
 ### Changed
 
 - CI: the unit lane's step summary now tabulates the slowest tests of the run
