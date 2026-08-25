@@ -16,6 +16,8 @@ Covers:
 - Every failure is one legible line and a non-zero exit: no channel database
   where the config points, no config key at all, a ``--limits`` path that
   names nothing, and an address the six-token grammar cannot read.
+- A LinkML schema handed to ``--ontology`` is pointed at ``compile-ontology``
+  rather than reported as malformed JSON.
 """
 
 from __future__ import annotations
@@ -714,4 +716,46 @@ def test_build_ttl_rejects_a_malformed_address(descriptions_db: Path, tmp_path: 
     flat = _flat(result)
     assert "Traceback" not in result.output
     assert "RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD" in flat
+    assert not output.exists()
+
+
+def test_build_ttl_points_a_yaml_ontology_at_the_compiler(
+    channel_db: Path, descriptions_db: Path, tmp_path: Path
+) -> None:
+    """A LinkML schema handed to --ontology is sent to compile-ontology first.
+
+    ``--ontology`` reads a compiled JSON table, so a ``.yaml`` schema fails to
+    parse.  The failure has to name the verb that turns one into the other,
+    otherwise the operator is left with 'not valid JSON' about a file that was
+    never meant to be JSON.
+    """
+    schema = tmp_path / "facility.yaml"
+    schema.write_text(
+        "id: https://example.org/facility\n"
+        "name: facility\n"
+        "classes:\n"
+        "  AcceleratorDevice:\n"
+        "    class_uri: narad_sem:AcceleratorDevice\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(channel_db),
+            "--descriptions",
+            str(descriptions_db),
+            "--ontology",
+            str(schema),
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "compile-ontology" in flat
     assert not output.exists()

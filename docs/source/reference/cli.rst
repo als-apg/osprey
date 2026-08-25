@@ -758,6 +758,17 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    Write stub concept documents into a bundle from a TTL corpus, one per class,
    for a person to fill in.
 
+``osprey knowledge compile-ontology SOURCE OUTPUT [--check]``
+   Compile an authored LinkML schema into the ontology table ``build-ttl``
+   reads. ``SOURCE`` is the schema, and ``OUTPUT`` the JSON table to write; an
+   existing file is overwritten. The output is deterministic, so compiling an
+   unchanged schema twice leaves ``git diff`` silent.
+
+   ``--check`` writes nothing. It compares ``OUTPUT`` against a fresh compile of
+   ``SOURCE`` and exits non-zero when the two disagree, naming the classes,
+   synonyms and families that differ --- which is what a CI job or a pre-commit
+   hook runs to prove a committed table still matches its schema.
+
 ``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH]``
    Derive a NARAD-convention TTL corpus — the file ``seed-graph`` loads — from
    the project's own channel databases, so the graph store and the channel
@@ -797,9 +808,12 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       reads. Every run reports which of the two it used.
 
    ``--ontology``
-      The FAMILY-to-class table. Defaults to the demo-machine table shipped with
-      OSPREY; name your own when your device families are not the demo
-      machine's.
+      The FAMILY-to-class table, as compiled JSON. Defaults to the demo-machine
+      table shipped with OSPREY; name your own when your device families are not
+      the demo machine's. The table is compiled from an authored LinkML schema
+      (``compile-ontology`` above) rather than written by hand, though a
+      hand-written JSON table is still accepted, so an existing one keeps
+      working untouched.
 
    The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
    source tree. A rendered project keeps only the paradigm it runs, as a flat

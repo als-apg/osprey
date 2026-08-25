@@ -223,9 +223,10 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides five operations from the
+      The ``osprey knowledge`` command group provides six operations from the
       terminal — three that manage an OKF bundle, one that loads the deployed
-      graph store, and one that generates the corpus it loads.
+      graph store, one that generates the corpus it loads, and one that compiles
+      the ontology table that generation reads.
 
       .. code-block:: console
 
@@ -234,12 +235,16 @@ Working with a Bundle
 
            Manage OKF facility knowledge bundles.
 
+         Options:
+           --help  Show this message and exit.
+
          Commands:
-           build-ttl      Derive a NARAD-convention TTL corpus from the channel...
-           regen-index    Regenerate index.md files throughout an OKF bundle.
-           seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.
-           seed-graph     Load a NARAD/als-ontology TTL into the deployed graph...
-           validate       Validate all OKF documents in a bundle.
+           build-ttl         Derive a NARAD-convention TTL corpus from the channel...
+           compile-ontology  Compile an authored LinkML schema into the ontology...
+           regen-index       Regenerate index.md files throughout an OKF bundle.
+           seed-from-ttl     Seed OKF stub documents from a NARAD/als-ontology TTL...
+           seed-graph        Load a NARAD/als-ontology TTL into the deployed graph...
+           validate          Validate all OKF documents in a bundle.
 
       **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
       this after adding or removing concept documents:
@@ -339,6 +344,19 @@ Working with a Bundle
       :ref:`osprey knowledge <cli-osprey-knowledge>`, and
       :doc:`use-facility-graph` runs the command in both a rendered project and
       the OSPREY source tree.
+
+      **compile-ontology** — turns the LinkML schema where a facility authors its
+      device vocabulary into the ontology table ``build-ttl`` reads. Requires the
+      ``knowledge`` extra:
+
+      .. code-block:: console
+
+         $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json
+
+      The output is deterministic, so a committed table can be reviewed like any
+      other file, and ``--check`` re-compiles without writing anything and fails
+      when the committed table has drifted from its schema — the form for CI and
+      pre-commit hooks. :doc:`use-facility-graph` has the schema format.
 
 
 Searching the Bundle

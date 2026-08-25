@@ -575,6 +575,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   generic pyAT tracking behind the shipped ring model now comes from an
   upstream, facility-agnostic package, `lume-pyat`, rather than living
   inside OSPREY.
+- The facility ontology is now authored as a LinkML schema (`demo_ontology.yaml`)
+  and compiled to the JSON table format with `osprey knowledge compile-ontology`;
+  `--check` fails if the compiled output would differ from what's checked in,
+  guarding against drift. The shipped `demo_ontology.json` is now a generated
+  artifact. `linkml-runtime` joins the `knowledge` extra.
 
 ### Changed
 
