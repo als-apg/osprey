@@ -185,7 +185,7 @@ read-only tier.
         - root
         - osprey
         - root
-      * - :doc:`The protected set <../protected-set>`
+      * - :doc:`The protected set <../../control-systems/protected-set>`
         - refused
         - refused
         - refused
@@ -201,7 +201,7 @@ There is no ``tier:`` setting anywhere. A tier is what a **persona** turns out
 to be once it is built.
 
 .. raw:: html
-   :file: ../../_diagrams/tier-render.html
+   :file: ../../../_diagrams/tier-render.html
 
 Each file under ``personas/`` holds only that persona's **differences** from
 ``profile.yml``. The base profile carries the floor — the three
@@ -222,7 +222,7 @@ some care; the names ``readonly``, ``readwrite`` and ``admin``, and the fact
 that there are three of them, belong to the preset. Rename a persona and
 nothing in the framework notices; add a fourth and it inherits the floor and
 the read-only default until its file says otherwise. :doc:`Build Profiles
-<../build-profiles>` covers what a persona file may contain and how the floor
+<../../build-profiles>` covers what a persona file may contain and how the floor
 is written so that a delta can lift it.
 
 What makes it hold
@@ -233,7 +233,7 @@ to do more than its tier allows is three layers, and the one that ultimately
 holds is file ownership, not a permission list.
 
 .. raw:: html
-   :file: ../../_diagrams/tier-layers.html
+   :file: ../../../_diagrams/tier-layers.html
 
 **Layer 1** is what makes the readonly tier certain. ``writes_enabled: false``
 does not merely tell the agent not to write; it renders the control-system
@@ -244,7 +244,7 @@ code runs, and no persona setting can subtract from that list.
 ``setup_patch`` denied by the floor, the Config panel and gallery refusing
 with a 403, the Python executor refusing to write into the render zone in
 either execution mode. Across all of them sits :doc:`the protected set
-<../protected-set>`: the files and config keys no agent-side writer may
+<../../control-systems/protected-set>`: the files and config keys no agent-side writer may
 rewrite on any tier.
 
 **Layer 3** is what makes the readwrite-versus-admin line *true* rather than
@@ -307,7 +307,7 @@ effect while the stack is running.
 **The protected set still refuses the admin login.** The keys that gate
 writes, approval and limits — and the artifacts rendered from them — are
 refused for every tier, this one included. Admin lifts a *tier floor*; it does
-not open the safety layer. See :doc:`../protected-set` for what is protected and
+not open the safety layer. See :doc:`../../control-systems/protected-set` for what is protected and
 where a refusal is recorded.
 
 **Most edits land on the next build.** The safety hook scripts run as a fresh
@@ -413,7 +413,7 @@ starts anything. Each refusal names the user, or the persona, and the remedy.
 Related pages
 =============
 
-- :doc:`../protected-set` — the files and config keys no agent-side writer may
+- :doc:`../../control-systems/protected-set` — the files and config keys no agent-side writer may
   rewrite, on any tier, and where a refusal is recorded.
 - :ref:`The privilege split <containerize-privilege-split>` — what the
   container does with file ownership, and what a bare host does not.
@@ -421,5 +421,5 @@ Related pages
   — the Python executor's zone boundary, enforced in both execution modes.
 - :ref:`Sandbox one session <web-terminal-session-posture>` — how an operator
   steps a write-capable session *below* its tier for a while, never above it.
-- :doc:`../build-profiles` — personas: what a delta file may contain, and how
+- :doc:`../../build-profiles` — personas: what a delta file may contain, and how
   the floor is written so that one persona can lift it.

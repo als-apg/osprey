@@ -1,3 +1,5 @@
+.. _how-to-use-connectors:
+
 Add a Connector
 ===============
 

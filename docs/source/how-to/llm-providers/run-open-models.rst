@@ -1,3 +1,5 @@
+.. _how-to-run-open-models:
+
 Run Open & Local Models
 =======================
 
@@ -195,7 +197,7 @@ hard-codes a number, so it stays accurate as the suite grows.
    Anthropic columns are single-seed control/ceiling references. These figures are
    a point-in-time snapshot and *will* drift — regenerate with ``scripts/benchmark/``.
 
-   :download:`Download the full interactive dashboard (HTML) <../_static/benchmark-dashboard.html>`
+   :download:`Download the full interactive dashboard (HTML) <../../_static/benchmark-dashboard.html>`
 
 .. seealso::
 

@@ -1,3 +1,5 @@
+.. _reference-ariel:
+
 ===================
 Osprey Integration
 ===================
@@ -138,11 +140,11 @@ your build profile under ``skills/`` --- see :doc:`/how-to/build-profiles`.
 See Also
 ========
 
-:doc:`data-ingestion`
+:doc:`/how-to/ariel/data-ingestion`
     How data gets into the system --- facility adapters, enhancement modules, and database schema
 
-:doc:`search-modes`
+:doc:`/how-to/ariel/search-modes`
     Search module architecture
 
-:doc:`web-interface`
+:doc:`/how-to/ariel/web-interface`
     Web interface architecture and REST API

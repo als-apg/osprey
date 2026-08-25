@@ -99,7 +99,7 @@ result was cut short. Raising them spends the agent's context window rather than
 the store's memory — a few thousand rows crowd out the conversation long before
 they trouble Neo4j. For what the agent does with the store once it is up — the
 query tools, the read-only posture, and how to generate a corpus of your own —
-see :doc:`/how-to/use-facility-graph`.
+see :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The block carries **no password**, deliberately — the same convention
 ``postgresql`` follows. ``osprey up`` mints ``GRAPHDB_PASSWORD`` into the
@@ -111,7 +111,7 @@ bootstraps it, and imports ``ttl_path`` — a store that came up empty would ans
 every query with zero rows, which reads as wrong data rather than as no data.
 Later deploys find the corpus already there and leave it alone. If bootstrapping
 or seeding fails the deploy warns and carries on, naming ``osprey knowledge
-seed-graph`` (see :doc:`/how-to/okf-bundle`), the verb that finishes the job by hand.
+seed-graph`` (see :doc:`/how-to/facility-knowledge/okf-bundle`), the verb that finishes the job by hand.
 
 To query a graph store this deployment does *not* run, give the block an
 explicit ``uri:`` and leave ``graphdb`` out of ``deployed_services``. Nothing is
@@ -136,7 +136,7 @@ CLI Commands
    osprey users prune            # Remove workspaces of users no longer on the roster
                                  #   (--archive | --purge, --dry-run)
 
-Full command and flag reference: :doc:`/cli-reference/index`.
+Full command and flag reference: :doc:`/reference/cli`.
 
 Every verb acts on the deployment repository enclosing the working directory —
 the nearest ``profile.yml`` at or above it. ``--repo DIRECTORY`` names another
@@ -395,12 +395,27 @@ the stack beyond one machine, or manage its configuration values:
       ``.env.shared`` and ``.env``, what a deploy writes back, and the
       warnings and refusals that keep the chain honest.
 
+   .. grid-item-card:: The Project Image
+      :link: project-image
+      :link-type: doc
+
+      The agent's own container image: what ``osprey build`` generates, who
+      owns the ``Dockerfile``, and how to customize it.
+
+   .. grid-item-card:: Search Sidecar
+      :link: ../facility-knowledge/search-sidecar
+      :link-type: doc
+
+      The optional search service deployed beside the stack, and where it
+      listens.
+
 .. toctree::
    :hidden:
 
    compose-templates
    networking
    env-chain
+   project-image
 
 .. _development-mode:
 
@@ -461,17 +476,17 @@ change — rerun ``osprey up --build --dev`` to re-render and rebuild it.
 
 .. seealso::
 
-   :doc:`/cli-reference/index`
+   :doc:`/reference/cli`
        Full lifecycle command and flag reference.
 
    :ref:`profile-services`
        Authoritative ``services:`` schema for build profiles.
 
-   :doc:`/how-to/containerize-project`
+   :doc:`/how-to/deploy-project/project-image`
        The *project image* (assistant + web terminal in one container) built
        from the generated ``Dockerfile`` — distinct from the service
        containers this page covers.
 
-   :doc:`/how-to/search-sidecar`
+   :doc:`/how-to/facility-knowledge/search-sidecar`
        The qmd search sidecar — a shared search service some presets
        co-deploy, documented with the facility-knowledge system it serves.

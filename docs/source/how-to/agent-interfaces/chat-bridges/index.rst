@@ -1,3 +1,5 @@
+.. _how-to-chat-bridges:
+
 ============
 Chat Bridges
 ============
@@ -12,7 +14,7 @@ They work the same way and are configured the same way. You can add others.
 What a Bridge Is Not
 ====================
 
-A bridge is not a second :doc:`Web Terminal <../web-terminal/index>`. There is
+A bridge is not a second :doc:`Web Terminal <../../web-terminal/index>`. There is
 no session to keep open, and nobody is asked to approve anything while an answer
 is being worked out.
 
@@ -30,7 +32,7 @@ A bridge sits between a chat room and the :doc:`event dispatch pipeline
 the dispatcher, waits, and posts back what comes out.
 
 .. raw:: html
-   :file: ../../_diagrams/chat-bridge-pipeline.html
+   :file: ../../../_diagrams/chat-bridge-pipeline.html
 
 Only the top box changes between chat systems. Each system has its own small
 **adapter**, which knows how messages arrive there and how to post a reply

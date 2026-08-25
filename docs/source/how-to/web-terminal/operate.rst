@@ -53,7 +53,7 @@ The window has three working areas plus a header:
 - **Utility controls** — pinned to the far end of the same rail, a
   **Documentation** link and a **Feedback** button that lets whoever is at the
   terminal report a problem without leaving it. See
-  :doc:`/how-to/send-feedback`.
+  :doc:`/how-to/web-terminal/send-feedback`.
 - **Header** — the display menu (a small dot holding the light/dark,
   Expert/Simple, and theme controls — see :doc:`theming`), a settings drawer,
   and an optional name badge to tell one deployment from another.
@@ -273,6 +273,6 @@ its ``config:`` block in the dotted form, e.g.
    :doc:`panels`
       Add your own tools as side panels.
 
-   :doc:`/how-to/send-feedback`
+   :doc:`/how-to/web-terminal/send-feedback`
       The feedback dialog these keys configure, and the ``osprey feedback``
       verbs that read the results back.

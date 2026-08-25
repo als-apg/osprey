@@ -11,7 +11,7 @@ keyword and semantic similarity matching (plus a raw read-only ``sql_query``
 MCP tool for structural queries the agent can run directly against the
 database), and a :doc:`web interface
 <web-interface>` for interactive exploration. These components connect to the
-rest of Osprey through the :doc:`integration layer <osprey-integration>`, where
+rest of Osprey through the :doc:`integration layer </reference/contracts/ariel>`, where
 the agent invokes ARIEL's MCP tools as part of broader workflows.
 
 Every layer is designed to be **facility-agnostic and extensible**. Ingestion
@@ -164,7 +164,7 @@ Learn More
       Keyword and semantic search modules and how to add your own.
 
    .. grid-item-card:: Osprey Integration
-      :link: osprey-integration
+      :link: /reference/contracts/ariel
       :link-type: doc
       :class-header: bg-primary text-white
       :shadow: md
@@ -229,7 +229,6 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    :maxdepth: 2
    :hidden:
 
-   osprey-integration
    data-ingestion
    search-modes
    web-interface

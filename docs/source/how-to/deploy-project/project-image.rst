@@ -1,6 +1,8 @@
-=======================
-Containerize a Project
-=======================
+.. _how-to-project-image:
+
+=================
+The Project Image
+=================
 
 How to build and run the container image that ``osprey build`` generates for
 every project.
@@ -50,13 +52,13 @@ version in the source zone's ``project/`` mirror instead:
        Dockerfile          # copied verbatim onto the render, every build
 
 The mirror is applied after the framework render, so your copy wins each time.
-See :doc:`build-profiles` for the profile's convention directories.
+See :doc:`../build-profiles` for the profile's convention directories.
 
 .. note::
 
    This page covers the **project image** — one container that runs the
    assistant and its web terminal. The lifecycle verbs manage the deployment's
-   *service* containers (databases, MCP servers) — see :doc:`deploy-project/index`
+   *service* containers (databases, MCP servers) — see :doc:`index`
    — but the two meet in one place: a deploy that includes the dispatch
    worker builds this same project image (tagged ``<project>:local``) for
    the worker to run.
@@ -392,7 +394,7 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    source, whatever its permissions look like — so this step really does put
    your claimed bodies back into a render nothing else can write. A store
    record naming a protected path is skipped and recorded instead, under the
-   surface name ``scaffold_restore``; see :doc:`protected-set`.
+   surface name ``scaffold_restore``; see :doc:`../control-systems/protected-set`.
 #. **Hands the state zone back** to the ``osprey`` user — only the paths root
    actually left behind — because both steps above wrote into ``var/`` as
    root, including the protected-write audit ledger the running server has to
@@ -436,7 +438,7 @@ write land. Every other render leaves the file root-owned, which is what makes
 the boundary a fact of the filesystem rather than a permission list the agent
 is asked to respect. Grant the two surfaces together, the way the bundled
 tiers do — a persona handed the panel alone would find the file it has to
-write still owned by root. See :doc:`multi-user/tiers` for the tiers this exists
+write still owned by root. See :doc:`../web-terminal/multi-user/tiers` for the tiers this exists
 for.
 
 On a bare host it is ownership you set up
@@ -587,9 +589,9 @@ The file is yours — common edits:
 
 .. seealso::
 
-   :doc:`deploy-project/index`
+   :doc:`index`
        Service containers (databases, MCP servers) via ``osprey up`` —
        the complement to the project image on this page.
 
-   :doc:`../cli-reference/index`
+   :doc:`/reference/cli`
        ``osprey build --runtime-root`` and ``osprey vendor`` reference.

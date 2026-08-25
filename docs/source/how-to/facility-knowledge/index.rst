@@ -74,6 +74,7 @@ makes the on-demand tier findable:
 .. toctree::
    :hidden:
 
-   facility-rules
+   use-facility-graph
    okf-bundle
+   facility-rules
    search-sidecar

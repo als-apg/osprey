@@ -110,7 +110,7 @@ here under the ``channel-finder`` name: the same read transaction, the same
 refusal of extension procedures and ``LOAD CSV``, the same row and time bounds.
 The examples catalogue is this package's own, written around the questions
 operators ask about channels rather than around general graph exploration. See
-:doc:`/how-to/use-facility-graph`.
+:doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 **Tools:**
 
@@ -281,7 +281,7 @@ NARAD-convention RDF corpus held by the ``graphdb`` store. Rendered only where
 **facility-knowledge-graph subagent**: the main agent's route to the graph is
 delegation, mirroring the channel finder. Every query runs in a read
 transaction, and extension procedures, extension functions and ``LOAD CSV`` are
-refused before the store is dialed. See :doc:`/how-to/use-facility-graph`.
+refused before the store is dialed. See :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 **Tools:**
 

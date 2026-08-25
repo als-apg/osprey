@@ -74,7 +74,7 @@ worth editing because the next command overwrites them:
    * - ``.env.auth``
      - both — the web terminals' password hashes and cookie-signing secrets,
        minted by the deploy, but also where you put an OIDC client id and
-       secret by hand (multi-user deployments only; see :doc:`/how-to/multi-user/index`)
+       secret by hand (multi-user deployments only; see :doc:`/how-to/web-terminal/multi-user/index`)
    * - ``build/.env.merged``
      - machine — the chain collapsed into one file, for compose providers that
        accept only one

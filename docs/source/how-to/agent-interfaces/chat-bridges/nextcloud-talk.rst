@@ -1,3 +1,5 @@
+.. _how-to-nextcloud-talk:
+
 ==============
 Nextcloud Talk
 ==============

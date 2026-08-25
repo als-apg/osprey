@@ -1,3 +1,5 @@
+.. _how-to-switch-control-target:
+
 =====================================
 Switch the Control Target at Run Time
 =====================================
@@ -323,7 +325,7 @@ complete lane, one per target. The switch then stops being a refusal and becomes
 an address: a plan is routed to the lane serving the session's target, ``queue_add``
 reports the lane it bound the plan to, and ``queue_start`` must name that lane —
 so a plan composed for the simulator cannot be started on the machine because
-the session moved in between. See :doc:`bluesky/index` for the plan stack
+the session moved in between. See :doc:`../bluesky/index` for the plan stack
 itself.
 
 See the whole loop run
@@ -351,6 +353,6 @@ plan without touching anything.
 
    - :doc:`use-virtual-accelerator` — the simulator itself, the archive it
      deploys, and the one configuration the stack refuses.
-   - :doc:`use-python-executor` — how executions are launched, and what the
+   - :doc:`/architecture/python-executor` — how executions are launched, and what the
      target stamp pins them to.
-   - :doc:`bluesky/index` — the plan stack that plan lanes belong to.
+   - :doc:`../bluesky/index` — the plan stack that plan lanes belong to.

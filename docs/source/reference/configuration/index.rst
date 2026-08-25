@@ -1,0 +1,6 @@
+=============
+Configuration
+=============
+
+.. toctree::
+   :hidden:

@@ -119,7 +119,7 @@ Executed code runs in the project's own virtual environment
 interpreter running Osprey. ``config.yml`` records no interpreter path and
 offers no setting to point execution somewhere else --- which environment
 exists is decided when the project is built, from the build profile's
-``environment:`` block (see :doc:`build-profiles`).
+``environment:`` block (see :doc:`/how-to/build-profiles`).
 
 Anything installed in that environment is importable by executed code:
 
@@ -268,7 +268,7 @@ A protected entry that does not exist yet is protected all the same: in a repo
 with no ``personas/`` directory, creating one is exactly the write to refuse.
 
 This boundary is about *zones* — whole trees, wherever inside them a path lands.
-A companion boundary, :doc:`the protected set <protected-set>`, closes named
+A companion boundary, :doc:`the protected set </how-to/control-systems/protected-set>`, closes named
 files and config keys to every agent-side writer (the settings panels, the
 galleries, the ``setup_patch`` tool) rather than to executed code.
 

@@ -242,7 +242,7 @@ quirks worth knowing:
    created from the ``control-assistant`` preset has one and the flip just
    works; one still reading the mock archiver is refused at build time, and told
    to point ``archiver.type`` at a store its deployment writes first — see
-   :doc:`../use-virtual-accelerator`.
+   :doc:`../control-systems/use-virtual-accelerator`.
 
 .. seealso::
 
@@ -252,5 +252,5 @@ quirks worth knowing:
    :doc:`write-plans`
       Trust tiers and adding plans of your own.
 
-   :doc:`/how-to/use-virtual-accelerator`
+   :doc:`/how-to/control-systems/use-virtual-accelerator`
       The connector that makes a deployment able to execute.

@@ -11,7 +11,7 @@ use it:
 * the :doc:`facility-knowledge (OKF) bundle <okf-bundle>` --- its panel and its
   MCP ``search`` tool;
 * ARIEL's logbook mirror --- the ``hybrid`` :doc:`search mode
-  <ariel/search-modes>` and the ``hybrid_search`` MCP tool.
+  <../ariel/search-modes>` and the ``hybrid_search`` MCP tool.
 
 One query fans out into a keyword and a vector sub-query, merges them into a
 bounded candidate pool, and optionally re-scores that pool with a small language
@@ -225,7 +225,7 @@ routable port.
 
 .. seealso::
 
-   :doc:`deploy-project/index`
+   :doc:`../deploy-project/index`
        The container-deployment mechanics shared by every service — the
        build/up lifecycle, image overrides, network binding, and the
        ``.env`` chain.

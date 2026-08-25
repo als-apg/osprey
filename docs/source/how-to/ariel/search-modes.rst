@@ -182,7 +182,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
            - --
            - 1587 ms
 
-      Reranking costs roughly **4x** the query budget, and its cost barely grows with corpus size --- so no logbook is small enough to outrun it. ``hybrid_search`` is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set ``rerank: false`` for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see :doc:`../okf-bundle`.)
+      Reranking costs roughly **4x** the query budget, and its cost barely grows with corpus size --- so no logbook is small enough to outrun it. ``hybrid_search`` is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set ``rerank: false`` for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see :doc:`../facility-knowledge/okf-bundle`.)
 
       ``candidate_limit`` is how many candidates the reranker considers. Lowering it trades recall for latency.
 
@@ -602,7 +602,7 @@ mode.
 
 Need behavior beyond these search modules --- multi-step reasoning, answer
 synthesis, custom prompting? That lives in the Osprey agent layer; see
-:doc:`osprey-integration` under "Extending the integration."
+:doc:`/reference/contracts/ariel` under "Extending the integration."
 
 
 See Also
@@ -611,7 +611,7 @@ See Also
 :doc:`data-ingestion`
     How data gets into the system --- facility adapters, enhancement modules, and database schema
 
-:doc:`osprey-integration`
+:doc:`/reference/contracts/ariel`
     MCP tools, service factory, and search result structure
 
 :doc:`web-interface`

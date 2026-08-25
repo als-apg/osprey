@@ -83,7 +83,7 @@ its own embedder inside the image, and the channel finder uses no embeddings
 anywhere — it ranks with BM25 and lets the agent walk a hierarchy.
 
 **The qmd sidecar is the one cross-stack component.** It answers ARIEL's
-``hybrid`` mode and backs :doc:`facility-knowledge </how-to/use-facility-knowledge>`
+``hybrid`` mode and backs :doc:`facility-knowledge </how-to/facility-knowledge/index>`
 search, indexing both corpora — the markdown mirror ARIEL exports and the OKF
 bundle — in one process. Its internals, and the ``rerank`` tradeoff, are covered
 under :ref:`qmd-search-sidecar`.
@@ -97,7 +97,7 @@ search drops to a substring scan when the sidecar is absent, and ARIEL's
    :doc:`mcp-servers`
       Complete list of MCP servers and their tools.
 
-   :doc:`/how-to/add-connector`
+   :doc:`/how-to/control-systems/use-connectors`
       How to add a custom control system connector.
 
    :doc:`/how-to/deploy-project/index`
@@ -107,3 +107,4 @@ search drops to a substring scan when the sidecar is absent, and ARIEL's
    :hidden:
 
    mcp-servers
+   python-executor

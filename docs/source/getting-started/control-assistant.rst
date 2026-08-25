@@ -405,4 +405,4 @@ search, historical plotting, and operator skills. Where to go next:
 - **Architecture deep dive**: the :doc:`conceptual-tutorial` and the
   :doc:`Architecture <../architecture/index>` section explain the agent + MCP
   design, the connector system, and the safety mechanisms.
-- **CLI reference**: see :doc:`../cli-reference/index` for all ``osprey`` commands.
+- **CLI reference**: see :doc:`/reference/cli` for all ``osprey`` commands.

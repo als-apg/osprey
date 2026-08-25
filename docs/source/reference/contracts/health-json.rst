@@ -1,3 +1,5 @@
+.. _reference-health-json:
+
 The ``osprey health --json`` Contract
 =====================================
 
@@ -348,12 +350,12 @@ nine keys describe the same scoped run.
 
 .. seealso::
 
-   :doc:`configure-health-checks`
+   :doc:`/how-to/health-and-monitoring/configure-health-checks`
        Add facility probe checks and plugins, and tune the suite's cost
        classes and timeouts.
 
-   :doc:`cli-agent`
+   :doc:`/how-to/agent-interfaces/cli-agent`
        The other machine-readable verb — full agent runs for CI.
 
-   :doc:`/cli-reference/index`
+   :doc:`/reference/cli`
        Full ``osprey health`` flag reference.

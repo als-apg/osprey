@@ -1,3 +1,5 @@
+.. _how-to-monitor-agent:
+
 =========================
 Monitor Your OSPREY Agent
 =========================
@@ -277,7 +279,7 @@ obviously missing one. The account name does carry a fallback, because it is a
 name rather than a secret.
 
 .. raw:: html
-   :file: ../_diagrams/otel-endpoint-context.html
+   :file: ../../_diagrams/otel-endpoint-context.html
 
 .. important::
 

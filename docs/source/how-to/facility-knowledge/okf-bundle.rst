@@ -1,9 +1,11 @@
+.. _how-to-okf-bundle:
+
 ==============
 The OKF Bundle
 ==============
 
 The **Open Knowledge Format (OKF)** bundle is the on-demand tier of
-:doc:`Facility Knowledge <use-facility-knowledge>`: a directory of Markdown
+:doc:`Facility Knowledge <index>`: a directory of Markdown
 concept documents that the ``osprey_facility_knowledge`` MCP server serves to
 the agent only when a task calls for them. This page covers what OKF is, how to
 structure a bundle, and how to author, validate, and serve it.
@@ -21,8 +23,8 @@ for the original description.
 
 OSPREY uses OKF for **facility narrative knowledge** — the descriptive,
 human-authored context that does not belong in the channel database (that is the
-:doc:`Channel Finder <use-channel-finder>`) or the logbook (that is
-:doc:`ARIEL <ariel/index>`). A bundle of OKF documents is served to the agent on
+:doc:`Channel Finder <../use-channel-finder>`) or the logbook (that is
+:doc:`ARIEL <../ariel/index>`). A bundle of OKF documents is served to the agent on
 demand by the ``osprey_facility_knowledge`` MCP server.
 
 
@@ -94,7 +96,7 @@ Working with a Bundle
       Author the bundle in your **profile** (``data/facility_knowledge/`` in the deployment repository),
       not in the built project: each build copies the profile's ``data/`` tree
       over the project's, so an edit made in the project is lost on the next
-      rebuild. See :doc:`build-profiles`.
+      rebuild. See :doc:`../build-profiles`.
 
       .. _authoring-concept-documents:
 
@@ -318,7 +320,7 @@ Working with a Bundle
       ``unmanaged-partial`` on the next one instead of passing for a good seed.
 
       The deploy already runs this for you on a first bring-up (see
-      :doc:`deploy-project/index`); you need the verb when that step warned, or when
+      :doc:`../deploy-project/index`); you need the verb when that step warned, or when
       the corpus changed.  For the full list of outcomes and flags, see
       ``osprey knowledge seed-graph --help``.
 
@@ -425,10 +427,10 @@ bundle.
 
 .. seealso::
 
-   :doc:`use-facility-knowledge`
+   :doc:`index`
       How the on-demand bundle relates to the always-in-context rules.
 
-   :doc:`build-profiles`
+   :doc:`../build-profiles`
       How to assemble facility-specific OSPREY projects with custom data bundles.
 
    :doc:`/architecture/mcp-servers`

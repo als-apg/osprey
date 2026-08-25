@@ -208,7 +208,7 @@ Load the corpus into the store:
 
 ``osprey up`` does that for you when the deployment runs the store; a store the
 facility hosts holds whatever was loaded into it, so seed it deliberately. See
-:doc:`use-facility-graph` for what the graph holds and how a corpus is
+:doc:`facility-knowledge/use-facility-graph` for what the graph holds and how a corpus is
 generated.
 
 **What the subagent can search** depends on the corpus. On a corpus
@@ -222,7 +222,7 @@ way in is a name, an alternate name, a section or a device class.
 ``validate`` and ``preview`` have no file to open on this pipeline, so both
 report what the store is and which commands act on it. Health reports the store
 instead of a database: whether it is reachable, and how many resources it holds
-(:doc:`configure-health-checks`).
+(:doc:`health-and-monitoring/configure-health-checks`).
 
 
 Web Interface

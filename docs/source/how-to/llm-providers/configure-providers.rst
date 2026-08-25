@@ -1,3 +1,5 @@
+.. _how-to-configure-providers:
+
 Configure LLM Providers
 =======================
 
@@ -9,7 +11,7 @@ how to configure providers for both.
 .. _provider-routing-diagram:
 
 .. raw:: html
-   :file: ../_diagrams/provider-routing.html
+   :file: ../../_diagrams/provider-routing.html
 
 Available Providers
 -------------------

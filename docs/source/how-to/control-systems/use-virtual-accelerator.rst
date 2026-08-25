@@ -1,3 +1,5 @@
+.. _how-to-use-virtual-accelerator:
+
 ===========================
 Use the Virtual Accelerator
 ===========================
@@ -254,7 +256,7 @@ history back out of the same collection, so what the agent plots is what the
 deployment recorded.
 
 .. raw:: html
-   :file: ../_diagrams/va-archive-loop.html
+   :file: ../../_diagrams/va-archive-loop.html
 
 What history is there
 ---------------------
@@ -300,7 +302,7 @@ these defaults.
    ``retention_days``, ``hot_span_hours``, the cadences — not a constant in the
    code. Changing one is a profile edit and a rebuild; the next
    ``osprey up`` notices the archive no longer describes what the profile
-   asks for and reseeds it. See :doc:`build-profiles`.
+   asks for and reseeds it. See :doc:`../build-profiles`.
 
 What the archive will not claim
 -------------------------------

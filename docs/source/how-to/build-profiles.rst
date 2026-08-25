@@ -218,7 +218,7 @@ channel named. The same refusal applies to a claim (below).
 This table is about *build channels* — which part of the profile is allowed to
 produce a file. A separate question is which files the running agent may not
 rewrite, whatever channel produced them; that is
-:doc:`the protected set <protected-set>`, and it is neither a subset nor a
+:doc:`the protected set <control-systems/protected-set>`, and it is neither a subset nor a
 superset of this one.
 
 ``hook_config.json`` is the one worth understanding: the write-safety hook reads
@@ -554,7 +554,7 @@ that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
    want is "may not write," prefer flipping the enforcement switch instead —
    the bundled ``control-assistant-readonly`` preset differs from its
    write-capable sibling only on ``control_system.writes_enabled``, leaving
-   the tool surface identical (see :doc:`multi-user/tiers`).
+   the tool surface identical (see :doc:`web-terminal/multi-user/tiers`).
 
 To keep the bluesky server **on** while hiding an individual plan, set
 ``bluesky.excluded_plans`` instead:
@@ -1092,7 +1092,7 @@ would not be a posture at all.
    at all — with ``auth.method: none`` there is no wall to be exempt from, and
    the same exposure is reported as an advisory instead. On a profile that
    wrote no floor at all, where every persona holds everything, the only
-   remedy that refusal can offer is to write one. See :doc:`multi-user/tiers`.
+   remedy that refusal can offer is to write one. See :doc:`web-terminal/multi-user/tiers`.
 
 .. _profile-services:
 
@@ -1173,7 +1173,7 @@ the services you *do* want rather than the one you are removing.
 
 An external store has to already hold a corpus for the mode to answer anything:
 generate one with ``osprey knowledge build-ttl`` and load it with ``osprey
-knowledge seed-graph`` (see :doc:`use-facility-graph`). A store this deployment
+knowledge seed-graph`` (see :doc:`facility-knowledge/use-facility-graph`). A store this deployment
 runs gets that during ``osprey up``; a store it only connects to does not.
 
 A profile whose app template carries no ``services.graphdb`` block at all — the
@@ -1183,7 +1183,7 @@ attached project (``deploy_services: false``) is refused the same way unless it
 names an external store, because it renders ``services: {}`` whatever its app
 template says. For what the mode changes about the agent's answers, see
 :doc:`use-channel-finder`; for the corpus behind them,
-:doc:`use-facility-graph`.
+:doc:`facility-knowledge/use-facility-graph`.
 
 .. _profile-va-archiver:
 
@@ -1249,7 +1249,7 @@ presence is the decision, not its contents.
    * - ``freshness_channel``
      - unset
      - Canary channel for a derived ``archiver_freshness`` health check. Unset
-       derives no check (see :doc:`configure-health-checks`).
+       derives no check (see :doc:`health-and-monitoring/configure-health-checks`).
    * - ``host``
      - ``localhost``
      - Where the store is. **Required** when ``deploy_services`` is false: an
@@ -1313,7 +1313,7 @@ store and then reads something else beside it.
    catch it. The error names the fix — declare this block and select
    ``mongodb_archiver``, point the archiver at a store you run yourself, or set
    the control system to ``mock`` for an honestly storeless project. See
-   :doc:`use-virtual-accelerator`.
+   :doc:`control-systems/use-virtual-accelerator`.
 
 
 Lifecycle commands
@@ -1656,10 +1656,10 @@ relax the constraint in the profile.
 
 .. seealso::
 
-   :doc:`../cli-reference/index`
+   :doc:`/reference/cli`
        Complete CLI command reference
 
-   :doc:`add-mcp-server`
+   :doc:`agent-interfaces/add-mcp-server`
        How to build custom MCP servers for OSPREY
 
    :doc:`deploy-project/index`

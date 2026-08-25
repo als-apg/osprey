@@ -1,8 +1,10 @@
+.. _how-to-facility-rules:
+
 ==============
 Facility Rules
 ==============
 
-The always-in-context tier of :doc:`Facility Knowledge <use-facility-knowledge>`
+The always-in-context tier of :doc:`Facility Knowledge <index>`
 is the set of Markdown rules under the project's ``.claude/rules/`` directory.
 They load into the main agent's context at the start of every session, the same
 way ``CLAUDE.md`` does. Several of them carry facility-specific operating
@@ -117,7 +119,7 @@ leaves it alone from then on. See :ref:`profile-claim`.
 **Through the web terminal.** ``osprey web`` exposes the agent's ``.claude/``
 files in the browser: edit a rule in the setup editor, or use the scaffold
 gallery to override a framework-generated rule (which claims it for you). See
-:doc:`web-terminal/operate`.
+:doc:`../web-terminal/operate`.
 
 Answer provenance (verify-first)
 ================================
@@ -147,8 +149,8 @@ by hand or unclaim and rebuild:
 
 .. seealso::
 
-   :doc:`use-facility-knowledge`
+   :doc:`index`
       How the always-in-context rules relate to the on-demand OKF bundle.
 
-   :doc:`build-profiles`
+   :doc:`../build-profiles`
       How a build profile carries its own rules into a generated project.

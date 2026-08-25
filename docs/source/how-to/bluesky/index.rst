@@ -43,7 +43,7 @@ agent and a human approval step in front.
    :doc:`/how-to/web-terminal/panels`
       The PLAN and BLUESKY tabs these guides use.
 
-   :doc:`/how-to/use-virtual-accelerator`
+   :doc:`/how-to/control-systems/use-virtual-accelerator`
       The simulated machine the tutorial runs against.
 
 .. toctree::

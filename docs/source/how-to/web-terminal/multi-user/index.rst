@@ -45,7 +45,7 @@ proxy, ready in seconds at ``http://127.0.0.1:8087``. It prints a login URL
 redirecting to the clean address. The token is that server's operator secret
 rather than a one-shot code, so treat the URL like a password. It is the
 fastest way to try OSPREY and the right tool whenever one person sits in front
-of one machine; :doc:`../web-terminal/operate` covers it.
+of one machine; :doc:`../operate` covers it.
 
 The multi-user stack is strictly opt-in. It lives in a
 ``modules.web_terminals`` block in the deployment's built ``config.yml``, read
@@ -60,7 +60,7 @@ How it works
 ============
 
 .. raw:: html
-   :file: ../../_diagrams/multi-user.html
+   :file: ../../../_diagrams/multi-user.html
 
 Three ideas carry the whole design:
 
@@ -464,14 +464,14 @@ Related pages
    :gutter: 3
 
    .. grid-item-card:: Web Terminal
-      :link: ../web-terminal/index
+      :link: ../index
       :link-type: doc
 
       The terminal itself — running it single-user, operating sessions,
       companion panels, and theming.
 
    .. grid-item-card:: Deploy a Project
-      :link: ../deploy-project/index
+      :link: ../../deploy-project/index
       :link-type: doc
 
       The lifecycle the multi-user stack rides on: build, up, status, down,

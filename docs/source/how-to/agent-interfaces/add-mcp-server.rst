@@ -1,3 +1,5 @@
+.. _how-to-add-mcp-server:
+
 Add an MCP Server
 =================
 

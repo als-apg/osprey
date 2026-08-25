@@ -255,7 +255,7 @@ The web tier names its registry separately
 ------------------------------------------
 
 The web tier — the landing page and the one containerized terminal per
-operator, described in :doc:`/how-to/multi-user/index` — carries its own, older spelling of
+operator, described in :doc:`/how-to/web-terminal/multi-user/index` — carries its own, older spelling of
 the same two ideas, and the two vocabularies coexist rather than merging:
 
 .. list-table::
@@ -347,7 +347,7 @@ service that is not in ``deployed_services`` are never rendered.
 
 Naming the mirror is half the job: the host also has to stop *building*. That
 is the switch in the next section. If your route is a self-built image rather
-than a mirror, :doc:`/how-to/containerize-project` covers the air-gapped build trio —
+than a mirror, :doc:`/how-to/deploy-project/project-image` covers the air-gapped build trio —
 ``OSPREY_PIP_SPEC`` for an internal package mirror, ``PIP_NO_PROXY`` to exempt
 it from the proxy, and ``OSPREY_OFFLINE=1`` to vendor the web assets into the
 image.

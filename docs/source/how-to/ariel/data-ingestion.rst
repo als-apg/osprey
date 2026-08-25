@@ -403,8 +403,8 @@ See Also
 :doc:`search-modes`
     How search uses the ingested and enhanced data
 
-:doc:`osprey-integration`
+:doc:`/reference/contracts/ariel`
     Capability, context flow, and error classification
 
-:doc:`/cli-reference/index`
+:doc:`/reference/cli`
     CLI reference for ``osprey ariel ingest``, ``osprey ariel enhance``, and other commands

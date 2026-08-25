@@ -1,3 +1,5 @@
+.. _how-to-send-feedback:
+
 Send and Retrieve Feedback
 ==========================
 
@@ -232,7 +234,7 @@ aiming reports at the upstream maintainers' tracker. ``max_store_bytes`` wants
 a positive byte count; anything else (blank included) is logged and replaced by
 the default. The Local channel is always available and needs no configuration.
 
-:doc:`web-terminal/operate` carries the full table, including what a key written
+:doc:`operate` carries the full table, including what a key written
 with no value at all does.
 
 .. note::
@@ -245,7 +247,7 @@ with no value at all does.
 
 .. seealso::
 
-   :doc:`web-terminal/operate`
+   :doc:`operate`
       Running the terminal the feedback dialog lives in, and the full ``web``
       settings table.
 
@@ -253,5 +255,5 @@ with no value at all does.
       Per-user web terminals and the roster that decides how feedback is stored
       and read.
 
-   :doc:`/cli-reference/index`
+   :doc:`/reference/cli`
       ``osprey feedback list`` and ``osprey feedback export`` with every option.

@@ -160,7 +160,7 @@ Useful variations: ``osprey web --port 9000`` picks another port,
 
    Prefer to stay in your terminal? ``osprey chat`` starts the same agent
    against the same build as a plain CLI session — see
-   :doc:`../how-to/cli-agent`. Everything below works identically there;
+   :doc:`/how-to/agent-interfaces/cli-agent`. Everything below works identically there;
    this tutorial assumes the web terminal.
 
 Step 5: Read Some Channels
@@ -329,7 +329,7 @@ This needs a container runtime (Docker or Podman) and starts **OpenObserve**, a
 local telemetry store bound to localhost, with its UI at
 http://localhost:5080. The agent already emits its logs and metrics there, so
 ``osprey up`` plus ``osprey web`` gives you a queryable record of every
-session out of the box — see :doc:`../how-to/monitor-agent`. Stop the stack
+session out of the box — see :doc:`/how-to/health-and-monitoring/monitor-agent`. Stop the stack
 with ``osprey down``; the agent itself keeps working without it.
 
 The commands you now know are the complete lifecycle, and they are the same
@@ -350,5 +350,5 @@ commented blocks map everything it can become.
   architecture, the connector system, and the safety mechanisms in depth.
 - **The profile format**: :doc:`../how-to/build-profiles` documents every key
   those 13 commented blocks can hold.
-- **CLI reference**: :doc:`../cli-reference/index` covers all ``osprey``
+- **CLI reference**: :doc:`/reference/cli` covers all ``osprey``
   commands.

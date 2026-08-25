@@ -7,14 +7,14 @@ Search the Facility Graph
 The facility graph holds the *structure* of the machine: the devices, the
 sections they sit in, the classes they belong to, and the control system
 addresses bound to each one. It is served by the ``graphdb`` store
-(:doc:`deploy-project/index`) and searched by the **facility-knowledge-graph agent**
+(:doc:`../deploy-project/index`) and searched by the **facility-knowledge-graph agent**
 — a specialist the main OSPREY agent delegates structural questions to — which
 writes Cypher (Neo4j's query language, the graph counterpart of SQL) through
 the ``graph`` MCP server. You never write it yourself, and neither does the
 main agent: ask it a structural question and the delegation is its own move.
 
 It answers a different kind of question than the :doc:`channel finder
-<use-channel-finder>`. The channel finder turns a phrase into an address —
+<../use-channel-finder>`. The channel finder turns a phrase into an address —
 "beam current" into ``SR:DIAG:DCCT:01:CURRENT:RB``. The graph relates addresses
 to each other: how many correctors the storage ring has, what sits in a section
 in beam order, which PVs one device exposes and which of them are written, or
@@ -30,7 +30,7 @@ which devices share a PV.
    graph``) that puts the *channel finder* subagent on this same store to turn
    a phrase into an address, under the ``channel-finder`` server name and with
    a query catalogue written for that job. Same store, two specialist
-   subagents, two jobs — see :doc:`use-channel-finder`.
+   subagents, two jobs — see :doc:`../use-channel-finder`.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -218,13 +218,13 @@ answer that says it was cut short.
        says so and suggests a ``LIMIT``, an aggregate, or a narrower ``MATCH``.
 
 Both bound keys live in the ``services.graphdb`` block, alongside the image and
-port settings documented in :doc:`deploy-project/index`.
+port settings documented in :doc:`../deploy-project/index`.
 
 .. note::
 
    ``osprey health`` reports the same store from the outside, under its
    ``graphdb`` category — bolt reachability and how many resources the graph
-   holds. See :doc:`configure-health-checks`.
+   holds. See :doc:`../health-and-monitoring/configure-health-checks`.
 
 
 Leaving the Graph Tools Out
@@ -386,7 +386,7 @@ Everything else on this page applies to an external store as written, because
 it is all client side: the same four tools, the same read-only posture, the
 same bounds and the same degraded states. The graph channel finder paradigm
 reads the same block and reaches an external store the same way
-(:doc:`build-profiles`).
+(:doc:`../build-profiles`).
 
 
 One Machine, Several Views
@@ -430,7 +430,7 @@ Multi-User Operator Terminals
 =============================
 
 The ``control-assistant-readonly`` and ``control-assistant-readwrite`` personas
-(:doc:`multi-user/index`) get the same facility-knowledge-graph agent and its tools,
+(:doc:`../web-terminal/multi-user/index`) get the same facility-knowledge-graph agent and its tools,
 reading the hosting deployment's store. They are attached renders — they deploy no services of their own — so
 they have to be told which port that store is published on. Per-user web
 terminal containers run with ``network_mode: host``, so a container's
@@ -450,7 +450,7 @@ Two consequences worth knowing before you move anything:
 * A ``deployment.bind_address`` pinned to a specific non-loopback interface
   publishes the store there and not on ``localhost``, so the personas would no
   longer reach it. URL-backed panels have the same shape — they name
-  ``http://127.0.0.1:<port>`` outright (:doc:`web-terminal/panels`) — so a
+  ``http://127.0.0.1:<port>`` outright (:doc:`../web-terminal/panels`) — so a
   deployment that moves off loopback has to revisit both.
 
 The read-only persona receives ``GRAPHDB_PASSWORD`` as well. The store has a
@@ -462,14 +462,14 @@ control surface and no graph tools by design.
 
 .. seealso::
 
-   :doc:`deploy-project/index`
+   :doc:`../deploy-project/index`
       The ``services.graphdb`` block: image, ports, corpus, memory, and the
       query bounds.
 
    :doc:`okf-bundle`
       The ``osprey knowledge`` CLI, including ``seed-graph`` and ``build-ttl``.
 
-   :doc:`use-channel-finder`
+   :doc:`../use-channel-finder`
       The other way into the same machine — phrases to addresses.
 
    :doc:`/architecture/mcp-servers`

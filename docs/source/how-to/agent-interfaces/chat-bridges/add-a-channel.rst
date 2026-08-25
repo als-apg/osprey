@@ -1,3 +1,5 @@
+.. _how-to-add-a-channel:
+
 =========================
 Add Your Own Chat Service
 =========================

@@ -1,3 +1,5 @@
+.. _reference-cli:
+
 =============
 CLI Reference
 =============
@@ -151,7 +153,7 @@ a database file.
 Two shorthands stand in for longer key paths: ``connector=`` writes
 ``config.control_system.type``, and ``epics_gateway=`` writes a known facility's
 EPICS gateway addresses. (Control systems beyond the bundled ones are reachable
-through custom connector packages — see :doc:`/how-to/add-connector`.)
+through custom connector packages — see :doc:`/how-to/control-systems/use-connectors`.)
 
 .. code-block:: bash
 
@@ -568,7 +570,7 @@ mounts each person's volume and reads a fixed path inside it, so a rostered
 deployment with a ``~``-relative ``agent_data.base_dir`` writes its feedback to
 a volume these verbs do not mount and simply reads as having none. Nothing
 detects that, so do not read an empty multi-user listing as proof. See
-:doc:`/how-to/send-feedback`.
+:doc:`/how-to/web-terminal/send-feedback`.
 
 .. code-block:: bash
 
@@ -577,7 +579,7 @@ detects that, so do not read an empty multi-user listing as proof. See
    osprey feedback export --output feedback.json
    osprey feedback export > feedback.json
 
-See :doc:`/how-to/send-feedback` for the dialog these records come from and what
+See :doc:`/how-to/web-terminal/send-feedback` for the dialog these records come from and what
 each submission carries.
 
 osprey health
@@ -601,14 +603,14 @@ Run comprehensive system health check.
 
 Exit codes: ``0`` healthy, ``1`` warnings only, ``2`` one or more errors,
 ``3`` the command itself failed, ``130`` interrupted. See
-:doc:`/how-to/health-json-contract` for the ``--json`` document's shape and the
-``jq`` patterns for consuming it, and :doc:`/how-to/configure-health-checks` for
+:doc:`/reference/contracts/health-json` for the ``--json`` document's shape and the
+``jq`` patterns for consuming it, and :doc:`/how-to/health-and-monitoring/configure-health-checks` for
 the ``health:`` config block.
 
 osprey chat
 ===========
 
-Talk to this deployment's agent. See :doc:`/how-to/cli-agent`.
+Talk to this deployment's agent. See :doc:`/how-to/agent-interfaces/cli-agent`.
 
 .. code-block:: bash
 
@@ -706,8 +708,8 @@ osprey knowledge
 Build and load the facility's knowledge material: the OKF bundle of concept
 documents, and the NARAD-convention corpus the graph store holds. An omitted
 ``BUNDLE`` comes from ``facility_knowledge.bundle_path`` and an omitted ``TTL``
-from ``services.graphdb.ttl_path``. See :doc:`/how-to/okf-bundle` and
-:doc:`/how-to/use-facility-graph`.
+from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bundle` and
+:doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 ``osprey knowledge regen-index [BUNDLE]``
    Regenerate the ``index.md`` files throughout an OKF bundle. Run it twice and
@@ -734,7 +736,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/okf-bundle` and
    how the OSPREY source tree keeps the two. A rendered project holds only the
    paradigm it runs, so name both there. ``--limits`` decides which signals are
    written and ``--ontology`` maps device families to classes; both fall back to
-   the config and the shipped table. :doc:`/how-to/use-facility-graph` has the
+   the config and the shipped table. :doc:`/how-to/facility-knowledge/use-facility-graph` has the
    detail.
 
    A graph-mode project ships no channel database by design, so the command

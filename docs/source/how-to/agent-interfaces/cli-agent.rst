@@ -1,3 +1,5 @@
+.. _how-to-cli-agent:
+
 ===================================
 Run the Agent from the Command Line
 ===================================
@@ -46,7 +48,7 @@ This command:
    is reported as a warning and the session starts anyway.
 2. Resolves the configured LLM provider and injects authentication.
 3. Starts the translation proxy if the provider needs it (see
-   :doc:`configure-providers`).
+   :doc:`../llm-providers/configure-providers`).
 4. Launches companion web servers in the background.
 5. Opens the Osprey agent TUI in your terminal.
 
@@ -300,12 +302,12 @@ correctly once the install is healthy.
 
 .. seealso::
 
-   :doc:`web-terminal/index`
+   :doc:`../web-terminal/index`
        The browser cockpit — the interactive alternative to ``osprey chat``.
 
    :doc:`event-dispatch`
        Turn external events into headless agent runs via webhooks and cron.
 
-   :doc:`/cli-reference/index`
+   :doc:`/reference/cli`
        Full ``osprey chat``, ``osprey query``, and ``osprey health`` command
        reference.

@@ -167,7 +167,7 @@ that ``osprey init`` seeded into this repository's ``.env``
 (``alice``/``alice``, ``bob``/``bob``) and ``allow_insecure_http: true``
 keeping the login flow on plain HTTP. That is a demo posture. For a facility
 host, set real passwords in ``.env`` (or rotate with ``osprey users passwd``)
-and serve TLS — :doc:`multi-user/login` walks through both, and through single
+and serve TLS — :doc:`web-terminal/multi-user/login` walks through both, and through single
 sign-on if your site runs one.
 
 Then confirm the persona catalog, further down the same ``config:`` block
@@ -711,12 +711,12 @@ a boot does exactly what you do by hand.
        The container-deployment reference: service configuration, compose template
        variables, image overrides, and the ``--dev`` workflow.
 
-   :doc:`multi-user/index`
+   :doc:`web-terminal/multi-user/index`
        The web tier this facility deploys — the landing page and one
        containerized terminal per operator.
 
-   :doc:`use-virtual-accelerator`
+   :doc:`control-systems/use-virtual-accelerator`
        The PyAT soft-IOC, and driving it from the agent.
 
-   :doc:`../cli-reference/index`
+   :doc:`/reference/cli`
        Every ``osprey`` command and flag.

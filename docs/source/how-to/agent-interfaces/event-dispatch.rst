@@ -1,3 +1,5 @@
+.. _how-to-event-dispatch:
+
 ==============
 Event Dispatch
 ==============
@@ -31,7 +33,7 @@ keyboard. It is built from two services:
   ``9190``) — runs the headless agent session and streams progress back.
 
 .. raw:: html
-   :file: ../_diagrams/event-dispatch.html
+   :file: ../../_diagrams/event-dispatch.html
 
 The ``control-assistant`` preset ships this enabled, wired to four
 control-system-free **tutorial triggers** so you can exercise the full pipeline
@@ -64,7 +66,7 @@ worker runs on.
      (``<project>-dispatch:local``, from
      ``services/event_dispatcher/Dockerfile``);
    - the **worker** runs the full *project image* (``<project>:local`` — the
-     same image :doc:`containerize-project` describes, with your profile's
+     same image :doc:`../deploy-project/project-image` describes, with your profile's
      artifacts and ``data/`` baked in), so the agent it launches sees the real
      project.
 
@@ -83,7 +85,7 @@ worker runs on.
 
    Inside the compose network the worker is reachable as
    ``dispatch-worker-1:9190`` — the default ``dispatch_target`` in
-   ``triggers.yml``. See :doc:`deploy-project/index` for the deploy mechanics.
+   ``triggers.yml``. See :doc:`../deploy-project/index` for the deploy mechanics.
 
 .. dropdown:: Run without containers (dev)
    :icon: terminal
@@ -284,8 +286,8 @@ profile's ``.env`` and rebuild:
 
 .. seealso::
 
-   :doc:`deploy-project/index`
+   :doc:`../deploy-project/index`
        Container deployment mechanics for all Osprey services.
 
-   :doc:`../cli-reference/index`
+   :doc:`/reference/cli`
        Full ``osprey build`` and lifecycle-verb reference.

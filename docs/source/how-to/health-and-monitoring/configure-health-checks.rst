@@ -1,3 +1,5 @@
+.. _how-to-configure-health-checks:
+
 Configure Health Checks
 =======================
 
@@ -13,14 +15,14 @@ providers) and tune the suite's timing — ``osprey build`` renders it into
 
 This guide covers the ``health:`` configuration surface. For the shape of the
 ``--json`` report and the exit codes that go with it, see
-:doc:`health-json-contract`; for the full flag list, see
+:doc:`/reference/contracts/health-json`; for the full flag list, see
 ``osprey health --help``.
 
 Rows reach one report from six independent places, and three surfaces read the
 result at different tiers:
 
 .. raw:: html
-   :file: ../_diagrams/health-suite-composition.html
+   :file: ../../_diagrams/health-suite-composition.html
 
 Cost classes and ``--full``
 ---------------------------
@@ -177,7 +179,7 @@ Recipe: archive freshness, without declaring a check
 -----------------------------------------------------
 
 A project that deploys its own archive — one whose build profile carries a
-``va_archiver:`` block (see :doc:`build-profiles`) — can have the freshness
+``va_archiver:`` block (see :doc:`../build-profiles`) — can have the freshness
 check written for it. Name one canary channel and nothing else:
 
 .. code-block:: yaml
@@ -245,12 +247,12 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   the ``graphdb`` category takes, so a stopped store warns rather than
   failing the suite. A graph-mode build configures no ``database.path`` and is
   never warned about one missing: there is no channel-database file in that
-  paradigm to look for (see :doc:`use-channel-finder`). The ``graphdb`` tile is
+  paradigm to look for (see :doc:`../use-channel-finder`). The ``graphdb`` tile is
   always alongside — graph mode needs that block — so these rows restate the
   same store readings in the channel finder's own terms: whether *channel
   search* has anything to answer from.
 - ``graphdb`` — appears when a ``services.graphdb`` block is configured (see
-  :doc:`deploy-project/index`). Two rows: **connection**, which dials the store over
+  :doc:`../deploy-project/index`). Two rows: **connection**, which dials the store over
   bolt and reports the round-trip latency, and **resources**, the number of
   ``(:Resource)`` nodes in the graph — the nodes the TTL corpus imports.
   Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
@@ -258,7 +260,7 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   an empty graph from reading as a populated one; a count of zero warns and
   names ``osprey knowledge seed-graph`` as the remedy. The agent's own graph
   tools report the same degraded states from the inside — see
-  :doc:`use-facility-graph`.
+  :doc:`../facility-knowledge/use-facility-graph`.
 
 .. note::
 

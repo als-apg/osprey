@@ -414,8 +414,8 @@ See Also
 :doc:`search-modes`
     Search module architecture
 
-:doc:`osprey-integration`
+:doc:`/reference/contracts/ariel`
     Capability, context flow, and prompt builder
 
-:doc:`/cli-reference/index`
+:doc:`/reference/cli`
     CLI reference for ``osprey ariel web`` and all other ARIEL commands
