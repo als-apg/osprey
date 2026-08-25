@@ -334,14 +334,10 @@ Working with a Bundle
              --channel-db data/channel_databases/hierarchical.json \
              --descriptions <your in-context database>
 
-      Two databases describe the machine — the hierarchical one for its
-      structure, the in-context one for the sentence on each channel — and a
-      rendered project names both, because it ships only the paradigm it runs.
-      The limits file comes from ``config.yml`` and the ontology table from
-      OSPREY's shipped default, and every run reports which source decided each
-      signal's read/write direction. See
-      :doc:`use-facility-graph` for the inputs, the shipped corpora, and what
-      the agent then does with the graph.
+      The flags, their defaults and what each one decides are in
+      :ref:`osprey knowledge <cli-osprey-knowledge>`, and
+      :doc:`use-facility-graph` runs the command in both a rendered project and
+      the OSPREY source tree.
 
 
 Searching the Bundle

@@ -87,12 +87,11 @@ Runtime settings
      - Comma-separated Talk room tokens to watch. A room's token is the last
        part of its URL: in ``…/call/a1b2c3d4`` the token is ``a1b2c3d4``.
    * - ``DISPATCH_TRIGGER``
-     - The trigger to fire. Filled in for you from the profile block above.
-   * - ``EVENT_DISPATCHER_TOKEN``
-     - Shared secret for talking to the dispatcher. ``osprey up``
-       generates it when unset.
-   * - ``DISPATCH_WORKER_TOKEN``
-     - Shared secret for talking to the worker. Also auto-generated.
+     - The trigger to fire. Filled in for you from the profile block.
+   * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
+     - The two shared secrets the bridge needs to reach the dispatcher and the
+       worker, generated for you when unset — see
+       :ref:`Authentication <event-dispatch-auth>`.
 
 .. dropdown:: Optional settings you can usually leave alone
    :icon: gear

@@ -396,7 +396,7 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    record naming a protected path is skipped and recorded instead, under the
    surface name ``scaffold_restore``; see :doc:`../control-systems/protected-set`.
 #. **Hands the state zone back** to the ``osprey`` user — only the paths root
-   actually left behind — because both steps above wrote into ``var/`` as
+   actually left behind — because both earlier steps wrote into ``var/`` as
    root, including the protected-write audit ledger the running server has to
    keep appending to.
 #. **Drops privileges** with ``exec gosu osprey "$@"``. Because it execs the

@@ -5,8 +5,9 @@ Use the Virtual Accelerator
 ===========================
 
 How to run the Control Assistant tutorial against a **Virtual Accelerator** — a
-containerized soft-IOC that serves real EPICS Channel Access, with PyAT physics
+containerized simulator that serves real EPICS Channel Access, with PyAT physics
 behind the storage-ring lattice channels, so correctors move and BPMs respond.
+How it is put together is :doc:`/architecture/virtual-accelerator`.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -14,8 +15,8 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.
 
    - What the Virtual Accelerator is (and is not)
    - The three-state ``control_system.type`` switch
-   - Pointing a project at the soft-IOC the stack already deploys
-   - Moving a running session between the soft-IOC and the real machine
+   - Pointing a project at the Virtual Accelerator the stack already deploys
+   - Moving a running session between the simulator and the real machine
    - Switching back to the mock, and why plans go browse-only there
    - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
    - Write limits
@@ -41,8 +42,8 @@ backends, selected by a single ``control_system.type`` value:
        returns a synthesized value. The fallback for environments with no
        containers to depend on; plans are browse-only there (below).
    * - ``virtual_accelerator`` *(default)*
-     - A containerized PyAT soft-IOC serving real EPICS Channel Access. Storage-
-       ring magnet setpoints drive a live lattice and BPM readbacks respond;
+     - A containerized simulator serving real EPICS Channel Access. Storage-
+       ring magnet setpoints drive a live pyAT lattice and BPM readbacks respond;
        every other channel is composed by the same simulation engine the mock
        uses. The tutorial's default, and deployed as part of its stack.
    * - ``epics``
@@ -53,32 +54,37 @@ The Virtual Accelerator is a **local physics simulator**, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
 exactly as it does the mock or a real machine; only the backend changes.
 
+The physics itself is pluggable: the container serves whatever LUME model it is
+given — the shipped one is a pyAT ring model over the facility-agnostic
+``lume-pyat`` package — and serving your own facility's model is the LUME seam in
+:doc:`/contributing/extending-osprey`.
+
 Quickstart
 ==========
 
 The Control Assistant stack ships pointed at the Virtual Accelerator and
 **already deploys** it: the preset's ``virtual_accelerator:`` block renders a
-compose service, so ``osprey up`` brings the soft-IOC up alongside the
+compose service, so ``osprey up`` brings the Virtual Accelerator up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
 to switch on.
 
 .. code-block:: bash
 
-   osprey up   # brings up the soft-IOC with the rest of the stack
+   osprey up   # brings up the Virtual Accelerator with the rest of the stack
    osprey web         # the agent talks to real Channel Access
 
-``osprey up`` brings up more than the soft-IOC. Because the preset also
+``osprey up`` brings up more than the Virtual Accelerator. Because the preset also
 declares a ``va_archiver:`` block, the deploy stands up the machine's **archive**
 next to it — a MongoDB store and a recorder service — and seeds it before the
 rest of the stack starts. See `The archive`_ below.
 
 The very first ``osprey up`` that includes the Virtual Accelerator
-builds its container image from source (compiling PyAT and the soft-IOC), so
+builds its container image (installing the physics and EPICS serving stack), so
 expect it to take several minutes — it is building, not hanging. Later deploys
 reuse the image.
 
 If your deployment came from a preset or profile that selects a different
-connector, point it at the soft-IOC explicitly:
+connector, point it at the Virtual Accelerator explicitly:
 
 .. code-block:: bash
 
@@ -106,30 +112,16 @@ an honestly storeless deployment. `The honesty rule`_ below explains why.
 Switching a running session
 ===========================
 
-The three commands above set which control system the deployment **starts** on.
-They are not the only way to change target, and on a deployment that describes
-both a real machine and a Virtual Accelerator they are not the usual one.
+Those three commands set which control system the deployment **starts** on; on a
+deployment that describes both a real machine and a Virtual Accelerator, a
+running session can also be moved between the two — rehearse a script against
+the simulator, then run it on the machine — with one approval-gated tool call and
+no rebuild, no redeploy and no restart.
 
-A running session can be moved between the two — rehearse a script against the
-soft-IOC, look at what it did, then run it on the machine — with a single
-approval-gated tool call and no rebuild, no redeploy and no restart:
-
-.. code-block:: text
-
-   > switch to the virtual accelerator
-   > ... run the work, check the results ...
-   > switch to the live machine
-
-The destination is connected and proven reachable before the current one is
-retired, so a switch that cannot reach its target leaves the session working
-exactly where it was. Moving *toward* the real machine additionally requires a
-strict limits posture and an explicit operator acknowledgment; coming back to a
-deployment's own baseline never does. Nothing is remembered: every server start
-returns to the baseline.
-
-See :doc:`switch-control-target` for the whole workflow — what the target roster
-reports, what the switch refuses and why, and how Bluesky plans behave while a
-session is switched.
+See :doc:`switch-control-target` for the whole workflow: the two tools, the
+reachability proof that keeps a failed switch from stranding the session, the
+posture a move toward the live machine requires, what the switch refuses, and
+how Bluesky plans behave while a session is switched.
 
 Switching back to the mock
 ==========================
@@ -178,8 +170,8 @@ Running from a source checkout
 ==============================
 
 If you are working from an OSPREY **source checkout** rather than a generated
-project — developing the IOC itself, or running it without deploying a stack —
-launch the container directly:
+project — developing the Virtual Accelerator itself, or running it without
+deploying a stack — launch the container directly:
 
 .. code-block:: bash
 
@@ -243,7 +235,7 @@ The archive
 
 A simulated machine still needs somewhere to keep what its channels did, and the
 stack deploys one. ``osprey up`` brings up two more containers beside the
-soft-IOC:
+Virtual Accelerator:
 
 - **the store** — a MongoDB service (``archiver-mongodb`` on the deployment's
   network, published on host port 27017 by default), holding one collection of
@@ -269,8 +261,8 @@ machine serves, covering the whole retention window — at the shipped defaults,
 **30 days back**, of which the most recent **48 hours** are sampled every
 10 seconds and the rest every 60. The values are generated, but they are
 generated the way the live machine generates its own: each channel's history is
-built around the same baseline the soft-IOC boots it at, with excursions scaled
-to that channel's own noise. Nothing invents an event nobody would find in the
+built around the same baseline the Virtual Accelerator boots it at, with
+excursions scaled to that channel's own noise. Nothing invents an event nobody would find in the
 live machine.
 
 Writing it takes a minute or two on a first deploy, and the deploy says so as it
@@ -298,7 +290,7 @@ these defaults.
 
 .. note::
 
-   Every number above is a knob in the build profile's ``va_archiver:`` block —
+   Every number in this section is a knob in the build profile's ``va_archiver:`` block —
    ``retention_days``, ``hot_span_hours``, the cadences — not a constant in the
    code. Changing one is a profile edit and a rebuild; the next
    ``osprey up`` notices the archive no longer describes what the profile

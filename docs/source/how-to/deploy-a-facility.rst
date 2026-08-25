@@ -70,8 +70,9 @@ Three services run:
      - Telemetry store for the agent's logs and metrics.
    * - ``virtual_accelerator``
      - packaged
-     - A PyAT soft-IOC serving EPICS Channel Access on port 5064, standing in
-       for the real machine.
+     - A containerized simulator with LUME-backed physics
+       (:doc:`/architecture/virtual-accelerator`), serving EPICS Channel Access
+       on port 5064 and standing in for the real machine.
    * - ``facility-mcp``
      - this profile
      - The facility's own MCP server on port 8200, built from a Dockerfile that
@@ -125,8 +126,8 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
   ``web.panels.events.*`` and ``web.panels.bluesky.*`` override. The panels they
   configure no longer exist.
 
-Keep the ``virtual_accelerator:`` block. It is the trigger for the soft-IOC this
-facility drives.
+Keep the ``virtual_accelerator:`` block. It is the trigger for the Virtual
+Accelerator this facility drives.
 
 
 Step 3 — Name the facility and pin its services
@@ -147,7 +148,7 @@ are already present with a different value; some ship commented out.
        - openobserve
 
 ``control_system.type: virtual_accelerator`` points the agent at the deployed
-soft-IOC, so correctors move and BPMs read through exactly the approval and
+simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset ships ``mock``, which touches
 nothing.
 
@@ -716,7 +717,7 @@ a boot does exactly what you do by hand.
        containerized terminal per operator.
 
    :doc:`control-systems/use-virtual-accelerator`
-       The PyAT soft-IOC, and driving it from the agent.
+       Running the simulator, and driving it from the agent.
 
    :doc:`/reference/cli`
        Every ``osprey`` command and flag.

@@ -20,7 +20,7 @@ ever arrive from the environment are in :doc:`environment-variables`.
 ----------------------------------
 
 ``osprey health`` always runs its built-in checks; a ``health:`` block adds a
-facility's own checks and tunes the suite's timing. Everything below is
+facility's own checks and tunes the suite's timing. Everything in the block is
 optional. For how to put these settings to work — the two recipes worth
 starting from, cost classes, and the ``SYSTEM`` dashboard — see
 :doc:`/how-to/health-and-monitoring/configure-health-checks`; for the shape of

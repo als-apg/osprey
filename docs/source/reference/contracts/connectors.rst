@@ -6,7 +6,7 @@ Connector Contracts
 
 Every connector -- the ones that ship with OSPREY and any you register yourself --
 has to behave the same way at its edges, because the agent, the plans and the
-safety layers above it are written against that behaviour rather than against any
+safety layers on top of it are written against that behaviour rather than against any
 one control system. This page states those contracts: how large array values are
 returned, how a write reports whether it actually took effect and which gates it
 must pass first, and what an archiver's historical data has to look like. For the

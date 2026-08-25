@@ -164,66 +164,21 @@ channel finder does. Inside a rendered project:
      direction from channel limits: data/channel_limits.json
      Load it with: osprey knowledge seed-graph data/demo_machine.ttl
 
-``--descriptions`` has to be named there, for the reason below, and
-``--channel-db`` too unless the project runs the hierarchical paradigm and its
-config already names the database. The shipped demo corpus is regenerated from
+The shipped demo corpus is regenerated from
 ``src/osprey/templates/apps/control_assistant/`` in the OSPREY source tree
-instead, where the two databases sit side by side and ``--descriptions`` can be
-left to its default:
+instead, where the two databases sit side by side, so ``--descriptions`` can be
+left to its default — a rendered project ships no such neighbour, which is why
+the first example names both:
 
 .. code-block:: console
 
    $ osprey knowledge build-ttl data/demo_machine.ttl \
        --channel-db data/channel_databases/tiers/tier3/hierarchical.json
 
-One device node per device, one binding per address, one class per device
-family, a read or write direction on every signal, and the prose from both
-databases carried onto the nodes it describes.
-
-Two inputs describe the machine:
-
-``--channel-db``
-   The **hierarchical**-paradigm database, the one whose addresses are
-   ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``. Its addresses become the
-   devices, bindings and classes, and the text it carries per level becomes
-   ``ringDescription`` / ``systemDescription`` / ``familyDescription`` on
-   devices and ``fieldDescription`` / ``subfieldDescription`` on bindings.
-   Unnamed, it comes from
-   ``channel_finder.pipelines.hierarchical.database.path``, resolved against
-   the ``config.yml`` directory.
-
-``--descriptions``
-   The in-context database for the same machine: a flat list of addresses, each
-   with a sentence about that one channel. Those sentences become
-   ``ChannelBinding.description``. Unnamed, it is looked for as
-   ``in_context.json`` beside the file ``--channel-db`` named — which is how
-   the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
-   With no such neighbour the command asks for the flag.
-
-That neighbour rule is a convenience of the source tree. A rendered project
-keeps only the paradigm it runs, as a flat
-``data/channel_databases/<paradigm>.json``, and prunes the tier tree — so there
-is no neighbour to find and ``--descriptions`` has to be named, as the first
-example does. A graph-mode project ships no channel database at all, and says
-so rather than hunting for one.
-
-Two more inputs decide details:
-
-``--limits``
-   ``control_system.limits_checking.database_path``. This file is what tells a
-   readback from a setpoint, so the corpus and the write-safety layer agree on
-   which channels are written. When no limits file is configured, the address
-   grammar decides instead — a ``:SP`` subfield writes, everything else reads.
-   **Every run reports which of the two it used**, in the line shown above.
-
-``--ontology``
-   The FAMILY-to-class table. Defaults to the demo-machine table shipped with
-   OSPREY; give your own when your device families are not the demo machine's.
-
-To have every deployment seed the file you wrote, point
-``services.graphdb.ttl_path`` at it. That key is deliberately *not* where the
-output argument defaults to: it usually names a hand-curated corpus, and a bare
-run of the verb would overwrite it.
+Every flag, what it decides and what it falls back to — the two databases the
+corpus is built from, the file that tells a readback from a setpoint, the
+device-family table, and the key to point at the corpus you wrote — is in
+:ref:`osprey knowledge <cli-osprey-knowledge>`.
 
 Then load it (see :doc:`okf-bundle` for the seeding verb in full):
 
@@ -253,6 +208,8 @@ What the Presets Seed
    reports the empty state above.
 
 
+.. _graph-external-store:
+
 Pointing at a Store the Facility Runs
 =====================================
 
@@ -270,13 +227,19 @@ The store does not have to be one this deployment brings up. Give
 
    deployed_services: [postgresql, openobserve, qmd]   # no graphdb
 
+Leaving ``graphdb`` in ``deployed_services`` is the mistake to avoid: the build
+still stands up a local Neo4j that nobody then queries. ``deployed_services``
+is a list, so an override replaces it whole — write out the services you *do*
+want rather than the one you are taking away.
+
 Put that account's password in the project ``.env`` as ``GRAPHDB_PASSWORD``.
 Nothing mints one here — the store belongs to somebody else, so OSPREY starts
 nothing and bootstraps nothing, and it seeds nothing on its own: the corpus is
-whatever the facility loaded, unless you run ``osprey knowledge seed-graph``
-against it deliberately. ``username`` is read only on this path; a store this
-deployment does run authenticates as ``neo4j``, the account its container is
-created with.
+whatever the facility loaded, unless you run ``osprey knowledge build-ttl`` and
+``osprey knowledge seed-graph`` against it deliberately. An external store that
+holds no corpus answers every query with zero rows. ``username`` is read only
+on this path; a store this deployment does run authenticates as ``neo4j``, the
+account its container is created with.
 
 Everything else on this page applies to an external store as written, because
 it is all client side: the same four tools, the same read-only posture, the
@@ -365,8 +328,12 @@ control surface and no graph tools by design.
       The ``services.graphdb`` block: image, ports, corpus, memory, and the
       query bounds.
 
+   :ref:`osprey knowledge <cli-osprey-knowledge>`
+      Every verb in the command group, with its flags and defaults.
+
    :doc:`okf-bundle`
-      The ``osprey knowledge`` CLI, including ``seed-graph`` and ``build-ttl``.
+      The bundle of concept documents ``seed-from-ttl`` writes, and what
+      ``seed-graph`` does to a store that already holds a corpus.
 
    :doc:`../use-channel-finder`
       The other way into the same machine — phrases to addresses.

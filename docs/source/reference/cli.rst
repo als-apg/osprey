@@ -736,6 +736,8 @@ and ``--pipeline`` does not offer ``graph`` for the same reason.
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
 
+.. _cli-osprey-knowledge:
+
 osprey knowledge
 ================
 
@@ -757,25 +759,63 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    for a person to fill in.
 
 ``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH]``
-   Derive a NARAD-convention TTL corpus from the channel database: one device
-   node per device, one binding per address, a read or write direction on every
-   signal, and the descriptions that let the corpus be searched by meaning
-   rather than by address alone.
+   Derive a NARAD-convention TTL corpus — the file ``seed-graph`` loads — from
+   the project's own channel databases, so the graph store and the channel
+   finder describe the same machine. The corpus carries one device node per
+   device, one binding per address, one class per device family, a read or write
+   direction on every signal, and the prose from both databases on the nodes it
+   describes, which is what lets the corpus be searched by meaning rather than
+   by address alone.
 
-   ``--channel-db`` is the hierarchical database, and defaults to the one
-   ``channel_finder.pipelines.hierarchical.database.path`` names.
-   ``--descriptions`` is the in-context database of the same machine, whose
-   per-channel text becomes each binding's description; unnamed, it is looked
-   for as ``in_context.json`` beside the file ``--channel-db`` named, which is
-   how the OSPREY source tree keeps the two. A rendered project holds only the
-   paradigm it runs, so name both there. ``--limits`` decides which signals are
-   written and ``--ontology`` maps device families to classes; both fall back to
-   the config and the shipped table. :doc:`/how-to/facility-knowledge/use-facility-graph` has the
-   detail.
+   Two inputs describe the machine:
 
-   A graph-mode project ships no channel database by design, so the command
-   refuses there and says to name the sources with ``--channel-db`` and
-   ``--descriptions``.
+   ``--channel-db``
+      The **hierarchical**-paradigm database, the one whose addresses are
+      ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``. Its addresses become the
+      devices, bindings and classes, and the text it carries per level becomes
+      ``ringDescription`` / ``systemDescription`` / ``familyDescription`` on
+      devices and ``fieldDescription`` / ``subfieldDescription`` on bindings.
+      Unnamed, it comes from
+      ``channel_finder.pipelines.hierarchical.database.path``, resolved against
+      the ``config.yml`` directory.
+
+   ``--descriptions``
+      The in-context database for the same machine: a flat list of addresses,
+      each with a sentence about that one channel. Those sentences become
+      ``ChannelBinding.description``. Unnamed, it is looked for as
+      ``in_context.json`` beside the file ``--channel-db`` named — which is how
+      the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
+      With no such neighbour the command asks for the flag.
+
+   Two more inputs decide details:
+
+   ``--limits``
+      ``control_system.limits_checking.database_path``. This file is what tells
+      a readback from a setpoint, so the corpus and the write-safety layer agree
+      on which channels are written. With no limits file configured the address
+      grammar decides instead — a ``:SP`` subfield writes, everything else
+      reads. Every run reports which of the two it used.
+
+   ``--ontology``
+      The FAMILY-to-class table. Defaults to the demo-machine table shipped with
+      OSPREY; name your own when your device families are not the demo
+      machine's.
+
+   The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
+   source tree. A rendered project keeps only the paradigm it runs, as a flat
+   ``data/channel_databases/<paradigm>.json``, and prunes the tier tree — so
+   there is no neighbour to find and ``--descriptions`` has to be named there,
+   and ``--channel-db`` too unless the project runs the hierarchical paradigm
+   and its config already names the database. A graph-mode project ships no
+   channel database at all, so the command refuses there and says to name the
+   sources with ``--channel-db`` and ``--descriptions``.
+
+   ``OUTPUT`` deliberately does **not** default to
+   ``services.graphdb.ttl_path``: that key usually names a hand-curated corpus,
+   and a bare run of the verb would overwrite it. Point that key at the file you
+   wrote to have every deployment seed it.
+   :doc:`/how-to/facility-knowledge/use-facility-graph` runs the command in a
+   rendered project and in the source tree, and shows what it prints.
 
 ``osprey knowledge seed-graph [TTL] [--force]``
    Load a TTL corpus into the deployed graph store. ``--force`` wipes the store

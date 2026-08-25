@@ -13,25 +13,17 @@ Two independent axes
 - **The agent harness** (the program that drives the model through tool calls) is
   swappable in *intent*. Today there is one, Claude Code; support for additional
   coding-agent harnesses is planned.
-- **The model** is already swappable. The Osprey agent speaks the Anthropic
-  Messages API; any OpenAI-protocol endpoint — remote or self-hosted — is reached
-  through a local translation proxy that OSPREY starts automatically. Open models
-  are a configuration choice, not a code change.
+- **The model** is already swappable. Any endpoint OSPREY can reach — remote or
+  self-hosted — is a configuration choice, not a code change.
 
 How open models are routed
 --------------------------
 
-The routing is the same one every provider follows — :ref:`drawn in full
-<provider-routing-diagram>` on the providers page. What matters here is which
-branch an open model lands on.
-
-Open models are most often served behind an **OpenAI-compatible** API — that is how
-CBORG, Ollama, and vLLM all expose them — while the Osprey agent emits **Anthropic
-Messages** calls. When the endpoint speaks the OpenAI protocol, OSPREY bridges the
-two with a local ``Anthropic ↔ OpenAI`` translation proxy that starts automatically
-once you select an OpenAI-protocol provider — you never invoke it yourself. This is
-identical whether the model is self-hosted (``ollama``, ``vllm``, no API key) or
-served by an OpenAI-only remote aggregator.
+Open models are most often served behind an **OpenAI-compatible** API — that is
+how CBORG, Ollama, and vLLM all expose them — so OSPREY reaches them through the
+local ``Anthropic ↔ OpenAI`` translation proxy it starts for any OpenAI-protocol
+provider. How that translation works, and the routing every provider follows
+(:ref:`diagram <provider-routing-diagram>`), are in :doc:`configure-providers`.
 
 One nuance for CBORG: the built-in ``cborg`` provider uses CBORG's
 Anthropic-compatible endpoint, which serves the **Claude** models — those go
@@ -56,7 +48,7 @@ through the translation proxy like any other OpenAI endpoint:
      default_model: sonnet
 
 Any model ID from CBORG's catalogue works in the ``models`` block — the
-benchmark table below shows which ones hold up in practice. The provider list
+*Benchmark snapshot* box on this page shows which ones hold up in practice. The provider list
 and ``config.yml`` keys are in :doc:`configure-providers`.
 
 Which models are known to work

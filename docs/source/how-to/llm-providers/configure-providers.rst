@@ -4,9 +4,9 @@ Configure LLM Providers
 =======================
 
 Osprey uses LLM providers in two contexts: **the Osprey agent** (the main agent)
-communicates over the Anthropic Messages API, while **MCP tool servers** use
-`LiteLLM <https://docs.litellm.ai/>`_ to call any provider. This guide covers
-how to configure providers for both.
+communicates over the Anthropic Messages API, while **MCP tool servers** call
+the same named providers directly through `LiteLLM <https://docs.litellm.ai/>`_.
+This guide covers how to configure providers for both.
 
 .. _provider-routing-diagram:
 
@@ -242,7 +242,11 @@ translation.
 
 Osprey handles this automatically: when an OpenAI-only provider is selected,
 a local translation proxy starts on a random port before the Osprey agent launches.
-No manual configuration is required.
+No manual configuration is required — you never invoke the proxy yourself.
+
+The path is identical whether the endpoint is self-hosted (``ollama``, ``vllm``
+— local, so no API key) or a remote service that speaks only the OpenAI
+protocol.
 
 If you run a custom gateway that speaks Anthropic natively (e.g., a LiteLLM
 proxy in Anthropic mode), add ``api_protocol: anthropic`` to skip the
@@ -300,3 +304,12 @@ The framework automatically:
 - Starts the translation proxy to bridge Anthropic → OpenAI protocols.
 - Maps ``${MY_PROVIDER_API_KEY}`` to the auth token the Osprey agent expects.
 - Injects the resolved model IDs into the Osprey agent's environment.
+
+.. note::
+
+   **This no-code entry serves the Osprey agent.** MCP tool servers resolve a
+   provider by *name* against the built-in table in this guide, so a
+   config-only entry means nothing to them and a tool call that asks for it
+   fails with ``Unknown provider``. Giving an MCP tool server a new provider
+   takes code: a provider class registered under that name through a
+   ``ProviderRegistration`` in your application's registry.

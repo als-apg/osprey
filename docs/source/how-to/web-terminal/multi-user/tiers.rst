@@ -217,7 +217,7 @@ wall; capability lives in the render.
 So the two words name two things. A **persona** is the mechanism: a named
 configuration any number of roster entries can share, so ten operators who
 need the same setup point at one file. A **tier** is what the preset's three
-control personas *mean*. OSPREY itself enforces the two switches above with
+control personas *mean*. OSPREY itself enforces those two switches with
 some care; the names ``readonly``, ``readwrite`` and ``admin``, and the fact
 that there are three of them, belong to the preset. Rename a persona and
 nothing in the framework notices; add a fourth and it inherits the floor and
@@ -420,6 +420,6 @@ Related pages
 - :ref:`What executed code may not change <python-executor-protected-paths>`
   — the Python executor's zone boundary, enforced in both execution modes.
 - :ref:`Sandbox one session <web-terminal-session-posture>` — how an operator
-  steps a write-capable session *below* its tier for a while, never above it.
+  narrows a write-capable session for a while, never widens it.
 - :doc:`../../build-profiles` — personas: what a delta file may contain, and how
   the floor is written so that one persona can lift it.

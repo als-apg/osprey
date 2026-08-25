@@ -84,7 +84,7 @@ carries and what makes the boundary hold.
 
 It also ships a fourth persona that is not a tier of that agent at all.
 ``ariel`` is the standalone logbook research assistant: no control-system tool
-servers, no Python sandbox, no plan queue — a different product, reached from
+servers, no Python executor, no plan queue — a different product, reached from
 its own card. Nothing special makes that possible. A persona is already a
 whole project, so it can differ in what it *is* as easily as in what it may
 write. It shares this deployment's PostgreSQL and logbook, so the operators

@@ -78,30 +78,10 @@ so.
 Service Template Ownership
 ==========================
 
-The service templates under ``<project>/services/`` are framework-managed:
-every ``osprey build`` refreshes them from the installed OSPREY version, so
-compose fixes reach your project automatically. Do not edit them in place —
-your changes would be overwritten on the next build.
-
-To customize a service template, claim it — which **moves** it into the build
-profile the project was built from, where edits survive:
-
-.. code-block:: bash
-
-   osprey scaffold claim services/postgresql   # move it into the profile
-   osprey scaffold diff services/postgresql    # compare yours against the framework
-   osprey scaffold unclaim services/postgresql # restore framework management
-
-Edit the moved copy under ``<profile>/services/postgresql/``, then run
-``osprey build`` again to deploy it. Every build copies it back and marks it
-yours, so later re-renders leave it alone. ``osprey scaffold list`` shows what is
-framework-managed and what is yours; the same mechanism covers the agent
-artifacts (rules, agents, skills, hooks). See :ref:`profile-claim` for the full
-workflow and the artifacts a claim refuses.
-
-Before reaching for a claim, check whether a config key or environment
-variable already covers your need — most service knobs (ports, images,
-credentials, retention) are configurable without forking the template.
+The service templates under ``<project>/services/`` are framework-managed, so
+an edit made to one in place is overwritten on the next build; to keep an edit,
+claim the template into the build profile with ``osprey scaffold claim
+services/<name>`` (:ref:`profile-claim`).
 
 Overriding Service Images
 =========================
@@ -208,7 +188,7 @@ Copy only the rows for services you actually deploy — the upstream pins for a
 service that is not in ``deployed_services`` are never rendered.
 
 Naming the mirror is half the job: the host also has to stop *building*. That
-is the switch in the next section. If your route is a self-built image rather
+is the switch in :ref:`Deploying Prebuilt Images <deployment-prebuilt-images>`. If your route is a self-built image rather
 than a mirror, :doc:`project-image` covers the air-gapped build trio —
 ``OSPREY_PIP_SPEC`` for an internal package mirror, ``PIP_NO_PROXY`` to exempt
 it from the proxy, and ``OSPREY_OFFLINE=1`` to vendor the web assets into the

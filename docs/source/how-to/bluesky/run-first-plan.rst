@@ -1,5 +1,5 @@
 ===================
-Run Your First Scan
+Run Your First Plan
 ===================
 
 Ask the agent for a plan in plain words, watch the form fill itself in, press

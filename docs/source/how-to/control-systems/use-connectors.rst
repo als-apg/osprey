@@ -8,7 +8,7 @@ Use Connectors
 Overview
 --------
 
-The Control System Integration system provides a **two-layer abstraction** for working with control systems and archivers. This enables development and R&D work using mock connectors (without hardware access) and migration to production by changing a single configuration line.
+The Control System Integration system provides a **two-layer abstraction** for working with control systems and archivers. This enables development and R&D work using mock connectors (without hardware access) and migration to production by changing ``control_system.type`` and its connector block, not code.
 
 **Capabilities:**
 
@@ -21,9 +21,11 @@ The Control System Integration system provides a **two-layer abstraction** for w
 
 - **mock** / **mock_archiver**: Development/R&D mode (no hardware access required)
 - **epics** / **epics_archiver**: EPICS Channel Access / Archiver Appliance (production)
-- **virtual_accelerator**: the PyAT Virtual Accelerator's EPICS soft-IOC — behaves
-  like ``epics`` but tracks setpoints through the simulated machine, so plans
-  actually run (the mock connector can't do that); see :doc:`use-virtual-accelerator`
+- **virtual_accelerator**: the containerized Virtual Accelerator, over real EPICS
+  Channel Access — behaves like ``epics`` but tracks setpoints through the
+  simulator's LUME-backed physics, so plans actually run (the mock connector
+  can't do that); see :doc:`use-virtual-accelerator` and
+  :doc:`/architecture/virtual-accelerator`
 - **mongodb_archiver**: MongoDB time-series archiver
 - **doocs** / **doocs_archiver**: DOOCS properties and DOOCS local histories
   (DESY, European XFEL). Both require ``doocs4py``, which is supplied by the
@@ -67,7 +69,7 @@ Mock Mode (Development & R&D)
 Production Mode (EPICS)
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Switch to real hardware by changing ``type`` in ``config.yml``:
+Switch to real hardware by changing ``type`` and adding the connector's own block:
 
 .. code-block:: yaml
 
@@ -261,8 +263,8 @@ back, how a write reports whether it took effect and which safety gates it must
 pass first, and what an archiver's historical data must look like -- is
 documented in :doc:`/reference/contracts/connectors`.
 
-To write, register and test a connector for a control system OSPREY does not
-ship, see *Extending OSPREY* in the Contributing guide.
+To write, register and test a connector — control system or archiver — for a
+system OSPREY does not ship, see :doc:`/contributing/extending-osprey`.
 
 .. seealso::
 

@@ -37,7 +37,7 @@ control-room operator skills.
 
    New to Osprey? Start with the :doc:`Hello World Tutorial <hello-world-tutorial>`.
    It covers project layout, the ``controls`` MCP server, and the safety model
-   in detail — everything below builds directly on it.
+   in detail — everything on this page builds directly on it.
 
 Step 1: Build the Project and Bring It Up
 ------------------------------------------
@@ -71,9 +71,10 @@ Then bring the stack up (this needs Docker or Podman):
 
    osprey up
 
-This starts the containers the preset declares: the Virtual Accelerator
-soft-IOC the agent reads and writes, and the **archive** — a MongoDB store and a
-recorder service — that holds what those channels did.
+This starts the containers the preset declares: the Virtual Accelerator the
+agent reads and writes — a containerized simulator with LUME-backed physics, laid
+out in :doc:`../architecture/virtual-accelerator` — and the **archive**, a
+MongoDB store and a recorder service that holds what those channels did.
 
 **The first deploy seeds the archive**, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine

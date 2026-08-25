@@ -1,8 +1,8 @@
 ===================
-Scans and the Queue
+Plans and the Queue
 ===================
 
-Three sentences carry everything on this page. Scans live in a **queue
+Three sentences carry everything on this page. Plans live in a **queue
 server** that survives restarts — not in the agent, not in the panels. Adding
 a plan to the queue and starting the queue are **two separate, deliberate
 steps**, and only starting is guarded. **Stopping is never locked** — no

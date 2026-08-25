@@ -118,9 +118,8 @@ sources:
       - {lines: "289-399", dest: "reference/contracts/ariel"}              # `database` label + Database Schema, Core Tables, Migration System
       - {lines: "30-45", dest: "contributing/extending-osprey#ariel"}      # adapter implementation code
       - {lines: "73-87", dest: "contributing/extending-osprey#ariel"}
-      - {lines: "106-167", dest: "contributing/extending-osprey#ariel"}    # tab-set of enhancement classes
       - {lines: "173-188", dest: "contributing/extending-osprey#ariel"}
-    stays: ["1-29", "46-72", "88-105", "168-172", "189-288", "400-410"]   # operator prose and the 49-67 adapter table
+    stays: ["1-29", "46-72", "88-172", "189-288", "400-410"]   # operator prose, the 49-67 adapter table, and the 106-167 enhancement-module YAML tab-set (operator config, not a developer seam)
 
   # ── Reference and architecture sources ──────────────────────────────────
   cli-reference/index.rst:              # 1117 lines
@@ -155,11 +154,17 @@ retired_headings:
   - Scans and the Queue
   - Write Your Own Scan Plans
   # how-to/chat-bridges/add-a-channel.rst, condensed into one seam entry
+  - Add Your Own Chat Service
   - What You Get, and What You Write
   - Four Decisions
   - The Functions You Implement
   - Wiring It Into a Build
   - Two Sketches
+  # how-to/add-mcp-server.rst: the external-server section is retitled. It told
+  # readers to edit `claude_code.servers` in config.yml, which every `osprey
+  # build` re-renders; the durable surface is the profile's `mcp_servers:` block,
+  # so "(Config-Only)" became "(Profile-Only)".
+  - Add an External Server (Config-Only)
   # how-to/add-mcp-server.rst 73-249, condensed into one seam entry
   - Create a Framework Server
   - "Step 1: Create the Package"
@@ -167,6 +172,8 @@ retired_headings:
   - "Step 3: Register Tools"
   - "Step 4: Register in the Framework"
   - Testing
+  # how-to/configure-health-checks.rst, condensed into one seam entry
+  - Health plugins
   # how-to/add-connector.rst, condensed into one seam entry
   - Implementing Custom Connectors
   - Registering Custom Connectors

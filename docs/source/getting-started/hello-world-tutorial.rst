@@ -160,8 +160,8 @@ Useful variations: ``osprey web --port 9000`` picks another port,
 
    Prefer to stay in your terminal? ``osprey chat`` starts the same agent
    against the same build as a plain CLI session — see
-   :doc:`/how-to/agent-interfaces/cli-agent`. Everything below works identically there;
-   this tutorial assumes the web terminal.
+   :doc:`/how-to/agent-interfaces/cli-agent`. The remaining steps work
+   identically there; this tutorial assumes the web terminal.
 
 Step 5: Read Some Channels
 ---------------------------

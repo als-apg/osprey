@@ -120,10 +120,11 @@ These are the ones you create and set yourself.
       * - Variable
         - Meaning
       * - ``DISPATCH_TRIGGER``
-        - The trigger to fire. Comes from the profile block above.
+        - The trigger to fire. Comes from the profile block.
       * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
-        - Shared secrets for talking to the dispatcher and the worker.
-          ``osprey up`` generates them when unset.
+        - The two shared secrets the bridge needs to reach the dispatcher and
+          the worker, generated for you when unset — see
+          :ref:`Authentication <event-dispatch-auth>`.
       * - ``DISPATCHER_URL``, ``WORKER_URL``
         - Where the dispatcher and worker are — the bridge collects answers and
           files from the worker directly. Filled in for you when they run in the

@@ -15,8 +15,8 @@ alongside your project.
    - What telemetry the agent emits and how it is transported (OTLP)
    - **Phase 1:** enabling emit against any OTLP-compatible backend
      (backend-agnostic)
-   - **Phase 2:** the opt-in local OpenObserve add-on for an all-in-one,
-     air-gapped store
+   - **Phase 2:** the local OpenObserve add-on the presets deploy by default,
+     for an all-in-one, air-gapped store
    - The full-content-capture posture and how to suppress content categories
    - The store's two identities — the browser login and the telemetry ingest
      account — and what each one can read

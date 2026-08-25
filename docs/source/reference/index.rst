@@ -8,7 +8,7 @@ lookup material; the how-to guides link here for every value they mention.
 .. grid:: 1 1 3 3
    :gutter: 3
 
-   .. grid-item-card:: CLI
+   .. grid-item-card:: CLI Reference
       :link: cli
       :link-type: doc
 
@@ -18,8 +18,8 @@ lookup material; the how-to guides link here for every value they mention.
       :link: configuration/index
       :link-type: doc
 
-      Paged by the file you edit: ``profile.yml``, ``config.yml``, and the
-      environment variables.
+      Paged by the file you have open: ``profile.yml``, ``config.yml``, and
+      the environment variables.
 
    .. grid-item-card:: Contracts
       :link: contracts/index

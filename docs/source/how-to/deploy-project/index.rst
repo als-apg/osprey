@@ -113,10 +113,9 @@ Later deploys find the corpus already there and leave it alone. If bootstrapping
 or seeding fails the deploy warns and carries on, naming ``osprey knowledge
 seed-graph`` (see :doc:`/how-to/facility-knowledge/okf-bundle`), the verb that finishes the job by hand.
 
-To query a graph store this deployment does *not* run, give the block an
-explicit ``uri:`` and leave ``graphdb`` out of ``deployed_services``. Nothing is
-minted or seeded on that path — the graph is somebody else's, so set
-``GRAPHDB_PASSWORD`` in the project ``.env`` yourself.
+To query a graph store this deployment does *not* run, point the block at it
+instead of deploying one — see
+:ref:`Pointing at a store the facility runs <graph-external-store>`.
 
 CLI Commands
 ============

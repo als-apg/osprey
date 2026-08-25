@@ -91,8 +91,8 @@ Each pipeline ships as its own MCP server package
 ``channel_finder.pipeline_mode`` names in ``config.yml`` is served to the agent
 under the single name ``channel-finder`` — so the tools change with the mode
 but the server the agent reaches does not. It is wired into the agent's
-artifacts when you run ``osprey build`` (or ``osprey build``
-after editing the config). There is no public Python
+artifacts when you run ``osprey build``, and rebuilt by the next
+``osprey build`` after you edit the config. There is no public Python
 ``find_channels(...)`` entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:
 

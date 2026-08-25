@@ -114,7 +114,7 @@ A project can only switch if its config describes **both** targets. That is a
 build-time property, and ``osprey build`` renders both connector blocks for you:
 a project generated from the standard template gets a ``virtual_accelerator:``
 block beside its ``epics:`` one, with the simulator's gateway pointed at the
-soft-IOC the stack deploys.
+Virtual Accelerator the stack deploys.
 
 One key is not filled in for you. Each target names a ``probe_channel`` — the
 channel the switch reads to prove that target is reachable:

@@ -4,47 +4,29 @@
 Facility Knowledge
 ==================
 
-The Facility Knowledge system gives the OSPREY agent on-demand access to
-structured narrative knowledge about your facility — subsystems, device
-families, operational procedures, physics notes, and references.
+For the OSPREY agent to be useful at your facility, it has to know your
+facility: what the subsystems are, how devices are named, which procedures
+apply, and where any of it sits on the control system. OSPREY keeps that
+knowledge in three tiers, split by *when* the agent needs it and *what shape*
+the knowledge has.
 
-It uses a two-altitude model, split by *when* the agent needs the content:
-
-* **Always in context** — the facility's core operating context, carried in the
-  Markdown rules under the project's ``.claude/rules/`` directory. These rule
-  files load into the main agent's context at the start of every session, the
-  same way ``CLAUDE.md`` does — the directory is just a convenient way to split
-  instructions into separate topic files, not a different mechanism. Several of
-  the rules are facility-specific: ``facility.md`` carries identity (name, type,
-  mission), and others carry the control-system protocol, the facility timezone,
-  and any safety or operating rules a build profile adds.
-* **Fetched on demand** — the **Open Knowledge Format (OKF)** bundle, a
+* **Always in context** -- the facility's core operating context, carried as
+  Markdown rules under the project's ``.claude/rules/`` directory. These load
+  into the main agent's context at the start of every session, the same way
+  ``CLAUDE.md`` does.
+* **Fetched on demand** -- the **Open Knowledge Format (OKF)** bundle, a
   directory of Markdown concept documents served by the
-  ``osprey_facility_knowledge`` MCP server. This holds
-  the facility's reference knowledge — subsystem descriptions, device specs,
-  procedures, physics notes — and stays out of context until the agent (or you)
-  retrieves it via ``list_concepts``, ``read_concept``, and ``search``.
+  ``osprey_facility_knowledge`` MCP server. Subsystem descriptions, device
+  specs, procedures and physics notes stay out of context until a task calls
+  for them.
+* **Queried** -- the **facility graph**, which holds the machine's *structure*
+  rather than prose: one node per device, the sections devices sit in, the
+  classes they belong to, and the control-system addresses bound to each one.
+  A specialist agent (``facility-knowledge-graph``) writes the Cypher, so you
+  ask in plain language.
 
-Both tiers hold knowledge as prose. A facility's *structure* — its devices,
-sections, device classes, and the control system addresses bound to them — is
-held instead as a queryable graph, documented separately in
-:doc:`use-facility-graph`.
-
-.. dropdown:: What You'll Learn
-   :color: primary
-   :icon: book
-
-   - What the Open Knowledge Format is and where it comes from
-   - The four core ideas: typed documents, progressive disclosure, cross-links, and validation levels
-   - How to structure, configure, and author a facility knowledge bundle
-   - The ``osprey knowledge`` CLI, the ``draft_concept`` tool, and the ``facility-knowledge`` subagent
-
-   **Prerequisites:** The concepts need none. To try the mechanics you'll want
-   a generated OSPREY project (the ``control-assistant`` preset ships a
-   ready-made bundle).
-
-The two tiers are documented separately, along with the search service that
-makes the on-demand tier findable:
+Each tier is documented separately, along with the search service that makes
+the on-demand bundle findable:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -53,28 +35,35 @@ makes the on-demand tier findable:
       :link: facility-rules
       :link-type: doc
 
-      The always-in-context tier — what the ``control-assistant`` preset ships
+      The always-in-context tier -- what the ``control-assistant`` preset ships
       in ``.claude/rules/`` and how to change it.
 
    .. grid-item-card:: The OKF Bundle
       :link: okf-bundle
       :link-type: doc
 
-      The on-demand tier — authoring, configuring, and serving the Open
+      The on-demand tier -- authoring, configuring, and serving the Open
       Knowledge Format bundle of concept documents.
 
-   .. grid-item-card:: The Search Sidecar (qmd)
+   .. grid-item-card:: Search the Facility Graph
+      :link: use-facility-graph
+      :link-type: doc
+
+      The queryable tier -- the questions the graph answers, how the specialist
+      agent reaches it, and how its answers differ from the channel finder's.
+
+   .. grid-item-card:: The Search Sidecar (``qmd``)
       :link: search-sidecar
       :link-type: doc
 
-      The container behind ranked bundle search — and ARIEL's ``hybrid``
+      The container behind ranked bundle search -- and ARIEL's ``hybrid``
       logbook search: configuration, corpus mounts, disk footprint, and
       where it listens.
 
 .. toctree::
    :hidden:
 
-   use-facility-graph
-   okf-bundle
    facility-rules
+   okf-bundle
+   use-facility-graph
    search-sidecar

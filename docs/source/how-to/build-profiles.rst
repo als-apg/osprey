@@ -327,6 +327,11 @@ sight of it.
 Taking ownership of a framework artifact
 ========================================
 
+Everything the build renders is framework-managed: every ``osprey build``
+refreshes it from the installed OSPREY version, so framework fixes reach your
+project on their own — and an edit made in place is overwritten the next time.
+Claiming is how an edit survives.
+
 To customize something OSPREY generates — a rule, an agent, a service template
 — move it into the profile:
 
@@ -338,7 +343,9 @@ To customize something OSPREY generates — a rule, an agent, a service template
    osprey scaffold claim services/postgresql
 
 The artifact is **moved** out of ``build/`` and into the matching convention
-slot of the repository's profile. Edit it there, then rebuild:
+slot of the repository's profile — ``rules/safety`` lands at
+``<profile>/rules/safety.md``, ``services/postgresql`` at
+``<profile>/services/postgresql/``. Edit it there, then rebuild:
 
 .. code-block:: bash
 
@@ -368,9 +375,13 @@ A claim is refused, with the reason, when:
 - the profile slot is already occupied. A claim never overwrites profile
   material.
 
-Before reaching for a claim, check whether a config key already covers your need
-— most service knobs (ports, images, credentials, retention) are configurable
-without owning the template.
+The web terminal offers the same move from the browser: its scaffold gallery
+overrides a framework-generated artifact by claiming it for you (see
+:doc:`web-terminal/operate`).
+
+Before reaching for a claim, check whether a config key or an environment
+variable already covers your need — most service knobs (ports, images,
+credentials, retention) are configurable without owning the template.
 
 
 Custom hooks
@@ -642,26 +653,10 @@ Secrets
 =======
 
 API keys and service credentials live in one file: the ``.env`` at the root of
-the deployment repository. That file is the deployment's single secret store.
-A build never copies secrets into it or out of it, so a value you set once
-survives every rebuild, and wiping ``build/`` takes no secret with it.
-
-Three files at the repository root, and the difference matters:
-
-- ``.env.example`` lists every variable the agent reads, with no values. It is
-  safe to commit, and it is the file to read when you want to know what can be
-  set.
-- ``.env.shared`` holds the settings the whole site shares — a proxy, a
-  facility hostname, a port everyone uses. It **is** committed, so nothing
-  secret belongs in it.
-- ``.env`` holds this host's own values and every secret. The generated
-  ``.gitignore`` keeps it out of git.
-
-``.env.shared`` and ``.env`` are read together, lowest first: a variable set in
-both takes its value from ``.env``. Setting a key locally is how one host
-departs from a shared default. :ref:`deployment-env-chain` covers the rest —
-what a deploy reports about the pair, and the machine-written ``.env*`` files
-that go with them.
+the deployment repository, read together with the committed ``.env.shared``
+beside it. :ref:`deployment-env-chain` is that pair in full — which of the two
+wins, what a deploy writes back into them, and the machine-written ``.env*``
+files that go with them.
 
 Seeding, once
 -------------
@@ -677,47 +672,27 @@ start it yourself:
 
    cp .env.example .env
 
-.. admonition:: This is the only moment a shell export reaches the repository
+.. admonition:: The only moment a shell export reaches the repository unasked
    :class: important
 
    It happens **once**, at ``osprey init``, and what it took is written under a
    "Seeded by ``osprey init`` from your shell" heading — so the file itself
-   records where each value came from. Nothing else in the pipeline reads your
-   environment for secrets, and a later build never re-reads your shell.
+   records where each value came from. No build reads your environment for
+   secrets, and a later build never re-reads your shell. (``osprey up`` will
+   seed a *missing* ``.env`` with this deployment's provider key, but only on an
+   interactive terminal and only if you say yes at the prompt — see
+   :ref:`deployment-env-chain`.)
 
-   The practical consequence: exporting a key *after* the repository exists does
-   not get it in. Put it in ``.env`` yourself.
+   The practical consequence: once the repository has a ``.env``, exporting a
+   key does not get it in — no writer ever overwrites a value already on file.
+   Put it in ``.env`` yourself.
 
 Who else writes to ``.env``
 ---------------------------
 
-Two writers append to the file, and both follow the same rule: **a value
-already on file always wins.** Nothing overwrites what you put there.
-
-- ``osprey up`` mints the credentials only a deploy can produce — database
-  passwords, service tokens — and appends them under a "Minted by deploy"
-  heading. Because a minted value is then on file, a later start comes up on the
-  *same* secrets instead of minting a second set the running containers do not
-  trust.
-- ``osprey build`` appends the pointers it derives from what it just rendered —
-  currently the virtual accelerator's channel manifest — under a "Derived by
-  build" heading.
-
-Both write to this one file, and to ``.env`` rather than ``.env.shared``: a
-minted credential belongs to this host, and the shared file is committed. There
-is no second copy anywhere — ``build/`` holds no secrets, and every service
-reads them from here — so this is the file to back up.
-
-The write-back is **append-only**. A key already in the profile keeps its value —
-it is pinned by the docker volume that was initialized with it, and overwriting it
-would leave the stack authenticating with something its own volumes reject — and a
-value that disagrees is reported by name (never by value) for you to resolve by hand.
-
-If the profile cannot be reached — it has moved or been deleted, or the project
-names none — the deploy still works. The secrets stay in the project ``.env``, a
-warning names the path that failed, and the project records that its ``.env`` is
-the only copy. A later ``osprey build`` repeats that warning before touching the
-directory.
+``osprey up`` and ``osprey build`` both append to the file — minted credentials
+and derived pointers respectively — and both leave a value already on file
+alone; :ref:`deployment-env-chain` has what each writes and why.
 
 
 Profile YAML reference

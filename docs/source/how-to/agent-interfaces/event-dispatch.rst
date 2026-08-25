@@ -253,6 +253,8 @@ Authoring Triggers
    stack never exercises it; the behaviour is covered by
    ``tests/unit/dispatch/test_server_routes.py``.
 
+.. _event-dispatch-auth:
+
 Authentication
 ==============
 
@@ -266,6 +268,12 @@ profile's ``.env`` and rebuild:
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints.
   Send it as ``Authorization: Bearer <token>``.
 - ``DISPATCH_WORKER_TOKEN`` — guards the **dispatcher → worker** calls.
+
+Anything that drives the pipeline from outside holds both. A :doc:`chat bridge
+<chat-bridges/index>`, for instance, fires its trigger at the dispatcher with
+``EVENT_DISPATCHER_TOKEN`` and then collects the finished answer and its files
+from the worker with ``DISPATCH_WORKER_TOKEN``, so a bridge that has only one of
+them stalls partway through every question.
 
 .. dropdown:: How the tokens work
    :icon: shield-lock

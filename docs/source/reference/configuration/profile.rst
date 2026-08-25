@@ -34,7 +34,7 @@ Profile YAML reference
      - ``None``
      - Facility data tree, relative to the profile directory (``data`` in a
        materialized profile). Replaces the bundled tree wholesale. May resolve
-       above the profile directory; only existence and shape are checked
+       outside the profile directory; only existence and shape are checked
        (see :ref:`profile-self-contained`).
    * - ``provider``
      - string
@@ -179,13 +179,17 @@ sections in their own ``config.yml.j2``.
      approval.default_policy: always
 
 
+.. _profile-mcp-servers:
+
 MCP server injection
 ====================
 
-Custom MCP servers are recorded in the project's ``config.yml`` (under
-``claude_code.servers``) and rendered from there into ``.mcp.json`` (server
+The top-level ``mcp_servers:`` key declares the MCP servers a build wires into
+the agent. The build records each entry in the rendered ``config.yml`` (under
+``claude_code.servers``) and renders it from there into ``.mcp.json`` (server
 configuration) and ``.claude/settings.json`` (tool permissions) — so a later
-``osprey build`` re-renders them instead of losing them.
+``osprey build`` re-renders them instead of losing them. For the procedure, see
+:doc:`/how-to/agent-interfaces/add-mcp-server`.
 
 .. code-block:: yaml
 
@@ -214,7 +218,16 @@ Server-Sent Events):
          allow: ["mml_search"]
 
 ``command`` and ``url`` are mutually exclusive, and stdio servers must not set
-``transport`` (launching via ``command`` *is* the transport).
+``transport`` (launching via ``command`` *is* the transport). A ``port:`` may
+stand in for a whole ``url``: for an HTTP service the deployment publishes on
+one port, ``port: 8008`` derives ``http://localhost:8008/mcp``. It is
+mutually exclusive with ``command`` for the same reason ``url`` is, and it
+cannot stand in for an ``sse`` server's ``url``: ``transport: sse`` always
+requires an explicit ``url``, whether or not a ``port`` is given, because an
+event stream does not live at the derived ``/mcp`` path. The derived block the
+build records alongside a ``port:`` names the container URL under the server's
+own key — so name the compose service after the ``mcp_servers:`` key or that
+URL points at no host.
 
 **Placeholders:** ``{project_root}`` resolves at build time to the absolute
 project path; ``${ENV_VAR}`` is preserved for the container or shell to resolve
@@ -444,29 +457,27 @@ and ``osprey up`` starts, bootstraps and seeds it — see
    provider: anthropic
    channel_finder_mode: graph     # no `tier` — graph has no tiered artifacts
 
-To search a store the facility already runs, name it instead of deploying one.
-That takes three things: an explicit ``uri`` on the block, the store's password
-in the project ``.env`` as ``GRAPHDB_PASSWORD`` (nothing is minted for a store
-this deployment does not own), and ``graphdb`` off the ``deployed_services``
-list — otherwise the build still stands up a local Neo4j nobody queries.
-``deployed_services`` is a list, so the override replaces it whole; write out
-the services you *do* want rather than the one you are removing.
+The mode reads the same ``services.graphdb`` block when the store is one the
+facility already runs and this deployment only connects to. The keys that
+express that are an explicit ``uri``, ``username`` (default ``neo4j``), and a
+``deployed_services`` list without ``graphdb`` in it — the template's default is
+``[postgresql, openobserve, qmd, graphdb]``, and the override replaces the list
+whole:
 
 .. code-block:: yaml
 
    channel_finder_mode: graph
    config:
      services.graphdb.uri: bolt://graph.facility.org:7687
-     services.graphdb.username: neo4j    # default `neo4j`
-     # Whole-list replacement: the template's default is
-     # [postgresql, openobserve, qmd, graphdb].
+     services.graphdb.username: neo4j
      deployed_services: [postgresql, openobserve, qmd]
 
-An external store has to already hold a corpus for the mode to answer anything:
-generate one with ``osprey knowledge build-ttl`` and load it with ``osprey
-knowledge seed-graph`` (see
-:doc:`/how-to/facility-knowledge/use-facility-graph`). A store this deployment
-runs gets that during ``osprey up``; a store it only connects to does not.
+The procedure that goes with those keys — the password to place, what is minted
+and seeded on each path, and how to load a corpus into a store OSPREY does not
+run — is in
+:ref:`Pointing at a store the facility runs <graph-external-store>`. A store
+this deployment runs is seeded during ``osprey up``; a store it only connects
+to is not.
 
 A profile whose app template carries no ``services.graphdb`` block at all — the
 channel-finder app template carries none — is refused at build time, naming the
