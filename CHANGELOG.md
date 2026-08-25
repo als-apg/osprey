@@ -492,6 +492,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   and refuses to queue or start plans while the session is pointed at a target
   that lane does not serve.
 
+- The Virtual Accelerator serves its physics model's own variables over
+  pvAccess as well as Channel Access. A write arriving on either transport
+  moves both views and a refused write moves neither, with one difference:
+  a PVA put comes back carrying the model's own reason for refusing, where
+  Channel Access can only signal an alarm and the absence of movement.
+  Channel Access remains the authoritative view of the facility's whole
+  channel namespace, and the only transport the container publishes; PVA is
+  reachable only from inside the container.
+- The Virtual Accelerator's physics is now pluggable. The ring is reached
+  through a `LUMEModel`, so a surrogate or a different tracking code can be
+  supplied without touching the layer that serves the channels, and the
+  generic pyAT tracking behind the shipped ring model now comes from an
+  upstream, facility-agnostic package, `lume-pyat`, rather than living
+  inside OSPREY.
+
 ### Changed
 
 - `osprey-connectors` now versions with the framework's calendar stream —
@@ -570,6 +585,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 - On rebuild, a `control-assistant` deployment's `readonly` and `readwrite`
   terminals lose the Config panel and the gallery editors; only the `admin`
   tier keeps them. Put a roster entry on `admin` to keep an editing terminal.
+
+- The documentation is reorganized around what you are doing: the how-to
+  guides are grouped into task sections (deploy, LLM providers, web
+  terminal, agent interfaces, health and monitoring, control systems,
+  facility knowledge), and everything that is a lookup rather than a task
+  moved into a new Reference section — the CLI (`reference/cli`),
+  configuration, and the connector, ARIEL, Channel Finder, facility-graph
+  and health-JSON contracts. The contributing guide splits into setup,
+  workflow, docs and a new map of the framework's extension seams. Every
+  old URL redirects, so existing links and bookmarks keep working.
 
 ### Changed
 
