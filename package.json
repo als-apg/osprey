@@ -10,11 +10,11 @@
     "lint": "eslint ."
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.5",
-    "happy-dom": "^20.10.6",
-    "eslint": "^9",
-    "@eslint/js": "^9",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "happy-dom": "^20.11.2",
+    "eslint": "^10",
+    "@eslint/js": "^10",
     "globals": "^17"
   }
 }
