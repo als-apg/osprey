@@ -20,6 +20,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   unit's bare `osprey up -d` comes back after a reboot (#716). Existing key
   material at the old `data/<lane>_curve/` path is relocated — not re-minted —
   on the next `osprey up`.
+- Target switch: a configured-but-unserved `write_access` gateway no longer strands a
+  write-armed session off the baseline. When the write-role readiness probe fails, the
+  switch retries through the `read_only` gateway and lands with a warning; writes on
+  such a session still go through the unchanged write path and are refused at the
+  read-only gateway. (#718)
 
 ### Added
 

@@ -42,9 +42,11 @@ from osprey.mcp_server.python_executor import executor as py_executor
 from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
+DEAD_WRITE_PORT = switch_suite.DEAD_WRITE_PORT
 REFUSE_CHANNEL = switch_suite.REFUSE_CHANNEL
 SETTLE_TIMEOUT_S = switch_suite.SETTLE_TIMEOUT_S
 VA_PROBE = switch_suite.VA_PROBE
+gateway_config = switch_suite.gateway_config
 raw_config = switch_suite.raw_config
 started_on = switch_suite.started_on
 
@@ -57,6 +59,7 @@ child_environment = switch_suite.child_environment
 fixture_dir = switch_suite.fixture_dir
 make_manager = switch_suite.make_manager
 state_root = switch_suite.state_root
+write_armed_project = switch_suite.write_armed_project
 
 TOOL = get_tool_fn(control_target.control_target_set)
 
@@ -375,6 +378,34 @@ class TestDelegation:
                 "generation": 1,
             }
         ]
+
+    async def test_a_fallback_landing_reports_success_with_the_warning(
+        self, make_manager, monkeypatch, write_armed_project
+    ):
+        """Issue #718 at the tool surface: home again, and told at what cost.
+
+        The deployment is write-armed and its write gateway is configured but
+        dead, so the return to baseline lands through the read gateway. That
+        is a success — the session is home — but not a silent one: the
+        response carries the fallback and the description warns about it. No
+        eligibility stub here: a dead gateway is exactly what the config-only
+        verdict cannot see, so the real gate waves this switch through.
+        """
+        manager = make_manager(raw=gateway_config(), config_path=write_armed_project)
+        install_context(manager, monkeypatch)
+        await manager.ensure_started()
+        await manager.switch("va")
+
+        payload = extract_response_dict(await TOOL(target="live"))
+
+        assert payload["status"] == "success"
+        assert payload["summary"]["target"] == "live"
+        assert payload["access_details"]["selected_role"] == "read_only"
+        fallback = payload["access_details"]["write_gateway_fallback"]
+        assert fallback["port"] == DEAD_WRITE_PORT
+        assert "WARNING" in payload["description"]
+        assert "read_only" in payload["description"]
+        assert manager.active_target() == "live"
 
     async def test_a_switch_error_becomes_the_structured_error(
         self, make_manager, monkeypatch, emitted

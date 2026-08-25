@@ -606,13 +606,27 @@ async def control_target_set(target: str) -> str:
 
     status = hosts.status()
     logger.info("Session target is now %r (generation %s)", result["target"], result["generation"])
+    description = (
+        f"Control-system target is now {result['target']!r} (generation {result['generation']})."
+    )
+    access_details = {
+        "endpoint": result["endpoint"],
+        "selected_role": result["selected_role"],
+        "baseline_target": status["baseline_target"],
+        "child_pid": result["child_pid"],
+        "previous_drained": result["previous_drained"],
+        "drain_timeout_s": result["drain_timeout_s"],
+    }
+    # A landing that could not use the write gateway is a success with a
+    # warning, not a silent success: the operator has a gateway to fix.
+    fallback = result.get("write_gateway_fallback")
+    if fallback:
+        description += f" WARNING: {fallback['detail']}"
+        access_details["write_gateway_fallback"] = fallback
     return json.dumps(
         {
             "status": "success",
-            "description": (
-                f"Control-system target is now {result['target']!r} "
-                f"(generation {result['generation']})."
-            ),
+            "description": description,
             "summary": {
                 "target": result["target"],
                 "generation": result["generation"],
@@ -621,14 +635,7 @@ async def control_target_set(target: str) -> str:
                 "connector_type": result["connector_type"],
                 "probe_channel": result["probe_channel"],
             },
-            "access_details": {
-                "endpoint": result["endpoint"],
-                "selected_role": result["selected_role"],
-                "baseline_target": status["baseline_target"],
-                "child_pid": result["child_pid"],
-                "previous_drained": result["previous_drained"],
-                "drain_timeout_s": result["drain_timeout_s"],
-            },
+            "access_details": access_details,
         },
         default=str,
     )
