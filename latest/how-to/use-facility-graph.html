@@ -558,10 +558,9 @@ spells. They sit on bindings rather than on signals because an address is
 ring-qualified and a signal is not — <code class="docutils literal notranslate"><span class="pre">SR:MAG:QF:01:CURRENT:SP</span></code> and its
 booster counterpart share one signal node but are described differently.</p>
 <p>The descriptions and <code class="docutils literal notranslate"><span class="pre">system</span></code> come from the generator, so they are there in a
-corpus <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code> produced — the demo machine — and not in the shipped ALS
-corpus, which OSPREY carries as a fixed artifact with no source database to
-regenerate from. On that one the way in is a name, an <code class="docutils literal notranslate"><span class="pre">altLabel</span></code>, a section
-or a class.</p>
+corpus <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code> produced — the demo machine — and not necessarily in one
+imported straight from a facility’s own export. On such a corpus the way in is
+a name, an <code class="docutils literal notranslate"><span class="pre">altLabel</span></code>, a section or a class.</p>
 <p>Three spelling rules come from neosemantics and catch out anyone writing Cypher
 from memory:</p>
 <ul class="simple">
@@ -589,9 +588,9 @@ shapes: device counts by class (concrete and rolled up the ontology), every
 device of a class including its subclasses, a section walk in beam order,
 every PV of one device split by direction, the class hierarchy as a table
 and as inheritance chains, a read/write split across all bindings, and
-devices sharing one PV. Each carries its Cypher and a parameter set for each
-shipped corpus. Adapting one is reliable where inventing a query is
-guesswork.</p></li>
+devices sharing one PV. Each carries its Cypher and a parameter set whose
+values exist in the demo machine. Adapting one is reliable where inventing
+a query is guesswork.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_schema</span></code> — the labels, relationship types and per-label property names
 actually present in <em>this</em> graph, plus the NARAD namespace prefix map for
 reading and building <code class="docutils literal notranslate"><span class="pre">uri</span></code> values. Call it when you need a name the
@@ -804,23 +803,18 @@ run of the verb would overwrite it.</p>
 </section>
 <section id="what-the-presets-seed">
 <h2>What the Presets Seed<a class="headerlink" href="#what-the-presets-seed" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>control-assistant</strong> seeds <code class="docutils literal notranslate"><span class="pre">./data/demo_machine.ttl</span></code> — the demo machine,
-generated from the preset’s own channel databases with the command above and
-regenerable the same way. The ALS corpus still ships alongside it at
-<code class="docutils literal notranslate"><span class="pre">./services/graphdb/als_gtb.ttl</span></code>; point <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> there, or at a corpus
-of your own, to seed that instead.</p></li>
-<li><p><strong>ariel-standalone</strong> seeds <code class="docutils literal notranslate"><span class="pre">./services/graphdb/als_gtb.ttl</span></code>, a real
-facility’s corpus, as the worked non-demo example.</p></li>
-</ul>
+<p>Both presets seed <code class="docutils literal notranslate"><span class="pre">./data/demo_machine.ttl</span></code> — the demo machine, generated
+from the control-assistant preset’s own channel databases with the command
+above and regenerable the same way. The ARIEL standalone preset ships the same
+corpus so that every OSPREY demo describes one facility. Point <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at
+a corpus of your own to seed that instead.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>A build profile that ships its own <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree replaces the bundle’s
 <code class="docutils literal notranslate"><span class="pre">data/</span></code> directory wholesale, which takes <code class="docutils literal notranslate"><span class="pre">demo_machine.ttl</span></code> with it.
 Such a profile has to set <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> in its <code class="docutils literal notranslate"><span class="pre">config:</span></code>
-overlay — at its own corpus, or at <code class="docutils literal notranslate"><span class="pre">./services/graphdb/als_gtb.ttl</span></code>.
-Otherwise the deploy warns, the store comes up empty, and every query
-reports the empty state above.</p>
+overlay, at its own corpus. Otherwise the deploy warns, the store comes up
+empty, and every query reports the empty state above.</p>
 </div>
 </section>
 <section id="pointing-at-a-store-the-facility-runs">
