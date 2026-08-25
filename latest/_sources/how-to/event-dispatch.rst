@@ -179,32 +179,33 @@ separate browser window. The tab health-gates itself: while the dispatcher is
 down the tab is disabled with an offline indicator rather than showing a broken
 frame, and it turns live once the dispatcher answers ``/health``.
 
-The panel points at ``${EVENT_DISPATCHER_URL:-http://localhost:8020}``, which
-works out of the box for the host-run flow above. When the web terminal runs in
-a container, repoint it at the dispatcher service:
-
-.. code-block:: bash
-
-   EVENT_DISPATCHER_URL=http://event-dispatcher:8020
+The panel points at ``http://localhost:<dispatcher_port>``, which works out of
+the box for the host-run flow above and for every web-terminal persona built
+beside the deployment: per-user containers share the host's network, so the
+dispatcher answers on their loopback too, and the build copies this entry from
+the deployment's render into each persona (:doc:`build-profiles`).
 
 Auto-derived URL
 ----------------
 
 You do not have to set ``web.panels.events.url`` by hand. Whenever a profile
 lists the ``events`` panel **and** declares a ``dispatch:`` block, the build
-derives the panel's route from ``dispatch.dispatcher_port``:
+derives the whole panel entry from ``dispatch.dispatcher_port``:
 
 .. code-block:: yaml
 
    web.panels.events.url: http://localhost:<dispatcher_port>   # bare host
    web.panels.events.path: /dashboard                          # route
+   web.panels.events.label: EVENTS                             # tab title
+   web.panels.events.health_endpoint: /health                  # what the tab health-gates on
 
 The ``url`` is the bare dispatcher host and ``path`` carries the ``/dashboard``
 route — the web terminal composes the backend target as ``url`` + ``path``, so
 baking ``/dashboard`` into ``url`` would double-prefix sub-routes. Keep them
-split. If a profile already pins ``web.panels.events.path`` the build leaves it
-untouched, and an explicit ``web.panels.events.url`` override always wins (use it
-for remote/containerized terminals that cannot reach ``localhost``).
+split. Any of these keys a profile already pins the build leaves untouched, and
+an explicit ``web.panels.events.url`` always wins — pin it on the **hosting**
+profile when the web terminals cannot reach the dispatcher on ``localhost``;
+every persona follows it, and a persona that pins a different one is refused.
 
 Authoring Triggers
 ==================

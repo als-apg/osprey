@@ -1631,6 +1631,37 @@ names an external store, because it renders <code class="docutils literal notran
 template says. For what the mode changes about the agent’s answers, see
 <a class="reference internal" href="use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; for the corpus behind them,
 <a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<p>The qmd sidecar behind hybrid logbook search is guarded the same way. The
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates switch
+<code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> on and deploy the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar that
+answers it, but an attached project renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> — so on its own it
+would keep the mode with nothing behind it, and every logbook query would fail
+with <em>no qmd sidecar is configured</em>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses that instead of
+rendering it.</p>
+<p>An attached project rarely has to say anything, because <strong>the build tells it
+where the host’s services are</strong>. Every client-facing fact — the sidecar’s port,
+the graph store’s bolt port, the Postgres the logbook lives in, the telemetry
+store’s port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — is copied
+from the hosting deployment’s own render into each persona built beside it, so
+a service moved on the hosting profile moves every persona with it, and the
+shipped <code class="docutils literal notranslate"><span class="pre">control-assistant-*</span></code> presets pin none of them. A persona profile
+that spells one of these keys with a <em>different</em> value is refused — the two
+copies would dial different places, and the build names both. (A persona
+inherits the hosting profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys, so a port moved there is
+spelled in every persona as the host’s own value, and agrees.) A persona
+built <em>alone</em> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant-ariel</span></code> in a
+repo with no hosting deployment) is told what its app template deploys at the
+shipped defaults instead, and there its <code class="docutils literal notranslate"><span class="pre">config:</span></code> is where a host that
+differs is named:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">services.qmd.port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9180</span><span class="w">        </span><span class="c1"># the sidecar of the deployment this build shares a host with</span>
+<span class="w">  </span><span class="c1"># or: ariel.search_modules.hybrid.enabled: false</span>
+</pre></div>
+</div>
+<p>The same facts are checked again at run time: the <code class="docutils literal notranslate"><span class="pre">reach</span></code> category of
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> (and of the system-health tab, inside each user’s container)
+resolves every live client’s endpoint the way the client does and knocks on it
+(<a class="reference internal" href="configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p>
 </section>
 <section id="the-va-archiver-block">
 <span id="profile-va-archiver"></span><h2>The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block<a class="headerlink" href="#the-va-archiver-block" title="Link to this heading">#</a></h2>

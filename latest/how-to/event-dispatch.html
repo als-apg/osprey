@@ -685,27 +685,29 @@ an <strong>EVENTS</strong> tab inside the web terminal, so <code class="docutils
 separate browser window. The tab health-gates itself: while the dispatcher is
 down the tab is disabled with an offline indicator rather than showing a broken
 frame, and it turns live once the dispatcher answers <code class="docutils literal notranslate"><span class="pre">/health</span></code>.</p>
-<p>The panel points at <code class="docutils literal notranslate"><span class="pre">${EVENT_DISPATCHER_URL:-http://localhost:8020}</span></code>, which
-works out of the box for the host-run flow above. When the web terminal runs in
-a container, repoint it at the dispatcher service:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">EVENT_DISPATCHER_URL</span><span class="o">=</span>http://event-dispatcher:8020
-</pre></div>
-</div>
+<p>The panel points at <code class="docutils literal notranslate"><span class="pre">http://localhost:&lt;dispatcher_port&gt;</span></code>, which works out of
+the box for the host-run flow above and for every web-terminal persona built
+beside the deployment: per-user containers share the host’s network, so the
+dispatcher answers on their loopback too, and the build copies this entry from
+the deployment’s render into each persona (<a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
 <section id="auto-derived-url">
 <h3>Auto-derived URL<a class="headerlink" href="#auto-derived-url" title="Link to this heading">#</a></h3>
 <p>You do not have to set <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> by hand. Whenever a profile
 lists the <code class="docutils literal notranslate"><span class="pre">events</span></code> panel <strong>and</strong> declares a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, the build
-derives the panel’s route from <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code>:</p>
+derives the whole panel entry from <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web.panels.events.url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:&lt;dispatcher_port&gt;</span><span class="w">   </span><span class="c1"># bare host</span>
 <span class="nt">web.panels.events.path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/dashboard</span><span class="w">                          </span><span class="c1"># route</span>
+<span class="nt">web.panels.events.label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EVENTS</span><span class="w">                             </span><span class="c1"># tab title</span>
+<span class="nt">web.panels.events.health_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/health</span><span class="w">                  </span><span class="c1"># what the tab health-gates on</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">url</span></code> is the bare dispatcher host and <code class="docutils literal notranslate"><span class="pre">path</span></code> carries the <code class="docutils literal notranslate"><span class="pre">/dashboard</span></code>
 route — the web terminal composes the backend target as <code class="docutils literal notranslate"><span class="pre">url</span></code> + <code class="docutils literal notranslate"><span class="pre">path</span></code>, so
 baking <code class="docutils literal notranslate"><span class="pre">/dashboard</span></code> into <code class="docutils literal notranslate"><span class="pre">url</span></code> would double-prefix sub-routes. Keep them
-split. If a profile already pins <code class="docutils literal notranslate"><span class="pre">web.panels.events.path</span></code> the build leaves it
-untouched, and an explicit <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> override always wins (use it
-for remote/containerized terminals that cannot reach <code class="docutils literal notranslate"><span class="pre">localhost</span></code>).</p>
+split. Any of these keys a profile already pins the build leaves untouched, and
+an explicit <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> always wins — pin it on the <strong>hosting</strong>
+profile when the web terminals cannot reach the dispatcher on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>;
+every persona follows it, and a persona that pins a different one is refused.</p>
 </section>
 </section>
 <section id="authoring-triggers">

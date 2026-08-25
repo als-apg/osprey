@@ -785,7 +785,7 @@ keys happened to be read.</p>
 </section>
 <section id="built-in-service-categories">
 <h2>Built-in service categories<a class="headerlink" href="#built-in-service-categories" title="Link to this heading">#</a></h2>
-<p>Beyond the always-on framework checks, three built-in categories are
+<p>Beyond the always-on framework checks, four built-in categories are
 <strong>presence-gated on their config blocks</strong>: they contribute rows only when the
 corresponding service is configured, so a minimal build shows no empty tiles.</p>
 <ul>
@@ -821,6 +821,20 @@ an empty graph from reading as a populated one; a count of zero warns and
 names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> as the remedy. The agent’s own graph
 tools report the same degraded states from the inside — see
 <a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">reach</span></code> — appears when this render has a client switched on for a shared
+service: hybrid logbook search and the OKF panel (the qmd sidecar), the
+graph MCP server (the graph store), the ARIEL panel and MCP server
+(Postgres), agent telemetry (the OpenObserve store), the Bluesky MCP server
+(the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
+virtual-accelerator connector. One row per service, and the address it
+knocks on is the one <strong>the client itself resolves</strong> from this config, in the
+process running the check — so the same category answers a different
+question on the host (what <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands reach) and inside a per-user
+web-terminal container, where the health MCP server runs it (what that
+user’s agent reaches). A knock is a TCP connect; a closed port warns and
+names the config key the client resolved it from, and a client switched on
+with nothing to resolve warns with the key that would give it one — the
+same condition <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses (<a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>

@@ -910,9 +910,12 @@ directly:</p>
 </div>
 <p>Two consequences worth knowing before you move anything:</p>
 <ul class="simple">
-<li><p><strong>Move the port on the hosting deployment and you must move the same number
-in both persona presets.</strong> They carry their own copy; nothing derives it for
-them.</p></li>
+<li><p><strong>Move the port on the hosting deployment and every persona follows.</strong> A
+persona built beside its deployment is told the store’s bolt port from the
+deployment’s own render — the same way it is told the qmd sidecar’s port,
+the Postgres the logbook lives in and the rest (<a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a>) — so
+nothing in a persona preset restates it, and a persona that restates it
+with a different number is refused at build time.</p></li>
 <li><p>A <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> pinned to a specific non-loopback interface
 publishes the store there and not on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, so the personas would no
 longer reach it. URL-backed panels have the same shape — they name

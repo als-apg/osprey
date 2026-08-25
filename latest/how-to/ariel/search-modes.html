@@ -657,7 +657,7 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <li><p>the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar (see <a class="reference internal" href="../search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>), and</p></li>
 <li><p>the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, which writes the markdown mirror the sidecar indexes.</p></li>
 </ol>
-<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates enable both, together with the sidecar itself.</p>
+<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates enable both, together with the sidecar itself. A web-terminal persona deploys no sidecar of its own and reaches the hosting deployment’s through <code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code> instead — a key the build copies from the hosting deployment’s render into every persona, so nothing pins it by hand — and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a persona that keeps <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> on with no sidecar to dial (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as <em>search is down</em>, deliberately, so that the agent cannot read an outage as “nothing matched”.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
@@ -962,10 +962,11 @@ the pattern. Both carry the expansion groups the query was going to use.</p>
 <span class="w">        </span><span class="nt">pattern_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span><span class="w">   </span><span class="c1"># default: 10.0</span>
 </pre></div>
 </div>
-<p>A relative <code class="docutils literal notranslate"><span class="pre">path</span></code> resolves against the directory holding the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-that was loaded — the same rule as <code class="docutils literal notranslate"><span class="pre">qmd_export.mirror_path</span></code> and
-<code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> — so the panel, the CLI and the MCP server
-all read the same file no matter where the process was started.</p>
+<p>A relative <code class="docutils literal notranslate"><span class="pre">path</span></code> resolves against the project root of the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+that was loaded (the deployment repo, not its <code class="docutils literal notranslate"><span class="pre">build/</span></code> render) — the same
+rule as <code class="docutils literal notranslate"><span class="pre">qmd_export.mirror_path</span></code> and <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> —
+so the panel, the CLI and the MCP server all read the same file no matter
+where the process was started.</p>
 <p><code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> with no <code class="docutils literal notranslate"><span class="pre">path</span></code>, an <code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> entry naming a module
 that is unknown or not enabled, and a malformed pattern knob are all
 configuration errors that name the offending key. Nothing is quietly defaulted.</p>

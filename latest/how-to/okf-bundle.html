@@ -620,9 +620,10 @@ to <code class="docutils literal notranslate"><span class="pre">config.yml</span
 <span class="w">  </span><span class="nt">bundle_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/facility_knowledge</span>
 </pre></div>
 </div>
-<p>Relative paths are resolved against the directory containing <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-(the project root).  For the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the example
-bundle is scaffolded into <code class="docutils literal notranslate"><span class="pre">data/facility_knowledge/</span></code> automatically.</p>
+<p>Relative paths are resolved against the project root — the deployment
+repo, not the <code class="docutils literal notranslate"><span class="pre">build/</span></code> render inside it, which every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+re-creates. For the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the example bundle is
+scaffolded into <code class="docutils literal notranslate"><span class="pre">data/facility_knowledge/</span></code> automatically.</p>
 <p id="shared-bundle-multi-user"><strong>One bundle, many terminals.</strong> In a multi-user deployment every web
 terminal whose persona configures <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> gets
 the <em>deployment’s</em> bundle bind-mounted, read-write. There is one directory,

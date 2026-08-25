@@ -813,28 +813,38 @@ name rather than a secret.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>For <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> the OTLP endpoint is <strong>auto-derived</strong> and you
-should not hardcode it. The derived form is <code class="docutils literal notranslate"><span class="pre">http://&lt;host&gt;:5080/api/&lt;org&gt;</span></code>
-— note the <code class="docutils literal notranslate"><span class="pre">5080</span></code> is fixed: the derivation does <em>not</em> follow a changed
-<code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>, so if you publish the store on a different
-host port, set <code class="docutils literal notranslate"><span class="pre">endpoint:</span></code> explicitly instead. The <code class="docutils literal notranslate"><span class="pre">&lt;host&gt;</span></code> part is
-chosen for the running context:</p>
+should not hardcode it. The derived form is <code class="docutils literal notranslate"><span class="pre">http://&lt;host&gt;:&lt;port&gt;/api/&lt;org&gt;</span></code>,
+with both halves chosen for the running context:</p>
 <ul class="simple">
 <li><p><strong>On the host</strong> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> on your machine) the host
-is <code class="docutils literal notranslate"><span class="pre">localhost</span></code> — the store’s published port.</p></li>
-<li><p><strong>Inside a bridge-networked container</strong> (for example the containerized
+is <code class="docutils literal notranslate"><span class="pre">localhost</span></code> and the port is the one the store <strong>publishes</strong> —
+<code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>, so moving the store moves the exporter
+with it.</p></li>
+<li><p><strong>Inside a host-networked container</strong> (every web-terminal persona
+container, a dispatch worker on the host network) the container’s
+loopback is the host’s, so the address is the same published one. The
+framework’s compose files declare the host explicitly
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1</span></code> or <code class="docutils literal notranslate"><span class="pre">localhost</span></code>), because
+the emitter’s own container detection would otherwise pick the compose
+DNS name, which resolves to nothing there.</p></li>
+<li><p><strong>Inside a bridge-networked container</strong> (the default containerized
 dispatch worker) the store is reachable only by its compose service DNS
-name, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>. The framework’s dispatch-worker service declares this
-by setting <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST=openobserve</span></code> in its compose
-environment. That explicit declaration — rather than sniffing the container
-runtime — is what makes emit work identically under Docker and Podman.</p></li>
+name, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, and on the port it <strong>listens</strong> on inside its own
+container (5080) rather than the published one. The dispatch-worker
+service declares both, <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST=openobserve</span></code> and
+<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_PORT=5080</span></code>. That explicit declaration — rather
+than sniffing the container runtime — is what makes emit work identically
+under Docker and Podman.</p></li>
 </ul>
 <p>If you run your own containerized emitter, set
 <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST</span></code> to whatever host reaches OpenObserve from
-inside that container: the compose service name on a bridge network, or
+inside that container — the compose service name on a bridge network
+(with <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_PORT</span></code> naming the listen port), or
 <code class="docutils literal notranslate"><span class="pre">localhost</span></code> when the container uses host networking (<code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>),
-where the compose DNS name would not resolve. Leave it unset on a plain host
-run. Hardcoding <code class="docutils literal notranslate"><span class="pre">endpoint:</span></code> instead would point every context at the same
-host and silently drop records from the ones it doesn’t fit.</p>
+where the compose DNS name would not resolve and the published port
+applies. Leave both unset on a plain host run. Hardcoding <code class="docutils literal notranslate"><span class="pre">endpoint:</span></code>
+instead would point every context at the same address and silently drop
+records from the ones it doesn’t fit.</p>
 </div>
 <p>On its next run the agent emits to OpenObserve, and its logs and metrics appear
 in the UI.</p>
