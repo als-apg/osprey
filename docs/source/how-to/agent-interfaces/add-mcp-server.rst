@@ -3,269 +3,107 @@
 Add an MCP Server
 =================
 
-Osprey supports two ways to add MCP servers:
+OSPREY supports two ways to add MCP servers:
 
-- **Config-only** — add an external server (any language) via ``config.yml``.
-  No Python code required.
+- **Declared in the build profile** — wire in an external server, written in
+  any language, with an ``mcp_servers:`` block. No Python code required.
 - **Framework server** — create a Python package under
   ``src/osprey/mcp_server/`` with full access to the framework's utilities,
   hooks, and permissions system.
 
 
-Add an External Server (Config-Only)
+Add an External Server (Profile-Only)
 -------------------------------------
 
-To wire in any MCP server, add it under ``claude_code.servers`` in your
-project's ``config.yml``:
+Declare the server in the deployment's ``profile.yml``, under the top-level
+``mcp_servers:`` key:
 
 .. code-block:: yaml
 
-   claude_code:
-     servers:
-       my-server:
-         command: "npx"
-         args: ["-y", "@my-org/my-mcp-server"]
-         env:
-           MY_API_KEY: ${MY_API_KEY}
+   mcp_servers:
+     my-server:
+       command: "npx"
+       args: ["-y", "@my-org/my-mcp-server"]
+       env:
+         MY_API_KEY: "${MY_API_KEY}"
 
-       my-python-server:
-         command: "python"
-         args: ["-m", "my_package.server"]
-         env:
-           OSPREY_CONFIG: "{project_root}/config.yml"
+     my-python-server:
+       command: "python"
+       args: ["-m", "my_package.server"]
+       env:
+         OSPREY_CONFIG: "{project_root}/config.yml"
 
-Each entry needs ``command``; ``args`` and ``env`` are optional.
-``{project_root}`` is expanded to the project directory at build time;
-``${VAR}`` passes through shell environment variables.
+Each entry needs a ``command`` — or, for a server that is already running
+somewhere, a ``url`` instead; the two are mutually exclusive. ``args`` and
+``env`` are optional. ``{project_root}`` is expanded to the project directory
+at build time; ``${VAR}`` is left alone for the shell or the container to
+resolve at run time.
 
-To set permissions and hooks on a custom server:
+To set permissions on a server, name its tools:
 
 .. code-block:: yaml
 
-   claude_code:
-     servers:
-       my-server:
-         command: "npx"
-         args: ["-y", "@my-org/my-mcp-server"]
-         permissions:
-           allow: [safe_tool, read_data]
-           ask: [write_data, delete_item]
-         hooks:
-           pre_tool_use: [approval]
+   mcp_servers:
+     my-server:
+       command: "npx"
+       args: ["-y", "@my-org/my-mcp-server"]
+       permissions:
+         allow: [safe_tool, read_data]
+         ask: [write_data, delete_item]
 
-After editing, regenerate the Osprey agent configuration:
+Then rebuild:
 
 .. code-block:: bash
 
    osprey build
 
-The server will appear in ``.mcp.json`` and its permissions will be added
-to ``.claude/settings.json``.
+The build records the block in the project's rendered ``config.yml`` (under
+``claude_code.servers``) and renders it from there into ``.mcp.json``, which is
+what launches the server, and into ``.claude/settings.json``, where a server
+named ``my-server`` with ``allow: [safe_tool]`` becomes the permission entry
+``mcp__my-server__safe_tool``.
 
-To disable a framework-provided server you do not need:
+.. warning::
+
+   Declare the server in ``profile.yml``, not in the rendered ``config.yml``.
+   ``profile.yml`` is the only durable edit surface: every ``osprey build``
+   re-renders ``config.yml``, ``.mcp.json`` and ``.claude/settings.json`` from
+   it, so a server written straight into ``claude_code.servers`` in the
+   rendered file is gone the next time you build. (``claude_code.servers.*`` is
+   a protected key family for that reason — the setup tools and the web
+   terminal's config panel refuse to write it.)
+
+To turn off a framework-provided server you do not need, use the profile's
+``config:`` overlay — a framework server has no ``mcp_servers:`` entry of its
+own to edit:
 
 .. code-block:: yaml
 
-   claude_code:
-     servers:
-       ariel:
-         enabled: false
+   config:
+     claude_code.servers.ariel.enabled: false
+
+.. note::
+
+   One server key has no ``mcp_servers:`` spelling: ``hooks.pre_tool_use``,
+   which attaches a hook preset (such as ``approval``) to every tool of one
+   server. The renderer reads it from ``claude_code.servers`` in ``config.yml``,
+   but the build rewrites each declared server's entry there wholesale after
+   the ``config:`` overlay is applied, so an overlay cannot add it to a server
+   the profile declares. Reach for a
+   :ref:`tool permission <profile-tool-permissions>` — ``ask:`` prompts before
+   the call — or a framework server, which can carry hooks of its own.
+
+Every key an ``mcp_servers:`` entry accepts — the remote ``url`` and
+``transport`` forms, the ``port`` shorthand, the placeholder rules, and how to
+ship the server's own Python package inside the profile so the launch command
+finds it — is in :ref:`profile-mcp-servers`.
 
 
-Create a Framework Server
---------------------------
+Create Your Own Framework Server
+--------------------------------
 
-For deeper integration — shared startup utilities, workspace singletons,
-hook presets — create a Python package. This section uses the **controls**
-server (``osprey.mcp_server.control_system``) as the canonical example.
-
-Every framework MCP server follows a four-step pattern:
-
-1. Create a Python package under ``src/osprey/mcp_server/<name>/``.
-2. Define a ``FastMCP`` server instance in ``server.py``.
-3. Register tools using ``@mcp.tool()`` decorators in a ``tools/`` sub-package.
-4. Add a ``ServerDefinition`` to the framework registry.
-
-
-Step 1: Create the Package
-^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: text
-
-   src/osprey/mcp_server/my_server/
-   ├── __init__.py
-   ├── __main__.py
-   ├── server.py
-   └── tools/
-       ├── __init__.py
-       └── my_tool.py
-
-``__init__.py`` needs only a module docstring.
-
-``__main__.py`` provides the ``python -m`` entry point using the shared
-startup helper:
-
-.. code-block:: python
-
-   from osprey.mcp_server.startup import run_mcp_server
-
-   def main() -> None:
-       run_mcp_server("osprey.mcp_server.my_server.server")
-
-   if __name__ == "__main__":
-       main()
-
-
-Step 2: Define the Server Instance
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-In ``server.py``, create a module-level ``FastMCP`` instance and a
-``create_server()`` factory that initializes dependencies and imports tools:
-
-.. code-block:: python
-
-   import logging
-   from fastmcp import FastMCP
-
-   logger = logging.getLogger("osprey.mcp_server.my_server")
-
-   mcp = FastMCP(
-       "my-server",
-       instructions="One-line description of what the server does",
-   )
-
-   def create_server() -> FastMCP:
-       """Initialize context, import tools, and return the server."""
-       from osprey.mcp_server.startup import (
-           initialize_workspace_singletons, prime_config_builder, startup_timer,
-       )
-       from osprey.utils.workspace import resolve_workspace_root
-
-       prime_config_builder()
-
-       workspace_root = resolve_workspace_root()
-       initialize_workspace_singletons(workspace_root)
-
-       with startup_timer("tool_imports"):
-           from osprey.mcp_server.my_server.tools import my_tool  # noqa: F401
-
-       logger.info("My Server MCP server initialised")
-       return mcp
-
-Key points:
-
-* The ``mcp`` instance is defined at **module level** so tool modules can
-  import it directly.
-* ``create_server()`` is called by the startup machinery; it must return
-  the ``mcp`` instance.
-* Tool modules are imported inside ``create_server()`` so that
-  ``@mcp.tool()`` decorators run after context is ready.
-* Log through the standard ``logging`` module and leave handler setup to
-  ``run_mcp_server()``, which calls ``osprey.configure_logging()`` on your
-  behalf.  Every log line goes to stderr; stdout belongs to the JSON-RPC
-  transport, so a ``print()`` there will break the client connection.  Anything
-  embedding Osprey outside an entry point — a notebook, a script — must call
-  ``osprey.configure_logging()`` itself to see log output; importing the
-  framework configures nothing.
-
-
-Step 3: Register Tools
-^^^^^^^^^^^^^^^^^^^^^^
-
-Each tool lives in its own module under ``tools/``.  Import the ``mcp``
-instance from ``server.py`` and decorate async functions:
-
-.. code-block:: python
-
-   """MCP tool: my_tool."""
-
-   import json
-   from osprey.mcp_server.my_server.server import mcp
-
-   @mcp.tool()
-   async def my_tool(name: str, count: int = 1) -> str:
-       """Do something useful.
-
-       Args:
-           name: The thing to operate on.
-           count: How many times to do it.
-
-       Returns:
-           JSON result string.
-       """
-       return json.dumps({"name": name, "count": count, "status": "ok"})
-
-Tool guidelines:
-
-* **Return type** -- always ``str`` (typically JSON).
-* **Docstring** -- becomes the tool description the LLM sees; be specific.
-* **Error handling** -- report failures via
-  ``osprey.mcp_server.errors.make_error``, which raises a ``ToolError``
-  carrying a structured JSON envelope; raising this way is what marks the
-  result as an error for the agent.
-* **One tool per file** keeps modules focused and avoids circular imports.
-
-
-Step 4: Register in the Framework
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Open ``src/osprey/registry/mcp.py`` and add a ``ServerDefinition`` to
-``FRAMEWORK_SERVERS``:
-
-.. code-block:: python
-
-   "my-server": ServerDefinition(
-       name="my-server",
-       module="osprey.mcp_server.my_server",
-       env={"OSPREY_CONFIG": "{project_root}/config.yml"},
-       permissions_allow=["my_tool"],
-       hooks_post=[_post_error("mcp__my-server__.*")],
-   ),
-
-Important ``ServerDefinition`` fields:
-
-``name``
-    Server name.  Tools are referenced as ``mcp__<name>__<tool_name>``.
-
-``module``
-    Python module path.  Launched via ``python -m <module>``.
-
-``env``
-    Environment variables.  ``{project_root}`` is the workspace path;
-    ``${VAR:-default}`` passes through host env vars.
-
-``permissions_allow`` / ``permissions_ask``
-    Tools allowed without confirmation vs. tools requiring operator approval.
-
-``condition``
-    Optional context key; server is disabled when the key is falsy.
-
-``hooks_pre`` / ``hooks_post``
-    Use ``_APPROVAL`` for human-in-the-loop on safety-critical tools and
-    ``_post_error()`` for standard error guidance.
-
-After adding the entry, run ``osprey build`` to regenerate the Osprey
-agent configuration.  The server will appear in ``.mcp.json``.
-
-
-Testing
--------
-
-Unit-test tools by calling the underlying async function. FastMCP's
-``@mcp.tool()`` decorator wraps a function into a ``FunctionTool`` object, so
-unwrap it first — the shared test helper ``get_tool_fn`` (in
-``tests/mcp_server/conftest.py``) returns the raw function via its ``.fn``
-attribute:
-
-.. code-block:: python
-
-   from tests.mcp_server.conftest import get_tool_fn
-
-   @pytest.mark.unit
-   async def test_my_tool():
-       from osprey.mcp_server.my_server.tools.my_tool import my_tool
-       result = await get_tool_fn(my_tool)("example", count=2)
-       assert '"status": "ok"' in result
-
-(The suite runs with ``asyncio_mode=auto``, so plain ``async def`` tests need
-no extra marker.) Place tests under ``tests/mcp_server/test_my_server.py``.
+A framework server is a Python package inside Osprey itself, with access to
+the shared startup helpers, workspace singletons and hook presets. Writing one
+is developer work rather than configuration: see
+:doc:`/contributing/extending-osprey` for the base pieces, the registry entry
+that switches it on, and the test that pins it.

@@ -25,24 +25,7 @@ The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adap
 Facility Adapters
 =================
 
-Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL --- storage, enhancement, search --- never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as ``EnhancedLogbookEntry`` TypedDicts that the repository can store directly. All adapters inherit from ``FacilityAdapter`` and implement two required members:
-
-.. code-block:: python
-
-   class FacilityAdapter(ABC):
-       @property
-       @abstractmethod
-       def source_system_name(self) -> str:
-           """Return the source system identifier."""
-
-       @abstractmethod
-       def fetch_entries(
-           self,
-           since: datetime | None = None,
-           until: datetime | None = None,
-           limit: int | None = None,
-       ) -> AsyncIterator[EnhancedLogbookEntry]:
-           """Yield entries from the source system."""
+Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL --- storage, enhancement, search --- never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as ``EnhancedLogbookEntry`` TypedDicts that the repository can store directly. All adapters inherit from ``FacilityAdapter`` and implement two required members --- a source-system name and an entry generator. Writing one for a logbook Osprey does not ship is a developer task: the base class, the registration and the test that pins them are the ARIEL seam in :doc:`/contributing/extending-osprey`.
 
 Adapters are discovered through Osprey's central registry. The framework ships with the following built-in adapters:
 
@@ -66,27 +49,9 @@ Adapters are discovered through Osprey's central registry. The framework ships w
      - ``generic_json``
      - Reads from a JSON file with flexible field mapping. Useful for demos, testing, and facilities without a custom API.
 
-**Registering a custom adapter:**
+**Using a custom adapter:**
 
-To add your own facility adapter, subclass ``FacilityAdapter``, implement ``source_system_name`` and ``fetch_entries()``, and register it through your application's registry configuration:
-
-.. code-block:: python
-
-   from osprey.registry.helpers import extend_framework_registry
-   from osprey.registry.base import ArielIngestionAdapterRegistration
-
-   app_config = extend_framework_registry(
-       ariel_ingestion_adapters=[
-           ArielIngestionAdapterRegistration(
-               name="my_facility",
-               module_path="my_app.adapters.my_facility",
-               class_name="MyFacilityAdapter",
-               description="Adapter for My Facility's logbook system",
-           ),
-       ],
-   )
-
-Once registered, you can use your adapter by setting ``ariel.ingestion.adapter: my_facility`` in ``config.yml``. See :class:`~osprey.services.ariel_search.ingestion.base.FacilityAdapter` for the full interface (including the optional ``count_entries()`` method) and :class:`~osprey.services.ariel_search.models.EnhancedLogbookEntry` for the field reference.
+An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``.
 
 .. admonition:: Collaboration Welcome
    :class: outreach
@@ -166,28 +131,9 @@ The built-in enhancement modules:
 
       **Requirements:** the ``services.qmd`` sidecar, which bind-mounts this same directory read-only. See :ref:`qmd-search-sidecar`.
 
-**Registering a custom enhancement module:**
+**Using a custom enhancement module:**
 
-To add your own module, subclass ``BaseEnhancementModule``, implement the ``name`` property and ``enhance()`` method, and register it through your application's registry configuration:
-
-.. code-block:: python
-
-   from osprey.registry.helpers import extend_framework_registry
-   from osprey.registry.base import ArielEnhancementModuleRegistration
-
-   app_config = extend_framework_registry(
-       ariel_enhancement_modules=[
-           ArielEnhancementModuleRegistration(
-               name="my_enhancer",
-               module_path="my_app.enhancement.my_enhancer",
-               class_name="MyEnhancerModule",
-               description="Custom enhancement module",
-               execution_order=40,  # Runs after built-in modules (10, 20, 30)
-           ),
-       ],
-   )
-
-The ``execution_order`` field controls the order in which modules run during enhancement. Built-in modules use orders 10 (semantic processor), 20 (text embedding) and 30 (qmd export). See :class:`~osprey.services.ariel_search.enhancement.base.BaseEnhancementModule` for the full interface, including ``configure()``, ``health_check()``, and the ``migration`` property.
+A module of your own runs alongside the built-in ones once it is registered --- see :doc:`/contributing/extending-osprey`. Its registration carries an ``execution_order`` that decides where in the run it lands; the built-ins use 10 (semantic processor), 20 (text embedding) and 30 (qmd export), so a value above 30 runs last.
 
 .. admonition:: Collaboration Welcome
    :class: outreach

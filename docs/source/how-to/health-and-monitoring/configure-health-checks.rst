@@ -7,11 +7,11 @@ Configure Health Checks
 configuration validity, file-system layout, Python environment, container
 infrastructure, telemetry store, API providers, the agent CLI, and any
 configured framework services (ARIEL, channel finder) — and prints a
-categorized report. The built-in checks always run; a ``health:`` block in the
-build profile (``profile.yml``) lets a facility *add* its own checks (HTTP
+categorized report. The built-in checks always run; a ``health:`` block in
+``config.yml`` — set from the build profile's ``config:`` block, which
+``osprey build`` renders — lets a facility *add* its own checks (HTTP
 endpoints, MCP servers, deployed containers, control-system channels, model
-providers) and tune the suite's timing — ``osprey build`` renders it into
-``config.yml``.
+providers) and tune the suite's timing.
 
 This guide shows how to put that surface to work. Every ``health:`` field —
 the suite scalars, the declarative categories, the six probe types and their
@@ -129,30 +129,13 @@ profile that sets ``freshness_channel`` and also declares
 because the two would be one fact in two homes, merged in whichever order the
 keys happened to be read.
 
-Health plugins
---------------
+Checks that need real Python
+----------------------------
 
-For checks that need real Python — querying a facility service, computing a
-derived state — register a **plugin** under ``health.plugins`` as a dotted
-module path. The module must expose:
-
-.. code-block:: python
-
-   def get_health_categories() -> dict[str, Callable[[], list[CheckResult]]]:
-       """Map category name -> a no-argument callable returning check results."""
-       ...
-
-Each callable takes no arguments and returns a list of
-``osprey.health.models.CheckResult``; it may be sync or async. Plugin categories
-run alongside the built-in and declarative categories through the same path, and
-default to ``cost: poll`` (adjust with a metadata override — see
-:ref:`config-health`).
-
-Plugin loading is fail-safe: a plugin that fails to import, is missing
-``get_health_categories()``, returns the wrong type, or whose category name
-collides with a built-in, a declarative, or an earlier plugin category, produces
-a single ``error`` row in a diagnostic ``plugins`` category — it never crashes
-the suite.
+A check that has to query a facility service or compute a derived state cannot
+be written in YAML. For those, ``health.plugins`` takes dotted module paths and
+loads each module's checks as a category of its own — writing that module is a
+developer task, covered in :doc:`/contributing/extending-osprey`.
 
 The web dashboard (``SYSTEM`` panel)
 ------------------------------------

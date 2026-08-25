@@ -24,6 +24,15 @@ Thank you for your interest in contributing to the Osprey Framework. This guide 
       Branch naming, the three-tier local test run, conventional commits, and
       what happens to your pull request on the way to ``main``.
 
+   .. grid-item-card:: Extending Osprey
+      :link: extending-osprey
+      :link-type: doc
+      :shadow: md
+
+      The seam map: connector, archiver, MCP server, chat bridge, ARIEL,
+      health plugin, panel, LUME model -- each with the class or registry to
+      subclass, a pinning test, and the how-to that configures it.
+
    .. grid-item-card:: Documentation and Screenshots
       :link: docs-and-screenshots
       :link-type: doc
@@ -62,4 +71,5 @@ Getting Help
 
    development-setup
    workflow
+   extending-osprey
    docs-and-screenshots

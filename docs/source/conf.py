@@ -90,7 +90,8 @@ redirects: dict[str, str] = {
     "how-to/chat-bridges/index": "../agent-interfaces/chat-bridges/index.html",
     "how-to/chat-bridges/nextcloud-talk": "../agent-interfaces/chat-bridges/nextcloud-talk.html",
     "how-to/chat-bridges/google-chat": "../agent-interfaces/chat-bridges/google-chat.html",
-    "how-to/chat-bridges/add-a-channel": "../agent-interfaces/chat-bridges/add-a-channel.html",
+    "how-to/chat-bridges/add-a-channel": "../../contributing/extending-osprey.html",
+    "how-to/agent-interfaces/chat-bridges/add-a-channel": "../../../contributing/extending-osprey.html",
     # Operate: health and monitoring
     "how-to/configure-health-checks": "health-and-monitoring/configure-health-checks.html",
     "how-to/monitor-agent": "health-and-monitoring/monitor-agent.html",

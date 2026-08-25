@@ -131,13 +131,13 @@ Learn More
       are shared.
 
    .. grid-item-card:: Add Your Own
-      :link: add-a-channel
+      :link: /contributing/extending-osprey
       :link-type: doc
       :class-header: bg-success text-white
       :shadow: md
 
       What it takes to connect Slack, email, or any other service the agent
-      should answer from.
+      should answer from -- the developer seam, in the Contributing guide.
 
 .. seealso::
 
@@ -151,4 +151,3 @@ Learn More
 
    nextcloud-talk
    google-chat
-   add-a-channel
