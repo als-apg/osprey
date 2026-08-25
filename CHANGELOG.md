@@ -50,6 +50,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Security
 
+- Multi-user deploy: the Bash/launch-token guard now also covers roster entries that
+  run no persona (the deploy project itself). A deployment whose own config grants
+  writes and runs the Bluesky server, but whose `.claude/settings.json` does not
+  deny `Bash`, is refused at `osprey up` like a persona in the same state, and the
+  refusal names it as `(no persona: the deploy project)`.
 - Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact
   gallery, the Theme Lab and the rest — now authenticates every HTTP and
   WebSocket request, and every launcher that serves one prints a login URL
