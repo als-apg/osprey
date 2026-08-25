@@ -861,6 +861,43 @@ keys:
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)'}
   web.channel_suggestions.max_channels:
     evidence: 'section\.get\("max_channels", DEFAULT_MAX_CHANNELS\)'
+  web.app_name:
+    rendered: false
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"app_name"\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. An optional human-readable
+      deployment name shown in the web terminal's header so otherwise-identical
+      terminals are told apart; empty or absent means no label is rendered, so
+      there is nothing for a template to ship a default for. The environment
+      variable OSPREY_WEB_APP_NAME outranks it, which is what lets several
+      containers that share one baked config image each carry their own name.
+      Documented for operators in how-to/web-terminal/operate.rst.
+  web.chat_turn_timeout_s:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. First of the three keys that
+      bound the Simple-mode operator-chat pool, all read in one lifespan block
+      of the web terminal and all documented together in
+      how-to/web-terminal/operate.rst. Ceiling in seconds on a single chat
+      turn; default 600. The `\s*` between the call's parts is load-bearing for
+      the same reason `web.docs_url` carries it: the three reads sit side by
+      side and the formatter wraps a call across lines on length alone.
+  web.chat_idle_timeout_s:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. How long an operator's chat
+      session may sit idle before it is reaped; default 1800 s. Same lifespan
+      block and same `\s*` rule as `web.chat_turn_timeout_s`.
+  web.chat_max_sessions:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_max_sessions",\s*5\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. Cap on concurrent operator-chat
+      sessions, handed to the OperatorRegistry alongside the idle timeout;
+      default 5. Third of the trio, same lifespan block and same `\s*` rule as
+      `web.chat_turn_timeout_s`.
   cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
   cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
 
