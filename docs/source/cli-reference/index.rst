@@ -720,6 +720,17 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/okf-bundle` and
    Write stub concept documents into a bundle from a TTL corpus, one per class,
    for a person to fill in.
 
+``osprey knowledge compile-ontology SOURCE OUTPUT [--check]``
+   Compile an authored LinkML schema into the ontology table ``build-ttl``
+   reads. ``SOURCE`` is the schema, and ``OUTPUT`` the JSON table to write; an
+   existing file is overwritten. The output is deterministic, so compiling an
+   unchanged schema twice leaves ``git diff`` silent.
+
+   ``--check`` writes nothing. It compares ``OUTPUT`` against a fresh compile of
+   ``SOURCE`` and exits non-zero when the two disagree, naming the classes,
+   synonyms and families that differ --- which is what a CI job or a pre-commit
+   hook runs to prove a committed table still matches its schema.
+
 ``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH]``
    Derive a NARAD-convention TTL corpus from the channel database: one device
    node per device, one binding per address, a read or write direction on every

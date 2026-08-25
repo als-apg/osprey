@@ -96,6 +96,12 @@ config:
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
   claude_code.servers.osprey_facility_knowledge.enabled: false
+  # The graph store is a control-room surface too, and this tier's exclusion
+  # of it has to be said: the build tells every attached render where the
+  # hosting deployment's services are (the Reach Contract), and a
+  # `services.graphdb` block is what makes the graph server render. Only a
+  # server switched off is told nothing about the store.
+  claude_code.servers.graph.enabled: false
   # Pinned even though the server that would honour it is gone, for the same
   # reason the other two tiers pin it: this key is the write boundary, and it
   # must not drift if the base's default ever changes.
@@ -111,3 +117,13 @@ config:
   # containers). Without this override the inherited roster would make this
   # render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
+  # Nothing here says where the hosting deployment's services are — the qmd
+  # sidecar hybrid logbook search dials (the point of this tier), the Postgres
+  # the logbook lives in, the telemetry store. This persona is an attached
+  # render (`services: {}` of its own) built beside that deployment, and the
+  # build copies every such fact from the deployment's own render into it
+  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
+  # containers run `network_mode: host`, so container `localhost` IS the
+  # deployment host and the copied ports are dialed there. Built alone, with
+  # no hosting deployment in the repo, the build copies what the app template
+  # deploys at its defaults instead — and a host that differs is named here.

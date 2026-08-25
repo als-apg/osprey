@@ -31,7 +31,8 @@ on:
       revalidate_secret_lanes:
         description: >-
           Run the API-key-dependent lanes (agentic flows, dispatch stacks,
-          Nextcloud/Google Chat bridges) against this ref. Dependabot's own
+          the build+deploy pipeline, Nextcloud/Google Chat bridges) against
+          this ref. Dependabot's own
           runs are treated as fork runs and receive only the Dependabot
           secret store, so ALS_APG_API_KEY is empty and those lanes skip on
           its pull requests. After reading the dependency diff, a maintainer
@@ -230,22 +231,36 @@ jobs:
         # it into a silent wedge rather than a death. A live CA client/server
         # pair is only safe in a process of its own.
         #
-        # --durations=50: the ubuntu cells run ~2x the macOS wall clock and the
-        # gap is undiagnosed. A per-cell slow-test ranking in every run is what
+        # --durations=50: a per-cell slow-test ranking in every run is what
         # tells "one group of tests got expensive" apart from "the whole suite
-        # is uniformly slower on this runner" — remove once the unit lane's
-        # runtime question is settled.
-        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 -n 4 --dist loadgroup $COV_ARGS
+        # is uniformly slower on this runner". It settled the ubuntu-vs-macOS
+        # question once (#582: no runner gap, the profile is the same on both)
+        # and stays on so the next drift is diagnosable from the summary
+        # instead of by re-instrumenting the lane.
+        #
+        # Teed into ci-diag/ rather than read from the job log: `gh run view
+        # --log` returns a fraction of a 60k-line log, and the durations
+        # report is at the end of it. scripts/ci/diag_summary.py renders the
+        # top of the report into the step summary, and the upload below keeps
+        # the whole log. `pipefail` is set explicitly because an unspecified
+        # `shell:` runs `bash -e` WITHOUT it — the pipe would otherwise turn
+        # every red suite into tee's green exit. The directory is created here
+        # because tests/ci_diagnostics.py creates it at pytest configure time,
+        # which is after tee has to open its file.
+        mkdir -p ci-diag
+        set -o pipefail
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
-    # They run on success too: on a green lane the summary is one line, and on
-    # a killed lane it is the only place the answer exists.
+    # They run on success too: on a green lane the summary is the slow-test
+    # ranking, and on a killed lane it is the only place the answer exists.
     - name: Summarise lane diagnostics
       if: always()
       # Names the test each worker was inside when the lane stopped. All four
       # workers stalling at once means the runner went away; one worker stalling
       # means the test it names deadlocked. That distinction decides whether a
-      # rerun is legitimate, and it is not recoverable from the job log.
+      # rerun is legitimate, and it is not recoverable from the job log. On a
+      # lane that finished, tabulates the top of the durations report instead.
       #
       # `python3`, not `uv run`: the script is stdlib-only and standalone by
       # design, so it still reports when the failure being diagnosed is the
@@ -396,6 +411,14 @@ jobs:
 
     - name: Set up Python
       run: uv python install 3.11
+
+    - name: Lockfile is current with pyproject
+      # pyproject.toml and uv.lock must move together. Every other lane runs
+      # a plain `uv sync`, which silently re-locks a stale lockfile in the
+      # runner and goes green — so a split pair (e.g. a floor bump without a
+      # re-lock) is invisible everywhere except here. Ordering is
+      # load-bearing: this must run BEFORE `uv sync` rewrites the lock.
+      run: uv lock --check
 
     - name: Install dependencies
       run: uv sync --extra dev
@@ -852,6 +875,7 @@ jobs:
           tests/interfaces/web_terminal/test_auth_login_browser.py \
           tests/interfaces/web_terminal/test_feedback_rail_browser.py \
           tests/interfaces/web_terminal/test_feedback_modal_browser.py \
+          tests/interfaces/web_terminal/test_posture_toggle_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \
@@ -904,18 +928,19 @@ jobs:
       uses: actions/setup-node@v7
       with:
         node-version: '22'
+        cache: 'npm'
 
     - name: Install JS dependencies
-      # `npm install --no-package-lock`, not `npm ci`: the committed
-      # package-lock.json records a resolved entry only for the host platform's
-      # rollup binary (the lock is authored on macOS), and both `npm ci` AND a
-      # plain `npm install` honor that incomplete tree, so the Linux runner
-      # never installs @rollup/rollup-linux-x64-gnu that vitest needs (npm
-      # optional-deps bug, npm/cli#4828 — its own error message says to ignore
-      # the lockfile). `--no-package-lock` resolves fresh from package.json and
-      # installs the correct platform binary. This is a dev/CI-only
-      # typecheck+test job, so strict lock reproduction is not required here.
-      run: npm install --no-package-lock
+      # `npm ci`, so this lane tests exactly the lockfile-pinned versions that
+      # Dependabot's cooldown vetted — a fresh resolve would silently pull
+      # newer releases. The lockfile is complete for every platform (all
+      # optional native bindings carry os/cpu fields); the old macOS-authored
+      # lock that omitted the Linux binding (npm/cli#4828) no longer
+      # reproduces on current npm. If an incomplete lock ever lands again,
+      # `npm ci` fails loudly here rather than drifting. Regenerate the lock
+      # by hand with `npm install --package-lock-only`, which resolves from
+      # registry metadata and is platform-neutral by construction.
+      run: npm ci
 
     - name: Typecheck (tsc --noEmit)
       run: npm run typecheck
@@ -1184,9 +1209,9 @@ jobs:
           # orm-roundtrip-e2e, bluesky-catalog-e2e,
           # bluesky-sandbox-escape-e2e,
           # nextcloud-talk-bridge-e2e,
-          # multi-user-deploy-lifecycle-e2e, deploy-writeback-e2e) and the
-          # Dockerfile e2e
-          # (dockerfile-e2e) each have their own job because they build
+          # multi-user-deploy-lifecycle-e2e, deploy-writeback-e2e), the
+          # Dockerfile e2e (dockerfile-e2e) and the container privilege
+          # split (privilege-split-e2e) each have their own job because they build
           # container images. Exclude them all here to avoid
           # double-execution — and because full-stack deploys leave
           # host-global residue (fixed `<prefix>-web-<user>`/`<prefix>-nginx`
@@ -1233,6 +1258,7 @@ jobs:
             --ignore=tests/e2e/test_bluesky_deploy.py \
             --ignore=tests/e2e/test_bluesky_queue_e2e.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
+            --ignore=tests/e2e/test_privilege_split.py \
             --ignore=tests/e2e/test_execution_environment_parity.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
@@ -1361,8 +1387,17 @@ jobs:
     name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Only run on PRs from same repo (secrets unavailable on forks)
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: `osprey up`'s .env preflight requires
+    # ALS_APG_API_KEY, so this skips on fork PRs (no secrets) and on
+    # Dependabot PRs (Dependabot secret store, not the Actions one — the
+    # same-repo check alone does NOT cover Dependabot, whose branches live
+    # in this repo). Revalidate with the `revalidate_secret_lanes` dispatch
+    # input, like every other secret-gated lane.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -2631,6 +2666,62 @@ jobs:
         name: gchat-bridge-e2e
         engine: docker
 
+
+  privilege-split-e2e:
+    name: Privilege Split E2E (built images, stat-level ownership proof)
+    runs-on: ubuntu-latest
+    # Two image builds of the control-assistant preset (base + admin render);
+    # they share every layer up to the persona's own config, so the second is
+    # mostly cache — but the first is the same cold EPICS-toolchain compile
+    # dockerfile-e2e pays, hence the same order of budget plus the second image.
+    timeout-minutes: 90
+    # Same PR scoping as dockerfile-e2e: same-repo PRs, any base. Unlike the
+    # lifecycle lanes this touches nothing host-global — every image and
+    # container it creates carries a per-run uuid under the
+    # osprey-e2e-privsplit prefix — so it is safe to run on per-phase PRs too.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run privilege split E2E
+      timeout-minutes: 85
+      # No pip-spec override: the suite stages the local dev wheel into each
+      # image context itself (the `osprey up --dev` path), because everything
+      # it proves — the render-zone ownership split, the entrypoint's
+      # privilege drop, the reserved-record gate — is unreleased code.
+      run: uv run pytest tests/e2e/test_privilege_split.py -v --tb=short
+
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: privilege-split-e2e
+        engine: docker
+
+    # Belt-and-suspenders on top of the suite's own fixture teardown. Names are
+    # per-run uuids, so the module's tag prefix is the only handle a stranded
+    # resource has — scoped to that prefix, never a bare prune.
+    - name: Clean up any stranded privilege-split-e2e resources
+      if: always()
+      run: |
+        docker ps -aq --filter "name=^osprey-e2e-privsplit-" | xargs -r docker rm -f
+        docker images -q "osprey-e2e-privsplit-*" | xargs -r docker rmi -f
+        docker volume ls -q --filter "name=^osprey-e2e-privsplit-" | xargs -r docker volume rm -f
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
@@ -4337,7 +4428,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, lean-wheel, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-e2e, target-switch-agentic-e2e]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, lean-wheel, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-e2e, target-switch-agentic-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: always()
@@ -4442,6 +4533,7 @@ jobs:
         check_pr_lane "Nextcloud Talk bridge E2E"    "${{ needs.nextcloud-talk-bridge-e2e.result }}"
         check_pr_lane "Google Chat bridge E2E"       "${{ needs.gchat-bridge-e2e.result }}"
         check_pr_lane "Dockerfile E2E"               "${{ needs.dockerfile-e2e.result }}"
+        check_pr_lane "Privilege split E2E"          "${{ needs.privilege-split-e2e.result }}"
         check_pr_lane "Execution env parity E2E"     "${{ needs.execution-environment-parity-e2e.result }}"
         check_pr_lane "Deploy write-back E2E"         "${{ needs.deploy-writeback-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
@@ -4470,6 +4562,7 @@ jobs:
             echo "Dependabot secret store, so \`ALS_APG_API_KEY\` is unavailable and these"
             echo "lanes skipped rather than executed:"
             echo
+            echo "- Deploy E2E Test (build + deploy pipeline)"
             echo "- Tier 3 — Agentic flow (both presets)"
             echo "- E2E Tests"
             echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"

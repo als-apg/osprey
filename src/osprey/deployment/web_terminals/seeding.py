@@ -83,12 +83,15 @@ _CLAUDE_MD_SH = (
 #      inside an already-managed skill land too)
 #   3. re-stamp .deploy-managed on each
 # $1 = space-separated skill names this overlay currently ships (possibly
-# empty); $2 = the target project_skills_dir; $3 = the "uid:gid" owner (see
-# _CLAUDE_MD_SH).
+# empty); $2 = the target project_skills_dir; $3 = the container's runtime
+# "uid:gid" (see _CLAUDE_MD_SH), passed for call-shape parity with the
+# CLAUDE.md seed but deliberately NOT used as the owner here: the render zone
+# this target now lives in is root-owned, so the reconcile chowns to 0:0. A
+# render-zone file the runtime user can rewrite would let a session edit the
+# skills the next session loads.
 _SKILLS_RECONCILE_SH = (
     "set -e\n"
     'target="$2"\n'
-    'owner="$3"\n'
     'mkdir -p "$target"\n'
     'cd "$target"\n'
     'names="$1"\n'
@@ -108,7 +111,27 @@ _SKILLS_RECONCILE_SH = (
     "for name in $names; do\n"
     '  [ -d "$name" ] && touch "$name/.deploy-managed"\n'
     "done\n"
-    'chown -R "$owner" "$target"\n'
+    'chown -R 0:0 "$target"\n'
+)
+
+
+# Container-side script :func:`_container_seed_owner` runs to learn the uid:gid
+# the seeded CLAUDE.md must be owned by. The image's own OSPREY_RUNTIME_UID
+# wins when it is set: it is what the image DECLARES its runtime user to be,
+# whereas `id` reports whoever this particular exec happens to run as — which,
+# for an image whose entrypoint drops privileges later, is not the same user.
+# A bare uid is completed with the current gid, and an unset or EMPTY variable
+# falls back to `id` entirely, so images predating the variable keep working
+# and an image that exports it empty never yields a ":gid" nobody can chown to.
+_OWNER_QUERY_SH = (
+    'declared="${OSPREY_RUNTIME_UID:-}"\n'
+    'if [ -z "$declared" ]; then\n'
+    '  echo "$(id -u):$(id -g)"\n'
+    'elif [ "${declared#*:}" = "$declared" ]; then\n'
+    '  echo "$declared:$(id -g)"\n'
+    "else\n"
+    '  echo "$declared"\n'
+    "fi\n"
 )
 
 
@@ -186,7 +209,8 @@ def seed_user_containers(
     persona's ``container_project_dir`` (via :func:`personas.resolve_personas`,
     ``strict=True``) rather than a hardcoded ``<facility_prefix>-assistant``
     path, so a user on a non-default persona gets skills seeded into their
-    own project's ``.claude/skills``. ``CLAUDE.md`` seeding is unaffected by
+    own project's render zone (``<project>/build/.claude/skills``, the
+    ``.claude/`` the CLI actually reads at project scope). ``CLAUDE.md`` seeding is unaffected by
     persona — the ``base.md``/``extra.md`` overlay convention and its target
     path are the same for every user regardless of persona.
 
@@ -273,7 +297,10 @@ def seed_user_containers(
         resolved = resolved_by_name[entry["name"]]
         # Project scope, not $CLAUDE_CONFIG_DIR — the launcher runs the CLI with
         # --setting-sources project, which makes $CLAUDE_CONFIG_DIR/skills/ inert.
-        project_skills_dir = f"{resolved['container_project_dir']}/.claude/skills"
+        # Project scope in-container is the RENDER ZONE: the agent is launched
+        # against the rendered project under BUILD_DIR_NAME, so that — not the
+        # deployment repo root beside it — is the `.claude/` the CLI reads.
+        project_skills_dir = f"{resolved['container_project_dir']}/{BUILD_DIR_NAME}/.claude/skills"
         outcome = _seed_one_user(
             runtime,
             entry["name"],
@@ -416,11 +443,13 @@ _OWNER_RE = re.compile(r"^\d+:\d+$")
 def _container_seed_owner(runtime: str, container: str, *, env: dict[str, str] | None) -> str:
     """``uid:gid`` of ``container``'s configured runtime user.
 
-    Runs ``id`` as the container's own default user (no ``-u`` override), so
-    the answer is whatever user the image (or a compose ``user:`` key) actually
-    starts processes as — the user that must own ``/data/claude-config`` for
-    the harness inside to read/write it. Numeric ``uid:gid`` deliberately, so
-    the follow-up ``chown`` works even for a user with no name in the image's
+    Runs :data:`_OWNER_QUERY_SH` as the container's own default user (no
+    ``-u`` override), so the answer is whatever user the image (or a compose
+    ``user:`` key) actually starts processes as — the user that must own
+    ``/data/claude-config`` for the harness inside to read/write it. The
+    image's ``OSPREY_RUNTIME_UID`` wins over ``id`` where it is declared; see
+    that script for why. Numeric ``uid:gid`` deliberately, so the follow-up
+    ``chown`` works even for a user with no name in the image's
     ``/etc/passwd``.
 
     Raises:
@@ -430,7 +459,7 @@ def _container_seed_owner(runtime: str, container: str, *, env: dict[str, str] |
         subprocess.CalledProcessError: If the exec itself fails.
     """
     result = subprocess.run(
-        [runtime, "exec", container, "sh", "-c", 'echo "$(id -u):$(id -g)"'],
+        [runtime, "exec", container, "sh", "-c", _OWNER_QUERY_SH],
         capture_output=True,
         text=True,
         check=True,
@@ -439,7 +468,7 @@ def _container_seed_owner(runtime: str, container: str, *, env: dict[str, str] |
     owner = result.stdout.strip()
     if not _OWNER_RE.match(owner):
         raise RuntimeError(
-            f"unexpected `id` output {owner!r} from container {container!r} — "
+            f"unexpected runtime-owner answer {owner!r} from container {container!r} — "
             "cannot determine the uid:gid to own the seeded files"
         )
     return owner

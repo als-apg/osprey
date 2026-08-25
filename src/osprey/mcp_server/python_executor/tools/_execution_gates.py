@@ -7,7 +7,9 @@ config). Each gate only recognises one canonical spelling, so any *other*
 string falls through both — not "readonly", so write patterns are not blocked;
 not "readwrite", so the kill switch never fires. Rejecting unknown modes here
 closes that hole for every caller at once, and gives the kill switch a single
-implementation instead of one copy per tool.
+implementation instead of one copy per tool. A third gate clamps a run to the
+*session* posture inherited from the Web Terminal, which is about this session
+rather than this deployment and so refuses in its own vocabulary.
 
 This module also owns what happens *around* a refusal, which is three things
 the tools must not each spell for themselves: the durable audit record, the
@@ -21,6 +23,8 @@ produce the same audit record and the same alert, differing only in the
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from typing import Any, NoReturn
 
 from osprey.mcp_server.errors import make_error
@@ -31,6 +35,14 @@ logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
 #: The closed set of recognised execution modes. Downstream gates may test
 #: equality against either member only because this set is enforced first.
 VALID_EXECUTION_MODES = frozenset({"readonly", "readwrite"})
+
+#: Environment variable carrying the *session* posture into every child of a
+#: Web Terminal session, MCP servers included. Read by value, never presence —
+#: see :func:`enforce_posture_clamp`.
+POSTURE_ENV_VAR = "OSPREY_EXECUTION_MODE"
+
+#: The one value of :data:`POSTURE_ENV_VAR` that clamps a session to reads.
+SANDBOX_POSTURE = "readonly"
 
 
 def require_known_execution_mode(execution_mode: str) -> None:
@@ -85,6 +97,39 @@ def enforce_deployment_writes_gate(execution_mode: str) -> None:
         )
 
 
+def enforce_posture_clamp(execution_mode: str) -> None:
+    """Raise ``ToolError`` (safety_error) on readwrite runs in a sandboxed session.
+
+    A Web Terminal session switched to the sandbox posture spawns its child
+    with ``OSPREY_EXECUTION_MODE=readonly``, and every MCP server launched
+    under that session inherits it. This gate is what makes the executor obey
+    that posture: without it, an agent could ask for ``readwrite`` and get it,
+    because the deployment kill switch above only knows about the *deployment*
+    and has nothing to say about one sandboxed session.
+
+    The test is a **value** comparison, deliberately mirroring
+    ``osprey_connectors``' ``is_readonly_run``: only the exact string
+    ``"readonly"`` clamps. A presence check would sandbox every session whose
+    environment carries the variable for any other reason — including the
+    writes posture itself, which sets it to ``"readwrite"``.
+    """
+    if execution_mode != "readwrite":
+        return
+    if os.environ.get(POSTURE_ENV_VAR) != SANDBOX_POSTURE:
+        return
+
+    make_error(
+        "safety_error",
+        "This terminal session is in the sandbox posture, which refuses "
+        "control-system writes regardless of what the run asks for.",
+        [
+            'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
+            "To allow writes, switch the session to the writes posture from the "
+            "terminal card; the deployment config is not the gate here.",
+        ],
+    )
+
+
 async def record_and_alert_refusal(
     *,
     tool: str,
@@ -136,6 +181,7 @@ async def refuse_readonly_write(
     description: str | None,
     message: str,
     suggestions: list[str],
+    execution_mode: str = "readonly",
 ) -> NoReturn:
     """Record, alert, then raise the ``safety_error`` the agent sees.
 
@@ -143,6 +189,10 @@ async def refuse_readonly_write(
     returning (it is the only path fastmcp turns into a clean error on the
     wire), so anything that has to happen for a refused write has to happen
     before it.
+
+    ``execution_mode`` is recorded verbatim in the audit record — layers that
+    refuse in every mode (the path policy) pass the run's real mode so a
+    readwrite refusal is never logged as a readonly one.
     """
     await record_and_alert_refusal(
         tool=tool,
@@ -150,8 +200,92 @@ async def refuse_readonly_write(
         trigger=trigger,
         code=code,
         description=description,
+        execution_mode=execution_mode,
     )
     make_error("safety_error", message, suggestions)
+
+
+async def enforce_path_policy(
+    *,
+    tool: str,
+    code: str,
+    description: str | None,
+    execution_mode: str,
+    project_root: Path | None = None,
+) -> None:
+    """Refuse *code* if it statically writes into the protected set.
+
+    Deliberately *not* under the readonly branch. The render zone, the profile
+    sources and the audit ledger are off limits to executed code in every mode,
+    because the boundary here is the agent rewriting the configuration it is
+    itself constrained by, which the write posture has nothing to say about.
+    The roots are resolved parent-side and handed in; the walker never
+    re-derives them.
+
+    Both executor tools ask this question here rather than each spelling out
+    the walk, the refusal and its suggestions, so the two cannot drift on what
+    the protected set is or on what an agent is told when it hits one.
+
+    Args:
+        tool: Tool name as the agent knows it, recorded in the audit record.
+        code: Source to walk.
+        description: Caller's description, recorded with the refusal.
+        execution_mode: The run's real mode. Recorded verbatim, and it selects
+            the wording of one suggestion — both modes refuse, so the readwrite
+            message must not read as "you are in readonly", or the agent would
+            resubmit as readwrite and hit exactly the same refusal.
+        project_root: Project root when the caller has already resolved one;
+            ``None`` lets the resolvers derive it.
+
+    Raises:
+        Whatever :func:`make_error` raises for ``safety_error`` — the refusal
+        the agent sees.
+    """
+    try:
+        from osprey.mcp_server.python_executor.executor import (
+            resolve_permitted_roots,
+            resolve_protected_roots,
+        )
+        from osprey.services.python_executor.execution.path_policy import path_policy_issues
+
+        path_issues = path_policy_issues(
+            code,
+            protected_roots=resolve_protected_roots(project_root),
+            permitted_roots=resolve_permitted_roots(project_root),
+        )
+    except ImportError:
+        logger.warning("Path policy module unavailable — skipping protected-path check")
+        path_issues = []
+    if not path_issues:
+        return
+
+    from osprey.services.python_executor.refusal_audit import LAYER_PATH_POLICY
+
+    await refuse_readonly_write(
+        tool=tool,
+        layer=LAYER_PATH_POLICY,
+        trigger=path_issues,
+        code=code,
+        description=description,
+        execution_mode=execution_mode,
+        message=(
+            "This code writes into a location the deployment protects "
+            "(the render zone, the profile sources, or the audit ledger). "
+            "The path policy applies in every execution mode."
+        ),
+        suggestions=[
+            *path_issues,
+            "Write analysis output under the agent data zone instead.",
+            (
+                "Re-running as readwrite will not lift this: the protected set is "
+                "independent of execution mode."
+                if execution_mode == "readonly"
+                else "The write posture permits control-system writes; it does not "
+                "permit edits to OSPREY's own configuration."
+            ),
+            "Edit the profile sources yourself and re-run 'osprey build' to change them.",
+        ],
+    )
 
 
 async def report_runtime_refusal(

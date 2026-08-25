@@ -9,6 +9,14 @@ export default [
   // (2) Base recommended rules.
   js.configs.recommended,
 
+  // (2a) `no-useless-assignment` joined `recommended` in ESLint 10. It fires on
+  // the declare-with-a-safe-default-then-assign-inside-try idiom used across
+  // the interfaces (`let raw = null; try { raw = ... } catch { return; }`),
+  // where the initialiser documents the fallback even when dataflow proves it
+  // unread. Adopting the rule means rewriting that idiom in 15 files; that is a
+  // deliberate change, not a side effect of a toolchain bump.
+  { rules: { 'no-useless-assignment': 'off' } },
+
   // (3) Interface + test JS: browser + vendor globals, house-style rules at error.
   {
     files: ['src/osprey/interfaces/**/*.js', 'tests/**/*.{js,mjs}'],

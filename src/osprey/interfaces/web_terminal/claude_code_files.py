@@ -7,9 +7,81 @@ from pathlib import Path
 
 import yaml
 
+from osprey.interfaces.web_terminal.ownership import reserved_write_channel
+from osprey.services.python_executor.refusal_audit import record_protected_refusal
 from osprey.utils.logger import get_logger
 
 logger = get_logger("claude_code_files")
+
+#: What the panel tells an operator about the files it will not save. Lives
+#: here, beside the check that produces the refusals, so the copy and the gate
+#: cannot drift apart; the ``GET /api/claude-setup`` handler serves it.
+PROFILE_EDIT_NOTICE = (
+    "CLAUDE.md, .mcp.json, .claude/settings.json and the rules and skills "
+    "below .claude/ are rendered by the build profile. Edit them in the "
+    "profile and rebuild the project — saves aimed at them here are refused, "
+    "because a profile that no longer describes the project it built is worse "
+    "than an edit that did not happen."
+)
+
+
+class ProtectedWriteError(PermissionError):
+    """A write aimed at the protected set — the framework that constrains the agent.
+
+    A :class:`PermissionError` so that the existing route mapping turns it into
+    a 403 whether or not a handler knows this subclass exists; the subclass
+    exists so that a handler that *does* know can tell "you may not rewrite the
+    framework" apart from "that path escapes the project" and surface the two
+    differently.
+
+    Attributes:
+        rel_path: The project-relative path the write was aimed at.
+        channel: The channel that owns that path, phrased as
+            :func:`~osprey.interfaces.web_terminal.ownership.reserved_write_channel`
+            phrases it, so the message, the audit record and the log all name
+            the same way in.
+    """
+
+    def __init__(self, rel_path: str, channel: str):
+        self.rel_path = rel_path
+        self.channel = channel
+        super().__init__(
+            f"Refused: nothing was written to {rel_path}. The change belongs in {channel}."
+        )
+
+
+def _refuse_if_reserved(project_dir: Path, rel_path: str) -> None:
+    """Refuse *rel_path* if the protected set owns it, recording the refusal.
+
+    Both write routes ask this first, so the two cannot drift on either the
+    question or the audit record it leaves.
+
+    The question goes to :func:`~osprey.interfaces.web_terminal.ownership.reserved_write_channel`
+    rather than to the lexical ``is_reserved_write``, because a save reaches
+    disk through the filesystem and the filesystem follows links: a link at an
+    unprotected name (``.claude/agents/x.md`` -> ``../rules/safety.md``) is
+    lexically an agent and physically a rule. The gallery already asks the
+    resolving question; the panel is the same policy through a different door,
+    and a second answer here would be a second policy.
+
+    Args:
+        project_dir: Resolved project root ``rel_path`` is relative to.
+        rel_path: Project-relative path the panel would write.
+
+    Raises:
+        ProtectedWriteError: ``rel_path`` names — or lands on — a file in the
+            protected set, or is not project-relative at all.
+    """
+    channel = reserved_write_channel(project_dir, rel_path)
+    if channel is not None:
+        record_protected_refusal(
+            surface="claude_setup",
+            target_file=rel_path,
+            key_or_path=rel_path,
+            channel=channel,
+            reason="reserved path",
+        )
+        raise ProtectedWriteError(rel_path, channel)
 
 
 class ClaudeCodeFileService:
@@ -57,6 +129,10 @@ class ClaudeCodeFileService:
                     "category": self.categorize(fpath.name, rel_path),
                     "content": content,
                     "language": self.detect_language(fpath.name),
+                    # Computed from the same call ``write_file`` makes -- link
+                    # resolution included -- so the editor greys out exactly the
+                    # files a save would refuse.
+                    "read_only": reserved_write_channel(self.project_dir, rel_path) is not None,
                 }
             )
 
@@ -81,7 +157,24 @@ class ClaudeCodeFileService:
         }
 
     def write_file(self, rel_path: str, content: str) -> dict:
-        """Write content to an existing file with path security + syntax validation."""
+        """Write content to an existing file with path security + syntax validation.
+
+        The protected set is consulted *first*: the question "may a running
+        agent rewrite the file this write would land on at all" is answered
+        before anything else, so a reserved path gets the refusal that names
+        its channel rather than whichever generic error the later checks would
+        have produced.
+
+        Raises:
+            ProtectedWriteError: ``rel_path`` is in the protected set, or is
+                not project-relative at all.
+            PermissionError: the resolved path escapes the project root.
+            FileNotFoundError: the file does not exist (this route edits, it
+                does not create).
+            ValueError: the content is not valid JSON/YAML for the suffix.
+        """
+        _refuse_if_reserved(self.project_dir, rel_path)
+
         resolved = self._validate_path(rel_path)
 
         if not resolved.exists():
@@ -101,7 +194,27 @@ class ClaudeCodeFileService:
         }
 
     def create_file(self, rel_path: str, content: str) -> dict:
-        """Create a new file in an allowed .claude/ subdirectory."""
+        """Create a new file in an allowed .claude/ subdirectory.
+
+        The protected set is consulted *first*, on the same terms as
+        :meth:`write_file` and for the same reason: a subtree closed to
+        rewrites is not closed at all while a new file may still be dropped
+        into it. Asking first also keeps the refusal specific — a reserved
+        path is told which channel owns it, rather than being handed the
+        allowlist message, which would send an operator off to pick a
+        different directory instead of to the profile.
+
+        Raises:
+            ProtectedWriteError: ``rel_path`` is in the protected set, or is
+                not project-relative at all.
+            PermissionError: the resolved path escapes the project root, or
+                the path is outside the allowed ``.claude/`` subdirectories.
+            FileExistsError: the file already exists (this route creates, it
+                does not overwrite).
+            ValueError: the content is not valid JSON/YAML for the suffix.
+        """
+        _refuse_if_reserved(self.project_dir, rel_path)
+
         resolved = self._validate_path(rel_path)
 
         # Must be inside .claude/<allowed_dir>/

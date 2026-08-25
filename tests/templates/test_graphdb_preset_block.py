@@ -81,16 +81,15 @@ def test_block_carries_exactly_the_expected_keys(template_path: str):
     assert set(block) == EXPECTED_KEYS
 
 
-#: The corpus each preset seeds, keyed by template. The two deliberately
-#: differ: control_assistant seeds the demo machine generated from its own
-#: channel database — the same devices the agent's channel search returns, so
-#: its graph answers and its channel answers describe one machine — while
-#: ariel_standalone seeds the ALS corpus. Both files ship; the key is only
-#: which one a preset points at, and pointing control_assistant back at
-#: `./services/graphdb/als_gtb.ttl` is a supported edit, not a repair.
+#: The corpus each preset seeds, keyed by template. Both seed the demo machine
+#: generated from the control-assistant channel database — the same devices
+#: the agent's channel search returns, so graph answers and channel answers
+#: describe one machine — and each ships its own copy in `data/`, so a build
+#: profile that replaces the data tree takes the corpus with it rather than
+#: quietly keeping a graph of a machine its channel database no longer knows.
 EXPECTED_TTL_PATHS = {
     "apps/control_assistant/config.yml.j2": "./data/demo_machine.ttl",
-    "apps/ariel_standalone/config.yml.j2": "./services/graphdb/als_gtb.ttl",
+    "apps/ariel_standalone/config.yml.j2": "./data/demo_machine.ttl",
 }
 
 

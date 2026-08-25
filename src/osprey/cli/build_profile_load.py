@@ -308,6 +308,222 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     _reject_unknown_block_keys(raw.keys(), _KNOWN_PROFILE_KEYS, "profile")
 
 
+#: The ``claude_code.permissions`` keys whose value is a list of tool matchers.
+#:
+#: Every one of them is consumed by *iterating* it: ``settings.json.j2`` renders
+#: each element as one JSON array entry, and the deny composition subtracts with
+#: ``d not in remove_deny`` over the raw value
+#: (:func:`osprey.cli.templates.claude_code._rendered_deny_list`). A value that
+#: is not a list of strings therefore does not mean what its author meant — a
+#: bare string iterates as its characters, and ``in`` against it is *substring*
+#: containment. Refusing the shape here is what lets every later reader assume a
+#: list and still agree with the render and with each other; see
+#: :func:`osprey.cli.profile_conventions.permission_entries`, which reads a
+#: non-list as no entries precisely because this refusal stands in front of it.
+_PERMISSION_LIST_KEYS: tuple[str, ...] = ("allow", "ask", "deny", "remove_ask", "remove_deny")
+
+#: The ``config:`` key the Claude Code block lives under, and the dotted path to
+#: its permissions mapping. Both spellings of the block reach the same rendered
+#: ``config.yml`` keys, so both are checked.
+_CLAUDE_CODE_CONFIG_KEY = "claude_code"
+_PERMISSIONS_CONFIG_PATH = f"{_CLAUDE_CODE_CONFIG_KEY}.permissions"
+
+
+def _permission_lists(config: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Every permissions list a ``config:`` block spells, in each of its spellings.
+
+    A ``config:`` block is a flat bag of dotted keys, but ``config_update_fields``
+    accepts three ways of reaching the same rendered leaf: the fully dotted key
+    (``claude_code.permissions.deny``), a dotted key carrying a mapping
+    (``claude_code.permissions:`` with ``deny:`` under it), and the fully nested
+    ``claude_code:`` mapping. A shape check that saw only the flattest one would
+    wave the other two straight through to the render.
+
+    Args:
+        config: The profile's ``config:`` block.
+
+    Returns:
+        ``(label, value)`` pairs, where the label names the key AND the spelling
+        it was written in, so a refusal points at the line the author wrote.
+    """
+    found: list[tuple[str, Any]] = []
+    for key in _PERMISSION_LIST_KEYS:
+        dotted = f"{_PERMISSIONS_CONFIG_PATH}.{key}"
+        if dotted in config:
+            found.append((dotted, config[dotted]))
+    sources = (
+        (
+            config.get(_PERMISSIONS_CONFIG_PATH),
+            f"nested under the {_PERMISSIONS_CONFIG_PATH!r} mapping",
+        ),
+        (
+            block.get("permissions")
+            if isinstance(block := config.get(_CLAUDE_CODE_CONFIG_KEY), dict)
+            else None,
+            f"nested under the {_CLAUDE_CODE_CONFIG_KEY + ':'!r} mapping",
+        ),
+    )
+    for permissions, spelling in sources:
+        if not isinstance(permissions, dict):
+            continue
+        for key in _PERMISSION_LIST_KEYS:
+            if key in permissions:
+                found.append((f"{_PERMISSIONS_CONFIG_PATH}.{key} ({spelling})", permissions[key]))
+    return found
+
+
+def _misshapen_permission_list(value: Any) -> str | None:
+    """Why *value* cannot serve as a permissions list, or ``None`` when it can.
+
+    Args:
+        value: The value written under one of :data:`_PERMISSION_LIST_KEYS`.
+
+    Returns:
+        A phrase completing "…, but <reason>", or ``None`` if the value is a
+        list of non-empty strings.
+    """
+    if isinstance(value, str):
+        return (
+            f"it is a bare string ({value!r}). The render iterates the value, so this "
+            f"renders one entry per character and names no tool at all"
+        )
+    if not isinstance(value, list):
+        return f"it is a {type(value).__name__} ({value!r})"
+    bad = [entry for entry in value if not isinstance(entry, str) or not entry.strip()]
+    if bad:
+        shown = ", ".join(repr(entry) for entry in bad[:3])
+        more = f" (and {len(bad) - 3} more)" if len(bad) > 3 else ""
+        return f"it contains {shown}{more}, which is not a non-empty tool-matcher string"
+    return None
+
+
+def _reject_permission_list_shapes(config: Any) -> None:
+    """Refuse a ``config:`` block whose permission lists are not lists of strings.
+
+    The one place a loose spelling of ``claude_code.permissions.deny`` and
+    friends is caught, so that everything downstream may assume the shape. Three
+    readers compose these lists — the ``settings.json`` render, the container's
+    setup-capability check
+    (``build_cmd._profile_setup_patch_capable``), and the persona predicate
+    :func:`osprey.cli.profile_conventions.is_setup_patch_capable` — and a
+    non-list makes them disagree in *both* directions at once: a bare-string
+    ``deny`` renders 34 single-character deny entries and denies the tool
+    nowhere, while a bare-string ``remove_deny`` lifts by substring and can drop
+    a deny nobody named. There is no reading that is right for all three, so the
+    profile is refused instead of guessed at.
+
+    Runs on the fully-resolved ``config:`` block, so no source escapes: the
+    preset, an ``-O`` overlay, a ``--set`` pair, an ``extends`` parent or a
+    persona base.
+
+    Args:
+        config: The profile's ``config:`` block (ignored when not a mapping —
+            ``BuildProfile.validate`` rejects that by name).
+
+    Raises:
+        BuildProfileError: naming every offending key at once, in the spelling
+            it was written in, with the shape that was expected.
+    """
+    if not isinstance(config, dict):
+        return
+    problems = [
+        f"  {label} — {reason}"
+        for label, value in _permission_lists(config)
+        if (reason := _misshapen_permission_list(value))
+    ]
+    if not problems:
+        return
+    keys = ", ".join(repr(key) for key in _PERMISSION_LIST_KEYS)
+    raise BuildProfileError(
+        "Misshapen Claude Code permission list(s) in the profile's config: block:\n"
+        + "\n".join(problems)
+        + f"\n\nEach of {_PERMISSIONS_CONFIG_PATH}.<{keys}> must be a YAML list of "
+        "non-empty tool-matcher strings. Write it as a list — '[]' or no key at all "
+        "for none:\n"
+        "  config:\n"
+        f"    {_PERMISSIONS_CONFIG_PATH}.deny:\n"
+        "      - mcp__osprey_workspace__setup_patch\n"
+        "The build will not guess at a looser spelling: settings.json renders these "
+        "lists by iterating them and subtracts remove_deny with 'not in', so a bare "
+        "string renders one entry per character and lifts denies by substring."
+    )
+
+
+def _reject_mixed_claude_code_spellings(config: Any) -> None:
+    """Refuse a ``config:`` block that addresses one ``claude_code`` path twice over.
+
+    Two keys where one path-PREFIXES the other are different dict keys, so both
+    survive every merge — and then one of them is silently discarded.
+    ``config_update_fields`` applies keys in iteration order and sets each
+    addressed path verbatim (``node[leaf] = value``), so the shallower key
+    applied second REPLACES the whole subtree the deeper one just wrote;
+    :func:`~osprey.cli.build_profile_emit._collapse_config_prefixes` folds the
+    same pair the other way, deeper-key-wins. Which of the author's two values
+    reaches ``config.yml`` depends on where they left the lines.
+
+    Prefixing is by SEGMENT and the rule covers every split point, not just the
+    bare ``claude_code:`` mapping it was originally written for. The middle
+    spelling is the one that got away: ``claude_code.permissions:`` holding a
+    ``deny`` list beside a dotted ``claude_code.permissions.deny`` is exactly
+    the same hazard — measured, it renders whichever of the two comes last —
+    and the guard that only looked for the bare key let it through.
+
+    That is the same hazard :func:`~osprey.cli.build_profile_resolve._reject_set_config_collisions`
+    refuses for a ``--set config.*`` path, raised to the whole ``config:`` block:
+    that guard only sees paths ``--set`` addressed, so a nested mapping arriving
+    from a preset, an ``-O`` overlay or an ``extends`` parent went unrefused.
+
+    It is a privilege question and not only a tidiness one. The container's
+    setup-capability check reads BOTH spellings and unions them, which is exact
+    only while at most one of them is present: a profile carrying
+    ``claude_code.permissions.remove_deny: [setup_patch]`` beside
+    ``claude_code: {permissions: {deny: [setup_patch]}}`` renders a
+    ``config.yml`` with the deny and no lift — settings.json denies the tool —
+    while the union reads the lift and chowns ``build/config.yml`` to the agent.
+    Refusing the shape is what makes that union honest.
+
+    Args:
+        config: The profile's ``config:`` block.
+
+    Raises:
+        BuildProfileError: naming the nested key and every dotted key beside it.
+    """
+    if not isinstance(config, dict):
+        return
+    # Every key that addresses somewhere inside `claude_code`, as segments. The
+    # bare key is one of them: a nested `claude_code:` mapping is just the
+    # shallowest way to address the subtree, not a different kind of thing.
+    addressed = {
+        key: tuple(key.split("."))
+        for key in config
+        if isinstance(key, str)
+        and (key == _CLAUDE_CODE_CONFIG_KEY or key.startswith(f"{_CLAUDE_CODE_CONFIG_KEY}."))
+    }
+    for shallow, shallow_segments in sorted(addressed.items()):
+        deeper = sorted(
+            key
+            for key, segments in addressed.items()
+            if len(segments) > len(shallow_segments)
+            and segments[: len(shallow_segments)] == shallow_segments
+        )
+        if not deeper:
+            continue
+        raise BuildProfileError(
+            f"The profile's config: block addresses {shallow!r} twice over: the key "
+            f"{shallow!r} itself, and the deeper key(s) "
+            f"{', '.join(repr(key) for key in deeper)} inside it. Both survive the merge "
+            "as separate keys, and which one reaches config.yml depends on key order — "
+            f"the value at {shallow!r} is written verbatim and replaces that whole "
+            "subtree — so one of the two would be discarded silently. That includes the "
+            "permissions lists the build's setup-capability check reads, which is why "
+            "this is refused rather than resolved by a rule. Keep one spelling: fold the "
+            "shallower key's leaves into the deeper spelling, e.g.\n"
+            "  config:\n"
+            f"    {_PERMISSIONS_CONFIG_PATH}.deny:\n"
+            "      - mcp__osprey_workspace__setup_patch"
+        )
+
+
 # The top-level shorthand for the control-system connector, and the literal
 # dotted `config:` key it resolves to. `connector: epics` is the short spelling
 # of `config: {control_system.type: epics}` — one place in the schema sets the
@@ -587,6 +803,13 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     # a list is a real mistake that `BuildProfile.validate()` rejects by name.
     config_raw = raw.get("config")
     config = {} if config_raw is None else config_raw
+    # Checked on the fully-resolved block, like the bluesky/dispatch shapes
+    # above: every layer has been folded in by the time the parser runs, so a
+    # spelling a preset or an `extends` parent contributes is visible here.
+    # Ambiguity first, then shape — a block spelling `claude_code` both ways has
+    # no single permissions list to check the shape of.
+    _reject_mixed_claude_code_spellings(config)
+    _reject_permission_list_shapes(config)
 
     return BuildProfile(
         name=raw.get("name", ""),

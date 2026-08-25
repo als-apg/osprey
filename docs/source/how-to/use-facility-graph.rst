@@ -80,10 +80,9 @@ ring-qualified and a signal is not — ``SR:MAG:QF:01:CURRENT:SP`` and its
 booster counterpart share one signal node but are described differently.
 
 The descriptions and ``system`` come from the generator, so they are there in a
-corpus ``build-ttl`` produced — the demo machine — and not in the shipped ALS
-corpus, which OSPREY carries as a fixed artifact with no source database to
-regenerate from. On that one the way in is a name, an ``altLabel``, a section
-or a class.
+corpus ``build-ttl`` produced — the demo machine — and not necessarily in one
+imported straight from a facility's own export. On such a corpus the way in is
+a name, an ``altLabel``, a section or a class.
 
 Three spelling rules come from neosemantics and catch out anyone writing Cypher
 from memory:
@@ -113,9 +112,9 @@ fewest turns:
    device of a class including its subclasses, a section walk in beam order,
    every PV of one device split by direction, the class hierarchy as a table
    and as inheritance chains, a read/write split across all bindings, and
-   devices sharing one PV. Each carries its Cypher and a parameter set for each
-   shipped corpus. Adapting one is reliable where inventing a query is
-   guesswork.
+   devices sharing one PV. Each carries its Cypher and a parameter set whose
+   values exist in the demo machine. Adapting one is reliable where inventing
+   a query is guesswork.
 2. ``get_schema`` — the labels, relationship types and per-label property names
    actually present in *this* graph, plus the NARAD namespace prefix map for
    reading and building ``uri`` values. Call it when you need a name the
@@ -321,8 +320,13 @@ Two more inputs decide details:
    **Every run reports which of the two it used**, in the line shown above.
 
 ``--ontology``
-   The FAMILY-to-class table. Defaults to the demo-machine table shipped with
-   OSPREY; give your own when your device families are not the demo machine's.
+   The FAMILY-to-class table, as compiled JSON. Defaults to the demo-machine
+   table shipped with OSPREY; give your own when your device families are not
+   the demo machine's. That table is not the authoring format: the shipped one
+   is generated from a LinkML schema, and so is any table you write — see
+   `Authoring the Ontology`_ below, and copy the YAML rather than the JSON when
+   you start your own. A hand-written JSON table is still accepted, so an
+   existing one keeps working untouched.
 
 To have every deployment seed the file you wrote, point
 ``services.graphdb.ttl_path`` at it. That key is deliberately *not* where the
@@ -336,25 +340,103 @@ Then load it (see :doc:`okf-bundle` for the seeding verb in full):
    $ osprey knowledge seed-graph data/demo_machine.ttl
 
 
+Authoring the Ontology
+----------------------
+
+The FAMILY-to-class table ``--ontology`` reads is compiled, not written by
+hand. What you author is a **LinkML schema** — a YAML file that names each kind
+of device on the machine, says which broader kind it belongs to, and lists the
+words somebody might use for it when asking. OSPREY's own is
+``src/osprey/services/facility_knowledge/ttl_generator/demo_ontology.yaml``;
+a facility's looks the same. Two excerpts from it, a class and two families:
+
+.. code-block:: yaml
+
+   classes:
+
+     AcceleratingCavity:
+       class_uri: narad_sem:AcceleratingCavity
+       is_a: RadioFrequency
+       aliases:
+         - accelerating cavity
+         - cavity
+         - rf cavity
+
+   enums:
+
+     DeviceFamily:
+       permissible_values:
+
+         BPM:
+           meaning: narad_sem:BeamPositionMonitor
+
+         CAVITY:
+           meaning: narad_sem:AcceleratingCavity
+
+The class block declares one kind of device: ``is_a`` names its parent, and
+``aliases`` are the synonyms it should also answer to — they are emitted as
+``skos:altLabel``, which is how the OSPREY agent finds cavities when an
+operator writes *rf cavity*. The ``DeviceFamily`` enum is the family map: one
+entry per FAMILY token of the channel database, spelled exactly as the database
+spells it (hyphens and all, so ``ION-PUMP`` is a valid entry name), with
+``meaning`` naming the class devices of that family are typed as.
+
+Compile the schema into the table (this verb needs the ``knowledge`` extra,
+``pip install "osprey-framework[knowledge]"``):
+
+.. code-block:: console
+
+   $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json
+
+Then emit the corpus against it with ``build-ttl --ontology
+demo_ontology.json``. ``compile-ontology`` also has a ``--check`` form, which
+compares an existing table against a fresh compile and fails when the two
+have drifted apart:
+
+.. code-block:: console
+
+   $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json --check
+
+``--check`` writes nothing at all — it is the form for CI and for a pre-commit
+hook, where the job is to prove a committed table still matches the schema it
+came from.
+
+The table can hold less than LinkML can express, so the compiler accepts a
+deliberately narrow shape:
+
+* **One root class, named ``AcceleratorDevice``.** Exactly one class leaves
+  ``is_a`` unset, and it must be ``AcceleratorDevice`` — the class the NARAD
+  vocabulary is rooted at, which is what lets a rollup query written for one
+  machine's graph work on another. Every other class descends from it.
+* **One parent each.** ``is_a`` names a single parent; there is no multiple
+  inheritance.
+* **Names in one namespace.** Every class declares
+  ``class_uri: narad_sem:<ClassName>``, matching its own name.
+* **The enum is the family map.** A schema without a ``DeviceFamily`` enum, or
+  with a value that has no ``meaning``, has nothing to compile.
+
+Anything outside that shape is refused when you compile, rather than producing
+a table that breaks later, and the message names the element at fault — a class
+using ``mixins``, for instance, is reported as *class 'X' uses 'mixins', which
+the ontology table cannot represent*.
+
+
 What the Presets Seed
 =====================
 
-* **control-assistant** seeds ``./data/demo_machine.ttl`` — the demo machine,
-  generated from the preset's own channel databases with the command above and
-  regenerable the same way. The ALS corpus still ships alongside it at
-  ``./services/graphdb/als_gtb.ttl``; point ``ttl_path`` there, or at a corpus
-  of your own, to seed that instead.
-* **ariel-standalone** seeds ``./services/graphdb/als_gtb.ttl``, a real
-  facility's corpus, as the worked non-demo example.
+Both presets seed ``./data/demo_machine.ttl`` — the demo machine, generated
+from the control-assistant preset's own channel databases with the command
+above and regenerable the same way. The ARIEL standalone preset ships the same
+corpus so that every OSPREY demo describes one facility. Point ``ttl_path`` at
+a corpus of your own to seed that instead.
 
 .. note::
 
    A build profile that ships its own ``data:`` tree replaces the bundle's
    ``data/`` directory wholesale, which takes ``demo_machine.ttl`` with it.
    Such a profile has to set ``services.graphdb.ttl_path`` in its ``config:``
-   overlay — at its own corpus, or at ``./services/graphdb/als_gtb.ttl``.
-   Otherwise the deploy warns, the store comes up empty, and every query
-   reports the empty state above.
+   overlay, at its own corpus. Otherwise the deploy warns, the store comes up
+   empty, and every query reports the empty state above.
 
 
 Pointing at a Store the Facility Runs
@@ -430,7 +512,7 @@ Multi-User Operator Terminals
 =============================
 
 The ``control-assistant-readonly`` and ``control-assistant-readwrite`` personas
-(:doc:`multi-user`) get the same facility-knowledge-graph agent and its tools,
+(:doc:`multi-user/index`) get the same facility-knowledge-graph agent and its tools,
 reading the hosting deployment's store. They are attached renders — they deploy no services of their own — so
 they have to be told which port that store is published on. Per-user web
 terminal containers run with ``network_mode: host``, so a container's
@@ -444,9 +526,12 @@ directly:
 
 Two consequences worth knowing before you move anything:
 
-* **Move the port on the hosting deployment and you must move the same number
-  in both persona presets.** They carry their own copy; nothing derives it for
-  them.
+* **Move the port on the hosting deployment and every persona follows.** A
+  persona built beside its deployment is told the store's bolt port from the
+  deployment's own render — the same way it is told the qmd sidecar's port,
+  the Postgres the logbook lives in and the rest (:doc:`build-profiles`) — so
+  nothing in a persona preset restates it, and a persona that restates it
+  with a different number is refused at build time.
 * A ``deployment.bind_address`` pinned to a specific non-loopback interface
   publishes the store there and not on ``localhost``, so the personas would no
   longer reach it. URL-backed panels have the same shape — they name

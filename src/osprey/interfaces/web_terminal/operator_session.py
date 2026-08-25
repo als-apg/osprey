@@ -54,7 +54,11 @@ except ImportError:
     CLIConnectionError = Exception  # type: ignore[assignment,misc]
 
 
-def build_operator_child_env(project_cwd: str | None) -> dict[str, str]:
+def build_operator_child_env(
+    project_cwd: str | None,
+    session_key: str | None = None,
+    app: Any = None,
+) -> dict[str, str]:
     """Build the environment for an SDK-backed operator or chat session.
 
     Both surfaces that run an :class:`OperatorSession` — the ``/ws/operator``
@@ -81,16 +85,55 @@ def build_operator_child_env(project_cwd: str | None) -> dict[str, str]:
     having removed it from ``os.environ`` at app construction, not by its
     absence here.
 
+    It also applies the session's **runtime posture**, so the SDK topology
+    participates in the sandbox toggle for real rather than only the PTY one.
+    A session the store holds as ``sandbox`` spawns its SDK child with
+    ``OSPREY_EXECUTION_MODE=readonly``, exactly as
+    :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`
+    does for the PTY child. The rule is narrowing-only in both places: the
+    marker is only ever *set*. A ``writes`` posture never clears an
+    ``OSPREY_EXECUTION_MODE`` the deployment itself supplied — on this path
+    that value arrives through ``build_clean_env``'s copy of ``os.environ``,
+    and nothing here removes it. The posture narrows privilege; it cannot
+    widen it.
+
+    Layering note: the posture store lives in ``routes.websocket`` (with the
+    routes that read and write it), and that module imports *this* one, so the
+    lookup is a function-local import rather than a module-level one. Keeping
+    the rule here — instead of handing each call site a lookup to compose —
+    means the two SDK surfaces cannot drift on what a posture does, which is
+    the same reason this function exists at all.
+
     Args:
         project_cwd: The project directory the session runs in, forwarded to
             :func:`~osprey.agent_runner.clean_env.build_clean_env` so
             ``OSPREY_CONFIG`` is resolved from it.
+        session_key: The identity this session is pooled under — the chat
+            pool's ``chat_id`` for ``POST /api/chat``, the minted
+            ``operator-<hex8>`` key for ``/ws/operator``. It is the key the
+            posture store is consulted with. Omitted (or with no *app* to
+            reach the store), the child gets the render's baseline
+            environment and no marker is added.
+        app: The FastAPI app holding the posture store on its state. Required
+            alongside *session_key* for the lookup to happen.
 
     Returns:
         A fresh env dict for ``ClaudeAgentOptions.env``.
     """
     env = build_clean_env(project_cwd=project_cwd)
     env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
+
+    if session_key and app is not None:
+        # Function-local: routes.websocket imports this module, so importing
+        # it at module scope would close the cycle.
+        from osprey.interfaces.web_terminal.routes.websocket import (
+            POSTURE_SANDBOX,
+            _session_postures,
+        )
+
+        if _session_postures(app).get(session_key) == POSTURE_SANDBOX:
+            env["OSPREY_EXECUTION_MODE"] = "readonly"
+
     return env
 
 

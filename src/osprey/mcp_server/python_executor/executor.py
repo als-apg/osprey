@@ -20,6 +20,7 @@ import sys
 import time
 import traceback
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,68 @@ logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 # osprey.mcp_server.sandbox_env (imported above), never here: this module and
 # the workspace sandbox (osprey.mcp_server.workspace.execution.sandbox_executor)
 # must share one deny-list rather than two that can drift.
+
+# The web-terminal address family, dropped from the sandbox child on top of the
+# shared credential scrub. The child's only callback surface is the
+# `save_artifact` helper the execution wrapper injects, which writes to the
+# filesystem: nothing in the child resolves a terminal URL or calls a
+# web-terminal route, so these names buy it nothing and only tell agent code
+# where a surface it must not reach is listening. OSPREY_TERMINAL_SECRET is
+# already gone via scrub_sensitive_env; dropping the whole family is still
+# right, because the rest of it (bind host, landing URL, external origin, the
+# per-user OSPREY_TERMINAL_SECRET_<USER> names) is the same address book.
+#
+# Deliberately local to this module rather than added to the shared deny-list
+# in osprey.utils.sensitive_env: that set is shared with the PTY child, and the
+# PTY child *is* the web terminal — it must keep these (see the sandbox_env
+# module docstring). This is a per-sandbox narrowing, not a credential policy.
+_WEB_TERMINAL_ENV_NAMES_TO_DROP: tuple[str, ...] = ("OSPREY_WEB_PORT",)
+#: Matched by prefix so a terminal variable added later is covered without a
+#: code change here — the same reasoning as SENSITIVE_ENV_SUFFIXES.
+_WEB_TERMINAL_ENV_PREFIXES_TO_DROP: tuple[str, ...] = ("OSPREY_TERMINAL_",)
+
+#: The profile SOURCE zone, as repo-root-relative entries: ``profile.yml`` and
+#: everything a build reads to produce a project — the convention directories
+#: (``rules/``, ``skills/``, ``personas/``, the ``project/`` verbatim mirror,
+#: ...) plus the source files that sit beside them. Executed code may not write
+#: into any of it, in any execution mode: rewriting the profile is how a run
+#: changes what the *next* run is allowed to do, which is a different boundary
+#: from the control-system one and is not something readwrite approval buys.
+#:
+#: Restated here rather than imported from
+#: :mod:`osprey.cli.profile_conventions`, which owns the canonical table
+#: (``_SOURCE_ZONE_ENTRIES`` and ``CONVENTION_SOURCES``). That module lives
+#: under ``osprey.cli``, and importing it would execute ``osprey/cli/__init__``
+#: — the whole Click command group — inside the MCP server on every execution.
+#: The runtime layers deliberately do not import ``cli`` (see the zone-name
+#: constants in :mod:`osprey_connectors.workspace`, which exist for exactly this
+#: reason). The copy is pinned to the original by
+#: ``tests/services/python_executor/test_runtime_guard.py``, so a convention
+#: directory added there and not here fails a test rather than quietly leaving
+#: a writable hole.
+PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
+    # Source files at the repo root.
+    "profile.yml",
+    "triggers.yml",
+    "ci-extra.yml",
+    "osprey.service",
+    # Source directories at the repo root.
+    "data",
+    "personas",
+    "profiles",
+    "scripts",
+    # Convention directories, in CONVENTION_DIRS order.
+    "rules",
+    "skills",
+    "agents",
+    "commands",
+    "output-styles",
+    "hooks",
+    "web-terminal-context",
+    "mcp_servers",
+    "services",
+    "project",
+)
 
 #: The target stamp carried into the sandbox. These three names are the routing
 #: contract between this module (the only writer of the stamp) and
@@ -123,6 +186,95 @@ def _resolve_project_root() -> Path:
     from osprey.utils.workspace import load_osprey_config, resolve_project_root
 
     return resolve_project_root(load_osprey_config())
+
+
+def resolve_protected_roots(
+    project_root: Path | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> tuple[Path, ...]:
+    """Resolve the paths executed code may not write into, in any mode.
+
+    Three groups, all anchored on the deployment repo root:
+
+    * The **render zone** (``build/``). Every ``osprey build`` re-creates it
+      wholesale, so a write there is either lost at the next build or, worse,
+      survives as a rendered config nobody wrote — the rendered ``config.yml``
+      that the next run reads its own permissions out of lives here.
+    * The **profile source set** (:data:`PROFILE_SOURCE_ENTRIES`) — what the
+      build reads to produce that render.
+    * The **audit ledger** (``var/audit``), the record of what was refused. Of
+      the two directories in ``STATE_ZONE_DIRS`` this is the one the agent does
+      not own: ``var/agent_data`` is its workspace and comes back as a
+      *permitted* root below, while the ledger is written only by the parent
+      process (``services/python_executor/refusal_audit.py``, called from the
+      MCP tool layer) and never by the child. A run that could rewrite it could
+      erase the evidence of its own refusal.
+
+    Entries that do not exist yet are included on purpose: a repo without a
+    ``personas/`` directory is one where creating it is exactly the write to
+    refuse.
+
+    **``.env`` is deliberately not in this set.** The secrets zone is a
+    different problem from the render zone: what matters about ``.env`` is that
+    executed code should not *read* it, and this guard is a denylist that
+    refuses writes while leaving reads alone — adding the path here would
+    advertise it while protecting nothing that matters. Keeping agent code away
+    from the secrets zone is a follow-up in its own right (it needs a read-side
+    verdict, and a decision about the environment the child already inherits),
+    and it is out of scope for this phase. Do not read the omission as a
+    judgement that ``.env`` is safe for executed code to touch.
+
+    Args:
+        project_root: Repo root. Defaults to the resolved project root.
+        config: Loaded config mapping, only used to resolve *project_root* when
+            that is not given.
+
+    Returns:
+        Absolute, resolved paths — de-duplicated, order preserved. The child
+        gets these as literals and never re-derives them.
+    """
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
+
+    root = Path(project_root) if project_root is not None else _resolve_project_root()
+    root = root.resolve()
+
+    candidates = [root / BUILD_DIR_NAME, root / AUDIT_DIR_RELPATH]
+    candidates += [root / entry for entry in PROFILE_SOURCE_ENTRIES]
+    return tuple(dict.fromkeys(path.resolve() for path in candidates))
+
+
+def resolve_permitted_roots(
+    project_root: Path | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> tuple[Path, ...]:
+    """Resolve the paths carved back out of the protected set.
+
+    The agent-data root is the agent's own zone — memory, sessions, artifacts,
+    the data files an analysis leaves behind — and it is durable by design. It
+    is read through :func:`~osprey_connectors.workspace.agent_data_base_dir`
+    rather than assumed to be ``var/agent_data``, because a project may move it,
+    and a moved data root that stopped being writable would break the agent's
+    ordinary work with a safety message.
+
+    The execution folder is *not* here: it does not exist until the run starts,
+    so the wrapper adds it (see
+    :meth:`~osprey.services.python_executor.execution.wrapper.ExecutionWrapper._get_filesystem_guard`).
+
+    Args:
+        project_root: Repo root. Defaults to the resolved project root.
+        config: Loaded config mapping. Loaded here when not supplied.
+
+    Returns:
+        Absolute, resolved paths.
+    """
+    from osprey.utils.workspace import agent_data_base_dir, anchored_path, load_osprey_config
+
+    root = Path(project_root) if project_root is not None else _resolve_project_root()
+    root = root.resolve()
+    if config is None:
+        config = load_osprey_config()
+
+    return (anchored_path(agent_data_base_dir(config), root).resolve(),)
 
 
 def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
@@ -398,8 +550,22 @@ async def _execute_via_local(
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
+    from osprey.utils.workspace import load_osprey_config
 
-    wrapper = ExecutionWrapper(limits_validator=limits_validator, execution_mode=execution_mode)
+    # cwd = project root so user code can access workspace files via relative
+    # paths (e.g. "_agent_data/data/002_archiver_read.json"). Resolved here,
+    # ahead of the wrapper, because the guard roots baked into the generated
+    # script are anchored on it: the child is handed absolute literals and
+    # never re-derives the layout for itself.
+    project_root = _resolve_project_root()
+    osprey_config = load_osprey_config()
+
+    wrapper = ExecutionWrapper(
+        limits_validator=limits_validator,
+        execution_mode=execution_mode,
+        protected_roots=resolve_protected_roots(project_root, osprey_config),
+        permitted_roots=resolve_permitted_roots(project_root, osprey_config),
+    )
     wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
     # Write wrapped script to execution folder
@@ -409,12 +575,14 @@ async def _execute_via_local(
     timeout = config["timeout"]
     start_time = time.time()
 
-    # cwd = project root so user code can access workspace files via relative
-    # paths (e.g. "_agent_data/data/002_archiver_read.json")
-    project_root = _resolve_project_root()
     python_bin = str(resolve_agent_interpreter(project_root))
 
     sandbox_env = scrub_sensitive_env(os.environ.copy())
+    for name in tuple(sandbox_env):
+        if name in _WEB_TERMINAL_ENV_NAMES_TO_DROP or name.startswith(
+            _WEB_TERMINAL_ENV_PREFIXES_TO_DROP
+        ):
+            sandbox_env.pop(name, None)
     # The declared mode becomes a runtime property of the subprocess: the
     # connector base class refuses writes and the EPICS connector stays on
     # the read_only gateway when this says readonly, so a readonly run cannot

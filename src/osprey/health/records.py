@@ -59,6 +59,7 @@ CONFIG_DEPENDENT = frozenset(
         "channel_finder",
         "graphdb",
         "web_panels",
+        "reach",
     }
 )
 

@@ -9,6 +9,8 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_deployment_writes_gate,
+    enforce_path_policy,
+    enforce_posture_clamp,
     refuse_readonly_write,
     report_runtime_refusal,
     require_known_execution_mode,
@@ -59,6 +61,22 @@ async def execute_file(
     # Reject unrecognised modes before any gate: the write gates branch on
     # string equality and an unknown value would satisfy neither branch.
     require_known_execution_mode(execution_mode)
+
+    # Session posture clamp — ahead of every other gate on purpose. Whether
+    # this *session* may write at all is not a question the deployment config,
+    # the pattern detector or the path policy get a say in, and a caller whose
+    # session is sandboxed should be told that rather than whatever a later
+    # gate happens to object to first.
+    #
+    # This is also what makes the executor's
+    # ``sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode`` overwrite safe
+    # (executor.py, in the subprocess env assembly): it replaces the posture
+    # the MCP server inherited with the mode of this call, which would widen a
+    # sandboxed session to readwrite if a readwrite call could get that far.
+    # With the clamp here, none can — under the sandbox posture the only mode
+    # that ever reaches the spawn is readonly, so the overwrite can only ever
+    # re-assert the posture it found.
+    enforce_posture_clamp(execution_mode)
 
     # Resolve project root and file path
     from osprey.mcp_server.python_executor.executor import _resolve_project_root
@@ -130,6 +148,16 @@ async def execute_file(
             )
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
+
+    # Static path policy — the protected set applies in every execution mode
+    # (see :func:`enforce_path_policy`).
+    await enforce_path_policy(
+        tool="execute_file",
+        code=code,
+        description=description,
+        execution_mode=execution_mode,
+        project_root=project_root,
+    )
 
     # Readonly runs may not import control-system clients at all. This is the
     # pre-execution half of the readonly contract; the runtime half (the

@@ -10,12 +10,24 @@ username→env-var-suffix mapping (:func:`env_var_suffix`) and its collision det
 (:func:`env_var_suffix_collisions`), which credential provisioning, the auth
 sidecar and lint share so a user's credentials are keyed identically everywhere.
 Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`.
+
+One rule about the roster is *not* about identity at all and still lives here:
+which personas can edit the deployment they run in (:func:`persona_privileges`),
+and who may be handed one — the ``default_persona`` rule
+(:func:`privileged_default_persona_problem`) and the login rule
+(:func:`unauthenticated_privileged_terminal_problems`). Two guards ask those
+questions on three different surfaces —
+:func:`osprey.cli.profile_cmd._privileged_persona_problems` at ``osprey init``,
+and the lint belt in :mod:`osprey.deployment.web_terminals.lint` at profile and
+rendered altitude (the second of which ``osprey up`` gates on) — and this is the
+neutral module all of them already import; see the section comment above those
+functions.
 """
 
 import json
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +69,12 @@ def as_dict(value: Any) -> dict[str, Any]:
 #: ``EVENT_DISPATCHER_TOKEN`` — the panel declaration IS the intent, so there is
 #: no separate config key to set (and to forget to set) alongside it.
 EVENTS_PANEL_ID = "events"
+
+#: The bluesky-web sidecar's tab. A persona that declares it proxies into the
+#: sidecar with its own operator secret, so the sidecar is handed that user's
+#: secret variable (the web overlay's ``bluesky-web`` fragment) — the panel
+#: declaration IS the entitlement, exactly as for :data:`EVENTS_PANEL_ID`.
+BLUESKY_PANEL_ID = "bluesky"
 
 
 def config_declares_panel(config: Any, panel_id: str) -> bool:
@@ -124,6 +142,25 @@ def config_needs_facility_bundle(config: Any) -> bool:
     """
     bundle_path = as_dict(as_dict(config).get("facility_knowledge")).get("bundle_path")
     return isinstance(bundle_path, str) and bool(bundle_path.strip())
+
+
+def config_needs_ariel_mirror(config: Any) -> bool:
+    """True if ``config`` runs an ARIEL qmd export that writes a mirror.
+
+    The entitlement to have the deployment's ARIEL markdown mirror bound into
+    this project's container, and the mirror counterpart of
+    :func:`config_needs_facility_bundle`. Read through the same reader the
+    sidecar's corpus list and the deploy's provisioning use
+    (:func:`osprey.deployment.compose_generator.configured_ariel_mirror_path`),
+    because the key IS the entitlement: an enabled export with a path is a
+    writer, and a writer inside a container that mounts nothing fills the
+    container's writable layer — a tree the sidecar never indexes and the next
+    recreate discards. A disabled export, or one naming no path, writes
+    nothing and so entitles nothing.
+    """
+    from osprey.deployment.compose_generator import configured_ariel_mirror_path
+
+    return configured_ariel_mirror_path(as_dict(config)) is not None
 
 
 def config_needs_launch_token(config: Any) -> bool:
@@ -339,6 +376,30 @@ def _persona_configs(config: Any, project_root: Any) -> Iterable[tuple[str, Any]
         yield persona_name, persona_config
 
 
+def rendered_persona_configs(config: Any, project_root: Any) -> dict[str, Any]:
+    """Referenced persona name → its parsed rendered ``config.yml``.
+
+    The public face of :func:`_persona_configs` for callers that want the
+    documents themselves rather than a predicate's verdict — today the lint
+    belt's privilege check, which reads the same rendered files the credential
+    grants read. Sharing the walk is the point: a second path join would be a
+    second convention for where ``project_path`` resolves, and the two would
+    drift the first time one of them learned about a deploy root and the other
+    did not.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+
+    Returns:
+        One entry per referenced persona whose rendered ``config.yml`` could be
+        read. A persona that is unset, unrendered or unreadable is absent —
+        never present with a guessed document.
+    """
+    return dict(_persona_configs(config, project_root))
+
+
 def personas_needing_dispatcher_token(config: Any, project_root: Any) -> set[str]:
     """Names of catalog personas whose rendered project needs the dispatcher token.
 
@@ -349,6 +410,75 @@ def personas_needing_dispatcher_token(config: Any, project_root: Any) -> set[str
         ``EVENT_DISPATCHER_TOKEN`` (see :func:`config_needs_dispatcher_token`).
     """
     return _personas_whose_config(config, project_root, config_needs_dispatcher_token)
+
+
+def config_declares_bluesky_panel(config: Any) -> bool:
+    """Whether this project shows the BLUESKY tab, and so proxies into the
+    bluesky-web sidecar with its own operator secret."""
+    return config_declares_panel(config, BLUESKY_PANEL_ID)
+
+
+def personas_declaring_bluesky_panel(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project declares the BLUESKY tab.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names whose users' operator
+        secrets the bluesky-web sidecar is handed (see
+        :func:`config_declares_bluesky_panel`).
+    """
+    return _personas_whose_config(config, project_root, config_declares_bluesky_panel)
+
+
+def bluesky_panel_secret_env_vars(config: Any, project_root: Any) -> list[str]:
+    """The per-user secret variables the bluesky-web sidecar is handed.
+
+    One name per roster user whose terminal shows the BLUESKY tab — and so
+    proxies into the sidecar with the operator secret ITS container holds,
+    under the fixed ``OSPREY_TERMINAL_SECRET`` name. The sidecar's own compose
+    file (``services/bluesky_web``) lists each of these variables so its web
+    gate accepts every entitled user's secret beside the deployment-wide one,
+    and no user's container is ever handed the deployment secret.
+
+    Entitlement is decided the way the web-terminal render decides every
+    per-user grant: a user with a persona (their own, else
+    ``default_persona``) by that persona's rendered ``config.yml``
+    (:func:`personas_declaring_bluesky_panel`); a persona-less user runs the
+    deployment's own project, so the deploy config answers for them. Roster
+    order, so the rendered compose is stable across runs.
+
+    Read off the personas' rendered ``config.yml`` files, like every other
+    per-persona grant — so the render that carries it is the deploy's:
+    ``osprey up`` re-renders every services compose file from the repo root
+    with the persona projects in place, while ``osprey build`` renders the
+    services compose before its persona renders and so lists nothing (or what
+    the previous build's personas declared).
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
+        entitled user; empty when no user shows the tab.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
+
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    raw_users = web_terminals.get("users")
+    refs = _persona_ref_by_name(raw_users)
+    default_persona = web_terminals.get("default_persona")
+    if not isinstance(default_persona, str) or not default_persona:
+        default_persona = None
+    entitled_personas = personas_declaring_bluesky_panel(config, project_root)
+    deploy_declares = config_declares_bluesky_panel(config)
+
+    names: list[str] = []
+    for entry in normalize_users(raw_users):
+        persona = refs.get(entry["name"]) or default_persona
+        entitled = persona in entitled_personas if persona else deploy_declares
+        if entitled:
+            names.append(terminal_secret_var(entry["name"]))
+    return names
 
 
 def personas_needing_ariel_password(config: Any, project_root: Any) -> set[str]:
@@ -373,6 +503,18 @@ def personas_needing_facility_bundle(config: Any, project_root: Any) -> set[str]
         deployment bundle bind-mounted (see :func:`config_needs_facility_bundle`).
     """
     return _personas_whose_config(config, project_root, config_needs_facility_bundle)
+
+
+def personas_needing_ariel_mirror(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project writes the ARIEL mirror.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names whose container gets the
+        deployment's mirror bind-mounted (see :func:`config_needs_ariel_mirror`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_ariel_mirror)
 
 
 def personas_needing_launch_token(config: Any, project_root: Any) -> set[str]:
@@ -628,6 +770,586 @@ def freeze_user_indices(users_raw: Any) -> list[dict[str, Any]]:
     return frozen
 
 
+# ── Deployment-editing privilege ─────────────────────────────────────────────
+#
+# Two config keys decide whether a persona can edit the deployment it runs in:
+# the agent's own setup tool (``claude_code.permissions.deny``, read through
+# :func:`~osprey.cli.profile_conventions.is_setup_patch_capable`) and the
+# browser's Config panel (``web.config_panel.enabled``). They are two doors
+# onto one capability — the agent edits ``config.yml`` through the tool, a
+# person edits the same file through the panel — so everything below treats
+# holding EITHER as privileged.
+#
+# The judgement lives in this neutral module because three commands ask it at
+# three different altitudes, from three shapes of input, and they must not
+# answer it differently:
+#
+# * ``osprey init`` asks it of a resolved persona PRESET
+#   (:func:`osprey.cli.profile_cmd._persona_profile_texts`);
+# * ``osprey profile validate`` / ``osprey build`` ask it of the host profile's
+#   ``config:`` overrides with each ``personas/<name>.yml`` delta layered on
+#   top (:mod:`osprey.deployment.web_terminals.lint`);
+# * ``osprey up`` asks it of each persona's rendered ``config.yml`` (the same
+#   lint module, one gate later).
+#
+# :func:`persona_privileges` takes all three by taking *layers*: any number of
+# config documents, read newest-last, in whichever spelling each one uses.
+
+
+#: How the setup-tool privilege is named inside a guard message. Prose, not a
+#: key: the message names the key separately, and an operator reading "this
+#: persona can edit the deployment" acts on it faster than one reading a deny
+#: list entry.
+PRIVILEGE_SETUP_TOOL = "the agent's deployment-editing setup tool"
+
+#: How the Config-panel privilege is named inside a guard message.
+PRIVILEGE_CONFIG_PANEL = "the web Config panel"
+
+#: Every privilege :func:`persona_privileges` can report, in its order. Read by
+#: guards that have to ask "does this deployment declare a privilege SPLIT at
+#: all" without holding a persona: a baseline that already grants everything
+#: leaves nothing for any persona to rise above (see
+#: :func:`privileges_beyond_baseline`), so a guard whose whole subject is the
+#: split has nothing to say about that deployment — including when it cannot
+#: read a persona at all.
+ALL_PRIVILEGES = (PRIVILEGE_SETUP_TOOL, PRIVILEGE_CONFIG_PANEL)
+
+#: The bundled tier every remedy below points at. Quoted rather than described
+#: because a remedy an operator can paste is worth more than one they have to
+#: translate; a deployment that renamed its tiers still reads it as "a persona
+#: without these privileges", which the same sentence says.
+UNPRIVILEGED_TIER_EXAMPLE = "readonly"
+
+#: The three keys :func:`persona_privileges` reads, in their dotted spelling.
+#: Every other spelling of the same path is reached by :func:`_declared_values`.
+_DENY_KEY = "claude_code.permissions.deny"
+_REMOVE_DENY_KEY = "claude_code.permissions.remove_deny"
+_CONFIG_PANEL_KEY = "web.config_panel.enabled"
+
+# The words the SERVER accepts for `web.config_panel.enabled`
+# (`osprey.interfaces.web_terminal.app.coerce_config_flag`), restated rather
+# than imported: this module is read by the deploy path and by lint, and
+# importing the web application to borrow two frozensets would pull the whole
+# interface package in behind them. Restated deliberately with the same
+# contents — a guard that read `"false"` as truthy would report a panel ON that
+# the deployment in fact serves OFF, and refuse a config that is already safe.
+_PANEL_FALSE_WORDS = frozenset({"false", "no", "off", "0"})
+_PANEL_TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
+
+#: Distinguishes "this layer says nothing about the path" from "this layer sets
+#: it to None", which are different answers for every key read here.
+_UNSET = object()
+
+
+def _declared_values(layer: Any, path: str) -> list[Any]:
+    """Every value ``layer`` gives ``path``, in whichever spelling it uses.
+
+    A profile's ``config:`` block is a flat bag of dotted keys, a rendered
+    ``config.yml`` is fully nested, and both spellings reach the same key in
+    the rendered file — ``config_update_fields`` takes either. A *privilege*
+    check must not depend on which of two equivalent spellings its author
+    chose, so every split point is tried: ``claude_code.permissions.deny`` as
+    one top-level key, as ``claude_code.permissions:`` holding ``deny``, and as
+    a nested ``claude_code:`` block, longest key first.
+
+    Returns:
+        One entry per spelling actually present, in longest-dotted-key-first
+        order; empty when this layer says nothing about the path. A layer that
+        spells the same path twice yields two entries, and each caller below
+        says how it folds them.
+    """
+    if not isinstance(layer, Mapping):
+        return []
+    parts = path.split(".")
+    found: list[Any] = []
+    for cut in range(len(parts), 0, -1):
+        key = ".".join(parts[:cut])
+        if key not in layer:
+            continue
+        node: Any = layer[key]
+        for part in parts[cut:]:
+            if not isinstance(node, Mapping) or part not in node:
+                node = _UNSET
+                break
+            node = node[part]
+        if node is not _UNSET:
+            found.append(node)
+    return found
+
+
+def _permission_entries(value: Any) -> list[str]:
+    """The string entries of a permissions list — read only when it *is* a list.
+
+    Delegates to :func:`osprey.cli.profile_conventions.permission_entries`
+    rather than restating its rule, **including its refusal of a bare string**:
+    the two read the same two lists one step apart, and a document must not be
+    composed here on terms the predicate then rejects. See that function for
+    why a loose spelling is read as nothing, and why guessing "one entry" would
+    diverge from the render in both directions at once.
+
+    For this side specifically, contributing no deny leans toward reporting
+    MORE privilege — the safe direction for a guard.
+    """
+    from osprey.cli.profile_conventions import permission_entries
+
+    return permission_entries(value)
+
+
+def _panel_flag(value: Any) -> bool:
+    """Read one ``web.config_panel.enabled`` declaration the way the server does.
+
+    A real boolean is honoured as written and a quoted boolean word with it
+    (``"false"`` is a human writing a boolean). Anything else is a value the
+    server itself discards in favour of the shipped default, which for this key
+    is ON — so it is read as ON here too, rather than as a quiet OFF that would
+    let an unreadable value walk a privileged persona past the guard.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in _PANEL_TRUE_WORDS:
+            return True
+        if token in _PANEL_FALSE_WORDS:
+            return False
+    return True
+
+
+def persona_capability_document(*layers: Any) -> dict[str, Any]:
+    """The ``config.yml``-shaped document the setup-capability predicate reads.
+
+    :func:`~osprey.cli.profile_conventions.is_setup_patch_capable` consumes one
+    document with ``claude_code.permissions.deny`` and ``remove_deny`` beside
+    each other, and owns the subtraction between them (exact membership,
+    mirroring how ``settings.json`` renders). This assembles that document out
+    of however many layers a caller holds, so the *composition* stays in one
+    place and this owns only the reading:
+
+    * **both spellings** of each key are read (see :func:`_declared_values`);
+    * lists **union** across layers and across spellings, which is what profile
+      resolution itself does with string lists across ``extends`` — a persona
+      delta cannot subtract from an inherited ``deny`` except through
+      ``remove_deny``, which is exactly why that key exists.
+
+    Args:
+        *layers: Config documents, base first. A resolved profile's ``config:``
+            bag, a persona delta's own ``config:`` bag, or a rendered
+            ``config.yml`` — any mix. A rendered document carries no
+            ``remove_deny`` (the render already applied it), which reduces the
+            subtraction to a no-op rather than needing a separate path.
+
+    :func:`osprey.cli.build_cmd._profile_setup_patch_capable` calls this with
+    the one layer it holds, and answers a narrower question with the result
+    (may the image chown ``build/config.yml`` to the agent's user). It used to
+    assemble its own document from its own reading of the spellings, and the
+    two readings drifted: it never learned the ``claude_code.permissions:``
+    split point, so a profile that denied the setup tool that way was reported
+    capable by the container and denied by the guard. One reader is the fix —
+    the verdict already came from one predicate, and now the document does too.
+
+    Returns:
+        A document with both lists present, ready for
+        :func:`~osprey.cli.profile_conventions.is_setup_patch_capable`.
+    """
+    deny: list[str] = []
+    remove_deny: list[str] = []
+    for layer in layers:
+        for value in _declared_values(layer, _DENY_KEY):
+            deny.extend(_permission_entries(value))
+        for value in _declared_values(layer, _REMOVE_DENY_KEY):
+            remove_deny.extend(_permission_entries(value))
+    return {"claude_code": {"permissions": {"deny": deny, "remove_deny": remove_deny}}}
+
+
+def persona_privileges(*layers: Any) -> tuple[str, ...]:
+    """The deployment-editing privileges the persona these layers describe holds.
+
+    The one answer behind every guard in this module and behind lint's belt
+    check: two surfaces onto the same capability, reported together so a
+    message can name what an operator actually gets.
+
+    The Config panel is ON unless a layer turns it off — that is the template's
+    shipped default, so a persona that never mentions the key has the panel,
+    and reading an unmentioned key as "off" would walk exactly the tier this
+    guards past it. Later layers win over earlier ones; a single layer that
+    spells the key twice is read as ON unless *every* spelling turns it off,
+    which is the same lean.
+
+    Args:
+        *layers: Config documents, base first — see
+            :func:`persona_capability_document`.
+
+    Returns:
+        :data:`PRIVILEGE_SETUP_TOOL` and/or :data:`PRIVILEGE_CONFIG_PANEL`, in
+        that order; empty for a persona holding neither.
+    """
+    from osprey.cli.profile_conventions import is_setup_patch_capable
+
+    panel_enabled = True
+    for layer in layers:
+        declarations = [_panel_flag(value) for value in _declared_values(layer, _CONFIG_PANEL_KEY)]
+        if declarations:
+            panel_enabled = any(declarations)
+
+    privileges: list[str] = []
+    if is_setup_patch_capable(persona_capability_document(*layers)):
+        privileges.append(PRIVILEGE_SETUP_TOOL)
+    if panel_enabled:
+        privileges.append(PRIVILEGE_CONFIG_PANEL)
+    return tuple(privileges)
+
+
+def privileges_beyond_baseline(held: Sequence[str], baseline: Sequence[str]) -> tuple[str, ...]:
+    """What a persona holds that the deployment it belongs to does not.
+
+    The MIGRATION-SENSITIVE half of the guards' definition of privileged, and
+    the reason that half is relative rather than absolute.
+
+    **Which rule reads which.** Two rules are built on privilege, and they take
+    their answer from different sides of this function on purpose:
+
+    * :func:`privileged_default_persona_problem` reads this, the RELATIVE
+      answer. A profile's ``default_persona`` is inherited from whatever the
+      deployment was before tiers existed — nobody chose it as a privilege
+      grant — so the finding is about an authoring mistake inside a declared
+      split, and a legacy profile with no split has no better default to be
+      pointed at.
+    * :func:`unauthenticated_privileged_terminal_problems` reads
+      :func:`persona_privileges` directly, the ABSOLUTE answer. ``login: false``
+      is not inherited from anything: it is a key somebody typed, on one entry,
+      claiming that terminal may be served to anyone. Whether the deployment
+      declared a tier split has no bearing on what that terminal hands out —
+      a floorless deployment serving it hands out BOTH surfaces to the whole
+      internet — so exempting the floorless case is exactly the fail-open this
+      belt exists to prevent. The remedy is the half that changes: with no
+      split to point at, the message says how to floor the base tier rather
+      than naming a tier that does not exist.
+
+    :func:`persona_privileges` answers an absolute question — can this document
+    reach the setup tool, is the Config panel live — and every way of not having
+    gated a surface reads as holding it, because that is the truth about the
+    render. Refusing a build on that answer alone would refuse nearly every
+    deployment in existence: the base tier's deny floor and
+    ``web.config_panel.enabled: false`` are new, so a profile written before them
+    grants both surfaces to every persona it has, and its ``default_persona``
+    would fail a gate whose remedy ("point it at a tier that holds neither") it
+    has no such tier to satisfy.
+
+    What these guards actually protect is the privilege SPLIT a deployment
+    declared: a base that floors a capability and a tier that lifts it back for
+    named people. A persona is privileged when it rises above its own
+    deployment's baseline, and a deployment whose baseline grants everything has
+    no split to protect — every terminal is already equal, nothing is being
+    handed to one entry that the others lack, and there is nothing here to
+    report that would not simply be "you have not adopted tiers yet".
+
+    The deliberate consequence, and the cost of being shippable: a deployment
+    that floors nothing draws no ``default_persona`` finding even when every
+    tier it has can edit it. That much is the *base tier's* to fix — it is what
+    the shipped base's deny floor and panel default exist for. What it is NOT
+    is a licence to serve such a persona without a login; see the second bullet
+    above.
+
+    Args:
+        held: :func:`persona_privileges` for the persona.
+        baseline: :func:`persona_privileges` for the deployment it belongs to —
+            the host profile's own ``config:`` block, or the deploy
+            ``config.yml`` that the persona renders beside.
+
+    Returns:
+        The subset of ``held`` the baseline does not also grant, in ``held``'s
+        order; empty when the persona is no more privileged than its base.
+    """
+    return tuple(privilege for privilege in held if privilege not in baseline)
+
+
+def privilege_phrase(privileges: Sequence[str]) -> str:
+    """Join names into the noun phrase a guard message reads with.
+
+    The one joiner every guard message uses, here and in the belt in
+    :mod:`~osprey.deployment.web_terminals.lint`, so a sentence built there
+    reads like the ones built here.
+
+    An empty sequence joins to the empty string rather than raising. No caller
+    reaches this with nothing to name — every one of them is inside a branch
+    that already found something — but a message helper that raises would turn
+    a guard's own bug into an ``IndexError`` from the middle of a build, which
+    is a worse way to learn about it than a sentence with a gap in it.
+    """
+    if not privileges:
+        return ""
+    if len(privileges) == 1:
+        return privileges[0]
+    return ", ".join(privileges[:-1]) + " and " + privileges[-1]
+
+
+def privileged_default_persona_problem(
+    default_persona: Any, privileges: Sequence[str]
+) -> str | None:
+    """Why ``default_persona`` must not be this persona, or ``None`` if it may.
+
+    ``default_persona`` is what every roster entry without a ``persona:`` key of
+    its own inherits — including entries added later, by someone who never read
+    this key. So the default is the tier the deployment hands out by accident,
+    and it has to be the one it is safe to hand out by accident.
+
+    **Baseline-RELATIVE, unlike the ``login: false`` rule beside it.** Callers
+    pass :func:`privileges_beyond_baseline`' output here and
+    :func:`persona_privileges`' raw output to
+    :func:`unauthenticated_privileged_terminal_problems`, and the asymmetry is
+    the point: this key is inherited rather than chosen. A profile written
+    before the base tier's deny floor existed has a ``default_persona`` nobody
+    picked as a privilege grant, and no unprivileged tier to be re-pointed at,
+    so refusing it would refuse the migration itself. ``login: false`` is the
+    opposite — typed deliberately, on one entry, about that entry — so it is
+    judged on what the persona actually holds. See
+    :func:`privileges_beyond_baseline` for the full statement of the split.
+
+    Args:
+        default_persona: ``modules.web_terminals.default_persona``. A missing or
+            non-string value is not this check's to report (lint's
+            ``unknown_default_persona`` owns that), so it yields ``None``.
+        privileges: What that persona holds BEYOND its deployment's baseline —
+            :func:`privileges_beyond_baseline`' output, not
+            :func:`persona_privileges`'.
+
+    Returns:
+        A message naming the persona, what it holds and the remedy, or ``None``.
+    """
+    if not isinstance(default_persona, str) or not default_persona or not privileges:
+        return None
+    return (
+        f"modules.web_terminals.default_persona {default_persona!r} resolves to a persona "
+        f"that holds {privilege_phrase(privileges)}. Every roster entry with no persona: key of "
+        f"its own inherits the default, so a privileged default is handed to every terminal "
+        f"that forgets to name a tier — including ones added later. Point default_persona at "
+        f"a persona that holds neither (the bundled stack's {UNPRIVILEGED_TIER_EXAMPLE!r}), "
+        f"and name {default_persona!r} on the individual entries that need it"
+    )
+
+
+def auth_is_enforced(web_terminals: Any) -> bool:
+    """Whether this deployment puts a login wall in front of its terminals at all.
+
+    ``auth.method: none`` (the default, and the whole ``auth`` stanza is
+    optional) means no entry has a login — which makes every terminal what
+    ``login: false`` makes one, and is why
+    :func:`unauthenticated_privileged_terminal_problems` takes this as a
+    parameter rather than reading ``login`` alone.
+
+    Routed through render's parsed auth context rather than re-reading
+    ``auth.method`` here, so the guards cannot disagree with the nginx seam
+    about whether a stanza produces a wall. That function raises on exactly one
+    input — a method name that does not exist — which lint reports on its own;
+    a config already being rejected for that gets no second, confused finding
+    from this guard, so it is read as walled.
+    """
+    from osprey.deployment.web_terminals.render import _auth_tls_context
+
+    try:
+        context = _auth_tls_context(as_dict(web_terminals))
+    except ValueError:
+        return True
+    return bool(context["auth_method"] != "none")
+
+
+def _privileged_entries(
+    resolved_entries: Iterable[Mapping[str, Any]],
+    privileges_by_persona: Mapping[str, Sequence[str]],
+) -> list[tuple[Mapping[str, Any], str, Sequence[str]]]:
+    """``(entry, persona, privileges)`` for every entry that can edit the deployment.
+
+    A persona missing from ``privileges_by_persona`` contributes nothing, on the
+    same terms as :func:`_persona_configs`: a config that could not be read is
+    not evidence of a privilege, and every way of failing to read one is already
+    reported by the check that owns it. Neither is an entry with no persona in
+    effect — the zero-migration path has no tier to be privileged.
+    """
+    entries: list[tuple[Mapping[str, Any], str, Sequence[str]]] = []
+    for entry in resolved_entries:
+        persona = entry.get("persona")
+        if not isinstance(persona, str):
+            continue
+        privileges = privileges_by_persona.get(persona) or ()
+        if privileges:
+            entries.append((entry, persona, privileges))
+    return entries
+
+
+def _floor_the_base_tier_remedy(name: Any, unfloored: Sequence[str]) -> str:
+    """The remedy for an open privileged terminal where the base tier floors too little.
+
+    The other remedy ("point it at a persona that holds neither") presupposes
+    such a persona exists. Every persona holds whatever the base tier hands out,
+    so on a deployment that floors nothing there is nothing to be re-pointed at
+    — and on one that floors only ONE of the two surfaces there may equally be
+    nothing, since a persona that holds neither has to disable the remaining
+    surface itself. Either way the sentence would name a fix the operator cannot
+    carry out. This one names the keys that create the split, in the spellings
+    the profile's ``config:`` block takes them in, for exactly the surfaces this
+    deployment leaves open, and keeps ``login: true`` as the one-key way out.
+
+    No square brackets anywhere in the sentence, deliberately: ``osprey build``
+    renders its refusals through rich, which reads ``[...]`` as a style tag and
+    silently ate the tool name out of an earlier draft of this remedy. The
+    entry is named in prose instead.
+
+    Args:
+        name: The roster user the open terminal belongs to.
+        unfloored: The privileges the deployment's BASE tier still holds — a
+            non-empty subset of :data:`ALL_PRIVILEGES`, in its order. A caller
+            with nothing here has a fully floored base and wants the tier
+            remedy instead.
+    """
+    from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
+
+    add: list[str] = []
+    lift: list[str] = []
+    if PRIVILEGE_SETUP_TOOL in unfloored:
+        add.append(f"`{_DENY_KEY}` with the entry `{SETUP_PATCH_TOOL}`")
+        lift.append(f"`{_REMOVE_DENY_KEY}`")
+    if PRIVILEGE_CONFIG_PANEL in unfloored:
+        add.append(f"`{_CONFIG_PANEL_KEY}: false`")
+        lift.append(f"`{_CONFIG_PANEL_KEY}: true`")
+    if len(add) > 1:
+        opening = "This deployment floors neither surface, so every persona holds them."
+        additions = f"{', and '.join(add)},"
+        lifting = f"lift them only in the persona meant to hold them ({', '.join(lift)})"
+    else:
+        opening = (
+            f"This deployment does not floor {privilege_phrase(unfloored)} for its base tier, so "
+            f"every persona holds it."
+        )
+        additions = add[0]
+        lifting = f"lift it only in the persona meant to hold it ({lift[0]})"
+    return (
+        f"{opening} Add {additions} to this profile's `config:` block, and {lifting} — or "
+        f"set `login: true` for {name!r}"
+    )
+
+
+def unauthenticated_privileged_terminal_problems(
+    resolved_entries: Iterable[Mapping[str, Any]],
+    privileges_by_persona: Mapping[str, Sequence[str]],
+    *,
+    baseline_privileges: Sequence[str] = (),
+) -> list[str]:
+    """Every roster entry that OPTED OUT of the login wall and can edit the deployment.
+
+    The exposure is not subtle: a card on the landing page that opens straight
+    into a terminal, with the Config panel live inside it or the setup tool in
+    the agent's hands. Anyone who reaches the page edits the deployment.
+
+    Scoped to ``login: false`` (see :func:`entry_requires_login`) — an authored
+    claim that *this* terminal is public — because that is a claim about one
+    entry, made deliberately, that the author can act on. A deployment with no
+    authentication at all is the wider version of the same exposure and is
+    reported separately and advisorily by
+    :func:`deployment_wide_privileged_exposure_problems`; see that function for
+    why the two are not one rule.
+
+    **Judged on what the persona ABSOLUTELY holds**, not on what it holds beyond
+    its deployment's baseline. A deployment that floors neither surface hands
+    both of them to every persona it has, so a ``login: false`` entry there is
+    the most exposed version of this, not an exempt one — and reading it
+    relatively made it silent at every altitude. The baseline decides only which
+    REMEDY is honest; see :func:`privileges_beyond_baseline` for why the
+    ``default_persona`` rule beside this one goes the other way.
+
+    Args:
+        resolved_entries: :func:`resolve_personas`' output (or anything with the
+            same ``name``/``persona``/``login`` keys).
+        privileges_by_persona: Persona name → :func:`persona_privileges` —
+            the ABSOLUTE answer; see :func:`_privileged_entries` for what a
+            missing persona means.
+        baseline_privileges: :func:`persona_privileges` for the deployment
+            itself, read only to choose the remedy. The default ``()`` is a
+            fully floored base, which is the deployment shape that has a tier to
+            be pointed at, so a caller that does not pass it gets the tier
+            remedy rather than an instruction to floor a base it may already
+            have floored.
+
+    Returns:
+        One message per offending entry, in roster order, each naming the user,
+        the persona, what it holds and the remedy.
+    """
+    # What the BASE tier still hands to every persona. Empty is the shape that
+    # has an unprivileged tier to point at; anything else means a persona that
+    # holds neither surface exists only if it disables what the base leaves
+    # open, so the honest remedy names the surface instead of the tier.
+    unfloored = tuple(privilege for privilege in ALL_PRIVILEGES if privilege in baseline_privileges)
+    problems: list[str] = []
+    for entry, persona, privileges in _privileged_entries(resolved_entries, privileges_by_persona):
+        # The `login: false` filter lives HERE and not in `_privileged_entries`:
+        # the deployment-wide rule below deliberately ignores the key, because
+        # with no wall standing it means nothing.
+        if entry_requires_login(dict(entry)):
+            continue
+        name = entry.get("name")
+        remedy = (
+            f"Set login: true for {name!r} — or drop the key, since a login is the "
+            f"default — or point {name!r} at a persona that holds neither (the bundled "
+            f"stack's {UNPRIVILEGED_TIER_EXAMPLE!r})"
+            if not unfloored
+            else _floor_the_base_tier_remedy(name, unfloored)
+        )
+        problems.append(
+            f"modules.web_terminals user {name!r} is served without a login (login: false), "
+            f"but resolves to persona {persona!r}, which holds {privilege_phrase(privileges)}. "
+            f"Anyone who opens that terminal's page edits this deployment. {remedy}"
+        )
+    return problems
+
+
+def deployment_wide_privileged_exposure_problems(
+    resolved_entries: Iterable[Mapping[str, Any]],
+    privileges_by_persona: Mapping[str, Sequence[str]],
+) -> list[str]:
+    """The same exposure, reached through ``auth.method: none`` instead of one key.
+
+    With no authentication configured there is no login wall for any entry to be
+    exempt from, so every privileged terminal is as open as a ``login: false``
+    one — the real exposure, and worth naming, which is why this exists at all.
+
+    It is reported ADVISORILY where the ``login: false`` rule is an error, and
+    the difference is what the config *claims*. ``login: false`` singles one
+    entry out as public while the rest of the roster sits behind a wall: the
+    author asked for that entry to be reachable and can act on the finding.
+    ``auth.method: none`` is a whole-deployment posture — the shipped default,
+    and a deliberate one for a stack bound to a loopback address — and failing
+    a build over it would reject deployments that were never exposed to anyone,
+    with no remedy but to configure authentication they do not need. Lint
+    already says the narrower version of this (``user_login_inert``: a
+    ``login: false`` under ``auth.method: none`` changes nothing).
+
+    Callers reach this only when :func:`auth_is_enforced` is ``False``, and when
+    they do they use it INSTEAD of
+    :func:`unauthenticated_privileged_terminal_problems`, not alongside it: with
+    no wall standing, an entry's own ``login`` key is inert, so reporting both
+    would name one exposure twice and disagree with itself about severity.
+
+    Args:
+        resolved_entries: See
+            :func:`unauthenticated_privileged_terminal_problems`.
+        privileges_by_persona: Likewise.
+
+    Returns:
+        One message per privileged entry, in roster order.
+    """
+    problems: list[str] = []
+    for entry, persona, privileges in _privileged_entries(resolved_entries, privileges_by_persona):
+        name = entry.get("name")
+        problems.append(
+            f"modules.web_terminals user {name!r} resolves to persona {persona!r}, which "
+            f"holds {privilege_phrase(privileges)}, and modules.web_terminals.auth.method is "
+            f"'none' — so anyone who can reach this deployment edits it. Turn "
+            f"authentication on (auth.method: password or oidc), or point {name!r} at a "
+            f"persona that holds neither (the bundled stack's "
+            f"{UNPRIVILEGED_TIER_EXAMPLE!r})"
+        )
+    return problems
+
+
 def env_var_suffix(username: str) -> str:
     """Map a roster username to the suffix its per-user env vars are keyed by.
 
@@ -795,7 +1517,7 @@ def resolve_personas(
       a catalog entry exists for it): registry mode keeps the same un-suffixed
       ``<registry_url>/web-terminal:<tag>`` image (so the default persona's
       *image* never changes when a catalog is introduced); local mode still
-      builds ``<persona.project>-<persona>:local`` like every other persona.
+      builds ``<persona.project>:local`` like every other persona.
       ``container_project_dir`` is ``/app/<project>`` from the catalog entry,
       exactly as for any other persona: the image is built FROM that project, so
       pinning the directory to the facility default would name a path that
@@ -806,7 +1528,12 @@ def resolve_personas(
       reads.
     * **Non-default persona**: registry mode uses
       ``<registry_url>/web-terminal-<persona>:<tag>``; local mode uses
-      ``<persona.project>-<persona>:local`` (same rule as the default persona);
+      ``<persona.project>:local`` (same rule as the default persona) — the
+      persona image is tagged by its render alone, since the persona name
+      contributes nothing to the image beyond the tag; a catalog entry with
+      no ``project`` of its own falls back to the legacy
+      ``<facility_prefix>-assistant-<persona>:local``, whose suffix keeps it
+      clear of the dispatch worker's ``<project>:local`` tag;
       ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
 
@@ -958,7 +1685,8 @@ def resolve_personas(
             continue
 
         project = catalog_entry.get("project")
-        if not isinstance(project, str) or not project:
+        has_own_project = isinstance(project, str) and bool(project)
+        if not has_own_project:
             project = default_project
 
         # Persona-level host mounts, applied to every user of this persona. A
@@ -994,7 +1722,22 @@ def resolve_personas(
         is_default = persona_ref == default_persona_name
 
         if image_source == "local":
-            image = f"{project}-{persona_ref}:local"
+            # A persona image IS its render — the persona name never reaches
+            # the build beyond the tag — so a catalog entry with its own
+            # `project` tags the image by that render alone. Lint enforces the
+            # distinctness this relies on (`persona_project_collision` /
+            # `persona_project_shadows_worker_image`): no two personas may
+            # share a `project` across different renders, and none may take
+            # the deployment's own name, which the dispatch worker's
+            # `<project>:local` tag occupies. Only the legacy entry WITHOUT
+            # its own `project` (resolved to the facility default above)
+            # keeps the `-<persona>` suffix: it has no render name of its own
+            # to be distinct by, so the suffix is what keeps it clear of the
+            # worker tag.
+            if has_own_project:
+                image = f"{project}:local"
+            else:
+                image = f"{project}-{persona_ref}:local"
         elif is_default:
             image = default_image
         else:

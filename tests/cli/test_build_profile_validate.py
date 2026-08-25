@@ -47,6 +47,21 @@ def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     return body.split("\n  - ")
 
 
+def _graph_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
+    """The validation errors about the graph store alone, or ``[]`` if it validates.
+
+    An attached profile fails the qmd-sidecar rule on the same run — its render
+    keeps hybrid search on over ``services: {}`` — and these tests are about
+    the store rule, not the count of rules.
+    """
+    try:
+        profile.validate(profile_dir)
+    except BuildProfileError as exc:
+        _, _, body = str(exc).partition(":\n  - ")
+        return [error for error in body.split("\n  - ") if "services.graphdb" in error]
+    return []
+
+
 def _write_triggers(tmp_path: Path, name: str = "trig.yml") -> str:
     """Write a minimal triggers file into ``tmp_path`` and return its name."""
     (tmp_path / name).write_text("triggers: []", encoding="utf-8")
@@ -590,14 +605,27 @@ def test_graph_mode_with_an_external_store_uri_validates(tmp_path: Path) -> None
     profile.validate(tmp_path)
 
 
-def test_graph_mode_on_an_attached_project_is_rejected(tmp_path: Path) -> None:
-    """``deploy_services: false`` renders ``services: {}`` whatever the template says.
+def test_graph_mode_on_an_attached_project_follows_its_hosts_template(tmp_path: Path) -> None:
+    """``deploy_services: false`` renders ``services: {}`` — and is then told the
+    store's address by the build, from the hosting deployment's render.
 
-    So an attached project inherits no store from ``control_assistant``, and the
-    refusal says which knob emptied the block.
+    The attached profile IS the hosting profile plus a delta, so whether a
+    store will be there to project is the hosting template's question, answered
+    the same way: ``control_assistant`` deploys one, so no refusal; a storeless
+    template refuses exactly as it does for a deploying profile. An attached
+    profile built with no host in its repo is caught after the render instead
+    (``osprey.deployment.reach.reach_errors``), on the config it actually wrote.
     """
-    profile = BuildProfile(name="x", channel_finder_mode="graph", deploy_services=False)
-    (error,) = _errors(profile, tmp_path)
+    assert (
+        _graph_errors(
+            BuildProfile(name="x", channel_finder_mode="graph", deploy_services=False), tmp_path
+        )
+        == []
+    )
+    profile = BuildProfile(
+        name="x", data_bundle="hello_world", channel_finder_mode="graph", deploy_services=False
+    )
+    (error,) = _graph_errors(profile, tmp_path)
     assert "services.graphdb" in error
     assert "deploy_services: false" in error
 
@@ -612,7 +640,7 @@ def test_graph_mode_on_an_attached_project_with_an_external_store_validates(
         deploy_services=False,
         config={"services.graphdb.uri": "bolt://127.0.0.1:7687"},
     )
-    profile.validate(tmp_path)
+    assert _graph_errors(profile, tmp_path) == []
 
 
 def test_graph_mode_with_the_template_block_overridden_away_is_rejected(tmp_path: Path) -> None:
@@ -674,12 +702,13 @@ def test_graph_mode_skips_the_store_rule_when_the_channel_finder_is_off(
     nested = {"claude_code": {"servers": {"channel-finder": {"enabled": False}}}}
     mixed = {"claude_code.servers": {"channel-finder": {"enabled": False}}}
     for overlay in (dotted, nested, mixed):
-        BuildProfile(
+        profile = BuildProfile(
             name="x",
             channel_finder_mode="graph",
             deploy_services=False,
             config=overlay,
-        ).validate(tmp_path)
+        )
+        assert _graph_errors(profile, tmp_path) == []
 
 
 def test_graph_mode_still_needs_a_store_when_the_channel_finder_is_on(
@@ -688,8 +717,9 @@ def test_graph_mode_still_needs_a_store_when_the_channel_finder_is_on(
     """The carve-out is an explicit ``false``, not any mention of the key.
 
     A persona that leaves the channel finder on — or spells the switch ``true``
-    — is exactly the render the rule protects, so it is still refused without a
-    store.
+    — is exactly the render the rule protects, so on a template that deploys
+    no store (``hello_world``; ``control_assistant`` would answer the store
+    question itself) it is still refused.
     """
     for overlay in (
         {},
@@ -698,7 +728,118 @@ def test_graph_mode_still_needs_a_store_when_the_channel_finder_is_on(
         {"claude_code.servers.controls.enabled": False},
     ):
         profile = BuildProfile(
-            name="x", channel_finder_mode="graph", deploy_services=False, config=overlay
+            name="x",
+            data_bundle="hello_world",
+            channel_finder_mode="graph",
+            deploy_services=False,
+            config=overlay,
         )
-        (error,) = _errors(profile, tmp_path)
+        (error,) = _graph_errors(profile, tmp_path)
         assert "services.graphdb" in error
+
+
+# ---------------------------------------------------------------------------
+# Hybrid logbook search needs the qmd sidecar it dials
+# ---------------------------------------------------------------------------
+
+
+def _qmd_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
+    """The validation errors about the qmd sidecar alone.
+
+    An attached profile can fail the graph-store rule at the same time, and
+    these tests are about the sidecar rule, not the count of rules.
+    """
+    return [e for e in _errors(profile, profile_dir) if "services.qmd" in e]
+
+
+def test_hybrid_search_on_a_sidecar_deploying_app_template_validates(tmp_path: Path) -> None:
+    """The app templates that render a ``services.qmd`` block need nothing else."""
+    for bundle in ("control_assistant", "ariel_standalone"):
+        BuildProfile(name="x", data_bundle=bundle).validate(tmp_path)
+
+
+def test_hybrid_search_on_an_attached_project_follows_its_hosts_template(tmp_path: Path) -> None:
+    """``deploy_services: false`` renders ``services: {}`` — and is then told the
+    sidecar's port by the build, from the hosting deployment's render.
+
+    The template still switches ``ariel.search_modules.hybrid`` on, and the
+    hosting template deploys the sidecar the module dials, so nothing is
+    refused here; the build copies ``services.qmd.port`` into the attached
+    render (``osprey.deployment.reach``). What IS refused is the same shape a
+    deploying profile is refused for — a template that deploys no sidecar while
+    the module stays on — and, after the render, an attached profile built with
+    no host to be told by (``reach_errors``, on the config it actually wrote).
+    """
+    BuildProfile(name="x", deploy_services=False).validate(tmp_path)
+    profile = BuildProfile(name="x", deploy_services=False, config={"services.qmd": None})
+    (error,) = _qmd_errors(profile, tmp_path)
+    assert "ariel.search_modules.hybrid" in error
+    assert "services.qmd.port" in error
+    assert "deploy_services: false" in error
+
+
+def test_hybrid_search_on_an_attached_project_with_the_sidecar_port_validates(
+    tmp_path: Path,
+) -> None:
+    """An attached project with no host names a shared stack's sidecar itself."""
+    profile = BuildProfile(name="x", deploy_services=False, config={"services.qmd.port": 8180})
+    profile.validate(tmp_path)
+
+
+def test_hybrid_search_switched_off_needs_no_sidecar(tmp_path: Path) -> None:
+    """A profile that turns the module off has nothing to dial.
+
+    Only an explicit ``false`` counts, the same way the channel-finder switch
+    reads for the graph rule: the key is absent from every profile that keeps
+    the template's default, so absence reads as on. Both spellings of the
+    switch are honoured.
+    """
+    dotted = {"ariel.search_modules.hybrid.enabled": False}
+    nested = {"ariel": {"search_modules": {"hybrid": {"enabled": False}}}}
+    for overlay in (dotted, nested):
+        BuildProfile(name="x", deploy_services=False, config=overlay).validate(tmp_path)
+
+
+def test_hybrid_search_with_the_sidecar_block_overridden_away_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """A bare ``services.qmd:`` override deletes the block the template rendered.
+
+    The template's own comment tells an operator to drop the block, the
+    ``deployed_services`` entry AND the two ariel modules together; dropping
+    the block alone leaves hybrid search enabled with nothing behind it.
+    """
+    profile = BuildProfile(name="x", config={"services.qmd": None})
+    (error,) = _qmd_errors(profile, tmp_path)
+    assert "ariel.search_modules.hybrid" in error
+
+
+def test_hybrid_search_with_the_sidecar_block_and_the_module_dropped_together_validates(
+    tmp_path: Path,
+) -> None:
+    """Dropping the block together with the module is the supported no-sidecar path."""
+    BuildProfile(
+        name="x",
+        config={"services.qmd": None, "ariel.search_modules.hybrid.enabled": False},
+    ).validate(tmp_path)
+
+
+def test_a_malformed_sidecar_port_override_is_not_reported_as_a_missing_block(
+    tmp_path: Path,
+) -> None:
+    """A sidecar named with a bad port is still one this profile means to dial.
+
+    The resolver raises about the port where it can be acted on — the deploy
+    preflight — so this validator must not turn that into "no block at all".
+    """
+    BuildProfile(
+        name="x", deploy_services=False, config={"services.qmd.port": "not-a-port"}
+    ).validate(tmp_path)
+
+
+def test_an_app_template_without_ariel_needs_no_sidecar(tmp_path: Path) -> None:
+    """The prerequisite belongs to the hybrid module; a template with no ARIEL passes."""
+    BuildProfile(name="x", data_bundle="channel_finder_standalone").validate(tmp_path)
+    BuildProfile(name="x", data_bundle="channel_finder_standalone", deploy_services=False).validate(
+        tmp_path
+    )

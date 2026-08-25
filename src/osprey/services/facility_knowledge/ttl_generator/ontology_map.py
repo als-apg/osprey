@@ -5,18 +5,21 @@ store needs it typed as ``narad_sem:Dipole``, and needs to know that a Dipole is
 a Magnet and a Magnet is an AcceleratorDevice.  This module holds that table.
 
 The table itself is data, not code: :data:`DEMO_ONTOLOGY_FILENAME` ships next to
-this module and :func:`load_demo_ontology` reads it.  A facility with its own
-vocabulary points :func:`load_ontology` at its own file instead of editing the
-generator.
+this module and :func:`load_demo_ontology` reads it.  The shipped
+``demo_ontology.json`` is compiled from ``demo_ontology.yaml``, a LinkML schema
+in this same directory, by ``osprey knowledge compile-ontology``, and must not
+be edited by hand.  A facility with its own vocabulary points
+:func:`load_ontology`'s ``--ontology`` at its own compiled or hand-written JSON
+table instead of editing the generator.
 
-The demo table copies its class hierarchy edge-for-edge from the shipped ALS
-corpus (``src/osprey/templates/services/graphdb/als_gtb.ttl``), so a query that
-rolls devices up to ``narad_sem:Magnet`` on the ALS graph rolls the analogous
+The demo table copies its class hierarchy edge-for-edge from the NARAD
+shared-semantics vocabulary the als-ontology project defines, so a query that
+rolls devices up to ``narad_sem:Magnet`` on any NARAD graph rolls the analogous
 devices up on the demo graph.  The file's own ``_comment`` block records where
 the demo machine has no exact NARAD class and which nearest class stands in.
 
-This module is **pure**: standard library only, no ``rdflib``, no ``neo4j``.  It
-reads one JSON file and nothing else.
+This module is **pure**: no ``rdflib``, no ``neo4j`` — the contract
+``test_import_isolation.py`` enforces.  It reads one JSON file and nothing else.
 """
 
 from __future__ import annotations

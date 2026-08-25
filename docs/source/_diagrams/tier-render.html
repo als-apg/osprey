@@ -1,0 +1,66 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 312" role="img" aria-labelledby="tier-render-title tier-render-desc">
+  <title id="tier-render-title">A tier is a persona file, rendered</title>
+  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each persona file under personas/ holds only its differences — readonly turns control-system writes off, readwrite leaves them on, admin leaves them on and lifts the floor. osprey build merges every delta over the base and renders one project per persona, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
+  <defs>
+    <marker id="tier-render-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- input bus: four sources feed one build -->
+  <line class="e-thin" x1="240" y1="64" x2="324" y2="64"/>
+  <line class="e-thin" x1="240" y1="146" x2="324" y2="146"/>
+  <line class="e-thin" x1="240" y1="206" x2="324" y2="206"/>
+  <line class="e-thin" x1="240" y1="266" x2="324" y2="266"/>
+  <line class="e-thin" x1="324" y1="64" x2="324" y2="266"/>
+  <line class="e" x1="324" y1="164" x2="392" y2="164" marker-end="url(#tier-render-arr)"/>
+  <!-- output bus: one build, one project per persona -->
+  <line class="e" x1="576" y1="164" x2="644" y2="164"/>
+  <line class="e-thin" x1="644" y1="112" x2="644" y2="240"/>
+  <line class="e" x1="644" y1="112" x2="728" y2="112" marker-end="url(#tier-render-arr)"/>
+  <line class="e" x1="644" y1="176" x2="728" y2="176" marker-end="url(#tier-render-arr)"/>
+  <line class="e" x1="644" y1="240" x2="728" y2="240" marker-end="url(#tier-render-arr)"/>
+  <!-- edge labels -->
+  <rect class="mask" x="328" y="144" width="60" height="12" rx="2"/>
+  <text class="ta" x="358" y="153" text-anchor="middle">FLOOR + DELTA</text>
+  <rect class="mask" x="580" y="144" width="60" height="12" rx="2"/>
+  <text class="ta" x="610" y="153" text-anchor="middle">ONE EACH</text>
+  <!-- inputs -->
+  <rect class="mask" x="24" y="24" width="216" height="80" rx="6"/>
+  <rect class="nb-st" x="24" y="24" width="216" height="80" rx="6"/>
+  <text class="tn" x="132" y="46" text-anchor="middle">profile.yml</text>
+  <text class="ts" x="132" y="62" text-anchor="middle">the floor every tier inherits</text>
+  <text class="ts" x="132" y="78" text-anchor="middle">setup_patch denied · Config panel off</text>
+  <text class="ts" x="132" y="92" text-anchor="middle">gallery read-only</text>
+  <rect class="mask" x="24" y="124" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="124" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="143" text-anchor="middle">personas/readonly.yml</text>
+  <text class="ts" x="132" y="159" text-anchor="middle">writes_enabled: false</text>
+  <rect class="mask" x="24" y="184" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="184" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="203" text-anchor="middle">personas/readwrite.yml</text>
+  <text class="ts" x="132" y="219" text-anchor="middle">writes_enabled: true</text>
+  <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="263" text-anchor="middle">personas/admin.yml</text>
+  <text class="ts" x="132" y="279" text-anchor="middle">writes_enabled: true · lifts the floor</text>
+  <!-- the build -->
+  <rect class="mask" x="392" y="136" width="184" height="56" rx="6"/>
+  <rect class="nb-foc" x="392" y="136" width="184" height="56" rx="6"/>
+  <text class="tn" x="484" y="160" text-anchor="middle">osprey build</text>
+  <text class="ts" x="484" y="176" text-anchor="middle">merges each delta over the base</text>
+  <!-- outputs -->
+  <rect class="mask" x="728" y="88" width="192" height="48" rx="6"/>
+  <rect class="nb" x="728" y="88" width="192" height="48" rx="6"/>
+  <text class="tn" x="824" y="108" text-anchor="middle">build/…-readonly</text>
+  <text class="ts" x="824" y="124" text-anchor="middle">bob's container</text>
+  <rect class="mask" x="728" y="152" width="192" height="48" rx="6"/>
+  <rect class="nb" x="728" y="152" width="192" height="48" rx="6"/>
+  <text class="tn" x="824" y="172" text-anchor="middle">build/…-readwrite</text>
+  <text class="ts" x="824" y="188" text-anchor="middle">alice's container</text>
+  <rect class="mask" x="728" y="216" width="192" height="48" rx="6"/>
+  <rect class="nb" x="728" y="216" width="192" height="48" rx="6"/>
+  <text class="tn" x="824" y="236" text-anchor="middle">build/…-admin</text>
+  <text class="ts" x="824" y="252" text-anchor="middle">carol's container</text>
+</svg>
+</div>

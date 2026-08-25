@@ -35,7 +35,6 @@ import { createScaffoldGalleryDetailContent } from '../../../src/osprey/interfac
 
 /**
  * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js').ScaffoldGalleryDetailHost} ScaffoldGalleryDetailHost
- * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js').DetailContentElement} DetailContentElement
  */
 
 /**
@@ -410,28 +409,22 @@ describe('renderPreview', () => {
     expect(gallery.detailContentEl.textContent).toContain('Some instructions.');
   });
 
-  test('settings-json mounts the structured editor and wires dirty state back through the gallery', async () => {
+  test('settings-json renders the structured view with nothing to type into', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: true, json: () => Promise.resolve({ content: '{"model":"anthropic/claude"}', language: 'json' }),
     })));
 
+    // `status: 'user-owned'` and no `read_only` flag: the most permissive
+    // artifact shape the panel can be handed. settings.json is written from
+    // the profile's `config:` keys, so even here Preview stays read-only.
     const gallery = makeGallery({ selectedArtifact: { name: 'settings-json', status: 'user-owned' } });
-    gallery.renderDetailModes = vi.fn();
     const content = createScaffoldGalleryDetailContent(gallery);
 
     await content.renderPreview();
 
-    const detailContentEl = /** @type {DetailContentElement} */ (gallery.detailContentEl);
-    expect(detailContentEl._settingsEditor).toBeTruthy();
-    const settingsEditor = detailContentEl._settingsEditor;
-    if (settingsEditor === null || settingsEditor === undefined) throw new Error('settings editor not mounted');
-    expect(typeof settingsEditor.getData).toBe('function');
-
-    const modelInput = qs(gallery.detailContentEl, '.config-edit-input', HTMLInputElement);
-    modelInput.value = 'anthropic/claude-opus';
-    modelInput.dispatchEvent(new Event('input'));
-
-    expect(gallery.editDirty).toBe(true);
-    expect(gallery.renderDetailModes).toHaveBeenCalled();
+    expect(qs(gallery.detailContentEl, '.config-structured-view')).toBeTruthy();
+    expect(gallery.detailContentEl.textContent).toContain('anthropic/claude');
+    expect(gallery.detailContentEl.querySelectorAll('input, select, textarea')).toHaveLength(0);
+    expect(gallery.editDirty).toBe(false);
   });
 });

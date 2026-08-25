@@ -552,20 +552,25 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
             anchored_append(deployed, name)
     config["deployed_services"] = deployed
 
-    # Derive web.panels.events.url from dispatcher_port so the port is a single
-    # source of truth.  Write only if the profile has not already set an explicit
-    # ``web.panels.events.url`` via a config override (merged earlier in the
-    # build); explicit overrides take precedence.
+    # Derive the whole web.panels.events entry from dispatcher_port so the port
+    # is a single source of truth — url, the `/dashboard` path, the tab's label
+    # and the `/health` endpoint the tab health-gates on. Written here, in the
+    # deployment's own render, because every web-terminal persona built beside
+    # it is TOLD this entry from this render (osprey.deployment.reach): a key
+    # left out here is a key no persona ever sees. Filled only where the
+    # profile has not already set an explicit value via a config override
+    # (merged earlier in the build); explicit overrides take precedence, and
+    # an explicit ``url`` leaves the whole entry alone.
     #
     # Emit a bare-host ``url`` plus a ``/dashboard`` ``path`` (rather than baking
     # ``/dashboard`` into ``url``) to match the custom-panel proxy convention:
     # the web terminal composes ``url.rstrip('/') + '/' + path``, so a path baked
-    # into ``url`` double-prefixes sub-routes. ``setdefault`` on ``path`` honors a
-    # facility that pinned its own ``web.panels.events.path``.
+    # into ``url`` double-prefixes sub-routes.
     existing_events_url = config.get("web", {}).get("panels", {}).get("events", {}).get("url", "")
     if not existing_events_url:
         panels = config.setdefault("web", {}).setdefault("panels", {})
         events_panel = panels.get("events")
+        events_url = f"http://localhost:{dispatch.dispatcher_port}"
         if events_panel is None:
             # Put the complete panel in one shot: anchored_put re-anchors a
             # section comment beneath the new entry, which needs the entry's
@@ -573,12 +578,17 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
             anchored_put(
                 panels,
                 "events",
-                {"url": f"http://localhost:{dispatch.dispatcher_port}", "path": "/dashboard"},
+                {
+                    "url": events_url,
+                    "path": "/dashboard",
+                    "label": "EVENTS",
+                    "health_endpoint": "/health",
+                },
             )
         else:
-            anchored_put(events_panel, "url", f"http://localhost:{dispatch.dispatcher_port}")
-            if "path" not in events_panel:
-                anchored_put(events_panel, "path", "/dashboard")
+            _fill_panel_defaults(
+                events_panel, events_url, "/dashboard", "EVENTS", health_endpoint="/health"
+            )
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -1085,13 +1095,17 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     )
 
 
-def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> None:
+def _fill_panel_defaults(
+    panel_cfg: Any, url: str, path: str, label: str, health_endpoint: str | None = None
+) -> None:
     """Fill a partially-specified ``web.panels.<id>`` entry in place.
 
     Explicit values win: a facility override merged earlier in the build keeps
     whatever it set, and only the keys it left out are derived. ``url`` is
     additionally treated as unset when empty, so a blank override cannot leave
-    the panel pointing nowhere.
+    the panel pointing nowhere. ``health_endpoint`` is filled only for a
+    service that serves one (the dispatcher's ``/health``): it is what lets
+    the tab health-gate itself instead of treating any answer as healthy.
     """
     if not panel_cfg.get("url"):
         anchored_put(panel_cfg, "url", url)
@@ -1099,6 +1113,8 @@ def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> Non
         anchored_put(panel_cfg, "path", path)
     if "label" not in panel_cfg:
         anchored_put(panel_cfg, "label", label)
+    if health_endpoint is not None and "health_endpoint" not in panel_cfg:
+        anchored_put(panel_cfg, "health_endpoint", health_endpoint)
 
 
 def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> None:

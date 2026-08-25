@@ -197,10 +197,10 @@ for a plan that is not.
 
 ## Starting a Bluesky Queue
 
-Starting a queue moves accelerator hardware. Arming a start needs
-`BLUESKY_LAUNCH_TOKEN`, which a persona is granted only when its config sets
+Starting a queue moves accelerator hardware. Arming a start needs the lane's
+launch token, which a persona is granted only when its config sets
 `control_system.writes_enabled: true` **and** runs the `bluesky` MCP server.
-A read-only persona never holds it.
+A read-only persona never holds one.
 
 Where it is granted, one approval is the whole gate: approving `queue_start` in
 chat starts the queue. There is no second confirmation step anywhere else.

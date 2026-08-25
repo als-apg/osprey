@@ -1,6 +1,6 @@
 /**
  * Unit tests for mcp-renderer.js -- the .mcp.json renderer behind
- * config-renderers.js's re-export (same seam as settings-editor.js).
+ * config-renderers.js's re-export.
  * Covers:
  *
  *   - `_parseToolDescription`'s Google-style docstring parsing on

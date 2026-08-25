@@ -5,7 +5,7 @@
  * enhancement: once /api/mcp-servers responds, each card is enriched
  * in-place with its live tool list and description.
  *
- * A sibling of config-renderers.js (same seam as settings-editor.js):
+ * A sibling of config-renderers.js:
  * `_section` is a shared section-header helper needed by both this module
  * and config-renderers.js, so it lives in the neutral leaf module
  * config-render-helpers.js rather than in either renderer --

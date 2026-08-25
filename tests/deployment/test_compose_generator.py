@@ -708,10 +708,12 @@ def test_worker_template_declares_openobserve_host() -> None:
 # The worker runs ``<project>:local`` (the project image built by
 # ``osprey up``), which bakes the project at ``/app/<project>``
 # (Dockerfile ``COPY . /app/{{ project_name }}/``, ``WORKDIR /app/<project>``,
-# ``chown -R osprey:osprey /app/<project>``). Every worker path — OSPREY_PROJECT_DIR,
-# CONFIG_FILE, the staged config bind-mount, the .env mount, the agent-data volume
-# — must point at that same ``/app/<project>`` root, or the worker points at an
-# empty/absent directory (plan risk M1). The image tag prefix, the label project
+# ``chown -R osprey:osprey /app/<project>/var`` — the chown reaches only the state
+# zone, since the privilege split leaves the render root-owned and the container
+# drops to osprey with gosu rather than a USER instruction). Every worker path —
+# OSPREY_PROJECT_DIR, CONFIG_FILE, the staged config bind-mount, the .env mount,
+# the agent-data volume — must point at that same ``/app/<project>`` root, or the
+# worker points at an empty/absent directory (plan risk M1). The image tag prefix, the label project
 # name, and the layout path all derive from one ``resolve_project_name(config)``
 # call in ``_inject_project_metadata``, so they are provably the same string.
 # ---------------------------------------------------------------------------

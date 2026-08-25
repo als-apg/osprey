@@ -1326,13 +1326,29 @@ def _print_web_terminals_lint_errors(errors: list[Any]) -> None:
     """Print the ``modules.web_terminals lint`` "Errors:" block.
 
     Shared by ``lint`` (as part of its full errors+warnings report) and
-    ``render``'s pre-render lint gate (errors only, no warnings section). Takes
-    a list of ``osprey.deployment.web_terminals.lint.Finding`` (not type-hinted
-    as such here to keep this module's lazy-import convention for that package).
+    ``render``'s pre-render lint gate. Takes a list of
+    ``osprey.deployment.web_terminals.lint.Finding`` (not type-hinted as such
+    here to keep this module's lazy-import convention for that package).
     """
     console.print("  [dim]Errors:[/dim]")
     for finding in errors:
         console.print(f"    [error]\u2717[/error] [{finding.code}] {finding.message}")
+
+
+def _print_web_terminals_lint_warnings(warnings: list[Any]) -> None:
+    """Print the ``modules.web_terminals lint`` "Warnings:" block.
+
+    The sibling of :func:`_print_web_terminals_lint_errors`, and it exists
+    because the render gate used to filter the findings to errors and drop the
+    rest on the floor. Some of what it dropped is the only report an operator
+    ever gets: a privileged terminal in front of ``auth.method: none`` is
+    deliberately not build-failing (it is the shipped loopback posture, not a
+    mistake), so discarding it means the exposure is never named anywhere.
+    Advisory, never fatal \u2014 the caller decides what blocks.
+    """
+    console.print("  [dim]Warnings:[/dim]")
+    for finding in warnings:
+        console.print(f"    [warning]\u26a0[/warning] [{finding.code}] {finding.message}")
 
 
 @web_terminals.command(name="lint")
@@ -1356,8 +1372,14 @@ def web_terminals_lint(repo, config_path):
 
     from osprey.deployment.web_terminals.lint import lint_web_terminals
 
-    config = _load_config(_build_zone(repo))
-    findings = lint_web_terminals(config)
+    repo_root = find_repo_root(repo)
+    config = _load_config(repo_root / BUILD_OUTPUT_DIR)
+    # The repo root, not the working directory: a catalog entry's
+    # `project_path` is relative to the deployment repo — the same anchor
+    # `write_web_terminal_artifacts` resolves it against — so a lint run from
+    # anywhere else used to read no persona `config.yml` at all and report
+    # every persona as unprivileged.
+    findings = lint_web_terminals(config, project_root=repo_root)
 
     if not findings:
         console.print("[success]\u2713[/success] modules.web_terminals: no issues found\n")
@@ -1417,16 +1439,30 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
 
     from osprey.deployment.web_terminals.render import render_web_terminals
 
-    config = _load_config(_build_zone(repo))
+    repo_root = find_repo_root(repo)
+    config = _load_config(repo_root / BUILD_OUTPUT_DIR)
 
     if not no_lint:
         from osprey.deployment.web_terminals.lint import lint_web_terminals
 
-        errors = [f for f in lint_web_terminals(config) if f.severity == "error"]
-        if errors:
+        # `project_root` for the same reason `lint` passes it: persona
+        # `project_path` values anchor on the deployment repo, and a gate that
+        # cannot find a persona's rendered config.yml passes every roster.
+        findings = lint_web_terminals(config, project_root=repo_root)
+        errors = [f for f in findings if f.severity == "error"]
+        warnings = [f for f in findings if f.severity == "warn"]
+        if errors or warnings:
             console.print("\n[bold]modules.web_terminals lint[/bold]\n")
+        if errors:
             _print_web_terminals_lint_errors(errors)
+        # Printed even when nothing blocks. These are advisory by design, not by
+        # omission, so dropping them is how an exposure the lint DID find
+        # reaches nobody at all.
+        if warnings:
+            _print_web_terminals_lint_warnings(warnings)
+        if errors or warnings:
             console.print()
+        if errors:
             raise click.ClickException(
                 "modules.web_terminals has lint errors; fix them or pass --no-lint to render anyway."
             )

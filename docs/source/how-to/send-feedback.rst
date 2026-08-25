@@ -249,7 +249,7 @@ with no value at all does.
       Running the terminal the feedback dialog lives in, and the full ``web``
       settings table.
 
-   :doc:`multi-user`
+   :doc:`multi-user/index`
       Per-user web terminals and the roster that decides how feedback is stored
       and read.
 

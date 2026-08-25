@@ -5,8 +5,7 @@
  * The write side of the scaffold gallery's edit workflow: taking/releasing
  * ownership of a framework artifact (takeOwnership, releaseToFramework,
  * handleEditFramework), discarding or saving in-progress edits
- * (discardEdits, saveOverride -- plus its settings.json ownership-warning
- * modal, _showOwnershipWarning), resetting to the framework default
+ * (discardEdits, saveOverride), resetting to the framework default
  * (unoverrideArtifact), refetching + reopening the detail view after any of
  * the above (reloadAndReopen), and closing the detail view back to the
  * gallery grid (closeDetail). The "write-side actions" half of the edit
@@ -24,13 +23,10 @@
 import { apiRequest } from './data.js';
 
 /**
- * `detailContentEl` grows a `_settingsEditor` property when the
- * settings.json structured editor is mounted, and `_frontMatterFields`/
- * `_bodyTextarea` when the front-matter form is mounted (see
- * scaffold/edit-form.js) -- both read here by saveOverride() to pull the
- * edited content back out.
+ * `detailContentEl` grows `_frontMatterFields`/`_bodyTextarea` when the
+ * front-matter form is mounted (see scaffold/edit-form.js) -- both read here
+ * by saveOverride() to pull the edited content back out.
  * @typedef {HTMLElement & {
- *   _settingsEditor?: { getData(): string, isDirty(): boolean } | null,
  *   _frontMatterFields?: Record<string, HTMLInputElement|HTMLSelectElement>,
  *   _bodyTextarea?: HTMLTextAreaElement,
  * }} EditContentElement
@@ -64,6 +60,47 @@ import { apiRequest } from './data.js';
  * @param {ScaffoldGalleryEditHost} gallery
  */
 export function createScaffoldGalleryEdit(gallery) {
+  /**
+   * Put a failed write in front of the operator, in the words the server used.
+   *
+   * The message matters more here than in most error paths: a protected-set
+   * refusal names the channel that owns the change instead ("'settings-json'
+   * belongs to the profile's `config:` keys (...). NOTHING WAS WRITTEN."), and
+   * that sentence is the operator's only pointer to where the edit does belong.
+   * `apiRequest` already carries the server's `detail` through as the Error
+   * message, so this only has to keep it intact and say which action broke.
+   *
+   * @param {string} prefix   What was being attempted ("Save failed", ...).
+   * @param {unknown} e       The caught rejection.
+   * @returns {void}
+   */
+  function showWriteError(prefix, e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (!gallery.errorEl) return;
+    gallery.errorEl.classList.remove('prompts-error--notice');
+    gallery.errorEl.style.display = 'flex';
+    gallery.errorEl.textContent = `${prefix}: ${message}`;
+  }
+
+  /**
+   * Tell the operator a save landed somewhere other than where they think.
+   *
+   * The counterpart to {@link showWriteError} and deliberately the same strip:
+   * there is one place in this panel that speaks to the operator about a write,
+   * and a second one would be a second place to miss. The modifier class is
+   * what separates "this failed" from "this worked, with a caveat" — without
+   * it a successful save would be announced in the wording of a failure.
+   *
+   * @param {string} message  What the operator needs to know.
+   * @returns {void}
+   */
+  function showWriteNotice(message) {
+    if (!gallery.errorEl) return;
+    gallery.errorEl.classList.add('prompts-error--notice');
+    gallery.errorEl.style.display = 'flex';
+    gallery.errorEl.textContent = message;
+  }
+
   /** @returns {Promise<void>} */
   async function takeOwnership() {
     if (!gallery.selectedArtifact) return;
@@ -81,11 +118,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
       await reloadAndReopen();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (gallery.errorEl) {
-        gallery.errorEl.style.display = 'flex';
-        gallery.errorEl.textContent = `Scaffold failed: ${message}`;
-      }
+      showWriteError('Scaffold failed', e);
     }
   }
 
@@ -129,11 +162,7 @@ export function createScaffoldGalleryEdit(gallery) {
         gallery.renderDetailContent();
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (gallery.errorEl) {
-        gallery.errorEl.style.display = 'flex';
-        gallery.errorEl.textContent = `Scaffold failed: ${message}`;
-      }
+      showWriteError('Scaffold failed', e);
     }
   }
 
@@ -157,10 +186,7 @@ export function createScaffoldGalleryEdit(gallery) {
     /** @type {string|undefined} */
     let content;
 
-    if (container._settingsEditor) {
-      // Settings.json structured editor
-      content = container._settingsEditor.getData();
-    } else if (container._frontMatterFields && container._bodyTextarea) {
+    if (container._frontMatterFields && container._bodyTextarea) {
       const fields = container._frontMatterFields;
       let yaml = '---\n';
       for (const [key, input] of Object.entries(fields)) {
@@ -183,29 +209,8 @@ export function createScaffoldGalleryEdit(gallery) {
       content = textarea.value;
     }
 
-    // Ownership warning + scaffold for framework-owned settings.json
-    if (gallery.selectedArtifact.name === 'settings-json'
-        && gallery.selectedArtifact.status === 'framework') {
-      const confirmed = await _showOwnershipWarning();
-      if (!confirmed) return;
-
-      // Scaffold (claim) the file before writing the override
-      try {
-        await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
-          method: 'POST',
-          errorPrefix: 'Scaffold failed',
-        });
-      } catch (e) {
-        if (gallery.errorEl) {
-          gallery.errorEl.style.display = 'flex';
-          gallery.errorEl.textContent = `Scaffold failed: ${e instanceof Error ? e.message : String(e)}`;
-        }
-        return;
-      }
-    }
-
     try {
-      await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`, {
+      const result = await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`, {
         method: 'PUT',
         json: { content },
         errorPrefix: 'Save failed',
@@ -213,75 +218,20 @@ export function createScaffoldGalleryEdit(gallery) {
 
       gallery.editDirty = false;
       await reloadAndReopen();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (gallery.errorEl) {
-        gallery.errorEl.style.display = 'flex';
-        gallery.errorEl.textContent = `Save failed: ${message}`;
+
+      // After the reopen, not before: the reload re-renders this panel and
+      // clears the strip, so a notice raised first would be wiped by the
+      // refresh that follows it.
+      if (result && result.applies_on_restart) {
+        showWriteNotice(
+          'Saved — applies on container restart. The project tree here is read-only, '
+          + 'so your change is held on the claude-config volume and reaches the agent '
+          + 'when the container next starts.'
+        );
       }
+    } catch (e) {
+      showWriteError('Save failed', e);
     }
-  }
-
-  /**
-   * Show a modal warning that saving settings.json means taking ownership.
-   * @returns {Promise<boolean>} resolves true (proceed) or false (cancel)
-   */
-  function _showOwnershipWarning() {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.className = 'config-ownership-overlay';
-
-      const dialog = document.createElement('div');
-      dialog.className = 'config-ownership-dialog';
-
-      const iconEl = document.createElement('div');
-      iconEl.className = 'config-ownership-icon';
-      iconEl.textContent = '⚠';
-      dialog.appendChild(iconEl);
-
-      const title = document.createElement('div');
-      title.className = 'config-ownership-title';
-      title.textContent = 'Taking Ownership';
-      dialog.appendChild(title);
-
-      const body = document.createElement('div');
-      body.className = 'config-ownership-body';
-      body.textContent =
-        'You are about to take ownership of settings.json. ' +
-        'OSPREY will no longer auto-manage this file during regeneration ' +
-        '(osprey build). Future framework updates to permissions, ' +
-        'hooks, and model configuration will not be applied automatically. ' +
-        'You can release ownership later to restore framework management.';
-      dialog.appendChild(body);
-
-      const actions = document.createElement('div');
-      actions.className = 'config-ownership-actions';
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'config-ownership-cancel';
-      cancelBtn.textContent = 'Cancel';
-      cancelBtn.addEventListener('click', () => {
-        overlay.remove();
-        resolve(false);
-      });
-      actions.appendChild(cancelBtn);
-
-      const confirmBtn = document.createElement('button');
-      confirmBtn.className = 'config-ownership-confirm';
-      confirmBtn.textContent = 'I Understand, Save';
-      confirmBtn.addEventListener('click', () => {
-        overlay.remove();
-        resolve(true);
-      });
-      actions.appendChild(confirmBtn);
-
-      dialog.appendChild(actions);
-      overlay.appendChild(dialog);
-      document.body.appendChild(overlay);
-
-      // Animate in
-      requestAnimationFrame(() => overlay.classList.add('visible'));
-    });
   }
 
   /**
@@ -305,11 +255,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
       await reloadAndReopen();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (gallery.errorEl) {
-        gallery.errorEl.style.display = 'flex';
-        gallery.errorEl.textContent = `Reset failed: ${message}`;
-      }
+      showWriteError('Reset failed', e);
     }
   }
 

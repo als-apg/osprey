@@ -810,3 +810,106 @@ def test_a_required_name_nothing_provides_refuses_before_the_build(
         container_lifecycle._start_stack(_mint_dependent_config(), [], tmp_path, detached=True)
 
     assert stubbed_start == []  # nothing was built
+
+
+# ---------------------------------------------------------------------------
+# The privilege belt on the deploy path
+# ---------------------------------------------------------------------------
+# `osprey up` used to read no lint at all: the two verbs that read the rendered
+# altitude (`osprey scaffold web-terminals lint` and the `render` pre-render
+# gate) are both authoring verbs. So a hand-edit to `build/config.yml` -- a file
+# no build fingerprint covers, since `profile.yml` is untouched -- could serve a
+# deployment-editing terminal with no login, fail the lint, and start anyway.
+# The pass carries the two open-door findings now; what is tested here is that
+# the refusal lands before anything is built or started.
+
+
+def _open_terminal_config(root: Path) -> dict:
+    """A rendered deployment serving a privileged persona with no login.
+
+    The base floors both surfaces and the `admin` render lifts neither key back
+    -- which is what a render that predates the floor looks like, and what a
+    hand-edited one looks like too. `carol` opts out of the login wall.
+    """
+    for project, document in (
+        ("admin-app", {"project_name": "admin-app"}),
+        (
+            "readonly-app",
+            {
+                "project_name": "readonly-app",
+                "claude_code": {"permissions": {"deny": ["mcp__osprey_workspace__setup_patch"]}},
+                "web": {"config_panel": {"enabled": False}},
+            },
+        ),
+    ):
+        project_dir = root / "build" / project
+        project_dir.mkdir(parents=True)
+        (project_dir / "config.yml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    return {
+        "deployed_services": [],
+        "facility": {"prefix": "test"},
+        "claude_code": {"permissions": {"deny": ["mcp__osprey_workspace__setup_patch"]}},
+        "web": {"config_panel": {"enabled": False}},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "auth": {"method": "password"},
+                "default_persona": "readonly",
+                "users": [
+                    {"name": "bob", "index": 0, "persona": "readonly"},
+                    {"name": "carol", "index": 1, "persona": "admin", "login": False},
+                ],
+                "personas": {
+                    "readonly": {"project": "readonly-app", "project_path": "build/readonly-app"},
+                    "admin": {"project": "admin-app", "project_path": "build/admin-app"},
+                },
+            }
+        },
+    }
+
+
+def test_an_open_privileged_terminal_refuses_the_start_before_anything_runs(
+    tmp_path, stubbed_start, monkeypatch
+):
+    """The deploy-path half of the belt. Nothing is built, and no container
+    runtime is asked anything -- the refusal is the first thing that happens."""
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+
+    with pytest.raises(UnmetPreconditionsError, match="carol") as excinfo:
+        container_lifecycle._start_stack(
+            _open_terminal_config(tmp_path), [], tmp_path, detached=True
+        )
+
+    problem = next(problem for problem, _remedy in excinfo.value.findings if "'carol'" in problem)
+    assert "without a login" in problem
+    assert stubbed_start == []  # nothing was built, nothing was started
+
+
+def test_the_same_deployment_behind_a_login_starts(tmp_path, stubbed_start, monkeypatch):
+    """The counterfactual that gives the test above its meaning: one key back to
+    its default and the identical start proceeds to the image build."""
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    config = _open_terminal_config(tmp_path)
+    del config["modules"]["web_terminals"]["users"][1]["login"]
+
+    container_lifecycle._start_stack(config, [], tmp_path, detached=True)
+
+    assert stubbed_start == ["build_image"]
+
+
+def test_a_privileged_default_persona_is_printed_and_the_start_proceeds(
+    tmp_path, stubbed_start, monkeypatch, capsys
+):
+    """The advisory half. It is a real exposure and it is said out loud, but
+    refusing the start of a running stack over the shape of its roster would
+    stop a shift to fix a profile."""
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    config = _open_terminal_config(tmp_path)
+    del config["modules"]["web_terminals"]["users"][1]["login"]
+    config["modules"]["web_terminals"]["default_persona"] = "admin"
+
+    container_lifecycle._start_stack(config, [], tmp_path, detached=True)
+
+    assert stubbed_start == ["build_image"]
+    assert "default_persona" in capsys.readouterr().err

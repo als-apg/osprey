@@ -27,6 +27,70 @@ logger = logging.getLogger("osprey.cli.templates")
 # pin.
 _DEFAULT_CLAUDE_CLI_VERSION = "2.1.146"
 
+CONFIG_TEMPLATE = "config.yml.j2"
+"""The project-file template that renders ``config.yml``."""
+
+
+def _default_cli_version(ctx: dict) -> None:
+    """Expose ``claude_code.cli_version`` to Dockerfile.j2's CLAUDE_CLI_VERSION
+    ARG default, so the same version pin that ``osprey chat``/``osprey web``
+    honor at runtime (osprey.utils.claude_launcher) also pins the image's
+    build-time CLI install. Callers may pre-populate
+    ``ctx["claude_code_cli_version"]`` (flat) or ``ctx["claude_code"]["cli_version"]``
+    (nested, mirroring config.yml's shape); absent either, fall back to the
+    framework's last verified pin."""
+    if "claude_code_cli_version" not in ctx:
+        ctx["claude_code_cli_version"] = (
+            ctx.get("claude_code", {}).get("cli_version") or _DEFAULT_CLAUDE_CLI_VERSION
+        )
+
+
+def project_template_for(template_root: Path, data_bundle: str, template_file: str) -> str | None:
+    """The template that renders project file *template_file* for *data_bundle*.
+
+    An app template's own copy wins over the shared ``project/`` default
+    (``apps/control_assistant/config.yml.j2`` over ``project/config.yml.j2``).
+
+    Returns:
+        The template's path relative to the templates root, in the spelling the
+        Jinja environment loads by, or ``None`` when neither ships the file.
+    """
+    name = template_file if template_file.endswith(".j2") else template_file + ".j2"
+    if (template_root / "apps" / data_bundle / name).exists():
+        return f"apps/{data_bundle}/{name}"
+    if (template_root / "project" / template_file).exists():
+        return f"project/{template_file}"
+    return None
+
+
+def render_project_config(
+    template_root: Path,
+    jinja_env,
+    output_path: Path,
+    data_bundle: str,
+    ctx: dict,
+) -> None:
+    """Render ``config.yml`` alone — the one file of a project render that
+    says what the project deploys and where — with the template
+    :func:`create_project_structure` would pick for *data_bundle* and the
+    same context.
+
+    Args:
+        template_root: Path to osprey's bundled templates directory
+        jinja_env: Jinja2 environment for template rendering
+        output_path: Where the rendered ``config.yml`` is written
+        data_bundle: Name of the data bundle (apps/ subdirectory) to use
+        ctx: Template context variables
+
+    Raises:
+        ValueError: If neither the bundle nor ``project/`` ships the template.
+    """
+    _default_cli_version(ctx)
+    template_path = project_template_for(template_root, data_bundle, CONFIG_TEMPLATE)
+    if template_path is None:
+        raise ValueError(f"App template {data_bundle!r} renders no config.yml")
+    render_template(jinja_env, template_path, ctx, output_path)
+
 
 def provider_api_key_entries() -> list[dict[str, str]]:
     """Provider API-key env vars for env-file templates, in registry order.
@@ -142,22 +206,12 @@ def create_project_structure(
         ctx: Template context variables
     """
     project_template_dir = template_root / "project"
-    app_template_dir = template_root / "apps" / data_bundle
 
-    # Expose claude_code.cli_version to Dockerfile.j2's CLAUDE_CLI_VERSION ARG
-    # default, so the same version pin that `osprey chat`/`osprey web`
-    # honor at runtime (osprey.utils.claude_launcher) also pins the image's
-    # build-time CLI install. Callers may pre-populate ctx["claude_code_cli_version"]
-    # (flat) or ctx["claude_code"]["cli_version"] (nested, mirroring config.yml's
-    # shape); absent either, fall back to the framework's last verified pin.
-    if "claude_code_cli_version" not in ctx:
-        ctx["claude_code_cli_version"] = (
-            ctx.get("claude_code", {}).get("cli_version") or _DEFAULT_CLAUDE_CLI_VERSION
-        )
+    _default_cli_version(ctx)
 
     # Render template files (no pyproject.toml or requirements.txt -- no src/ package)
     files_to_render = [
-        ("config.yml.j2", "config.yml"),
+        (CONFIG_TEMPLATE, "config.yml"),
         ("env.example.j2", ".env.example"),
         ("README.md.j2", "README.md"),
         # Reference container image — rendered once at build; regen never touches it
@@ -167,26 +221,21 @@ def create_project_structure(
     # Copy static files
     static_files = [
         # requirements.txt moved to rendered templates to handle {{ framework_version }}
+        #
+        # The container entrypoint. Copied rather than rendered: it derives the
+        # render it maintains from its own location, so there is nothing
+        # project-specific to substitute — and a file with no Jinja in it is one
+        # fewer thing that can be broken by a context key going missing. It
+        # lands in the render, beside the Dockerfile that installs it, because
+        # that is what makes it part of the deployment the image copies in
+        # rather than a sidecar the build has to remember to carry.
+        ("entrypoint.sh", "entrypoint.sh"),
     ]
 
     for template_file, output_file in files_to_render:
-        # Check if app template has its own version first (e.g., requirements.txt.j2)
-        app_specific_template = app_template_dir / (
-            template_file + ".j2" if not template_file.endswith(".j2") else template_file
-        )
-        default_template = project_template_dir / template_file
-
-        if app_specific_template.exists():
-            # Use app-specific template
-            render_template(
-                jinja_env,
-                f"apps/{data_bundle}/{app_specific_template.name}",
-                ctx,
-                project_dir / output_file,
-            )
-        elif default_template.exists():
-            # Use default project template
-            render_template(jinja_env, f"project/{template_file}", ctx, project_dir / output_file)
+        template_path = project_template_for(template_root, data_bundle, template_file)
+        if template_path is not None:
+            render_template(jinja_env, template_path, ctx, project_dir / output_file)
 
     # Copy static files
     for src_name, dst_name in static_files:

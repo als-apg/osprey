@@ -8,6 +8,8 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_deployment_writes_gate,
+    enforce_path_policy,
+    enforce_posture_clamp,
     refuse_readonly_write,
     report_runtime_refusal,
     require_known_execution_mode,
@@ -37,19 +39,22 @@ async def execute(
 
     Safety layers applied before execution:
       1. ``quick_safety_check()`` — blocks exec/eval/__import__/subprocess
-      2. ``check_readonly_imports()`` — readonly runs may not import
+      2. ``path_policy_issues()`` — in *every* mode, blocks literal writes into
+         the render zone, the profile sources and the audit ledger, and code
+         that names the sandbox guard's own internals
+      3. ``check_readonly_imports()`` — readonly runs may not import
          control-system client libraries (epics, p4p, ...) at all
-      3. ``detect_control_system_operations()`` — blocks detected write
+      4. ``detect_control_system_operations()`` — blocks detected write
          spellings in readonly mode
     Safety layers applied during execution:
-      4. Readonly guard — in readonly runs every control-system write entry
+      5. Readonly guard — in readonly runs every control-system write entry
          point refuses, as do the routes that reach one without a client
          import (starting a process, ``ctypes``); the connectors refuse
          ``write_channel``, and the EPICS connector stays on the read_only
          gateway (``OSPREY_EXECUTION_MODE``)
-      5. ``ExecutionWrapper`` monkeypatch — validates epics.caput() against limits DB
-      6. Process isolation — code runs outside the MCP server process
-      7. Execution timeout — kills execution after configured timeout
+      6. ``ExecutionWrapper`` monkeypatch — validates epics.caput() against limits DB
+      7. Process isolation — code runs outside the MCP server process
+      8. Execution timeout — kills execution after configured timeout
 
     A refused write is reported to the operator and recorded in the
     deployment's audit log, at whichever layer catches it. A readonly script
@@ -80,6 +85,22 @@ async def execute(
     # string equality and an unknown value would satisfy neither branch.
     require_known_execution_mode(execution_mode)
 
+    # Session posture clamp — ahead of every other gate on purpose. Whether
+    # this *session* may write at all is not a question the deployment config,
+    # the pattern detector or the path policy get a say in, and a caller whose
+    # session is sandboxed should be told that rather than whatever a later
+    # gate happens to object to first.
+    #
+    # This is also what makes the executor's
+    # ``sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode`` overwrite safe
+    # (executor.py, in the subprocess env assembly): it replaces the posture
+    # the MCP server inherited with the mode of this call, which would widen a
+    # sandboxed session to readwrite if a readwrite call could get that far.
+    # With the clamp here, none can — under the sandbox posture the only mode
+    # that ever reaches the spawn is readonly, so the overwrite can only ever
+    # re-assert the posture it found.
+    enforce_posture_clamp(execution_mode)
+
     # Pre-execution safety checks (syntax, security, imports)
     try:
         from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
@@ -93,6 +114,15 @@ async def execute(
             )
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
+
+    # Static path policy — the protected set applies in every execution mode
+    # (see :func:`enforce_path_policy`).
+    await enforce_path_policy(
+        tool="execute",
+        code=code,
+        description=description,
+        execution_mode=execution_mode,
+    )
 
     # Readonly runs may not import control-system clients at all. This is the
     # pre-execution half of the readonly contract; the runtime half (the

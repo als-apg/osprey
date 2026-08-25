@@ -32,6 +32,11 @@ from datetime import datetime
 from pathlib import Path
 
 from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+from osprey.services.python_executor.execution.fs_guard import (
+    SANDBOX_PATCH_TARGETS,
+    SANDBOX_WRITE_MODES_ONLY_TARGETS,
+    render_fs_guard,
+)
 from osprey.stores.artifact_manifest import SAVE_ARTIFACT_SOURCE, collect_artifacts
 
 logger = logging.getLogger("osprey.mcp_server.workspace.execution.sandbox_executor")
@@ -243,7 +248,12 @@ def _create_sandbox_wrapper(
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
     The wrapper:
-      - Sandboxes ``open()`` to only allow workspace and execution folder access
+      - Installs the shared allowlist filesystem guard
+        (:func:`~osprey.services.python_executor.execution.fs_guard.render_fs_guard`
+        with ``default_deny=True``): reads of the Python environment and the
+        project tree are allowed, reads and writes under the execution folder,
+        workspace, tempdir and the HOME cache dirs are allowed, everything else
+        raises ``PermissionError``
       - Injects ``save_artifact()`` for subprocess artifact creation
       - Captures stdout/stderr via StringIO
       - Writes ``execution_metadata.json`` for the caller to read
@@ -252,12 +262,28 @@ def _create_sandbox_wrapper(
     user code. There is no auto-capture of matplotlib figures.
     """
     exec_folder_str = str(execution_folder)
-    workspace_str = str(workspace_root)
-    # Required, with no parent-of-workspace-root fallback: that rule resolves to
-    # `<repo>/var` under the four-zone layout, and a default here would let a
-    # caller that forgot to resolve the root get the wrong answer silently
-    # rather than a TypeError.
-    project_root_str = str(project_root)
+
+    # Allowlist posture: only what a root names is reachable. ``read_roots``
+    # carries the project tree (readable data files, refused writes);
+    # ``permitted_roots`` carries the two zones sandboxed code may write.
+    # ``io.open`` is patched for write modes ONLY, which closes
+    # ``Path.write_text`` while leaving every pathlib *read* exactly as it is.
+    fs_guard = render_fs_guard(
+        default_deny=True,
+        permitted_roots=(execution_folder.resolve(), workspace_root.resolve()),
+        protected_roots=(),
+        # ``project_root`` is required, with no parent-of-workspace-root
+        # fallback: that rule resolves to `<repo>/var` under the four-zone
+        # layout, and a default here would let a caller that forgot to resolve
+        # the root get the wrong answer silently rather than a TypeError.
+        read_roots=(project_root.resolve(),),
+        # Read-only access to the Python environment is always allowed — this
+        # covers site-packages, stdlib, and data files some packages install
+        # into the venv's share/ directory (e.g. xyzservices used by bokeh).
+        bypass_prefixes=("site-packages", "lib/python", sys.prefix),
+        patch_targets=SANDBOX_PATCH_TARGETS,
+        write_modes_only_targets=SANDBOX_WRITE_MODES_ONLY_TARGETS,
+    )
 
     return f'''\
 import sys
@@ -265,65 +291,30 @@ import json
 import os
 import time
 import traceback
-import builtins
 from pathlib import Path
 from io import StringIO
 from datetime import datetime
 
 # ---------------------------------------------------------------------------
-# Filesystem sandbox: restrict open() to workspace + execution folder
+# Filesystem sandbox: allowlist guard, rendered by fs_guard.render_fs_guard
 # ---------------------------------------------------------------------------
-_original_open = builtins.open
-_ALLOWED_ROOTS = [
-    Path(r"{exec_folder_str}").resolve(),
-    Path(r"{workspace_str}").resolve(),
-]
-# Project root — read-only access for data files (machine_data/, etc.)
-_PROJECT_ROOT = Path(r"{project_root_str}").resolve()
-_ALLOWED_ROOTS.append(_PROJECT_ROOT)
-# Also allow tempfile directory
+{fs_guard}
+# TMPDIR and HOME describe the *child's* environment, which the parent that
+# rendered the guard does not necessarily share, so these two roots are
+# resolved here rather than baked in above. They are read before any user code
+# runs, so nothing the sandbox exists to contain can steer them. The four HOME
+# cache dirs are appended unconditionally: matplotlib creates them on a
+# first-run HOME, and a root that only counted once it already existed made
+# the very first render the one that got refused.
 import tempfile as _tempfile
-_ALLOWED_ROOTS.append(Path(_tempfile.gettempdir()).resolve())
-# Allow matplotlib/fontconfig cache dirs (read-only config under HOME)
-_home = Path.home()
-for _cfg_dir in [_home / ".matplotlib", _home / ".config", _home / ".cache", _home / ".local"]:
-    if _cfg_dir.exists():
-        _ALLOWED_ROOTS.append(_cfg_dir.resolve())
 
-
-def _sandboxed_open(file, mode="r", *args, **kwargs):
-    """open() replacement that restricts file access to allowed directories."""
-    path = Path(file).resolve()
-    # Read-only access to Python environment is always allowed — this covers
-    # site-packages, stdlib, and data files some packages install into
-    # the venv's share/ directory (e.g., xyzservices used by bokeh).
-    path_str = str(path)
-    if ("site-packages" in path_str or "lib/python" in path_str
-            or path_str.startswith(sys.prefix)):
-        return _original_open(file, mode, *args, **kwargs)
-    # Check against allowed roots
-    for root in _ALLOWED_ROOTS:
-        try:
-            path.relative_to(root)
-            # Project root is read-only — block writes outside workspace
-            if root == _PROJECT_ROOT and mode not in ("r", "rb"):
-                _ws = Path(r"{workspace_str}").resolve()
-                try:
-                    path.relative_to(_ws)
-                except ValueError:
-                    raise PermissionError(
-                        f"Sandbox: write denied for '{{path}}'. "
-                        f"Writes are only allowed in the workspace directory."
-                    )
-            return _original_open(file, mode, *args, **kwargs)
-        except ValueError:
-            continue
-    raise PermissionError(
-        f"Sandbox: access denied for '{{path}}'. "
-        f"Only workspace and execution directories are allowed."
-    )
-
-builtins.open = _sandboxed_open
+_OSPREY_FS_PERMITTED = _OSPREY_FS_PERMITTED + (
+    str(Path(_tempfile.gettempdir()).resolve()),
+    *(
+        str((Path.home() / _cache_dir).resolve())
+        for _cache_dir in (".matplotlib", ".config", ".cache", ".local")
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # Execution directory setup
@@ -385,8 +376,8 @@ finally:
     except Exception:
         pass
 
-    # Restore open
-    builtins.open = _original_open
+    # Restore every filesystem entry point the guard rebound
+    _restore_patched_targets()
 '''
 
 

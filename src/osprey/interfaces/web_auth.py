@@ -74,6 +74,8 @@ __all__ = [
     "BIND_HOST_ENV",
     "DEFAULT_SESSION_TTL_SECONDS",
     "OPERATOR_SECRET_ENV",
+    "ROSTER_ACCEPT_ENV",
+    "ROSTER_SECRET_ENV_PREFIX",
     "PANEL_REGISTER_ROUTE",
     "PANEL_TIER_ROUTES",
     "PANEL_TOKEN_ENV",
@@ -91,6 +93,28 @@ __all__ = [
 #: ``.env`` supplies it per user and nginx forwards the same value as a header;
 #: in the single-user shape nothing sets it and this module mints one.
 OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"
+
+#: Prefix of the per-user operator secrets a multi-user deployment mints
+#: (``OSPREY_TERMINAL_SECRET_<USER>``). Each per-user container receives its
+#: own under the fixed name above; a shared sidecar that per-user terminals
+#: proxy into — the bluesky-web panel — is handed every entitled user's
+#: variable under its own name — with :data:`ROSTER_ACCEPT_ENV` beside them —
+#: and accepts any of them, so a persona presenting its own secret is let in
+#: without the deployment-wide one ever leaving the deploy ``.env``. The one
+#: definition of the prefix: the mint
+#: (:data:`osprey.deployment.web_terminals.auth_credentials.TERMINAL_SECRET_VAR_PREFIX`)
+#: and nginx's ``NGINX_ENVSUBST_FILTER`` spell it from here.
+ROSTER_SECRET_ENV_PREFIX = f"{OPERATOR_SECRET_ENV}_"
+
+#: The switch that lets a process ACCEPT the roster secrets it finds. Set to
+#: ``"1"`` in exactly one place: the bluesky-web sidecar's compose environment
+#: (``services/bluesky_web/docker-compose.yml``), beside the roster variables
+#: it lists. Every roster variable is popped from the environment wherever it
+#: is found — the deploy ``.env`` carries them all, and ``osprey web`` on the
+#: host loads that file — but only a process whose compose declared this flag
+#: treats them as operators. Without it the host's own terminal, loading the
+#: same ``.env``, would let any roster user in as its operator.
+ROSTER_ACCEPT_ENV = "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS"
 
 #: The panel token's environment carrier.
 PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"
@@ -144,6 +168,13 @@ class WebCredentials:
     operator_secret: str
     panel_token: str
 
+    #: Other secrets that authorise as the operator: the per-user secrets of a
+    #: multi-user roster, handed to a shared sidecar whose environment also
+    #: sets :data:`ROSTER_ACCEPT_ENV` (see :data:`ROSTER_SECRET_ENV_PREFIX`).
+    #: Empty everywhere else — including a process that merely SEES roster
+    #: variables (the host's ``osprey web`` loading the deploy ``.env``).
+    roster_secrets: tuple[str, ...] = ()
+
     #: Live browser sessions, ``{session_id: monotonic deadline}``. Monotonic
     #: rather than wall-clock so a machine that adjusts its clock — an NTP step,
     #: a laptop resuming — cannot retroactively extend or void a session.
@@ -162,8 +193,16 @@ class WebCredentials:
         return f"WebCredentials(sessions={len(self.sessions)})"
 
     def verify_operator(self, candidate: str | None) -> bool:
-        """Whether ``candidate`` is the operator secret, compared in constant time."""
-        return _same_secret(candidate, self.operator_secret)
+        """Whether ``candidate`` is the operator secret — or one of the roster's
+        — each compared in constant time.
+
+        Every accepted secret is compared, never just until the first match,
+        so the answer's timing does not say which one matched.
+        """
+        matched = _same_secret(candidate, self.operator_secret)
+        for secret in self.roster_secrets:
+            matched = _same_secret(candidate, secret) or matched
+        return matched
 
     def verify_panel(self, candidate: str | None) -> bool:
         """Whether ``candidate`` is the panel token, compared in constant time.
@@ -287,6 +326,10 @@ def _populate() -> WebCredentials:
     # be the one path that leaks it.
     operator_secret = os.environ.pop(OPERATOR_SECRET_ENV, "").strip()
     supplied_panel_token = os.environ.pop(PANEL_TOKEN_ENV, "").strip()
+    # Popped unconditionally (they must not reach any child process); kept
+    # only where the compose environment said so — see ROSTER_ACCEPT_ENV.
+    harvested = _pop_roster_secrets()
+    roster_secrets = harvested if _roster_accepted() else ()
 
     if not operator_secret:
         if os.environ.get(BIND_HOST_ENV):
@@ -303,7 +346,30 @@ def _populate() -> WebCredentials:
     return WebCredentials(
         operator_secret=operator_secret,
         panel_token=supplied_panel_token or mint_secret(),
+        roster_secrets=roster_secrets,
     )
+
+
+def _roster_accepted() -> bool:
+    """Whether this process's environment opted in to the roster secrets.
+
+    Popped like the secrets themselves, so the flag is read once at
+    construction and inherited by nothing.
+    """
+    return os.environ.pop(ROSTER_ACCEPT_ENV, "").strip() == "1"
+
+
+def _pop_roster_secrets() -> tuple[str, ...]:
+    """Take every ``OSPREY_TERMINAL_SECRET_<USER>`` out of the environment.
+
+    Popped for the reason the operator secret is: a value left in
+    ``os.environ`` is inherited by every child this process spawns. Blank
+    values (an unset variable compose interpolated as ``${VAR:-}``) count as
+    absent. Sorted by name so the tuple is deterministic.
+    """
+    names = sorted(name for name in os.environ if name.startswith(ROSTER_SECRET_ENV_PREFIX))
+    values = (os.environ.pop(name, "").strip() for name in names)
+    return tuple(value for value in values if value)
 
 
 def get_web_credentials(app: Any = None) -> WebCredentials:
@@ -371,6 +437,8 @@ def close_env_carriers() -> None:
     """
     os.environ.pop(OPERATOR_SECRET_ENV, None)
     os.environ.pop(PANEL_TOKEN_ENV, None)
+    os.environ.pop(ROSTER_ACCEPT_ENV, None)
+    _pop_roster_secrets()
 
 
 def reset_web_credentials() -> None:

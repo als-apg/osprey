@@ -2,7 +2,7 @@
 
 The acceptance pin for the scaffold gallery's module decomposition (the
 scaffold utils/data/view/detail/edit modules plus the slim entry) and the
-config-renderers siblings (settings-editor.js, mcp-renderer.js). Real
+config-renderers sibling (mcp-renderer.js). Real
 behavior crosses module boundaries here (detail.js's shell calling back
 into edit.js/edit-form.js as `gallery.<method>()`, detail-content.js
 dispatching to the sibling settings/mcp renderers) -- this suite is the one
@@ -24,7 +24,7 @@ Covers:
     just a client-side flag flip), and closing then succeeds without a
     dialog at all
   - the settings.json and mcp.json artifacts render through their split
-    renderer modules (settings-editor.js, mcp-renderer.js) in Preview mode
+    renderer modules (config-renderers.js, mcp-renderer.js) in Preview mode
 
 Unlike test_osprey_drawer.py's launcher (an empty `tmp_path` -- fine there,
 since those tests only assert that a `/api/scaffold` request fires), this
@@ -89,7 +89,23 @@ WARNING_PROCEED_SELECTOR = ".settings-warning-proceed"
 # that has no `model` field, so Edit mode falls to the plain-text editor
 # (not the front-matter form) -- the clean preview/edit contrast this suite
 # needs: rendered markdown in Preview, a raw textarea in Edit.
+#
+# It is also RESERVED: `.claude/rules/**` belongs to the build profile, so
+# `list_artifacts` marks it `read_only` and the gallery greys out every
+# control that would attempt a write to it. That makes it the right subject
+# for the read-side pin below and the wrong one for the write-side chain --
+# see OUTPUT_STYLE_CARD_SELECTOR.
 SAFETY_CARD_SELECTOR = '.prompts-card[data-name="rules/safety"]'
+
+# output-styles/control-operator: the one framework artifact a hello-world
+# render leaves WRITABLE (`.claude/output-styles/` is not in the reserved
+# set), and it has the same shape rules/safety used to be picked for --
+# front matter without a `model` field, so Edit is the plain-text textarea.
+# The write-side chain (claim on first edit -> dirty -> guard -> discard)
+# needs an artifact the server will actually let the gallery claim and save;
+# on a reserved one the Edit tab is disabled and the flow never starts.
+OUTPUT_STYLE_CARD_SELECTOR = '.prompts-card[data-name="output-styles/control-operator"]'
+
 SETTINGS_CARD_SELECTOR = '.prompts-card[data-name="settings-json"]'
 MCP_CARD_SELECTOR = '.prompts-card[data-name="mcp-json"]'
 
@@ -168,6 +184,23 @@ def _open_settings_drawer(page: Page) -> None:
     expect(drawer).to_have_css("transform", "matrix(1, 0, 0, 1, 0, 0)", timeout=15_000)
 
 
+def _expand_category(page: Page, category: str) -> None:
+    """Open a collapsed category section so its cards become clickable.
+
+    The gallery seeds every category collapsed except its pinned ones
+    (`project instructions`, `instructions`), so a card outside those is in
+    the DOM but not visible until its header is clicked. rules/safety needed
+    no such step -- `rules` remaps onto the pinned `instructions` -- which is
+    why this helper arrives with the first test that reaches for an artifact
+    somewhere else.
+    """
+    header = page.locator(".prompts-category-header", has_text=category.upper())
+    expect(header).to_be_visible(timeout=15_000)
+    if header.get_attribute("aria-expanded") == "false":
+        header.click()
+    expect(header).to_have_attribute("aria-expanded", "true", timeout=15_000)
+
+
 def _once_dialog(page: Page, *, accept: bool) -> None:
     """Arm a one-shot handler for the next native `confirm()`/`alert()` dialog.
 
@@ -186,7 +219,13 @@ def _once_dialog(page: Page, *, accept: bool) -> None:
 
 
 def test_open_detail_from_gallery_shows_preview(tmp_path, monkeypatch, chromium_browser):
-    """Clicking a card opens its detail view in Preview mode with rendered markdown."""
+    """Clicking a card opens its detail view in Preview mode with rendered markdown.
+
+    rules/safety is reserved, so its header now carries TWO badges: the
+    ownership badge it always had, and the READ-ONLY badge that says this
+    panel will not write the file. Reading is untouched -- which is the point
+    of the pin: hardening the write side must not have cost the read side.
+    """
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
@@ -198,8 +237,13 @@ def test_open_detail_from_gallery_shows_preview(tmp_path, monkeypatch, chromium_
         card.click()
 
         expect(page.locator(".prompts-detail-name")).to_have_text("rules/safety")
-        expect(page.locator(".prompts-detail-header .prompts-badge")).to_have_class(
-            "prompts-badge framework"
+        expect(page.locator(".prompts-detail-header .prompts-badge.framework")).to_have_text(
+            "FRAMEWORK"
+        )
+        # The write gate's verdict, surfaced where it is read rather than only
+        # when a save comes back refused.
+        expect(page.locator(".prompts-detail-header .prompts-badge.read-only")).to_have_text(
+            "READ-ONLY"
         )
         expect(page.locator(".prompts-mode-btn.active")).to_have_text("Preview")
 
@@ -224,14 +268,24 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
     (handleEditFramework's confirm + POST /claim) -- this pins that flow
     end-to-end, not just the dirty-flag bookkeeping scaffold-edit.test.mjs's
     fake-host unit tests already cover.
+
+    Runs on output-styles/control-operator rather than rules/safety: the
+    property under test is the write chain, and `.claude/rules/**` is now
+    reserved, so on that artifact the Edit tab is disabled and there is no
+    chain to drive. The subject changed; every step it pins did not.
     """
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
 
         _open_settings_drawer(page)
-        page.locator(SAFETY_CARD_SELECTOR).click()
+        _expand_category(page, "output-styles")
+        page.locator(OUTPUT_STYLE_CARD_SELECTOR).click()
         expect(page.locator(".osprey-md-rendered")).to_be_visible(timeout=15_000)
+
+        # Writable, so nothing here is greyed out -- the contrast with
+        # test_open_detail_from_gallery_shows_preview's reserved artifact.
+        expect(page.locator(".prompts-detail-header .prompts-badge.read-only")).to_have_count(0)
 
         # Preview -> Edit: still framework-owned, so this claims the file
         # first (a real confirm() dialog + POST /claim), then switches mode.
@@ -244,7 +298,7 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
         textarea = page.locator(".prompts-edit-textarea")
         expect(textarea).to_be_visible(timeout=15_000)
         original_value = textarea.input_value()
-        assert "Tool Confinement" in original_value, (
+        assert "Lead with data" in original_value, (
             "expected the claimed file's original content in the edit textarea"
         )
 
@@ -271,7 +325,7 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
         expect(page.locator(".prompts-discard-btn")).to_have_count(0)
         preview = page.locator(".osprey-md-rendered")
         expect(preview).to_be_visible(timeout=15_000)
-        expect(preview).to_contain_text("Tool Confinement")
+        expect(preview).to_contain_text("Lead with data")
         expect(preview).not_to_contain_text("EDITED-BY-SCAFFOLD-DETAIL-PIN-TEST")
 
         # Clean now -- closing succeeds with no dialog at all (the guard
@@ -282,14 +336,25 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
 
 
 # ---------------------------------------------------------------------------
-# Test 5: settings.json renders through the split settings-editor.js
+# Test 5: settings.json renders through the split read-only settings renderer
 # ---------------------------------------------------------------------------
 
 
-def test_settings_json_renders_through_split_settings_editor(
+def test_settings_json_renders_through_split_settings_renderer(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """settings-json's Preview mode mounts settings-editor.js's interactive editor."""
+    """settings-json's Preview mounts config-renderers.js's read-only structured view.
+
+    `.claude/settings.json` is reserved -- it is rendered from the profile's
+    `config:` keys, and a save aimed at it is refused -- so Preview mounts
+    `renderSettingsJson` and offers no control an operator could type into.
+    Fields whose every save comes back 403 are a worse answer than fields that
+    plainly cannot be typed into.
+
+    The property this pins is unchanged: the settings artifact renders through
+    its split renderer module, permission columns and all, rather than falling
+    back to raw JSON.
+    """
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
@@ -301,9 +366,21 @@ def test_settings_json_renders_through_split_settings_editor(
         expect(card).to_be_visible(timeout=5_000)
         card.click()
 
-        editor = page.locator(".config-structured-view.config-editor")
-        expect(editor).to_be_visible(timeout=5_000)
-        expect(page.locator(".config-edit-input")).to_have_count(1)
+        structured = page.locator(".config-structured-view")
+        expect(structured).to_be_visible(timeout=5_000)
+        # Read-only means read-only: nothing inside the structured view
+        # accepts typing, so no save can be dirtied from this panel.
+        expect(page.locator(".config-structured-view input")).to_have_count(0)
+        expect(page.locator(".config-structured-view select")).to_have_count(0)
+        expect(page.locator(".config-structured-view textarea")).to_have_count(0)
+
+        # ...and the panel says so, rather than leaving the operator to infer
+        # it from an editor that quietly is not one.
+        expect(page.locator(".prompts-detail-header .prompts-badge.read-only")).to_have_text(
+            "READ-ONLY"
+        )
+        expect(page.locator(".prompts-readonly-note")).to_contain_text("build profile")
+        expect(page.locator(".prompts-mode-btn", has_text="Edit")).to_be_disabled()
 
         for level in ("allow", "ask", "deny"):
             col = page.locator(f".config-perm-col.config-perm-{level}")

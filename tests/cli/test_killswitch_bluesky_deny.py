@@ -57,6 +57,16 @@ def _build_ctx(tmp_path, *, writes_enabled: bool, claude_code_overrides: dict | 
     )
 
 
+def _ks_deny(ctx: dict) -> list[str]:
+    """The kill switch's own deny entries.
+
+    They render through the dedicated ``killswitch_deny`` context key rather
+    than ``facility_permissions['deny']``, so that ``remove_deny`` — which a
+    profile authors — can never subtract a writes-off deny.
+    """
+    return ctx["killswitch_deny"]
+
+
 # ---------------------------------------------------------------------------
 # The arming tools (queue_add / queue_start) — hard deny when writes are off
 # ---------------------------------------------------------------------------
@@ -68,9 +78,8 @@ def test_bluesky_arming_tools_denied_when_writes_off(tmp_path):
         writes_enabled=False,
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
-    perms = ctx["facility_permissions"]
     for tool in bsky.ARMING_TOOLS:
-        assert f"mcp__bluesky__{tool}" in perms["deny"], (
+        assert f"mcp__bluesky__{tool}" in _ks_deny(ctx), (
             f"{tool!r} arms hardware motion and must be hard-denied when writes are off"
         )
 
@@ -83,7 +92,7 @@ def test_bluesky_arming_tools_not_denied_when_writes_on(tmp_path):
     )
     perms = ctx["facility_permissions"]
     for tool in bsky.ARMING_TOOLS:
-        assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+        assert f"mcp__bluesky__{tool}" not in _ks_deny(ctx)
         assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
@@ -93,7 +102,7 @@ def test_bluesky_disabled_server_contributes_nothing(tmp_path):
     ctx = _build_ctx(tmp_path, writes_enabled=False)
     perms = ctx["facility_permissions"]
     for tool in bsky.ARMING_TOOLS:
-        assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+        assert f"mcp__bluesky__{tool}" not in _ks_deny(ctx)
         assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
@@ -121,7 +130,7 @@ def test_bluesky_stop_tools_never_denied_or_removed(tmp_path):
         )
         perms = ctx["facility_permissions"]
         for tool in (bsky.QUEUE_STOP, bsky.STOP_RUN):
-            assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+            assert f"mcp__bluesky__{tool}" not in _ks_deny(ctx)
             assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
@@ -138,7 +147,7 @@ def test_bluesky_queue_read_tools_never_denied(tmp_path):
     )
     perms = ctx["facility_permissions"]
     for tool in bsky.QUEUE_READ_TOOLS:
-        assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+        assert f"mcp__bluesky__{tool}" not in _ks_deny(ctx)
         assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
@@ -161,7 +170,7 @@ def test_bluesky_authoring_tools_never_denied_or_removed(tmp_path):
         perms = ctx["facility_permissions"]
         for tool in ("write_plan", "validate_plan"):
             matcher = f"mcp__bluesky__{tool}"
-            assert matcher not in perms.get("deny", [])
+            assert matcher not in _ks_deny(ctx)
             assert matcher not in perms.get("remove_ask", [])
 
 
@@ -172,8 +181,7 @@ def test_bluesky_authoring_tools_never_denied_or_removed(tmp_path):
 
 def test_controls_channel_write_still_denied_when_writes_off(tmp_path):
     ctx = _build_ctx(tmp_path, writes_enabled=False)
-    perms = ctx["facility_permissions"]
-    assert "mcp__controls__channel_write" in perms["deny"]
+    assert "mcp__controls__channel_write" in _ks_deny(ctx)
 
 
 def test_python_execute_still_removed_from_ask_when_writes_off(tmp_path):
@@ -182,7 +190,7 @@ def test_python_execute_still_removed_from_ask_when_writes_off(tmp_path):
     assert "mcp__python__execute" in perms["remove_ask"]
     # Must not ALSO be hard-denied — python's execute has a legitimate
     # read-only path and is handled via remove_ask, not deny.
-    assert "mcp__python__execute" not in perms.get("deny", [])
+    assert "mcp__python__execute" not in _ks_deny(ctx)
 
 
 def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(tmp_path):
@@ -205,13 +213,13 @@ def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(
     assert "mcp__python__execute" not in perms.get("ask", [])
     # … but re-granted via allow so the agent still has it, and never denied.
     assert "mcp__python__execute" in perms.get("allow", [])
-    assert "mcp__python__execute" not in perms.get("deny", [])
+    assert "mcp__python__execute" not in _ks_deny(ctx)
 
 
 def test_nothing_added_when_writes_enabled(tmp_path):
     ctx = _build_ctx(tmp_path, writes_enabled=True)
     perms = ctx["facility_permissions"]
-    assert "mcp__controls__channel_write" not in perms.get("deny", [])
+    assert "mcp__controls__channel_write" not in _ks_deny(ctx)
     assert "mcp__python__execute" not in perms.get("remove_ask", [])
 
 
@@ -226,12 +234,11 @@ def test_extends_clone_of_bluesky_denied_with_rewritten_prefix(tmp_path):
         writes_enabled=False,
         claude_code_overrides={"servers": {"bluesky2": {"extends": "bluesky"}}},
     )
-    perms = ctx["facility_permissions"]
     for tool in bsky.ARMING_TOOLS:
-        assert f"mcp__bluesky2__{tool}" in perms["deny"]
+        assert f"mcp__bluesky2__{tool}" in _ks_deny(ctx)
         # The template name itself must not leak into the clone's deny entry.
-        assert f"mcp__bluesky__{tool}" not in perms["deny"]
+        assert f"mcp__bluesky__{tool}" not in _ks_deny(ctx)
     # The clone's authoring tools (approval-only, no _WRITES_CHECK) are never
     # denied under the rewritten prefix either.
-    assert "mcp__bluesky2__write_plan" not in perms.get("deny", [])
-    assert "mcp__bluesky2__validate_plan" not in perms.get("deny", [])
+    assert "mcp__bluesky2__write_plan" not in _ks_deny(ctx)
+    assert "mcp__bluesky2__validate_plan" not in _ks_deny(ctx)

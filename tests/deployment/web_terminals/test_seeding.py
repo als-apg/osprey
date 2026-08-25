@@ -12,6 +12,7 @@ by these tests.
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 import tarfile
 
@@ -65,6 +66,7 @@ class _ReadySet(set):
         super().__init__()
         self.failing: set[str] = set()
         self.owner: str = "1000:1000"
+        self.runtime_uid: str | None = None
 
 
 _FAKE_STDERR = b"boom: chown: unknown user dispatch"
@@ -87,6 +89,10 @@ def fake_runtime(monkeypatch):
     calls: list[list[str]] = []
     inputs: list[bytes | None] = []
     ready = _ReadySet()
+    # Captured BEFORE the patch below: the owner branch runs the real emitted
+    # script through a real shell when ``ready.runtime_uid`` is set, and
+    # ``subprocess.run`` is by then this very fake.
+    real_run = subprocess.run
 
     def _fake_run(argv, capture_output=True, text=False, env=None, check=False, input=None):
         calls.append(list(argv))
@@ -105,6 +111,23 @@ def fake_runtime(monkeypatch):
                         1, argv, output="", stderr=_FAKE_STDERR.decode()
                     )
                 return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr="")
+            if ready.runtime_uid is not None:
+                # The image declares OSPREY_RUNTIME_UID. Rather than stubbing
+                # what the container "would" answer, run the REAL emitted
+                # script through a real shell with that variable in the env, so
+                # what is under test is the script's own precedence.
+                real = real_run(
+                    ["sh", "-c", argv[-1]],
+                    capture_output=True,
+                    text=True,
+                    env={
+                        "PATH": os.environ.get("PATH", ""),
+                        "OSPREY_RUNTIME_UID": ready.runtime_uid,
+                    },
+                )
+                return subprocess.CompletedProcess(
+                    argv, returncode=real.returncode, stdout=real.stdout, stderr=real.stderr
+                )
             return subprocess.CompletedProcess(
                 argv, returncode=0, stdout=f"{ready.owner}\n", stderr=""
             )
@@ -374,7 +397,7 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
     # $0, $1 (names), $2 (target)
     assert argv[9] == "sh"
     assert argv[10] == "myskill"
-    assert argv[11] == f"/app/{_FACILITY_PREFIX}-assistant/.claude/skills"
+    assert argv[11] == f"/app/{_FACILITY_PREFIX}-assistant/build/.claude/skills"
 
     # C3 guarantee: the three-phase sentinel dance is intact in the emitted script.
     # Phase 1 — drop deploy-managed dirs no longer shipped (gated on the sentinel file).
@@ -388,8 +411,12 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
     # Phase 1 must run before phase 2/3 clears anything currently shipped, and
     # never touches a dir lacking the sentinel (user-installed skills survive).
     assert script.index(".deploy-managed") < script.index('rm -rf -- "$name"')
-    # Ownership handoff to the queried runtime user ($3), never a fixed username.
-    assert 'chown -R "$owner" "$target"' in script
+    # The render zone the target now lives in is root-owned, so the reconcile
+    # chowns to root — never to the container's runtime user, who could
+    # otherwise rewrite the skills the next session loads. The queried owner is
+    # still handed over as $3 (asserted below), for call-shape parity with the
+    # CLAUDE.md seed, which does chown to it.
+    assert 'chown -R 0:0 "$target"' in script
     assert argv[12] == "1000:1000"
 
     idx = calls.index(argv)
@@ -410,7 +437,7 @@ def test_no_catalog_config_targets_hardcoded_default_dir(tmp_path, monkeypatch, 
 
     skills_calls = _skills_calls(calls)
     assert len(skills_calls) == 1
-    assert skills_calls[0][11] == f"/app/{_FACILITY_PREFIX}-assistant/.claude/skills"
+    assert skills_calls[0][11] == f"/app/{_FACILITY_PREFIX}-assistant/build/.claude/skills"
 
 
 def test_non_default_persona_drives_skills_target_from_its_own_project(
@@ -436,7 +463,7 @@ def test_non_default_persona_drives_skills_target_from_its_own_project(
 
     skills_calls = _skills_calls(calls)
     assert len(skills_calls) == 1
-    assert skills_calls[0][11] == "/app/beamline-ops-app/.claude/skills"
+    assert skills_calls[0][11] == "/app/beamline-ops-app/build/.claude/skills"
 
 
 def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch, fake_runtime):
@@ -463,7 +490,7 @@ def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch
 
     skills_calls = _skills_calls(calls)
     assert len(skills_calls) == 1
-    assert skills_calls[0][11] == "/app/ops-app/.claude/skills"
+    assert skills_calls[0][11] == "/app/ops-app/build/.claude/skills"
 
 
 def test_unresolvable_persona_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):
@@ -712,9 +739,10 @@ def test_seed_chowns_to_container_runtime_user(tmp_path, monkeypatch, fake_runti
     """The chown owner is queried per container, not hardcoded to any username.
 
     The persona images create their own runtime user (uid:gid), so the seed
-    scripts must receive the queried ``uid:gid`` as an argument and chown to
-    that — a fixed username like ``dispatch`` breaks on any image that names
-    its user differently.
+    scripts must receive the queried ``uid:gid`` as an argument — a fixed
+    username like ``dispatch`` breaks on any image that names its user
+    differently. The CLAUDE.md seed chowns to it; the skills reconcile, whose
+    target sits in the root-owned render zone, chowns to root instead.
     """
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
@@ -735,7 +763,75 @@ def test_seed_chowns_to_container_runtime_user(tmp_path, monkeypatch, fake_runti
 
     (skills_call,) = _skills_calls(calls)
     assert skills_call[-1] == "1234:5678"
-    assert '"$owner"' in skills_call[8]
+    # Skills land in the root-owned render zone, so this one chowns to root
+    # regardless of the queried owner.
+    assert 'chown -R 0:0 "$target"' in skills_call[8]
+
+
+def _run_owner_query(**env):
+    """Run the REAL emitted owner-query script through a real shell.
+
+    ``seeding._OWNER_QUERY_SH`` is the one piece of this module that is shell,
+    not Python: mocking it away would test a stub. ``env`` replaces the
+    process environment wholesale (``PATH`` is added so ``id`` resolves), which
+    is what lets a test say "this image declares OSPREY_RUNTIME_UID" and
+    "this one does not" without touching a container.
+    """
+    result = subprocess.run(
+        ["sh", "-c", seeding._OWNER_QUERY_SH],
+        capture_output=True,
+        text=True,
+        env={"PATH": os.environ.get("PATH", ""), **env},
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_owner_query_prefers_the_images_declared_runtime_uid():
+    """OSPREY_RUNTIME_UID wins over `id`.
+
+    `id` reports whoever the exec happens to run as, which is not necessarily
+    the user the image declares its processes run as. When the image says so
+    outright, that answer is authoritative.
+    """
+    assert _run_owner_query(OSPREY_RUNTIME_UID="4242:4243") == "4242:4243"
+
+
+def test_owner_query_completes_a_bare_uid_with_the_current_group():
+    """A bare uid is accepted, the group coming from `id -g`."""
+    gid = subprocess.run(["id", "-g"], capture_output=True, text=True, check=True).stdout.strip()
+    assert _run_owner_query(OSPREY_RUNTIME_UID="4242") == f"4242:{gid}"
+
+
+def test_owner_query_falls_back_to_id_when_the_image_declares_nothing():
+    """Images predating OSPREY_RUNTIME_UID keep working off `id -u`/`id -g`."""
+    uid = subprocess.run(["id", "-u"], capture_output=True, text=True, check=True).stdout.strip()
+    gid = subprocess.run(["id", "-g"], capture_output=True, text=True, check=True).stdout.strip()
+    assert _run_owner_query() == f"{uid}:{gid}"
+    # An image that exports it EMPTY must fall back too, not chown to ":gid".
+    assert _run_owner_query(OSPREY_RUNTIME_UID="") == f"{uid}:{gid}"
+
+
+def test_runtime_uid_in_the_container_becomes_the_seed_owner(tmp_path, monkeypatch, fake_runtime):
+    """End to end: the container's OSPREY_RUNTIME_UID is what CLAUDE.md is chowned to.
+
+    The fixture answers the owner query by running the real script with that
+    variable set, so this pins the whole path — emitted script, container env,
+    argument handoff — rather than just the shell snippet.
+    """
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+    ready.owner = "1000:1000"  # what `id` would have said — must NOT win
+    ready.runtime_uid = "7000:7001"
+
+    seeding.seed_user_containers(_config(["alice"]))
+
+    (md_call,) = _claude_md_calls(calls)
+    assert md_call[-2:] == ["sh", "7000:7001"]
+    (skills_call,) = _skills_calls(calls)
+    assert skills_call[-1] == "7000:7001"
 
 
 def test_seed_scripts_never_hardcode_a_username(tmp_path, monkeypatch, fake_runtime):

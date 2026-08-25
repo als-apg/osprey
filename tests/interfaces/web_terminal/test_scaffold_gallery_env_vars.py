@@ -93,14 +93,21 @@ class TestGetContentReadsDisk:
 
     def test_get_content_source_label_reflects_ownership(self, service, project_dir):
         """source is 'framework' for unowned, 'user-owned' for claimed artifacts."""
+        # Not SAFE_ARTIFACT: ``.claude/rules/**`` is in the protected set, so
+        # the gallery refuses to claim it. This preset renders exactly one
+        # artifact the gallery may still take — every rule is reserved by
+        # shape and every framework hook is an ``osprey_*.py`` — and a label
+        # that only changes on a claim needs one that can be claimed.
+        claimable = "output-styles/control-operator"
+
         # Before claiming: framework
-        result_before = service.get_content(SAFE_ARTIFACT)
+        result_before = service.get_content(claimable)
         assert result_before["source"] == "framework"
 
         # Claim it
-        service.scaffold_override(SAFE_ARTIFACT)
+        service.scaffold_override(claimable)
         svc = ScaffoldGalleryService(project_dir)
 
         # After claiming: user-owned
-        result_after = svc.get_content(SAFE_ARTIFACT)
+        result_after = svc.get_content(claimable)
         assert result_after["source"] == "user-owned"

@@ -303,9 +303,36 @@ async def get_panels(request: Request):
     custom_raw = getattr(request.app.state, "custom_panels", [])
     custom = [{**cp, "url": _browser_panel_url(cp)} for cp in custom_raw]
     default = getattr(request.app.state, "default_panel", None)
-    visible = getattr(request.app.state, "visible_panels", enabled)
+    visible = list(getattr(request.app.state, "visible_panels", enabled))
     active = getattr(request.app.state, "active_panel", None)
     labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
+    # Whether the Config panel's SERVER surface is live (web.config_panel.enabled).
+    # `false` means /api/config and /api/claude-setup refuse every verb with 403,
+    # so this payload must not advertise the panel in any form: the client reads
+    # the flag to decide whether to render the Config tab at all, and a tab
+    # rendered against a refusing surface is a dead control, not a gated one.
+    # Default True mirrors app.coerce_config_flag's default for the key — a
+    # literal here for the same routes->app import-cycle reason as ui_mode.
+    config_panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+    # Whether the scaffold gallery's write surface is live
+    # (web.scaffold_gallery.write_enabled). `false` means every write/delete
+    # verb under /api/scaffold answers 403, so the browser must stop painting
+    # the create/claim/save/delete/register controls that reach for them; the
+    # gallery reads this flag to do that (static/js/scaffold/write-gate.js).
+    # Default True mirrors the routes' own getattr default, as above.
+    scaffold_write_enabled = bool(getattr(request.app.state, "scaffold_write_enabled", True))
+    if not config_panel_enabled:
+        # Belt and braces for the id itself. ``config`` is not a built-in panel
+        # (it is a drawer tab, not a dock tile), so nothing puts it in these
+        # lists today — but a config-defined custom panel may claim any id, and
+        # a disabled deployment whose payload still named ``config`` would hand
+        # the client back exactly the entry this key exists to withhold.
+        enabled = [pid for pid in enabled if pid != _CONFIG_PANEL_ID]
+        visible = [pid for pid in visible if pid != _CONFIG_PANEL_ID]
+        custom = [cp for cp in custom if cp.get("id") != _CONFIG_PANEL_ID]
+        labels.pop(_CONFIG_PANEL_ID, None)
+        default = None if default == _CONFIG_PANEL_ID else default
+        active = None if active == _CONFIG_PANEL_ID else active
     allow_runtime = bool(getattr(request.app.state, "allow_runtime_panels", False))
     presets = list(getattr(request.app.state, "panel_presets", []))
     # Echo the resolved UI mode (server-rendered onto <html data-ui-mode>).
@@ -360,6 +387,8 @@ async def get_panels(request: Request):
         "docs_url": docs_url,
         "feedback_github_repo": feedback_github_repo,
         "feedback_email": feedback_email,
+        "config_panel_enabled": config_panel_enabled,
+        "scaffold_write_enabled": scaffold_write_enabled,
     }
 
 
@@ -373,6 +402,12 @@ def _known_panel_ids(request: Request) -> set[str]:
     known |= {p["id"] for p in getattr(request.app.state, "custom_panels", [])}
     return known
 
+
+#: Panel id of the Config surface. It is not a built-in dock panel — the Config
+#: tab is static drawer markup served by ``index.html`` — so this is the id the
+#: payload must never carry while ``web.config_panel.enabled`` is false, whether
+#: it arrives as a built-in, a config-defined custom panel, or a focus target.
+_CONFIG_PANEL_ID = "config"
 
 #: Dock id of the native terminal/chat tile (``PANEL_TERMINAL`` in
 #: ``dock-workspace.js``). It carries no server-side panel state and is never a

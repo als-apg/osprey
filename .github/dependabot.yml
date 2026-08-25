@@ -1,16 +1,29 @@
 # Dependabot configuration for automated dependency updates
 # See https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Update model: lockfile-first. The `uv` ecosystem updates `uv.lock` — the
+# resolution CI actually installs and tests — and leaves the `>=` floors in
+# pyproject.toml alone. Those floors are compatibility promises to operator
+# sites (each carries a comment saying why it sits where it does) and move
+# only by deliberate hand-written commits, never by bot. The `pip` ecosystem
+# we used before did the opposite: it bumped the floors nothing tests and
+# left the lockfile stale.
+#
+# Deliberately absent: a `docker` block. Every FROM tag in docker/ and
+# scripts/va/ is a policy pin (EPICS base release, the supported Python), not
+# staleness — a docker block would propose python:3.13 weekly and we would
+# close it weekly. Base images move by hand, with the support policy.
 
 version: 2
 updates:
-  # Python dependencies
-  - package-ecosystem: "pip"
+  # Python dependencies — uv.lock bumps only, one grouped PR per week.
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     assignees:
       - "thellert"
     labels:
@@ -27,18 +40,35 @@ updates:
       default-days: 7
       include:
         - "*"
-    # Group minor and patch updates together
+    # One PR, one CI run, one review per week — ten parallel single-package
+    # PRs each dragging the full e2e matrix is what this replaces.
     groups:
-      development-dependencies:
+      python-lockfile:
         patterns:
-          - "pytest*"
-          - "ruff"
-          - "mypy"
-          - "pre-commit"
-      sphinx-dependencies:
+          - "*"
+
+  # Dev/CI JS toolchain (tsc + vitest behind the Frontend JS lane).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - "thellert"
+    labels:
+      - "dependencies"
+      - "javascript"
+    # Same one-week quarantine as the Python block.
+    cooldown:
+      default-days: 7
+      include:
+        - "*"
+    groups:
+      js-toolchain:
         patterns:
-          - "sphinx*"
-          - "*sphinx*"
+          - "*"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"

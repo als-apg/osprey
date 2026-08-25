@@ -141,9 +141,10 @@ Working with a Bundle
          facility_knowledge:
            bundle_path: data/facility_knowledge
 
-      Relative paths are resolved against the directory containing ``config.yml``
-      (the project root).  For the ``control-assistant`` preset the example
-      bundle is scaffolded into ``data/facility_knowledge/`` automatically.
+      Relative paths are resolved against the project root — the deployment
+      repo, not the ``build/`` render inside it, which every ``osprey build``
+      re-creates. For the ``control-assistant`` preset the example bundle is
+      scaffolded into ``data/facility_knowledge/`` automatically.
 
       .. _shared-bundle-multi-user:
 
@@ -220,9 +221,10 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides five operations from the
+      The ``osprey knowledge`` command group provides six operations from the
       terminal — three that manage an OKF bundle, one that loads the deployed
-      graph store, and one that generates the corpus it loads.
+      graph store, one that generates the corpus it loads, and one that compiles
+      the ontology table that generation reads.
 
       .. code-block:: console
 
@@ -231,12 +233,16 @@ Working with a Bundle
 
            Manage OKF facility knowledge bundles.
 
+         Options:
+           --help  Show this message and exit.
+
          Commands:
-           build-ttl      Derive a NARAD-convention TTL corpus from the channel...
-           regen-index    Regenerate index.md files throughout an OKF bundle.
-           seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.
-           seed-graph     Load a NARAD/als-ontology TTL into the deployed graph...
-           validate       Validate all OKF documents in a bundle.
+           build-ttl         Derive a NARAD-convention TTL corpus from the channel...
+           compile-ontology  Compile an authored LinkML schema into the ontology...
+           regen-index       Regenerate index.md files throughout an OKF bundle.
+           seed-from-ttl     Seed OKF stub documents from a NARAD/als-ontology TTL...
+           seed-graph        Load a NARAD/als-ontology TTL into the deployed graph...
+           validate          Validate all OKF documents in a bundle.
 
       **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
       this after adding or removing concept documents:
@@ -337,9 +343,25 @@ Working with a Bundle
       rendered project names both, because it ships only the paradigm it runs.
       The limits file comes from ``config.yml`` and the ontology table from
       OSPREY's shipped default, and every run reports which source decided each
-      signal's read/write direction. See
+      signal's read/write direction. That shipped table is compiled by
+      ``osprey knowledge compile-ontology`` from ``demo_ontology.yaml``, a LinkML
+      schema; a facility that authors its own vocabulary compiles it the same way
+      and passes the result with ``--ontology``. See
       :doc:`use-facility-graph` for the inputs, the shipped corpora, and what
       the agent then does with the graph.
+
+      **compile-ontology** — turns the LinkML schema where a facility authors its
+      device vocabulary into the ontology table ``build-ttl`` reads. Requires the
+      ``knowledge`` extra:
+
+      .. code-block:: console
+
+         $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json
+
+      The output is deterministic, so a committed table can be reviewed like any
+      other file, and ``--check`` re-compiles without writing anything and fails
+      when the committed table has drifted from its schema — the form for CI and
+      pre-commit hooks. :doc:`use-facility-graph` has the schema format.
 
 
 Searching the Bundle

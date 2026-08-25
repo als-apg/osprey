@@ -41,7 +41,7 @@ import shlex
 import shutil
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 from uuid import uuid4
@@ -628,20 +628,6 @@ _HOST_NETWORK = "host"
 #: recognize it by.
 _DISPATCH_PAIR_ADDRESS_VARS = ("DISPATCHER_URL", "WORKER_URL")
 
-#: The variable a host-mode service is rendered with to name the telemetry
-#: store, read by :mod:`osprey.build.claude_code_telemetry`. It carries a HOST
-#: and nothing else — see :data:`_OPENOBSERVE_ENDPOINT_PORT`.
-_OTEL_OPENOBSERVE_HOST_VAR = "OSPREY_OTEL_OPENOBSERVE_HOST"
-
-#: The port the OTLP endpoint derived from ``backend: openobserve`` is pinned
-#: at (``osprey/build/claude_code_telemetry.py``'s
-#: ``http://{host}:5080/api/{org}``). The pin is invisible under bridge
-#: networking, where the store is reached by its compose DNS name on the port it
-#: LISTENS on; under host networking the address is the port it PUBLISHES, which
-#: a project is free to move. The test suite binds this constant to the endpoint
-#: the resolver actually derives, so the two cannot drift apart.
-_OPENOBSERVE_ENDPOINT_PORT = 5080
-
 
 class _RenderedService(NamedTuple):
     """One container stanza as this build rendered it.
@@ -996,68 +982,6 @@ def _cross_network_errors(
     return errors
 
 
-def _openobserve_endpoint_errors(
-    config: dict[str, Any], indexed: Sequence[_RenderedService]
-) -> list[str]:
-    """A host-mode telemetry exporter aimed at a port the store does not publish.
-
-    ``OSPREY_OTEL_OPENOBSERVE_HOST`` carries a host and no port, and the
-    endpoint derived from it pins :data:`_OPENOBSERVE_ENDPOINT_PORT`. On the
-    bridge that is the port the store LISTENS on, which no project changes;
-    on the host namespace it is the port the store PUBLISHES, which
-    ``services.openobserve.port`` moves freely. The two disagreeing costs
-    nothing at boot and drops every metric and log afterwards.
-
-    Fails the build only when the derivation is live — telemetry enabled, the
-    openobserve backend, no explicit endpoint. Otherwise the variable is inert
-    and refusing to build would be an error about nothing; that case gets a
-    warning, because enabling telemetry later would break it silently.
-    """
-    published = _mapping(_mapping(config.get("services")).get("openobserve")).get("port")
-    if published is None or str(published) == str(_OPENOBSERVE_ENDPOINT_PORT):
-        return []
-
-    exporters = [
-        service
-        for service in indexed
-        if service.on_host and _OTEL_OPENOBSERVE_HOST_VAR in service.environment
-    ]
-    if not exporters:
-        return []
-
-    named = ", ".join(sorted({_service_label(service) for service in exporters}))
-    telemetry = _mapping(_mapping(config.get("claude_code")).get("telemetry"))
-    derived = (
-        bool(telemetry.get("enabled"))
-        and telemetry.get("backend") == "openobserve"
-        and not telemetry.get("endpoint")
-    )
-    org = _mapping(telemetry.get("openobserve")).get("org", "default")
-    if not derived:
-        logger.warning(
-            "  services.openobserve.port publishes the store on %s, while %s runs on the "
-            "host network and derives the telemetry endpoint's port from a pinned %s. "
-            "Nothing is broken today, since claude_code.telemetry is not deriving an "
-            "endpoint. Enabling it with backend: openobserve will need "
-            "claude_code.telemetry.endpoint set explicitly.",
-            published,
-            named,
-            _OPENOBSERVE_ENDPOINT_PORT,
-        )
-        return []
-
-    return [
-        f"{named} runs on the host network and reaches the telemetry store over the host's "
-        f"own loopback ({_OTEL_OPENOBSERVE_HOST_VAR}), but claude_code.telemetry derives its "
-        f"OTLP endpoint from backend: openobserve with the store's port pinned at "
-        f"{_OPENOBSERVE_ENDPOINT_PORT}, while services.openobserve.port publishes it on "
-        f"{published}. The exporter would post to "
-        f"http://localhost:{_OPENOBSERVE_ENDPOINT_PORT}/api/{org}, where nothing is "
-        f"listening. Set `claude_code.telemetry.endpoint: http://localhost:{published}"
-        f"/api/{org}` — the variable carries a host only, so it has no port half to correct."
-    ]
-
-
 def _network_check_errors(config: dict[str, Any], compose_files: Sequence[str]) -> list[str]:
     """Everything wrong with the network axis of the render that just happened.
 
@@ -1071,7 +995,6 @@ def _network_check_errors(config: dict[str, Any], compose_files: Sequence[str]) 
         *_inert_axis_errors(config, indexed),
         *parity_errors,
         *_cross_network_errors(indexed, dispatch_consumers),
-        *_openobserve_endpoint_errors(config, indexed),
     ]
 
 
@@ -1268,6 +1191,71 @@ class _SharedRenderInputs(NamedTuple):
     See :data:`_CONTAINER_INTERPRETER`.
     """
 
+    host_config: Mapping[str, Any] | None = None
+    """The deployment's own rendered ``config.yml``, once it has been rendered.
+
+    What every attached render in this repo is told about the services the
+    deployment runs (:func:`osprey.deployment.reach.project_attached_overrides`):
+    the ports it publishes, the panel URLs its injectors derived. ``None``
+    until the deployment's render is done — it is the first render of every
+    build — and ``None`` throughout a build whose profile is itself attached,
+    which has no host in this repo and is told the app template's defaults
+    instead (:func:`_template_host_config`).
+    """
+
+
+def _rendered_config(render_dir: Path) -> dict[str, Any]:
+    """The ``config.yml`` a render wrote, as a plain mapping."""
+    import yaml
+
+    with (render_dir / "config.yml").open("r", encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def _template_host_config(
+    shared: _SharedRenderInputs,
+    build_profile: Any,
+    *,
+    project_name: str,
+    render_dir: Path,
+    profile_dir: Path,
+    context: Mapping[str, Any],
+    artifacts: dict[str, list[str]] | None,
+) -> dict[str, Any]:
+    """What the app template deploys at its defaults — the host an attached
+    profile built with no deployment in its repo is told about.
+
+    The template rendered AS a deployment (``deploy_services: true``) with
+    this render's own context, the profile's ``config:`` laid over it (the
+    same overlay the render itself gets, because a host that differs from
+    the template's defaults is named there), and then the service injectors
+    run over it exactly as for a deploying profile: an attached profile
+    inherits the blocks they read (``dispatch:``, ``bluesky_web:``, …) from
+    the deployment profile it extends, and what they derive — the EVENTS and
+    BLUESKY tab entries above all — is what a persona beside a real host is
+    told from that host's render. Rendered into a scratch directory the build
+    zone never sees — it is a reading, not a render.
+    """
+    import tempfile
+    from dataclasses import replace
+
+    with tempfile.TemporaryDirectory() as scratch:
+        scratch_dir = Path(scratch)
+        shared.manager.render_config(
+            project_name,
+            render_dir,
+            scratch_dir / "config.yml",
+            data_bundle=build_profile.data_bundle,
+            context={**context, "deploy_services": True},
+            artifacts=artifacts,
+        )
+        if build_profile.config:
+            _apply_config_overrides(scratch_dir, build_profile.config)
+        # A view of the profile as the deployment it extends: the injectors
+        # skip an attached profile wholesale, and this reading is of the host.
+        _inject_services(replace(build_profile, deploy_services=True), profile_dir, scratch_dir)
+        return _rendered_config(scratch_dir)
+
 
 def _render_project(
     shared: _SharedRenderInputs,
@@ -1336,6 +1324,7 @@ def _render_project(
     """
     from osprey.build.build_tiers import tier_mode_conflict
     from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.deployment.reach import reach_errors
     from osprey.services.virtual_accelerator.manifest.build import (
         prepare_project_manifest,
         write_project_manifest,
@@ -1343,6 +1332,12 @@ def _render_project(
 
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
+    from .build_profile_reach import (
+        attached_render_overrides,
+        orphan_panel_fragments,
+        reach_override_errors,
+        selected_panel_errors,
+    )
     from .validate_claude_artifacts import validate_agent_tools_against_permissions
 
     build_profile = resolved.profile
@@ -1426,9 +1421,90 @@ def _render_project(
             for key, value in entries.items():
                 progress("      %s: %s (from the profile's %s block)", key, value, block)
 
+    # What an attached render is told about the services its host deploys —
+    # the ports it publishes, the panel URLs its injectors derived — copied
+    # from the deployment's own render (the Reach Contract,
+    # osprey.deployment.reach). After the profile's overlay, because the
+    # projection is gated on what THIS render switches on; before the
+    # service injection and the Claude Code re-render, because a projected
+    # block is what makes a server render at all (`graphdb_configured`).
+    # A deploying project projects nothing: its injectors write the blocks.
+    if not build_profile.deploy_services:
+        if shared.host_config is not None:
+            host_config, told_by = shared.host_config, "the hosting deployment's render"
+        else:
+            # Built alone, with no deployment in this repo: the profile extends
+            # a deployment of the same app template, so that template rendered
+            # AS a deployment is what the host says at the shipped defaults —
+            # and the profile's own `config:` is where a host that differs is
+            # named, so it is laid over those defaults first.
+            host_config = _template_host_config(
+                shared,
+                build_profile,
+                project_name=project_name,
+                render_dir=render_dir,
+                profile_dir=repo_root,
+                context=context,
+                artifacts=artifacts or None,
+            )
+            told_by = "the app template's defaults"
+        projected = attached_render_overrides(
+            host_config,
+            _rendered_config(render_dir),
+            selected_panels=build_profile.web_panels or (),
+        )
+        # A `config:` spelling that contradicts the projection is refused;
+        # one that agrees (inherited from the hosting profile, or laid over
+        # the template's defaults when built alone) is the same fact.
+        duplicate_errors = reach_override_errors(build_profile.config, projected)
+        if duplicate_errors:
+            raise BuildProfileError(
+                "Profile validation failed:\n  " + "\n  ".join(duplicate_errors)
+            )
+        if projected:
+            _apply_config_overrides(render_dir, projected)
+            progress(
+                "  ✓ Told this attached render %d fact(s) about the host's services", len(projected)
+            )
+            for key, value in projected.items():
+                progress("      %s: %s (from %s)", key, value, told_by)
+        # The reverse: a tab this profile does NOT select, inherited from the
+        # hosting profile's `config:` as a url-less fragment (a pinned route),
+        # would render as an empty-url panel. Dropped — the selection is what
+        # puts a projected tab in an attached render.
+        from osprey.utils.config_writer import config_delete_field
+
+        for key in orphan_panel_fragments(
+            build_profile.web_panels or (), _rendered_config(render_dir)
+        ):
+            config_delete_field(render_dir / "config.yml", key)
+            progress(
+                "  ✓ Dropped %s: a tab this profile does not select, inherited with no url", key
+            )
+        # A tab this profile selects (`web_panels:`) that the projection gave
+        # no address — the host it was told about runs no such sidecar — would
+        # otherwise vanish from the render without a word.
+        tabless = selected_panel_errors(
+            build_profile.web_panels or (), _rendered_config(render_dir), told_by=told_by
+        )
+        if tabless:
+            raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
+
     injected = _inject_services(build_profile, repo_root, render_dir)
     if injected_out is not None:
         injected_out.extend(injected)
+
+    # The ground truth every client loads is the rendered config, so this is
+    # where a consumer switched on with nothing to dial is refused — for a
+    # deployment that dropped a block its modules still use, and for an
+    # attached render that was told nothing (a host, or an app template, that
+    # deploys no such service) alike. AFTER the injectors: a deploying profile
+    # that pins only `web.panels.events.path` has its `url` written by the
+    # dispatch injector, and refusing before that would name a key the build
+    # was about to write.
+    unreachable = reach_errors(_rendered_config(render_dir))
+    if unreachable:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unreachable))
 
     applied = _apply_conventions(
         repo_root,
@@ -2242,7 +2318,7 @@ def _build_repo(
     from osprey.deployment.errors import CapturedProcessError
 
     from .build_profile import resolve_build_document
-    from .build_profile_deploy import deploy_aware_config_errors
+    from .build_profile_deploy import deploy_aware_config_errors, deploy_aware_config_warnings
     from .phase_reporter import current_reporter
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
@@ -2290,9 +2366,19 @@ def _build_repo(
         # The profile's own checks first, then the ones that need the config
         # this build is about to render (the `config:` block plus what the
         # `deploy:` block contributes to it).
-        web_errors = deploy_aware_config_errors(build_profile.deploy, build_profile.config)
+        # `repo_root`, not the working directory: a catalog entry's
+        # `build_profile: personas/<name>.yml` is named relative to the profile.
+        # Without it, `osprey build` from a subdirectory or through `--repo`
+        # read no persona delta at all and passed a roster the gate exists to
+        # refuse.
+        web_errors = deploy_aware_config_errors(
+            build_profile.deploy, build_profile.config, profile_root=repo_root
+        )
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
+        web_warnings = deploy_aware_config_warnings(
+            build_profile.deploy, build_profile.config, profile_root=repo_root
+        )
         if not build_profile.provider:
             raise click.UsageError(
                 f"{PROFILE_FILENAME} names no provider. Add `provider: "
@@ -2322,6 +2408,14 @@ def _build_repo(
                 f"host variant {variant.name} "
                 f"({VARIANT_DIRNAME}/{variant.name}.yml over {PROFILE_FILENAME})"
             )
+
+        # Advisory lint findings — real exposures that are deliberately not
+        # build-failing (a privileged terminal in front of `auth.method: none`
+        # is the shipped loopback posture, not a mistake). Printed here, beside
+        # the profile identity, because a finding nobody prints is a finding
+        # nobody has: every surface that gates on the errors discards these.
+        for web_warning in web_warnings:
+            output.note(f"⚠ {web_warning}")
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the
@@ -2377,7 +2471,7 @@ def _build_repo(
             # Only this pass records what it injected: all six inject the same
             # set, and the operator wants the components named once.
             injected: list[str] = []
-            _render_project(
+            host_render = _render_project(
                 shared,
                 resolved,
                 profile_path=profile_path,
@@ -2390,6 +2484,12 @@ def _build_repo(
                 progress=logger.debug,
                 injected_out=injected,
             )
+            # Every render after this one — each persona's, and each image
+            # copy's — is told about the deployment's services from the render
+            # just written (see _SharedRenderInputs.host_config). A profile
+            # that is itself attached hosts nothing and projects nothing.
+            if build_profile.deploy_services:
+                shared = shared._replace(host_config=_rendered_config(host_render))
             phase.step("project files, agent artifacts and services")
             if injected:
                 phase.step(f"services injected: {', '.join(injected)}")
@@ -2556,6 +2656,58 @@ def _collect_profile_artifacts(
     return artifacts
 
 
+def _profile_setup_patch_capable(build_profile: Any) -> bool:
+    """Whether *build_profile*'s render leaves the setup capability in place.
+
+    :func:`~osprey.cli.profile_conventions.is_setup_patch_capable` answers this
+    for a rendered persona config; this reaches the same answer one step
+    earlier, from the ``config:`` overrides that config is about to be written
+    from. The composition — deny minus ``remove_deny``, because a persona tier
+    that lifts an inherited deny is capable — is NOT repeated here: the
+    overrides are assembled into the ``config.yml``-shaped document the
+    predicate reads and it does the subtraction, so there is one composition
+    for both callers to be wrong or right together.
+
+    The SPELLING is not owned here either, and deliberately no longer is.
+    ``claude_code.permissions.deny`` can be written as one dotted key, as a
+    ``claude_code.permissions:`` mapping holding ``deny``, or as a fully nested
+    ``claude_code:`` block, and all three reach the same leaf in the rendered
+    ``config.yml`` — ``config_update_fields`` takes any of them. This function
+    used to read the first and the third; the middle one renders and was read as
+    nothing, so a profile that denied the setup tool through
+    ``claude_code.permissions: {deny: [...]}`` was reported capable and the
+    Dockerfile chowned ``build/config.yml`` to a persona whose ``settings.json``
+    denies the tool. Rather than adding the third reader,
+    :func:`~osprey.deployment.web_terminals.personas.persona_capability_document`
+    — the guard belt's reader, which already tries every split point — assembles
+    the document, so exactly one spelling reader exists in the codebase and the
+    container's verdict cannot disagree with the guard's about what a profile
+    says.
+
+    Reading every spelling and unioning them is exact rather than merely broad
+    because a profile cannot carry two of them at once:
+    :func:`~osprey.cli.build_profile_load._reject_mixed_claude_code_spellings`
+    refuses a ``config:`` block that spells any ``claude_code`` path two ways,
+    since ``config_update_fields`` would silently apply one and discard the
+    other. Absent that refusal the union would be wrong in the direction that
+    matters: ``remove_deny`` GRANTS the capability, so unioning a dotted lift
+    with a nested deny would report ``True`` for a render whose
+    ``settings.json`` denies the tool.
+
+    Args:
+        build_profile: The resolved profile for the render being built.
+
+    Returns:
+        ``True`` when nothing the profile denies takes the setup tool away.
+    """
+    from osprey.deployment.web_terminals.personas import persona_capability_document
+
+    from .profile_conventions import is_setup_patch_capable
+
+    overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
+    return is_setup_patch_capable(persona_capability_document(overrides))
+
+
 def _repo_render_context(
     build_profile: Any,
     *,
@@ -2594,6 +2746,14 @@ def _repo_render_context(
         "project_root": str(runtime_root or repo_root),
         "dependencies": project_deps,
         "pip_dependency_args": " ".join(shlex.quote(d) for d in project_deps),
+        # Gates the ONE line of Dockerfile.j2 that hands `build/config.yml` to
+        # the agent's user: a persona that can still reach the setup tool needs
+        # the file that tool edits to be writable, and every other tier must
+        # leave it root-owned. Composed here the way settings.json renders it —
+        # the profile's own deny minus its `remove_deny`, which is how a tier
+        # lifts the base floor — because the rendered config those keys land in
+        # does not exist yet when this context is built.
+        "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
     }
     if build_profile.provider:
         context["default_provider"] = build_profile.provider

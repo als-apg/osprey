@@ -435,7 +435,11 @@ export function initScaffoldGallery() {
   const configGallerySection = document.getElementById('config-gallery-section');
   const configFormSection = document.getElementById('config-form-section');
 
-  if (!behaviorPanel || !safetyPanel || !configGallerySection) return;
+  // The Config tab is server-gated (web.config_panel.enabled -> config-tab.js
+  // removes the tab and its panel at boot), so its sections are OPTIONAL here:
+  // requiring them would take the Behavior and Safety galleries down with a
+  // deployment that only withdrew Config.
+  if (!behaviorPanel || !safetyPanel) return;
 
   // Section container, so the tab panel can also hold the static subtitle that
   // index.html renders above it (the gallery clears its own container on
@@ -459,23 +463,25 @@ export function initScaffoldGallery() {
     categoryFilter: (a) => SAFETY_CATEGORIES.has(a.category),
   });
 
-  const configGallery = new ArtifactGallery({
-    container: configGallerySection,
-    categoryFilter: (a) => CONFIG_NAMES.has(a.name),
-    options: {
-      showSearch: false,
-      showSummary: false,
-      showFilterChips: false,
-      onDetailOpen: () => {
-        if (configFormSection) configFormSection.style.display = 'none';
-        configGallerySection.style.flex = '1';
+  const configGallery = configGallerySection
+    ? new ArtifactGallery({
+      container: configGallerySection,
+      categoryFilter: (a) => CONFIG_NAMES.has(a.name),
+      options: {
+        showSearch: false,
+        showSummary: false,
+        showFilterChips: false,
+        onDetailOpen: () => {
+          if (configFormSection) configFormSection.style.display = 'none';
+          configGallerySection.style.flex = '1';
+        },
+        onDetailClose: () => {
+          if (configFormSection) configFormSection.style.display = '';
+          configGallerySection.style.flex = '';
+        },
       },
-      onDetailClose: () => {
-        if (configFormSection) configFormSection.style.display = '';
-        configGallerySection.style.flex = '';
-      },
-    },
-  });
+    })
+    : null;
 
   // Load galleries when their tab becomes active
   behaviorPanel.addEventListener('drawer:tab-activate', () => {
@@ -488,7 +494,7 @@ export function initScaffoldGallery() {
 
   // Config tab activates both the config gallery and settings panel
   const configPanel = document.getElementById('tab-config');
-  if (configPanel) {
+  if (configPanel && configGallery) {
     configPanel.addEventListener('drawer:tab-activate', () => {
       if (!configGallery.loaded) configGallery.load();
     });
@@ -498,13 +504,14 @@ export function initScaffoldGallery() {
   drawer.addEventListener('drawer:close', () => {
     behaviorGallery.reset();
     safetyGallery.reset();
-    configGallery.reset();
+    configGallery?.reset();
     resetFetchCache();
   });
 
   // Composite unsaved-changes guard
   drawer.registerUnsavedGuard(() => {
-    const dirty = behaviorGallery.editDirty || safetyGallery.editDirty || configGallery.editDirty;
+    const dirty =
+      behaviorGallery.editDirty || safetyGallery.editDirty || !!configGallery?.editDirty;
     if (!dirty) return true;
     return confirm('You have unsaved changes. Discard them?');
   });

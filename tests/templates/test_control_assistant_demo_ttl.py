@@ -26,11 +26,14 @@ handling that would uppercase it to `HASBINDING`, and the example queries the
 agent is given all spell the camelCase form. A corpus carrying uppercase names
 would import into a graph where every shipped query returns nothing.
 
-Finally, ariel_standalone is asserted to still name `als_gtb.ttl`: the two
-presets deliberately seed different corpora, and the repoint of one must not
-quietly become a repoint of both.
+Finally, ariel_standalone is asserted to seed the same corpus from its own
+`data/` tree, byte for byte: the two presets ship two copies of one generated
+file, and a regeneration that reaches only one of them would leave the two
+demos describing different machines.
 """
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -43,11 +46,27 @@ from osprey.cli.templates.manager import TemplateManager
 #: states the expected value instead of agreeing with whatever is configured.
 EXPECTED_TTL_PATH = "./data/demo_machine.ttl"
 
+#: The control-assistant preset's data tree — the corpus and every input it is
+#: generated from ship side by side in here.
+DEMO_DATA = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
+
 #: The corpus as it ships in the preset's data tree.
-TEMPLATE_TTL = (
+TEMPLATE_TTL = DEMO_DATA / "demo_machine.ttl"
+
+#: The second committed copy of that one generated file, in ariel_standalone's
+#: own data tree.
+ARIEL_STANDALONE_TTL = (
     Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/demo_machine.ttl"
+    / "src/osprey/templates/apps/ariel_standalone/data/demo_machine.ttl"
 )
+
+#: The three inputs ``osprey knowledge build-ttl`` reads: the tier-3 tree that
+#: supplies the addresses and the per-level prose, the in-context database that
+#: supplies each channel's own sentence, and the limits file that decides which
+#: bindings are written.
+CHANNEL_DB_PATH = DEMO_DATA / "channel_databases/tiers/tier3/hierarchical.json"
+DESCRIPTIONS_PATH = DEMO_DATA / "channel_databases/tiers/tier3/in_context.json"
+LIMITS_PATH = DEMO_DATA / "channel_limits.json"
 
 #: NARAD property namespace — the one the emitter binds as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
@@ -156,9 +175,13 @@ def test_configured_corpus_is_on_disk_in_a_rendered_project(
     assert resolved.read_bytes() == TEMPLATE_TTL.read_bytes()
 
 
-def test_ariel_standalone_still_seeds_the_als_corpus(tmp_path: Path) -> None:
+def test_ariel_standalone_seeds_the_same_demo_corpus(tmp_path: Path) -> None:
     project = _render_project("demo-ttl-ariel", "ariel_standalone", tmp_path)
-    assert _graphdb_block(project)["ttl_path"].endswith("als_gtb.ttl")
+    assert _graphdb_block(project)["ttl_path"] == EXPECTED_TTL_PATH
+    assert (project / "data" / "demo_machine.ttl").read_bytes() == TEMPLATE_TTL.read_bytes(), (
+        "ariel_standalone ships its own copy of the demo corpus; it has drifted "
+        "from the control-assistant copy, so the two demos describe different machines"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -259,3 +282,126 @@ def test_no_uppercase_n10s_names() -> None:
     text = TEMPLATE_TTL.read_text(encoding="utf-8")
     for name in UPPERCASE_N10S_NAMES:
         assert name not in text
+
+
+# ---------------------------------------------------------------------------
+# The committed corpus is byte-for-byte what regenerating it produces
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def control_assistant_ttl() -> Path:
+    """The corpus as the control-assistant preset ships it."""
+    return TEMPLATE_TTL
+
+
+@pytest.fixture(scope="module")
+def ariel_standalone_ttl() -> Path:
+    """The same generated file, as ariel_standalone ships it."""
+    return ARIEL_STANDALONE_TTL
+
+
+@pytest.fixture(scope="module")
+def regenerated_ttl_text() -> str:
+    """Rebuild the corpus from the three inputs committed beside it.
+
+    This is the chain ``osprey knowledge build-ttl`` runs: expand the tier-3
+    tree through the channel finder's own loader, read both prose sources
+    through the verb's own helpers, derive the device and signal layers, resolve
+    directions from the limits file, then serialize against the demo ontology.
+
+    ``tests/services/facility_knowledge/test_demo_ttl_consistency.py`` builds
+    the same model for its semantic comparison. The inputs are spelled out again
+    here rather than imported from it: a test module is not an API, and a
+    cross-import would make one suite fail for the other's reasons.
+    """
+    from osprey.cli.knowledge_cmd import (
+        _load_binding_descriptions,
+        _resolve_hierarchy_descriptions,
+    )
+    from osprey.services.channel_finder.databases.hierarchical import (
+        HierarchicalChannelDatabase,
+    )
+    from osprey.services.facility_knowledge.ttl_generator import (
+        direction,
+        emitter,
+        model,
+        ontology_map,
+    )
+
+    raw = json.loads(CHANNEL_DB_PATH.read_text(encoding="utf-8"))
+    built = model.build_model(
+        HierarchicalChannelDatabase(str(CHANNEL_DB_PATH)).channel_map,
+        hierarchy_descriptions=_resolve_hierarchy_descriptions(raw, CHANNEL_DB_PATH),
+        binding_descriptions=dict(_load_binding_descriptions(DESCRIPTIONS_PATH)),
+    )
+    directed, _ = direction.resolve_and_assign(built, LIMITS_PATH)
+    return emitter.serialize_turtle(directed, ontology_map.load_demo_ontology())
+
+
+def _first_difference(left: bytes, right: bytes) -> str:
+    """Locate the first differing byte and name the line it falls on.
+
+    A 2.7 MB corpus reported as "bytes differ" is not actionable; the line
+    number and the two spellings of it are what say whether the drift is a
+    reordering, a changed literal, or the serializer emitting different
+    whitespace.
+    """
+    limit = min(len(left), len(right))
+    offset = next((i for i in range(limit) if left[i] != right[i]), limit)
+    if offset == limit and len(left) == len(right):
+        return "identical"
+    line = left[:offset].count(b"\n") + 1
+
+    def spelling(data: bytes) -> str:
+        lines = data.split(b"\n")
+        text = lines[line - 1].decode("utf-8", "replace") if line <= len(lines) else "<past EOF>"
+        return text if len(text) <= 200 else text[:200] + "…"
+
+    return (
+        f"first difference at byte {offset}, line {line}\n"
+        f"  regenerated: {spelling(left)}\n"
+        f"  committed:   {spelling(right)}"
+    )
+
+
+def test_regenerated_corpus_is_byte_identical_to_both_committed_copies(
+    regenerated_ttl_text: str,
+    control_assistant_ttl: Path,
+    ariel_standalone_ttl: Path,
+) -> None:
+    """Regenerating the corpus reproduces both committed copies byte for byte.
+
+    The sibling guard in ``tests/services/facility_knowledge`` compares the
+    regeneration to the committed file *semantically*, which is the right test
+    of whether the corpus still means what its inputs say. It is not enough for
+    the deploy, though: the seed marker is a sha256 over the TTL text (see
+    ``osprey.services.facility_knowledge.seeder.graph_seeder.ttl_sha256``), so
+    two files with identical triples and different whitespace are two different
+    corpora as far as seeding is concerned. A store already holding the corpus
+    would be re-seeded, and a store holding the *other* spelling would be
+    reported as current.
+
+    Byte equality is therefore a real property of this pipeline and not an
+    incidental one — the emitter's output is deterministic today — so it is
+    asserted here, where the deploy-facing guards live, rather than left to the
+    consistency suite.
+    """
+    regenerated = regenerated_ttl_text.encode("utf-8")
+    committed = control_assistant_ttl.read_bytes()
+
+    assert committed == ariel_standalone_ttl.read_bytes(), (
+        "The two committed copies of the demo corpus differ, so at most one of "
+        "them can match a regeneration; regenerate and copy to both data trees."
+    )
+
+    assert regenerated == committed == ariel_standalone_ttl.read_bytes(), (
+        "The committed corpus is not byte-identical to regenerating it from "
+        "today's inputs, so the deploy's sha256 seed marker names a corpus "
+        "nobody can reproduce. Re-run `osprey knowledge build-ttl` and commit "
+        "the result to both preset data trees.\n"
+        f"regenerated sha256 {hashlib.sha256(regenerated).hexdigest()} "
+        f"({len(regenerated)} bytes)\n"
+        f"committed   sha256 {hashlib.sha256(committed).hexdigest()} "
+        f"({len(committed)} bytes)\n" + _first_difference(regenerated, committed)
+    )

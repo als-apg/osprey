@@ -2,10 +2,10 @@
 /**
  * OSPREY Web Terminal — Scaffold Gallery: edit-view forms
  *
- * The Edit mode's content renderers: the settings.json structured editor
- * hookup, the front-matter form (name/description/model/maxTurns/
- * disallowedTools fields plus an instructions textarea, for agent-shaped
- * artifacts), and the plain-text fallback textarea for everything else.
+ * The Edit mode's content renderers: the front-matter form
+ * (name/description/model/maxTurns/disallowedTools fields plus an
+ * instructions textarea, for agent-shaped artifacts), and the plain-text
+ * fallback textarea for everything else.
  * The "edit forms" half of the edit workflow; the write-side actions
  * (ownership take/release, discard/save, reset-to-framework,
  * reload+reopen, close-detail) live in scaffold/edit.js. Mirrors the
@@ -20,17 +20,13 @@
  */
 
 import { fetchJSON } from '../api.js';
-import { renderSettingsJsonEditor } from '../config-renderers.js';
-import { AGENT_MODEL_OPTIONS, parseFrontMatter } from './utils.js';
+import { AGENT_MODEL_OPTIONS, parseFrontMatter, lockEditor } from './utils.js';
 
 /**
- * `detailContentEl` grows a `_settingsEditor` property when the
- * settings.json structured editor is mounted (see renderSettingsJsonEditor
- * in config-renderers.js), and `_frontMatterFields`/`_bodyTextarea` when the
+ * `detailContentEl` grows `_frontMatterFields`/`_bodyTextarea` when the
  * front-matter form is mounted below -- both read back by
  * ArtifactGallery.saveOverride() (scaffold/edit.js).
  * @typedef {HTMLElement & {
- *   _settingsEditor?: { getData(): string, isDirty(): boolean } | null,
  *   _frontMatterFields?: Record<string, HTMLInputElement|HTMLSelectElement>,
  *   _bodyTextarea?: HTMLTextAreaElement,
  * }} EditContentElement
@@ -57,28 +53,12 @@ export function createScaffoldGalleryEditForm(gallery) {
   async function renderEdit() {
     const data = await fetchJSON(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`); // fetchJSON prefixes internally
     const content = data.content || '';
-    const artifactName = gallery.selectedArtifact.name || '';
-    const language = data.language || gallery.selectedArtifact.language || 'text';
 
     if (!gallery.detailContentEl) return;
 
-    // Clear content area and stale editor reference
+    // Clear content area
     while (gallery.detailContentEl.firstChild) {
       gallery.detailContentEl.removeChild(gallery.detailContentEl.firstChild);
-    }
-    gallery.detailContentEl._settingsEditor = null;
-
-    // Structured editor for settings.json
-    if (artifactName === 'settings-json' && language === 'json') {
-      const editor = renderSettingsJsonEditor(content, (isDirty) => {
-        gallery.editDirty = isDirty;
-        gallery.renderDetailModes();
-      });
-      if (editor) {
-        gallery.detailContentEl.appendChild(editor);
-        gallery.detailContentEl._settingsEditor = editor._settingsEditor;
-        return;
-      }
     }
 
     const { frontMatter, body } = parseFrontMatter(content);
@@ -100,6 +80,9 @@ export function createScaffoldGalleryEditForm(gallery) {
     textarea.className = 'prompts-edit-textarea';
     textarea.spellcheck = false;
     textarea.value = content;
+    if (gallery.selectedArtifact?.read_only) {
+      lockEditor(textarea);
+    }
 
     textarea.addEventListener('input', () => {
       gallery.editDirty = true;
@@ -157,6 +140,10 @@ export function createScaffoldGalleryEditForm(gallery) {
     bodyTextarea.className = 'prompts-edit-textarea';
     bodyTextarea.spellcheck = false;
     bodyTextarea.value = body;
+    if (gallery.selectedArtifact?.read_only) {
+      lockEditor(bodyTextarea);
+      for (const input of Object.values(fieldRefs)) input.disabled = true;
+    }
 
     bodyTextarea.addEventListener('input', () => {
       gallery.editDirty = true;

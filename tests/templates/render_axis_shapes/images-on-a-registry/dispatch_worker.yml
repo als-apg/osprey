@@ -104,7 +104,14 @@ services:
       # DNS name, not localhost. Declaring the host here — rather than sniffing
       # the container runtime — is what makes emit work under docker AND podman.
       # Inert unless claude_code.telemetry is enabled with backend: openobserve.
+      #
+      # The port is declared beside it because on this network it is NOT the
+      # published one: the DNS name answers on the port the store LISTENS on
+      # inside its container, which `services.openobserve.port` says nothing
+      # about. Without this line the emitter would derive the published port,
+      # which is right from the host and wrong from here.
       OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
+      OSPREY_OTEL_OPENOBSERVE_PORT: "5080"
 
       # `archiver-mongodb` is the store's network alias, pinned in the mongodb
       # template precisely so this name survives the per-project container_name;
@@ -119,10 +126,13 @@ services:
       # The staged runtime config overlays the config.yml baked into the image,
       # so the worker reads the deploy-time config.
       - ./build/services/dispatch_worker/config.yml:/app/golden-project/build/config.yml:ro
-      # The image creates the agent-data directory (and its subdirs) and
-      # `chown -R osprey:osprey /app/<project>` before switching to USER osprey,
-      # so a fresh named volume initialized from that path inherits osprey
-      # ownership — the non-root worker can write it without any user: override.
+      # The image creates the agent-data directory (and its subdirs) and chowns
+      # `var/` — the state zone that directory lives in — to osprey. The render
+      # itself stays root-owned: the container starts as root and its entrypoint
+      # drops to osprey with gosu for the command, so only the startup steps
+      # that must write the render ever can. A fresh named volume initialized
+      # from the agent-data path therefore inherits osprey ownership, and the
+      # unprivileged worker writes it without any user: override.
       # The mount target is rendered whole by compose_generator from the SAME
       # `agent_data.base_dir` the mounted config.yml declares, so the volume
       # cannot end up mounted anywhere but where the worker writes. It arrives

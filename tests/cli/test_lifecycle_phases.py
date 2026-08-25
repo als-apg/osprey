@@ -315,6 +315,10 @@ class TestBuildPhases:
             lifecycle = _Lifecycle()
             config: dict = {}
             deploy = None
+            # A deploying profile: _build_repo reads the flag to decide whether
+            # the render just written becomes the host config every attached
+            # render after it is projected from.
+            deploy_services = True
 
             def resolved_tier(self) -> int:
                 return 1
@@ -326,14 +330,26 @@ class TestBuildPhases:
         (tmp_path / "profile.yml").write_text("name: probe\n")
         monkeypatch.setattr(build_cmd, "find_repo_root", lambda repo=None: tmp_path)
         monkeypatch.setattr(build_profile, "resolve_build_document", lambda *a, **k: _Resolved())
-        monkeypatch.setattr(build_profile_deploy, "deploy_aware_config_errors", lambda *a: [])
+        monkeypatch.setattr(build_profile_deploy, "deploy_aware_config_errors", lambda *a, **k: [])
+        monkeypatch.setattr(
+            build_profile_deploy, "deploy_aware_config_warnings", lambda *a, **k: []
+        )
         monkeypatch.setattr(build_cmd, "TemplateManager", lambda *a, **k: object())
         monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: [])
 
         def _render(*a, injected_out=None, **k):
-            """Stand in for a render, recording one injected service."""
+            """Stand in for a render, recording one injected service.
+
+            Returns a directory with a ``config.yml`` because the real render
+            does: `_build_repo` reads the deployment's rendered config back as
+            the host every later attached render is projected from.
+            """
             if injected_out is not None:
                 injected_out.append("event dispatch")
+            render_dir = tmp_path / "build-stage"
+            render_dir.mkdir(exist_ok=True)
+            (render_dir / "config.yml").write_text("{}\n", encoding="utf-8")
+            return render_dir
 
         monkeypatch.setattr(build_cmd, "_render_project", _render)
         monkeypatch.setattr(build_cmd, "_render_compose_files", lambda *a, **k: {})

@@ -1,0 +1,48 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 256" role="img" aria-labelledby="tier-layers-title tier-layers-desc">
+  <title id="tier-layers-title">The three layers a write meets</title>
+  <desc id="tier-layers-desc">When the agent tries a write it meets three layers in order: the permissions rendered into settings.json at build time, the gates — setup_patch, the Config panel, the gallery and the Python executor — and finally file ownership, where build/ belongs to root. Only then does the write reach the control system or the disk. The protected set sits across the gates and applies to every tier, admin included.</desc>
+  <defs>
+    <marker id="tier-layers-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- the chain -->
+  <line class="e" x1="144" y1="96" x2="180" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <line class="e" x1="356" y1="96" x2="392" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <line class="e" x1="568" y1="96" x2="604" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <line class="e" x1="756" y1="96" x2="792" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <!-- the protected set sits across the gates -->
+  <line class="e-warn e-dash" x1="480" y1="128" x2="480" y2="184"/>
+  <!-- layer tags -->
+  <text class="te" x="268" y="52" text-anchor="middle">LAYER 1</text>
+  <text class="te" x="480" y="52" text-anchor="middle">LAYER 2</text>
+  <text class="te" x="680" y="52" text-anchor="middle">LAYER 3 · THE ONE THAT HOLDS</text>
+  <!-- nodes -->
+  <rect class="mask" x="32" y="64" width="112" height="64" rx="6"/>
+  <rect class="nb-in" x="32" y="64" width="112" height="64" rx="6"/>
+  <text class="tn" x="88" y="92" text-anchor="middle">the agent</text>
+  <text class="ts" x="88" y="108" text-anchor="middle">tries a write</text>
+  <rect class="mask" x="180" y="64" width="176" height="64" rx="6"/>
+  <rect class="nb" x="180" y="64" width="176" height="64" rx="6"/>
+  <text class="tn" x="268" y="92" text-anchor="middle">rendered permissions</text>
+  <text class="ts" x="268" y="108" text-anchor="middle">settings.json, written at build</text>
+  <rect class="mask" x="392" y="64" width="176" height="64" rx="6"/>
+  <rect class="nb" x="392" y="64" width="176" height="64" rx="6"/>
+  <text class="tn" x="480" y="86" text-anchor="middle">the gates</text>
+  <text class="ts" x="480" y="102" text-anchor="middle">setup_patch · Config panel</text>
+  <text class="ts" x="480" y="116" text-anchor="middle">gallery · Python executor</text>
+  <rect class="mask" x="604" y="64" width="152" height="64" rx="6"/>
+  <rect class="nb-foc" x="604" y="64" width="152" height="64" rx="6"/>
+  <text class="tn" x="680" y="92" text-anchor="middle">file ownership</text>
+  <text class="ts" x="680" y="108" text-anchor="middle">build/ belongs to root</text>
+  <rect class="mask" x="792" y="64" width="144" height="64" rx="6"/>
+  <rect class="nb-ext" x="792" y="64" width="144" height="64" rx="6"/>
+  <text class="tn" x="864" y="92" text-anchor="middle">control system</text>
+  <text class="ts" x="864" y="108" text-anchor="middle">or the disk</text>
+  <rect class="mask" x="392" y="184" width="176" height="52" rx="6"/>
+  <rect class="nb-bnd" x="392" y="184" width="176" height="52" rx="6"/>
+  <text class="tn" x="480" y="206" text-anchor="middle">the protected set</text>
+  <text class="ts" x="480" y="222" text-anchor="middle">every tier, admin included</text>
+</svg>
+</div>

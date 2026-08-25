@@ -5,6 +5,8 @@ When disabled, it blocks channel_write and write-mode python_execute.
 Read-only tools and readonly python always pass through.
 """
 
+import json
+
 import pytest
 
 
@@ -280,3 +282,232 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     assert returncode == 0
     assert stdout.strip() == ""
     assert "Traceback" not in stderr
+
+
+# -- Session posture (OSPREY_EXECUTION_MODE) --
+#
+# A web-terminal session switched to the sandbox posture launches its agent with
+# ``OSPREY_EXECUTION_MODE=readonly``; the hooks inherit it. The posture is a
+# property of *this terminal session*, not of the deployment, so the hook answers
+# it from the environment alone — ahead of config.yml, and in a vocabulary that
+# never sends the operator to edit a config file that is not the gate.
+
+
+@pytest.mark.unit
+def test_posture_readonly_denies_channel_write_despite_writes_enabled(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The whole point: the posture outranks a deployment that permits writes.
+
+    ``writes_enabled: true`` is exactly the configuration under which this hook
+    would otherwise allow the call, and for a mixed read/write kernel it is the
+    renderer's ``allow`` that puts the tool in front of the agent at all. The
+    deny here is the only thing standing between a sandboxed session and a
+    control-system write.
+    """
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
+def test_posture_readonly_denies_python_readwrite_despite_writes_enabled(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """A readwrite execution is a write, and the sandbox posture refuses it."""
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__python__execute",
+        {"code": "caput('PV', 1.0)", "execution_mode": "readwrite"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
+def test_posture_message_names_the_posture_not_writes_enabled(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """Two-vocabulary rule: nothing is wrong with the deployment config.
+
+    Mirror of ``test_readonly_refusal_message_does_not_blame_deployment`` on the
+    connector side. A posture refusal that mentions ``writes_enabled`` sends the
+    operator off to flip a config key that will not lift the refusal — the
+    session's own posture is the gate, and the terminal card is where it moves.
+    """
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    reason = result["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "SANDBOX POSTURE" in reason
+    assert "writes_enabled" not in reason
+    assert "WRITES DISABLED" not in reason
+    assert "terminal card" in reason
+    # The two sentences the operator needs, verbatim.
+    assert "this terminal session refuses control-system writes." in reason
+    assert (
+        "Switch the session to writes posture from the terminal card; "
+        "config.yml is not the gate here." in reason
+    )
+
+
+@pytest.mark.unit
+def test_posture_readonly_still_allows_python_readonly(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """Readonly execution is precisely what a sandboxed session is *for*.
+
+    The posture check sits behind the execute-readonly early exit, so a readonly
+    run keeps passing through — sandboxing a session must not cost the agent the
+    ability to look at the machine.
+    """
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__python__execute",
+        {"code": "print(42)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is None  # Allowed through
+
+
+@pytest.mark.unit
+def test_posture_does_not_affect_non_write_tools(tmp_path, hook_runner, make_config, monkeypatch):
+    """Reads stay reads: the posture branch is behind the write-tool filter."""
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_read",
+        {"channels": ["SR:CURRENT:RB"]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is None  # Allowed through
+
+
+@pytest.mark.unit
+def test_no_posture_var_leaves_the_writes_enabled_allow_intact(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """With no posture set, the hook behaves exactly as it did before.
+
+    The unset case is the overwhelmingly common one — every CLI session and
+    every deployment that never touches the terminal card — so it is pinned
+    rather than left to the other tests to imply.
+    """
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is None  # Allowed through
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
+def test_posture_is_a_value_comparison_not_a_presence_check(
+    tmp_path, hook_runner, make_config, monkeypatch, value
+):
+    """Only the exact ``readonly`` string sandboxes the session.
+
+    Same semantics as the executor's posture clamp and ``is_readonly_run``: a
+    presence check would sandbox a session on ``readwrite`` — the *writes*
+    posture — and on every stale or mistyped value besides.
+    """
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", value)
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is None  # Allowed through — not the sandbox posture
+
+
+@pytest.mark.unit
+def test_posture_deny_survives_an_unreadable_config(tmp_path, hook_runner_raw, monkeypatch):
+    """A broken config.yml must not cost the posture deny.
+
+    This hook fails *open*: an uncaught exception exits non-zero with no JSON on
+    stdout and the tool proceeds. The posture branch therefore has to reach its
+    deny without depending on anything that can raise — the config read, PyYAML,
+    or the debug logger, which is pointed at a config that is not parseable and
+    at a project directory with no ``.claude/hooks`` to append to.
+    """
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")  # force the logging path to run
+    broken = tmp_path / "config.yml"
+    broken.write_text("control_system: [unclosed\n\t\tnot: yaml")
+
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=broken,
+        cwd=tmp_path,
+    )
+
+    assert returncode == 0
+    assert "Traceback" not in stderr
+    decision = json.loads(stdout.strip().split("\n")[-1])
+    assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "SANDBOX POSTURE" in decision["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.unit
+def test_posture_deny_survives_an_absent_config(tmp_path, hook_runner, monkeypatch):
+    """No config.yml at all is still a valid, posture-specific deny."""
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=tmp_path / "nonexistent" / "config.yml",
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "SANDBOX POSTURE" in result["hookSpecificOutput"]["permissionDecisionReason"]

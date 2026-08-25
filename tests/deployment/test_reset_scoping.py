@@ -1334,7 +1334,7 @@ def _with_web_terminals(repo: Path) -> None:
 def test_a_web_terminal_personas_local_image_is_a_candidate(repo, no_down):
     """Reset absorbs ``deploy nuke``, whose image half is the persona tags."""
     _with_web_terminals(repo)
-    persona_tag = "acc-control-control-room:local"
+    persona_tag = "acc-control:local"
     fake = FakeRuntime(
         images={
             f"{PROJECT}:local": {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
@@ -1349,7 +1349,7 @@ def test_a_web_terminal_personas_local_image_is_a_candidate(repo, no_down):
 def test_a_persona_image_belonging_to_another_deployment_survives(repo, no_down):
     """Image tags are host-global, so the project label is checked tag by tag."""
     _with_web_terminals(repo)
-    persona_tag = "acc-control-control-room:local"
+    persona_tag = "acc-control:local"
     fake = FakeRuntime(images={persona_tag: {reset_mod.OSPREY_PROJECT_LABEL: "someone-else"}})
     run_reset(repo, fake)
 
@@ -1544,7 +1544,7 @@ def test_a_local_roster_image_stays_a_candidate_under_a_set_axis(repo, monkeypat
     """``:local`` is the persona convention and the axes do not move it."""
     _with_web_terminals(repo)
     _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
-    persona_tag = "acc-control-control-room:local"
+    persona_tag = "acc-control:local"
     _roster_of(monkeypatch, persona_tag)
 
     assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE, persona_tag]

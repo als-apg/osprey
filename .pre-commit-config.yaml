@@ -59,11 +59,11 @@ repos:
       # Check TOML syntax
       - id: check-toml
       # Prevent large files from being committed. The floor is set by the
-      # generated demo-machine graph corpus
-      # (templates/apps/control_assistant/data/demo_machine.ttl, ~1.5 MB);
+      # generated demo-machine graph corpus (~2.7 MB, shipped in the
+      # control_assistant and ariel_standalone presets alike);
       # raise the number rather than excluding a path, so the guard stays armed.
       - id: check-added-large-files
-        args: ['--maxkb=2000']
+        args: ['--maxkb=3000']
       # Check for files that would conflict on case-insensitive filesystems
       - id: check-case-conflict
       # Detect private keys
