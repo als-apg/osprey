@@ -214,6 +214,7 @@ docs = [
     "sphinx-copybutton",
     "sphinx-autobuild",
     "sphinx-design",
+    "sphinx-reredirects==1.1.0",
     "sphinxcontrib-jsmath>=1.0.1",
     "graphviz",
 ]

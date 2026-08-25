@@ -119,6 +119,9 @@ panel that already meets every rule:
 
    osprey skills install creating-an-osprey-panel
 
+What the skill produces, and the test that pins panel discovery, are the panel
+seam in :doc:`/contributing/extending-osprey`.
+
 Once the panel is written and validated, drop its folder under your project's
 ``panels/`` directory and turn on discovery:
 

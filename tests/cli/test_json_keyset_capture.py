@@ -199,7 +199,7 @@ def _audit_cmd():
 # Row keys of ``results[]``. ``CheckResult.to_dict`` always writes the first
 # four and adds each of the second three only when populated (``latency_ms``
 # when greater than zero), as documented in
-# ``docs/source/how-to/health-json-contract.rst``.
+# ``docs/source/reference/contracts/health-json.rst``.
 _HEALTH_ROW_REQUIRED = frozenset({"name", "category", "status", "message"})
 _HEALTH_ROW_OPTIONAL = frozenset({"value", "latency_ms", "details"})
 

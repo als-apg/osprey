@@ -1,8 +1,8 @@
 ===================
-Scans and the Queue
+Plans and the Queue
 ===================
 
-Three sentences carry everything on this page. Scans live in a **queue
+Three sentences carry everything on this page. Plans live in a **queue
 server** that survives restarts — not in the agent, not in the panels. Adding
 a plan to the queue and starting the queue are **two separate, deliberate
 steps**, and only starting is guarded. **Stopping is never locked** — no
@@ -195,7 +195,7 @@ quirks worth knowing:
      from the live view until the next run starts — the run itself keeps
      going and its data still lands in Tiled.
 
-.. dropdown:: For deployers — what is running, and the config block
+.. dropdown:: For deployers — what is running
    :color: info
    :icon: server
 
@@ -207,32 +207,9 @@ quirks worth knowing:
    8091). The launch token is minted automatically at deploy time and stored
    in the project's ``.env``.
 
-   The build profile's ``bluesky:`` block accepts exactly seven keys — a
-   misspelled or unknown key **fails the build** and prints the valid set:
-
-   .. list-table::
-      :header-rows: 1
-      :widths: 30 70
-
-      * - Key
-        - What it does
-      * - ``port``
-        - The bridge's port (default 8090).
-      * - ``tiled_enabled``
-        - Deploy the Tiled data store alongside the stack.
-      * - ``tiled_port``
-        - Tiled's port (default 8091).
-      * - ``second_lane``
-        - Run a second plan lane, so one deployment serves both its live
-          machine and its virtual accelerator.
-      * - ``plan_dir``
-        - A directory of your facility's own plans — see
-          :doc:`write-plans`.
-      * - ``excluded_plans``
-        - Plans to remove from the catalog entirely, e.g. ``[orm]``.
-      * - ``devices_file``
-        - The file listing the devices plans may drive or record
-          (default ``data/bluesky_devices.yml``) — see :doc:`write-plans`.
+   The build profile's ``bluesky:`` block sets the ports, the Tiled store,
+   which plans the catalog carries, and the device file plans may drive or
+   record — see :doc:`/reference/configuration/profile`.
 
    Whether a deployment can execute plans at all is decided by its control
    system: ``virtual_accelerator`` and ``epics`` can, ``mock`` is
@@ -248,7 +225,7 @@ quirks worth knowing:
    created from the ``control-assistant`` preset has one and the flip just
    works; one still reading the mock archiver is refused at build time, and told
    to point ``archiver.type`` at a store its deployment writes first — see
-   :doc:`../use-virtual-accelerator`.
+   :doc:`../control-systems/use-virtual-accelerator`.
 
    One timing detail worth knowing: the channel limits a plan's writes are
    checked against come from the file
@@ -266,5 +243,5 @@ quirks worth knowing:
    :doc:`write-plans`
       Trust tiers and adding plans of your own.
 
-   :doc:`/how-to/use-virtual-accelerator`
+   :doc:`/how-to/control-systems/use-virtual-accelerator`
       The connector that makes a deployment able to execute.

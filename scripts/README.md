@@ -250,7 +250,7 @@ These scripts are designed to match the GitHub Actions workflows:
 - `.github/workflows/release.yml`: Release automation
 - `.pre-commit-config.yaml`: Pre-commit hooks
 
-See `docs/source/contributing/05_ci-cd-testing.rst` for comprehensive CI/CD testing guide.
+See `docs/source/contributing/development-setup.rst` for the CI and testing guide.
 
 ## Contributing
 
@@ -258,12 +258,11 @@ If you modify these scripts:
 
 1. Test them thoroughly on both macOS and Linux
 2. Update this README
-3. Update `docs/source/contributing/05_ci-cd-testing.rst`
+3. Update `docs/source/contributing/development-setup.rst`
 4. Ensure exit codes are correct (0 = success, 1 = failure)
 5. Add helpful error messages
 
 ## See Also
 
-- [Git and GitHub Workflow](../docs/source/contributing/02_git-and-github.rst)
-- [CI/CD Testing Guide](../docs/source/contributing/05_ci-cd-testing.rst)
-- [Code Standards](../docs/source/contributing/03_code-standards.rst)
+- [Contribution Workflow](../docs/source/contributing/workflow.rst)
+- [Development Setup](../docs/source/contributing/development-setup.rst)

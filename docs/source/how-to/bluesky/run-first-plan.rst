@@ -1,5 +1,5 @@
 ===================
-Run Your First Scan
+Run Your First Plan
 ===================
 
 Ask the agent for a plan in plain words, watch the form fill itself in, press
@@ -159,7 +159,7 @@ token, no switch can disable them:
       execute plans — plans can be composed and validated, but the queue
       refuses to hold them. The banner names the exact command that switches
       to the Virtual Accelerator; see
-      :doc:`/how-to/use-virtual-accelerator`.
+      :doc:`/how-to/control-systems/use-virtual-accelerator`.
 
    **Start queue is refused.**
       The refusal in the panel says why, in a sentence. The common causes: the

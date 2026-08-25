@@ -11,7 +11,7 @@ happening under the hood.
 What is OSPREY?
 ===============
 
-Operating a particle accelerator, beamline, or fusion experiment means
+Operating a large scientific facility, such as a particle accelerator, means
 juggling dozens of tools --- archivers, logbooks, channel finders, OPI
 screens --- while holding operational context in your head. Every task
 requires knowing which tool to open, which PV names to use, and what

@@ -283,12 +283,95 @@ keys:
   # `services.graphdb.bind_address` is deliberately absent for the same reason
   # qmd's is — every service publishes on the project-wide
   # `deployment.bind_address`, and graphdb reuses that one reading.
-  # `services.graphdb.uri` and `services.graphdb.username` are absent too, but
-  # for a different reason: they are read (by `resolve_graphdb_connection`, for
-  # an EXTERNAL store this deployment connects to but does not run) and simply
-  # rendered by no shipped template, so a manifest entry would fail the
-  # phantom-key check. There is deliberately no `password` key at any layer —
-  # the credential lives in the project .env as GRAPHDB_PASSWORD.
+  services.graphdb.uri:
+    rendered: false
+    evidence: '_optional_text\(section\.get\("uri"\), "services\.graphdb\.uri"\)'
+    note: >-
+      Hidden key, unset in all five templates: it names an EXTERNAL Neo4j this
+      deployment connects to but does not run, so a shipped default would be a
+      guess. Read by `resolve_graphdb_connection`; when set it wins outright and
+      the derived bolt address from `port_host` is never built. Carried here
+      rather than left undeclared because the configuration reference documents
+      it, and a documented key with no evidence behind it is a promise the guard
+      cannot keep. Its sibling `services.graphdb.username` stays absent — it is
+      read from the same block but named on no page. There is deliberately no
+      `password` key at any layer — the credential lives in the project .env as
+      GRAPHDB_PASSWORD.
+  # `services.graphdb.username` is read beside `uri` but documented nowhere, so
+  # it stays out of the ledger.
+
+  # ── Service image pins ──────────────────────────────────────────────
+  # The per-service half of the image chain the two `images.*` axes complete:
+  # an `OSPREY_<SVC>_IMAGE` environment variable wins, then one of these keys,
+  # then the packaged default. Every one is read from a service's compose
+  # template rather than from Python, and none is written by a shipped
+  # config.yml — hence `rendered: false` on all of them, exactly as on
+  # `images.registry`/`images.tag`. `services.graphdb.image` is the one member
+  # of the family a template does render, so it keeps its entry above.
+  services.postgresql.image:
+    rendered: false
+    evidence: '\(services\.postgresql \| default\(\{\}\)\)\.image'
+    note: >-
+      Upstream pin (pgvector). Point it at an internal mirror or a digest on a
+      host that cannot pull from public registries.
+  services.openobserve.image:
+    rendered: false
+    evidence: '\(services\.openobserve \| default\(\{\}\)\)\.image'
+    note: Upstream pin (openobserve). Same three-layer chain as the rest.
+  services.mongodb.image:
+    rendered: false
+    evidence: '\(services\.mongodb \| default\(\{\}\)\)\.image'
+    note: Upstream pin (mongo). Same three-layer chain as the rest.
+  services.event_dispatcher.image:
+    rendered: false
+    evidence: 'OSPREY_DISPATCH_IMAGE:-\{\{ services\.event_dispatcher\.image'
+    note: >-
+      OSPREY-built image, so its packaged default is assembled from the two
+      `images.*` axes; this pin replaces the assembled name outright.
+  services.dispatch_worker.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ services\.dispatch_worker\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+  services.nextcloud_bridge.image:
+    rendered: false
+    evidence: 'OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-\{\{ services\.nextcloud_bridge\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+  services.gchat_bridge.image:
+    rendered: false
+    evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+  services.bluesky.image:
+    rendered: false
+    evidence: 'OSPREY_BLUESKY_BRIDGE_IMAGE:-\{\{ svc\.image'
+    note: >-
+      OSPREY-built bridge image. The compose template reaches it through
+      `svc = services[lane_key]` because both Bluesky lanes render from the one
+      fragment, so the evidence anchors on that alias rather than on the dotted
+      path — the alias is what a rename would have to touch.
+  services.bluesky.tiled_image:
+    rendered: false
+    evidence: 'services\.bluesky\.tiled_image'
+    note: Upstream pin for the Tiled sidecar the Bluesky stack runs beside the bridge.
+  services.bluesky.redis_image:
+    rendered: false
+    evidence: 'OSPREY_BLUESKY_REDIS_IMAGE:-\{\{ svc\.redis_image'
+    note: >-
+      Upstream pin for the Redis sidecar. Reached through the same per-lane
+      `svc` alias as `services.bluesky.image`.
+  services.bluesky_web.image:
+    rendered: false
+    evidence: 'OSPREY_BLUESKY_WEB_IMAGE:-\{\{ services\.bluesky_web\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+  services.virtual_accelerator.image:
+    rendered: false
+    evidence: 'OSPREY_VA_IMAGE:-\{\{ services\.virtual_accelerator\.image'
+    note: >-
+      OSPREY-built image. The VA image is large and platform-sensitive, so a
+      published multi-arch pin here is the usual way to skip the local build.
+  services.qmd.image:
+    rendered: false
+    evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
 
   # ── Safety / approval ───────────────────────────────────────────────
   approval:
@@ -806,6 +889,45 @@ keys:
   artifact_server.port: {covered-by: artifact_server}
   artifact_server.auto_launch: {evidence: 'auto_launch'}
 
+  # ── Health suite ────────────────────────────────────────────────────
+  # The `health:` section is unset in all five templates — the built-in checks
+  # have usable defaults, so a facility writes a block only to ADD its own
+  # checks or retune the timing. Only the two sub-blocks the configuration
+  # reference names as dotted paths are carried here; the scalar suite settings
+  # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
+  # bare leaf names and read straight off the same mapping.
+  health.categories:
+    rendered: false
+    evidence: 'categories_raw = health\.get\("categories"\) or \{\}'
+    note: >-
+      Declarative probe categories, plus metadata-only overrides of built-in
+      ones. Parsed by `osprey.health.config.parse_health_config`, which is
+      handed the whole `health:` mapping by `osprey.health.records.load_config`.
+      A `checks:` list under a built-in category name is refused at load time,
+      so the same key spelling carries two distinct shapes and the guard's
+      anchor sits on the read rather than on either of them.
+  health.categories.archiver:
+    rendered: false
+    evidence: 'FRESHNESS_CATEGORY = "archiver"'
+    note: >-
+      The one category name under `health.categories` that is not free-form: it
+      is the archive-freshness category `osprey build` DERIVES when a profile's
+      `va_archiver:` block names a `freshness_channel`, written out as
+      `health.categories.archiver.checks`. Declaring it by hand while
+      `freshness_channel` is set is refused at build time, so the name is
+      effectively reserved and the reference documents it as such. Evidence
+      anchors on the constant the injector spells it from rather than on the
+      derived dotted string, which is assembled at runtime.
+  health.auto:
+    rendered: false
+    evidence: 'auto = _parse_auto\(health\.get\("auto"\)\)'
+    note: >-
+      Gates and aims the auto-derived `mcp_servers` category, which the
+      framework synthesizes from `claude_code.servers` so no facility has to
+      re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
+      `auto.mcp.url_key` are read; anything else under it is ignored by design,
+      which is why the leaves carry no entries of their own.
+
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)'}
   web.theme:
@@ -894,6 +1016,43 @@ keys:
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)'}
   web.channel_suggestions.max_channels:
     evidence: 'section\.get\("max_channels", DEFAULT_MAX_CHANNELS\)'
+  web.app_name:
+    rendered: false
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"app_name"\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. An optional human-readable
+      deployment name shown in the web terminal's header so otherwise-identical
+      terminals are told apart; empty or absent means no label is rendered, so
+      there is nothing for a template to ship a default for. The environment
+      variable OSPREY_WEB_APP_NAME outranks it, which is what lets several
+      containers that share one baked config image each carry their own name.
+      Documented for operators in reference/configuration/config.rst.
+  web.chat_turn_timeout_s:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. First of the three keys that
+      bound the Simple-mode operator-chat pool, all read in one lifespan block
+      of the web terminal and all documented together in
+      reference/configuration/config.rst. Ceiling in seconds on a single chat
+      turn; default 600. The `\s*` between the call's parts is load-bearing for
+      the same reason `web.docs_url` carries it: the three reads sit side by
+      side and the formatter wraps a call across lines on length alone.
+  web.chat_idle_timeout_s:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. How long an operator's chat
+      session may sit idle before it is reaped; default 1800 s. Same lifespan
+      block and same `\s*` rule as `web.chat_turn_timeout_s`.
+  web.chat_max_sessions:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_max_sessions",\s*5\s*\)'
+    note: >-
+      Hidden key, unset in all five templates. Cap on concurrent operator-chat
+      sessions, handed to the OperatorRegistry alongside the idle timeout;
+      default 5. Third of the trio, same lifespan block and same `\s*` rule as
+      `web.chat_turn_timeout_s`.
   cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
   cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
 

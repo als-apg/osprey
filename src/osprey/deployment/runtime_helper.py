@@ -214,7 +214,7 @@ def _unsupported_provider_message(base: Sequence[str], detail: str, banner: str)
         "OSPREY supports Docker Compose v2 and podman-compose "
         f"{_format_version(PODMAN_COMPOSE_MIN_VERSION)} or newer. See the container "
         "runtime compatibility statement in the deployment guide "
-        "(docs/source/how-to/deploy-project.rst) for the supported providers and the "
+        "(docs/source/how-to/deploy-project/index.rst) for the supported providers and the "
         "invocation shape each one gets.",
     ]
     if banner:
