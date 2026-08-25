@@ -107,8 +107,8 @@ READONLY_USER = "alice"
 READWRITE_USER = "bob"
 READONLY_PROJECT = f"{PROJECT_NAME}-readonly"
 READWRITE_PROJECT = f"{PROJECT_NAME}-readwrite"
-READONLY_IMAGE = f"{READONLY_PROJECT}-readonly:local"
-READWRITE_IMAGE = f"{READWRITE_PROJECT}-readwrite:local"
+READONLY_IMAGE = f"{READONLY_PROJECT}:local"
+READWRITE_IMAGE = f"{READWRITE_PROJECT}:local"
 
 # The write tool the readonly tier's rendered settings.json must deny and the
 # readwrite tier's must not (write tools land in permissions.deny when

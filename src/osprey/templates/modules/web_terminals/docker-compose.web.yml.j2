@@ -180,10 +180,11 @@
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
       `<facility_prefix>-assistant-auth:local` is referenced instead — the
-      persona-image pattern (`<project>-<persona>:local`, personas.py) applied
-      to the sidecar, whose `<project>` is resolve_personas()'s default
-      `<facility_prefix>-assistant`. Producing that image is the runtime build's
-      job; this template only names the tag.
+      suffixed local-tag pattern personas.py keeps for entries without their
+      own render (`<project>-<suffix>:local`) applied to the sidecar, whose
+      `<project>` is resolve_personas()'s default `<facility_prefix>-assistant`.
+      Producing that image is the runtime build's job; this template only
+      names the tag.
     auth_oidc_issuer: str | None, auth_oidc_client_id_env / auth_oidc_client_secret_env: str
       Emitted only in `oidc` mode. The two `*_env` values are env-var NAMES, not
       credentials: the sidecar reads the named variable out of its `.env.auth`

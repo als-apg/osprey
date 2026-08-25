@@ -180,6 +180,7 @@ def lint_web_terminals(
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
+    findings.extend(_check_persona_project_collisions(root, web_terminals, users))
     if rendered_project:
         findings.extend(
             _check_persona_project_paths(web_terminals, users, project_root=project_root)
@@ -1856,6 +1857,94 @@ def _check_persona_mirror_agreement(
                 message=message,
             )
         )
+    return findings
+
+
+def _check_persona_project_collisions(
+    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Local mode: every persona image tag must name exactly one image.
+
+    A persona image is tagged by its render alone
+    (``<project>:local`` — see
+    :func:`osprey.deployment.web_terminals.personas.resolve_personas`), so tag
+    uniqueness is exactly ``project`` uniqueness, and that is enforced here
+    rather than by a tag suffix. Config-only, so it runs at both altitudes —
+    no filesystem is consulted. Two invariants:
+
+    * **Persona vs persona.** Two referenced personas may share a ``project``
+      only when they also share the same ``project_path`` — one render, one
+      image, deliberately serving both. The same ``project`` over DIFFERENT
+      renders would race both builds onto one tag: the last build wins, and
+      every user of the losing persona silently runs the winning persona's
+      image — an entitlement bleed, not just a naming wart.
+    * **Persona vs worker.** No persona ``project`` may equal the deployment's
+      own project name: the dispatch worker's image already owns that
+      ``<project>:local`` tag, and a persona build would overwrite it (or be
+      overwritten) with entirely different content. Checked only when the
+      config declares an explicit ``project_name`` — the resolver's
+      path-derived fallbacks are unknowable at profile altitude, and every
+      rendered project carries the key.
+
+    A catalog entry with no ``project`` of its own resolves to the legacy
+    suffixed tag (``<default>-<persona>:local``) and cannot collide with
+    either, so it is skipped.
+    """
+    if effective_image_source(web_terminals) != "local":
+        return []
+    catalog = _persona_catalog(web_terminals)
+    by_project: dict[str, list[tuple[str, str]]] = {}
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        project = entry.get("project")
+        if not isinstance(project, str) or not project:
+            continue  # legacy suffixed fallback; no collision possible
+        project_path = entry.get("project_path")
+        by_project.setdefault(project, []).append(
+            (persona_name, project_path if isinstance(project_path, str) else "")
+        )
+
+    deployment_project = root.get("project_name")
+    if isinstance(deployment_project, str) and deployment_project:
+        from osprey.deployment.compose_generator import resolve_project_name
+
+        deployment_project = resolve_project_name(root)
+
+    findings: list[Finding] = []
+    for project, members in sorted(by_project.items()):
+        if len(members) > 1 and len({path for _, path in members}) > 1:
+            names = ", ".join(repr(name) for name, _ in members)
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_project_collision",
+                    message=(
+                        f"personas {names} share project {project!r} but point at "
+                        "different project_paths; their builds would race onto the "
+                        f"one image tag '{project}:local', and users of the losing "
+                        "persona would silently run the winning persona's image. "
+                        "Give each persona its own project (matching its render), "
+                        "or point them at the same project_path to share one image "
+                        "deliberately"
+                    ),
+                )
+            )
+        if project == deployment_project:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_project_shadows_worker_image",
+                    message=(
+                        f"personas {', '.join(repr(name) for name, _ in members)} use "
+                        f"project {project!r}, which is this deployment's own project "
+                        f"name; the persona image tag '{project}:local' would collide "
+                        "with the dispatch worker's image. Rename the persona's render "
+                        "(osprey build names each one <repo>-<persona>)"
+                    ),
+                )
+            )
     return findings
 
 

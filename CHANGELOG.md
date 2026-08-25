@@ -11,6 +11,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- Build interview: an upstream fit watch — places where OSPREY cannot express what a
+  facility needs are recorded as candidates in `INTERVIEW.md`, verified against the
+  installed framework by a scout, and offered to the user as a GitHub issue or email
+  to the maintainers. Nothing is sent without the user approving the full text.
+
 ### Security
 
 - Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact
@@ -583,6 +590,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Local-mode persona images are now tagged by their rendered project alone
+  (`my-assistant-readwrite:local` instead of
+  `my-assistant-readwrite-readwrite:local`). Lint newly rejects two personas
+  sharing a `project` across different renders, and a persona `project` equal
+  to the deployment's own name. Images under the old doubled tags are not
+  removed automatically — prune them by hand after the next `osprey up`.
 - CI: the unit lane's step summary now tabulates the slowest tests of the run
   and the uploaded diagnostics artifact carries the full pytest log.
 - `osprey-connectors` now versions with the framework's calendar stream —
