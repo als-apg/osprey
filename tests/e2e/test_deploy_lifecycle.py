@@ -1380,9 +1380,10 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
         },
     )
 
-    # The tag a LOCAL build would have produced for this persona -- must
+    # The tag a LOCAL build would have produced for this persona (it has its
+    # own catalog `project`, so the tag names the render alone) -- must
     # never exist, since registry mode builds nothing.
-    never_built_tag = f"{FACILITY_PREFIX}-assistant-assistant:local"
+    never_built_tag = f"{FACILITY_PREFIX}-assistant:local"
 
     try:
         up = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
