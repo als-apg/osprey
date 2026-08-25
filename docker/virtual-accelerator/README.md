@@ -6,12 +6,10 @@ the same in-repo `SimulationEngine` the `mock` connector uses for everything
 outside the lattice. Selected via `control_system.type: virtual_accelerator`
 (`mock` stays the default; `epics` remains production-pointed and untouched).
 
-One process serves two transports. The facility's whole channel namespace is
-co-hosted on **Channel Access** — the authoritative view of the machine, and
-what `EPICSConnector` reads and writes. The physics model's own variables are
-served natively on **PVAccess** alongside it. A write arriving on either
-transport moves both views; readings reach Channel Access only. See
-`serving/runner.py` for what is and is not synchronised between them.
+How the service is put together — layers, transports, partitions, LUME pins and
+the model seam — is documented once, on the *Virtual Accelerator* architecture
+page (`docs/source/architecture/virtual-accelerator.rst`). This file covers
+running and building the image.
 
 The VA service itself (`manifest/`, `lattice/`, `ioc/`, `serving/`,
 `entrypoint.py`) lives at `src/osprey/services/virtual_accelerator/` and ships
@@ -89,23 +87,10 @@ The full namespace-union manifest
 a few thousand addresses, with the authoritative count in that file's own
 `_metadata.total_channels` rather than repeated here, since the served set is
 generated from the tutorial's channel-finder databases and never hand-listed.
-Three physics-fidelity partitions:
 
-- **pyat-coupled** (SR magnet currents + BPM positions): a real PyAT lattice
-  (`osprey.services.virtual_accelerator.lattice`) recomputes the closed
-  orbit synchronously in the setpoint write handler
-  (`ioc/physics_bridge.py`) — readback-after-write is deterministic, never
-  dependent on a polling tick.
-- **sp-echo** (BR/BTS magnets, SR RF/VAC setpoints): writing the setpoint
-  echoes onto its readback immediately, with no physics — decided in
-  `serving/write_path.py` against the database `serving/pvdb.py` builds.
-- **static-noisy** (everything else — GOLDEN references, status flags,
-  temperatures, pressures): driven by the in-image `SimulationEngine`
-  (`ioc/engine_source.py`) from the bind-mounted `machine.json`, polling
-  `active_scenarios` once a second; channels the engine doesn't define fall
-  back to the same generic PV-taxonomy synthesis the `mock` connector uses
-  for unknown channels, so `mock` and this IOC never present different
-  values for anything neither one has real data for.
+Every address falls into one of three physics-fidelity partitions
+(pyat-coupled, sp-echo, static-noisy); what each one means is on the
+architecture page linked at the top of this file.
 
 ## Image contents and why they're pinned this way
 

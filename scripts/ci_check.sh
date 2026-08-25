@@ -158,7 +158,7 @@ echo ""
 
 echo "→ Building documentation..."
 cd docs
-if ! make clean > /dev/null 2>&1 && make html; then
+if ! make clean > /dev/null 2>&1 && make html SPHINXOPTS="-W --keep-going"; then
     FAILED_CHECKS+=("docs-build")
     echo "❌ Documentation build failed"
 else

@@ -78,185 +78,27 @@ so.
 Service Template Ownership
 ==========================
 
-The service templates under ``<project>/services/`` are framework-managed:
-every ``osprey build`` refreshes them from the installed OSPREY version, so
-compose fixes reach your project automatically. Do not edit them in place —
-your changes would be overwritten on the next build.
-
-To customize a service template, claim it — which **moves** it into the build
-profile the project was built from, where edits survive:
-
-.. code-block:: bash
-
-   osprey scaffold claim services/postgresql   # move it into the profile
-   osprey scaffold diff services/postgresql    # compare yours against the framework
-   osprey scaffold unclaim services/postgresql # restore framework management
-
-Edit the moved copy under ``<profile>/services/postgresql/``, then run
-``osprey build`` again to deploy it. Every build copies it back and marks it
-yours, so later re-renders leave it alone. ``osprey scaffold list`` shows what is
-framework-managed and what is yours; the same mechanism covers the agent
-artifacts (rules, agents, skills, hooks). See :ref:`profile-claim` for the full
-workflow and the artifacts a claim refuses.
-
-Before reaching for a claim, check whether a config key or environment
-variable already covers your need — most service knobs (ports, images,
-credentials, retention) are configurable without forking the template.
-
-.. _deployment-image-overrides:
+The service templates under ``<project>/services/`` are framework-managed, so
+an edit made to one in place is overwritten on the next build; to keep an edit,
+claim the template into the build profile with ``osprey scaffold claim
+services/<name>`` (:ref:`profile-claim`).
 
 Overriding Service Images
 =========================
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Thirteen images, one row each:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 30 28 22
-
-   * - Service
-     - Environment variable
-     - Config key
-     - Packaged default
-   * - postgresql
-     - ``OSPREY_POSTGRES_IMAGE``
-     - ``services.postgresql.image``
-     - upstream pin
-   * - openobserve
-     - ``OSPREY_OPENOBSERVE_IMAGE``
-     - ``services.openobserve.image``
-     - upstream pin
-   * - mongodb
-     - ``OSPREY_MONGODB_IMAGE``
-     - ``services.mongodb.image``
-     - upstream pin
-   * - event_dispatcher
-     - ``OSPREY_DISPATCH_IMAGE``
-     - ``services.event_dispatcher.image``
-     - ``<project>-dispatch``
-   * - dispatch_worker
-     - ``OSPREY_WORKER_IMAGE``
-     - ``services.dispatch_worker.image``
-     - ``<project>``
-   * - nextcloud_bridge
-     - ``OSPREY_NEXTCLOUD_BRIDGE_IMAGE``
-     - ``services.nextcloud_bridge.image``
-     - ``<project>-nextcloud-bridge``
-   * - gchat_bridge
-     - ``OSPREY_GCHAT_BRIDGE_IMAGE``
-     - ``services.gchat_bridge.image``
-     - ``<project>-gchat-bridge``
-   * - bluesky
-     - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
-     - ``services.bluesky.image``
-     - ``<project>-bluesky-bridge``
-   * - bluesky (Tiled sidecar)
-     - ``OSPREY_TILED_IMAGE``
-     - ``services.bluesky.tiled_image``
-     - upstream pin
-   * - bluesky (Redis sidecar)
-     - ``OSPREY_BLUESKY_REDIS_IMAGE``
-     - ``services.bluesky.redis_image``
-     - upstream pin
-   * - bluesky_web
-     - ``OSPREY_BLUESKY_WEB_IMAGE``
-     - ``services.bluesky_web.image``
-     - ``<project>-bluesky-web``
-   * - virtual_accelerator
-     - ``OSPREY_VA_IMAGE``
-     - ``services.virtual_accelerator.image``
-     - ``<project>-va``
-   * - qmd
-     - ``OSPREY_QMD_IMAGE``
-     - ``services.qmd.image``
-     - ``<project>-qmd``
-
-Point either of the first two layers at an internal registry mirror or a
-pinned digest when your deployment host cannot (or should not) pull public
-images.
-
-Five of the thirteen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other eight are **built by OSPREY**
-from your project, and their default reference is assembled rather than
-fixed: a project name, a per-service suffix, and the two axes below.
-
-.. _deployment-image-axes:
-
-The two image axes
-------------------
-
-An OSPREY-built default is always spelled the same way::
-
-   <registry>/<project><service suffix>:<tag>
-
-Two stack-wide settings supply the ends of that name, so an entire deployment
-can be moved to a registry — or to a different tag — without touching any of
-the thirteen rows above:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 16 30 24 30
-
-   * - Axis
-     - Environment variable
-     - Config key
-     - When neither is set
-   * - Registry
-     - ``OSPREY_IMAGE_REGISTRY``
-     - ``images.registry``
-     - no prefix at all
-   * - Tag
-     - ``OSPREY_IMAGE_TAG``
-     - ``images.tag``
-     - ``local``
-
-.. code-block:: yaml
-
-   # config.yml — every OSPREY-built image comes from the mirror,
-   # at the tag the pipeline pushed
-   images:
-     registry: registry.example.org/accelerator
-     tag: "2026.08.1"
-
-.. code-block:: bash
-
-   # or, for one build
-   OSPREY_IMAGE_REGISTRY=registry.example.org/accelerator \
-     OSPREY_IMAGE_TAG=2026.08.1 osprey build
-
-For each axis the environment variable wins, then the config key, then the
-packaged default. A blank value counts as unset on both layers — an
-exported-but-empty variable is how a shell spells "I did not set this", so a
-stray ``OSPREY_IMAGE_TAG=`` cannot render an image reference with no tag. A
-trailing slash on the registry is optional: one is added if you leave it out,
-and never doubled if you put it in.
-
-Two things about *when* and *where* this applies are worth having straight:
-
-* **The axes are the innermost layer, not an override.** They decide what the
-  packaged default of an OSPREY-built image is. A ``services.<name>.image``
-  pin still beats them for that one service, and an ``OSPREY_<SVC>_IMAGE``
-  variable still beats both. Setting an axis moves everything you have not
-  pinned individually.
-* **The axes are read when the compose files are rendered**, not when the
-  containers start. Export them for the ``osprey build`` that produces the
-  deployment; the per-image ``OSPREY_<SVC>_IMAGE`` variables, by contrast, are
-  filled in by compose at ``osprey up`` time. With neither axis set the render
-  is what it always was — ``<project>:local`` and its siblings — so a
-  deployment that never heard of them is unaffected.
-
-The axes never touch the five upstream pins. Prefixing ``mongo:7`` with your
-registry would name an image that exists in no registry; mirror those through
-their own row instead.
+default — and the two stack-wide axes assemble the default name of an
+OSPREY-built image. The thirteen images, the two axes and their precedence are
+catalogued in :ref:`config-deployment`.
 
 The web tier names its registry separately
 ------------------------------------------
 
 The web tier — the landing page and the one containerized terminal per
-operator, described in :doc:`/how-to/multi-user/index` — carries its own, older spelling of
-the same two ideas, and the two vocabularies coexist rather than merging:
+operator, described in :doc:`/how-to/web-terminal/multi-user/index` — carries
+its own, older spelling of the registry and tag axes, and the two vocabularies
+coexist rather than merging:
 
 .. list-table::
    :header-rows: 1
@@ -346,8 +188,8 @@ Copy only the rows for services you actually deploy — the upstream pins for a
 service that is not in ``deployed_services`` are never rendered.
 
 Naming the mirror is half the job: the host also has to stop *building*. That
-is the switch in the next section. If your route is a self-built image rather
-than a mirror, :doc:`/how-to/containerize-project` covers the air-gapped build trio —
+is the switch in :ref:`Deploying Prebuilt Images <deployment-prebuilt-images>`. If your route is a self-built image rather
+than a mirror, :doc:`project-image` covers the air-gapped build trio —
 ``OSPREY_PIP_SPEC`` for an internal package mirror, ``PIP_NO_PROXY`` to exempt
 it from the proxy, and ``OSPREY_OFFLINE=1`` to vendor the web assets into the
 image.

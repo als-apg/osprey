@@ -1,0 +1,63 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
+  <title id="mcp-server-map-title">The MCP server map</title>
+  <desc id="mcp-server-map-desc">The Osprey agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, which run as child processes of the harness and expose no network port.</desc>
+  <defs>
+    <marker id="mcp-server-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="480" y1="80" x2="480" y2="120" marker-end="url(#mcp-server-map-arr)"/>
+  <line class="e" x1="480" y1="172" x2="480" y2="212" marker-end="url(#mcp-server-map-arr)"/>
+  <!-- arrow label (beside the vertical segment, 12px gap) -->
+  <rect class="mask" x="492" y="88" width="180" height="12" rx="2"/>
+  <text class="ta" x="496" y="97">TOOL CALLS · STDIO JSON-RPC</text>
+  <!-- zone -->
+  <rect class="zone" x="108" y="212" width="744" height="240" rx="6"/>
+  <rect class="mask" x="124" y="220" width="288" height="12" rx="2"/>
+  <text class="te" x="128" y="229">STDIO CHILD PROCESSES · NO NETWORK PORT</text>
+  <!-- agent -->
+  <rect class="mask" x="412" y="24" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="412" y="24" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="48" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="480" y="64" text-anchor="middle">reads .mcp.json</text>
+  <!-- hook chain (focal) -->
+  <rect class="mask" x="200" y="120" width="560" height="52" rx="6"/>
+  <rect class="nb-foc" x="200" y="120" width="560" height="52" rx="6"/>
+  <text class="tn" x="480" y="142" text-anchor="middle">PreToolUse hook chain</text>
+  <text class="ts" x="480" y="158" text-anchor="middle">writes_check · limits · approval</text>
+  <!-- servers, row 1 -->
+  <rect class="mask" x="124" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="124" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="204" y="274" text-anchor="middle">control_system</text>
+  <text class="ts" x="204" y="290" text-anchor="middle">read · write · archiver</text>
+  <rect class="mask" x="308" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="308" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="388" y="274" text-anchor="middle">channel-finder</text>
+  <text class="ts" x="388" y="290" text-anchor="middle">1 of 4 pipelines</text>
+  <rect class="mask" x="492" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="492" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="572" y="274" text-anchor="middle">workspace</text>
+  <text class="ts" x="572" y="290" text-anchor="middle">artifacts · session state</text>
+  <rect class="mask" x="676" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="676" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="756" y="274" text-anchor="middle">python_executor</text>
+  <text class="ts" x="756" y="290" text-anchor="middle">execute</text>
+  <!-- servers, row 2 -->
+  <rect class="mask" x="216" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="216" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="296" y="362" text-anchor="middle">ariel</text>
+  <text class="ts" x="296" y="378" text-anchor="middle">logbook search</text>
+  <rect class="mask" x="400" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="400" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="480" y="362" text-anchor="middle">facility_knowledge</text>
+  <text class="ts" x="480" y="378" text-anchor="middle">OKF bundle</text>
+  <rect class="mask" x="584" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="584" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="664" y="362" text-anchor="middle">graph</text>
+  <text class="ts" x="664" y="378" text-anchor="middle">facility graph · Cypher</text>
+  <!-- zone footnote -->
+  <text class="ts" x="480" y="428" text-anchor="middle">rendered from config.yml by osprey build — profiles can inject more servers</text>
+</svg>
+</div>

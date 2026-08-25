@@ -8,8 +8,9 @@ rule for this key: it delegates to
 :func:`osprey.utils.config_paths.resolve_config_relative_path`, the framework's
 rule for every config-relative path — expand ``~``, then resolve a
 still-relative value against the project root (the repo, not its ``build/``
-render), which is what the config template and ``how-to/okf-bundle.rst``
-promise and what the compose layer binds into every container.
+render), which is what the config template and
+``how-to/facility-knowledge/okf-bundle.rst`` promise and what the compose
+layer binds into every container.
 """
 
 from __future__ import annotations

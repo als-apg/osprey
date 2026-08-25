@@ -1,0 +1,190 @@
+# Where every line of every split docs page went.
+#
+# The IA restructure cuts large how-to pages apart and scatters the pieces. This
+# table is the ledger: `scripts/docs/check_split_accounting.py` reads each source
+# file as it stood at `baseline_ref` and fails if a non-blank line is assigned to
+# nothing, or if an H1/H2 that existed then survives in no page today.
+#
+# Schema
+#   baseline_ref        commit the branch starts from; old pages are read from it
+#   sources[<old path relative to docs/source>]
+#     ranges            [{lines: "a-b", dest: "<new path>[#anchor]"}]  content that leaves
+#                       dest: null marks a range deliberately dropped (say why in `retired`)
+#     stays             ["a-b", ...]  content that remains in this file
+#     stays_in          set when the file itself is git-mv'd: where `stays` ends up
+#   retired_headings    exact H1/H2 texts that deliberately stop existing anywhere
+#
+# Line numbers are 1-based and inclusive, verified against `baseline_ref`
+# (`git show <ref>:docs/source/<path> | sed -n 'a,bp'`); range boundaries sit on
+# heading boundaries except where a table or code block is lifted out in place.
+
+baseline_ref: e6606aa0d029d9af37a2ad6eadf7128add672c25
+
+sources:
+
+  # ── Build & deploy ──────────────────────────────────────────────────────
+  how-to/build-profiles.rst:            # 1666 lines
+    ranges:
+      - {lines: "723-1462", dest: "reference/configuration/profile"}   # Profile YAML reference … The execution environment
+    stays: ["1-722", "1463-1666"]       # concept + tasks; build/troubleshoot tail
+
+  how-to/deploy-project/compose-templates.rst:   # 407 lines
+    ranges:
+      - {lines: "108-253", dest: "reference/configuration/config#deployment"}   # Overriding Service Images, The two image axes
+    stays: ["1-107", "254-407"]
+
+  how-to/deploy-project/index.rst:      # 477 lines
+    ranges:
+      - {lines: "244-273", dest: "reference/configuration/config#deployment"}   # Where ${VAR} values come from
+    stays: ["1-243", "274-477"]
+
+  # ── Operate ─────────────────────────────────────────────────────────────
+  how-to/web-terminal/operate.rst:      # 278 lines
+    ranges:
+      - {lines: "177-278", dest: "reference/configuration/config#web"}   # Documentation and feedback settings
+    stays: ["1-176"]                    # a two-line pointer replaces the moved section
+
+  how-to/send-feedback.rst:             # 257 lines
+    ranges:
+      - {lines: "1-210", dest: "how-to/web-terminal/send-feedback"}      # the page itself moves under the web-terminal hub
+      - {lines: "211-257", dest: "reference/configuration/config#web"}   # Point the channels at your facility (dedup with operate)
+
+  how-to/configure-health-checks.rst:   # 599 lines
+    ranges:
+      - {lines: "51-145", dest: "reference/configuration/config#health"}          # the health: block, Probe checks
+      - {lines: "223-430", dest: "reference/configuration/config#health"}         # categories, health.auto, Timeouts, requires:, overrides
+      - {lines: "431-454", dest: "contributing/extending-osprey#health-plugin"}   # Health plugins
+      - {lines: "455-475", dest: "reference/configuration/config#health"}         # Suite timing
+    stays: ["1-50", "146-222", "476-599"]
+
+  how-to/health-json-contract.rst:      # 359 lines
+    ranges:
+      - {lines: "1-359", dest: "reference/contracts/health-json"}   # whole page; What You'll Learn dropped, 304-359 reduced to the 3-key table
+
+  how-to/add-mcp-server.rst:            # 269 lines
+    ranges:
+      - {lines: "1-72", dest: "how-to/agent-interfaces/add-mcp-server"}          # external server, config-only
+      - {lines: "73-269", dest: "contributing/extending-osprey#mcp-server"}      # framework server (condensed)
+
+  how-to/chat-bridges/add-a-channel.rst:   # 169 lines
+    ranges:
+      - {lines: "1-169", dest: "contributing/extending-osprey#chat-bridge"}      # whole page, condensed to one seam entry
+
+  how-to/add-connector.rst:             # 709 lines
+    ranges:
+      - {lines: "1-251", dest: "how-to/control-systems/use-connectors"}
+      - {lines: "252-478", dest: "reference/contracts/connectors"}               # Reading Large Values, Write Verification
+      - {lines: "479-549", dest: "contributing/extending-osprey#connector"}      # Implementing Custom Connectors (condensed)
+      - {lines: "550-649", dest: "reference/contracts/connectors"}               # Archiver Connectors, promoted to H2
+      - {lines: "650-709", dest: "contributing/extending-osprey#connector"}      # Registering, Testing
+
+  how-to/bluesky/queue.rst:             # 256 lines
+    ranges:
+      - {lines: "210-229", dest: "reference/configuration/profile#bluesky"}      # the five bluesky: keys + list-table
+    stays: ["1-209", "230-256"]   # dropdown header + deployer stack prose stay with the how-to
+
+  # ── Facility services ───────────────────────────────────────────────────
+  how-to/use-channel-finder.rst:        # 298 lines
+    ranges:
+      - {lines: "70-82", dest: "reference/contracts/channel-finder"}    # in-context database JSON schema
+      - {lines: "120-134", dest: "reference/contracts/channel-finder"}  # hierarchical database JSON schema
+      - {lines: "246-298", dest: "reference/contracts/channel-finder"}  # Configuration Reference, Framework Integration
+    stays: ["1-69", "83-119", "135-245"]   # each lifted block leaves one sentence + link
+
+  how-to/use-facility-knowledge.rst:    # 79 lines
+    ranges:
+      - {lines: "1-79", dest: "how-to/facility-knowledge/index"}   # intro rewritten to cover the graph, sidecar card kept
+
+  how-to/use-facility-graph.rst:        # 476 lines
+    ranges:
+      - {lines: "50-155", dest: "reference/contracts/facility-graph"}          # What the Graph Holds, The Four Tools
+      - {lines: "1-49", dest: "how-to/facility-knowledge/use-facility-graph"}
+      - {lines: "156-476", dest: "how-to/facility-knowledge/use-facility-graph"}
+
+  how-to/ariel/osprey-integration.rst:  # 148 lines
+    ranges:
+      - {lines: "1-13", dest: "reference/contracts/ariel"}                  # title and intro carry the contract page
+      - {lines: "14-124", dest: "reference/contracts/ariel"}                # architecture, MCP tools, result structure, service factory
+      - {lines: "125-137", dest: "contributing/extending-osprey#ariel"}     # Extending the integration
+      - {lines: "138-148", dest: null, retired: "See Also — the new pages carry their own links"}
+
+  how-to/ariel/web-interface.rst:       # 421 lines
+    ranges:
+      - {lines: "109-373", dest: "reference/contracts/ariel"}   # Capabilities API
+    stays: ["1-108", "374-421"]
+
+  how-to/ariel/data-ingestion.rst:      # 410 lines
+    ranges:
+      - {lines: "289-399", dest: "reference/contracts/ariel"}              # `database` label + Database Schema, Core Tables, Migration System
+      - {lines: "30-45", dest: "contributing/extending-osprey#ariel"}      # adapter implementation code
+      - {lines: "73-87", dest: "contributing/extending-osprey#ariel"}
+      - {lines: "173-188", dest: "contributing/extending-osprey#ariel"}
+    stays: ["1-29", "46-72", "88-172", "189-288", "400-410"]   # operator prose, the 49-67 adapter table, and the 106-167 enhancement-module YAML tab-set (operator config, not a developer seam)
+
+  # ── Reference and architecture sources ──────────────────────────────────
+  cli-reference/index.rst:              # 1117 lines
+    ranges:
+      - {lines: "1-1106", dest: "reference/cli"}                                # + an osprey query section from cli-agent
+      - {lines: "1107-1117", dest: "reference/configuration/environment-variables"}
+
+  how-to/use-python-executor.rst:       # 413 lines
+    ranges:
+      - {lines: "17-38", dest: "architecture/python-executor"}          # What It Does
+      - {lines: "39-86", dest: "reference/contracts/python-executor"}   # MCP Tool Interface
+      - {lines: "87-394", dest: "architecture/python-executor"}         # Where Code Runs, Execution Environment, Security Model
+      - {lines: "395-405", dest: "reference/contracts/python-executor"} # Installation
+      - {lines: "406-413", dest: null, retired: "See Also — replaced by the two new pages' own links"}
+    stays: ["1-16"]                     # label, title and intro travel with the page
+    stays_in: architecture/python-executor
+
+  # ── Contributing ────────────────────────────────────────────────────────
+  contributing/index.rst:               # 566 lines
+    ranges:
+      - {lines: "8-47", dest: "contributing/development-setup"}        # Environment Setup
+      - {lines: "202-450", dest: "contributing/development-setup"}     # Code Standards
+      - {lines: "48-201", dest: "contributing/workflow"}               # Git and GitHub Workflow
+      - {lines: "451-544", dest: "contributing/docs-and-screenshots"}  # screenshots + redesign contact sheet
+    stays: ["1-7", "545-566"]           # title, Community Guidelines, Getting Help
+
+# Headings that deliberately stop existing. Every other H1/H2 above must turn up
+# verbatim as a heading somewhere under docs/source when the restructure lands.
+retired_headings:
+  # the three Bluesky pages are retitled (scan → plan)
+  - Run Your First Scan
+  - Scans and the Queue
+  - Write Your Own Scan Plans
+  # how-to/chat-bridges/add-a-channel.rst, condensed into one seam entry
+  - Add Your Own Chat Service
+  - What You Get, and What You Write
+  - Four Decisions
+  - The Functions You Implement
+  - Wiring It Into a Build
+  - Two Sketches
+  # how-to/add-mcp-server.rst: the external-server section is retitled. It told
+  # readers to edit `claude_code.servers` in config.yml, which every `osprey
+  # build` re-renders; the durable surface is the profile's `mcp_servers:` block,
+  # so "(Config-Only)" became "(Profile-Only)".
+  - Add an External Server (Config-Only)
+  # how-to/add-mcp-server.rst 73-249, condensed into one seam entry
+  - Create a Framework Server
+  - "Step 1: Create the Package"
+  - "Step 2: Define the Server Instance"
+  - "Step 3: Register Tools"
+  - "Step 4: Register in the Framework"
+  - Testing
+  # how-to/configure-health-checks.rst, condensed into one seam entry
+  - Health plugins
+  # how-to/add-connector.rst, condensed into one seam entry
+  - Implementing Custom Connectors
+  - Registering Custom Connectors
+  - Testing Custom Connectors
+  # how-to/ariel/osprey-integration.rst
+  - Extending the integration
+  # See Also sections dropped from osprey-integration and use-python-executor
+  - See Also
+  # architecture/python-executor.rst is the retitled Python Execution Service page
+  - Python Execution Service
+  # how-to/control-systems/use-connectors.rst is the retitled Add a Connector page
+  - Add a Connector
+  # reference/contracts/ariel.rst is the retitled Osprey Integration page
+  - Osprey Integration

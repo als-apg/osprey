@@ -12,7 +12,7 @@ Osprey addresses control-specific challenges: semantic addressing across large c
 namespaces, protocol-agnostic integration with control stacks, logbook search
 across facility electronic logbooks, and mandatory human oversight for every hardware write.
 
-Built for particle accelerators, fusion experiments, beamlines, and large scientific facilities.
+Built for large scientific facilities, such as particle accelerators.
 
 <p align="center">
   <img src="docs/source/_static/resources/architecture.png" width="100%"

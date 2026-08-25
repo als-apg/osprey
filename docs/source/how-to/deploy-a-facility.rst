@@ -70,8 +70,9 @@ Three services run:
      - Telemetry store for the agent's logs and metrics.
    * - ``virtual_accelerator``
      - packaged
-     - A PyAT soft-IOC serving EPICS Channel Access on port 5064, standing in
-       for the real machine.
+     - A containerized simulator with LUME-backed physics
+       (:doc:`/architecture/virtual-accelerator`), serving EPICS Channel Access
+       on port 5064 and standing in for the real machine.
    * - ``facility-mcp``
      - this profile
      - The facility's own MCP server on port 8200, built from a Dockerfile that
@@ -125,8 +126,8 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
   ``web.panels.events.*`` and ``web.panels.bluesky.*`` override. The panels they
   configure no longer exist.
 
-Keep the ``virtual_accelerator:`` block. It is the trigger for the soft-IOC this
-facility drives.
+Keep the ``virtual_accelerator:`` block. It is the trigger for the Virtual
+Accelerator this facility drives.
 
 
 Step 3 — Name the facility and pin its services
@@ -147,7 +148,7 @@ are already present with a different value; some ship commented out.
        - openobserve
 
 ``control_system.type: virtual_accelerator`` points the agent at the deployed
-soft-IOC, so correctors move and BPMs read through exactly the approval and
+simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset ships ``mock``, which touches
 nothing.
 
@@ -167,7 +168,7 @@ that ``osprey init`` seeded into this repository's ``.env``
 (``alice``/``alice``, ``bob``/``bob``) and ``allow_insecure_http: true``
 keeping the login flow on plain HTTP. That is a demo posture. For a facility
 host, set real passwords in ``.env`` (or rotate with ``osprey users passwd``)
-and serve TLS — :doc:`multi-user/login` walks through both, and through single
+and serve TLS — :doc:`web-terminal/multi-user/login` walks through both, and through single
 sign-on if your site runs one.
 
 Then confirm the persona catalog, further down the same ``config:`` block
@@ -711,12 +712,12 @@ a boot does exactly what you do by hand.
        The container-deployment reference: service configuration, compose template
        variables, image overrides, and the ``--dev`` workflow.
 
-   :doc:`multi-user/index`
+   :doc:`web-terminal/multi-user/index`
        The web tier this facility deploys — the landing page and one
        containerized terminal per operator.
 
-   :doc:`use-virtual-accelerator`
-       The PyAT soft-IOC, and driving it from the agent.
+   :doc:`control-systems/use-virtual-accelerator`
+       Running the simulator, and driving it from the agent.
 
-   :doc:`../cli-reference/index`
+   :doc:`/reference/cli`
        Every ``osprey`` command and flag.

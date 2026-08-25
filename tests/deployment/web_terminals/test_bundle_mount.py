@@ -279,6 +279,7 @@ def test_sharing_strategy_is_stated_in_the_how_to_page():
         / "docs"
         / "source"
         / "how-to"
+        / "facility-knowledge"
         / "okf-bundle.rst"
     ).read_text()
 

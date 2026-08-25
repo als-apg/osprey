@@ -1,6 +1,6 @@
-=========================
-Write Your Own Scan Plans
-=========================
+====================
+Write Your Own Plans
+====================
 
 OSPREY ships three plans — an n-dimensional **grid scan**, an **orbit
 response matrix** sweep, and a closed **orbit bump** sweep — and they are

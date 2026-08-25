@@ -1,0 +1,52 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 448" role="img" aria-labelledby="va-layer-map-title va-layer-map-desc">
+  <title id="va-layer-map-title">Virtual Accelerator layer map</title>
+  <desc id="va-layer-map-desc">Values flow down five layers — manifest, lattice, model, physics bridge, serving — with the LUME model as the replaceable seam, and the serving layer publishing to Channel Access and PVAccess.</desc>
+  <defs>
+    <marker id="va-layer-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="312" y1="304" x2="312" y2="344" marker-end="url(#va-layer-map-arr)"/>
+  <line class="e" x1="648" y1="304" x2="648" y2="344" marker-end="url(#va-layer-map-arr)"/>
+  <!-- direction indicator, left margin -->
+  <rect class="mask" x="48" y="20" width="56" height="12" rx="2"/>
+  <text class="te" x="52" y="29">VALUES</text>
+  <line class="e-thin" x1="76" y1="40" x2="76" y2="288" marker-end="url(#va-layer-map-arr)"/>
+  <!-- stack: outer silhouette -->
+  <rect class="mask" x="136" y="24" width="688" height="280" rx="6"/>
+  <rect class="nb" x="136" y="24" width="688" height="280" rx="6"/>
+  <line class="divider" x1="136" y1="80" x2="824" y2="80"/>
+  <line class="divider" x1="136" y1="136" x2="824" y2="136"/>
+  <line class="divider" x1="136" y1="192" x2="824" y2="192"/>
+  <line class="divider" x1="136" y1="248" x2="824" y2="248"/>
+  <!-- bands: tag · name · note -->
+  <text class="te" x="160" y="56">01</text>
+  <text class="tn" x="200" y="56">manifest/</text>
+  <text class="ts" x="800" y="56" text-anchor="end">channel set, generated from the facility databases</text>
+  <text class="te" x="160" y="112">02</text>
+  <text class="tn" x="200" y="112">lattice/</text>
+  <text class="ts" x="800" y="112" text-anchor="end">the ring: inventory · calibration · orbit solve</text>
+  <!-- focal band: the LUME seam -->
+  <rect class="nb-foc" x="136" y="136" width="688" height="56"/>
+  <text class="te" x="160" y="168">03</text>
+  <text class="tn" x="200" y="168">model/</text>
+  <text class="ts" x="800" y="168" text-anchor="end">PyATRingModel — a LUMEModel, via lume-pyat</text>
+  <text class="te" x="160" y="224">04</text>
+  <text class="tn" x="200" y="224">ioc/physics_bridge</text>
+  <text class="ts" x="800" y="224" text-anchor="end">setpoint → calibration → solve → BPM readings</text>
+  <text class="te" x="160" y="280">05</text>
+  <text class="tn" x="200" y="280">serving/</text>
+  <text class="ts" x="800" y="280" text-anchor="end">pvdb + write_path · runner over lume-pva-apg</text>
+  <!-- transports -->
+  <rect class="mask" x="192" y="344" width="240" height="56" rx="6"/>
+  <rect class="nb" x="192" y="344" width="240" height="56" rx="6"/>
+  <text class="tn" x="312" y="368" text-anchor="middle">Channel Access</text>
+  <text class="ts" x="312" y="384" text-anchor="middle">whole namespace · authoritative · :5064</text>
+  <rect class="mask" x="528" y="344" width="240" height="56" rx="6"/>
+  <rect class="nb-st" x="528" y="344" width="240" height="56" rx="6"/>
+  <text class="tn" x="648" y="368" text-anchor="middle">PVAccess</text>
+  <text class="ts" x="648" y="384" text-anchor="middle">model variables · container-internal</text>
+</svg>
+</div>
