@@ -365,8 +365,8 @@ def test_document_plane_secrets_do_not_cross_containers(rendered: dict[str, Any]
     bridge = rendered["services"]["bluesky-bridge"]
     queueserver = rendered["services"]["queueserver"]
 
-    assert "./data/bluesky_curve/bridge:/app/curve:ro" in bridge["volumes"]
-    assert "./data/bluesky_curve/queueserver:/app/curve:ro" in queueserver["volumes"]
+    assert "./data/.runtime/bluesky_curve/bridge:/app/curve:ro" in bridge["volumes"]
+    assert "./data/.runtime/bluesky_curve/queueserver:/app/curve:ro" in queueserver["volumes"]
     # Neither container can even see the other's certificate directory.
     assert not any("bluesky_curve/queueserver" in str(v) for v in bridge["volumes"])
     assert not any("bluesky_curve/bridge" in str(v) for v in queueserver["volumes"])

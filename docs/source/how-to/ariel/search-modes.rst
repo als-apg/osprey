@@ -182,16 +182,22 @@ Search modules are leaf-level functions that execute a single search strategy ag
            - --
            - 1587 ms
 
-      Reranking costs roughly **4x** the query budget, and its cost barely grows with corpus size --- so no logbook is small enough to outrun it. ``hybrid_search`` is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set ``rerank: false`` for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see :doc:`../okf-bundle`.)
+      An LLM reviews every candidate before the results come back, which is what makes reranking the dominant term: its cost is dominated by the candidate pool and grows far more slowly than the corpus does, so no logbook is small enough to outrun it. Both surfaces ship with the quality path on.
+
+      **One key, both surfaces.** ``search_modules.hybrid.settings.rerank`` governs the agent-facing ``hybrid_search`` tool *and* the web interface's search panel --- and ``candidate_limit`` likewise. There is no separate panel key. The two surfaces override it differently. The panel's **Rerank Results** toggle opens showing whatever the deployment configured, and clicking it overrides that value for every search you run from then on, until **Reset** returns the panel to the deployment's value. On the agent side, ``hybrid_search`` takes a ``rerank`` argument that applies to the one call: leave it unset and the tool follows the configured key, pass ``false`` and that one search takes the fast path and nothing else changes. Set the key itself to ``false`` only when you want the fast path for every search, on both surfaces. (The OKF bundle is a different key over a different corpus and defaults the other way; see :doc:`../okf-bundle`.)
+
+      **What the panel does with a reranked search.** Rather than hold an empty screen for the length of a reranked query, the panel runs it in two phases: it fetches and paints the fast ranking first, under a status line saying the results are being reranked, then replaces them with the reranked ranking under a line saying they were updated. The second response is drawn from a larger candidate pool, so *which* entries come back can change, not only the order they come back in.
+
+      **Reranking is never load-bearing.** A reranked query that fails, for any reason, is retried once without the reranker; the results come back normally, carrying a WARNING diagnostic that says the ranking was not improved. The panel keeps the fast results on screen and says so in its status line. Only a failure of that retry is a failed search.
 
       ``candidate_limit`` is how many candidates the reranker considers. Lowering it trades recall for latency.
 
       **Filtering is best-effort.** ``hybrid_search`` ranks the corpus first and applies the date, author and source filters *afterwards*, to the top of that ranking --- not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as "the ranked window ran out", not as "there is nothing else". When a filter has to be exhaustive, use ``keyword_search`` or ``sql_query``, which filter in the database.
 
-      .. admonition:: Known limitation --- the first reranked query times out
-         :class: warning
+      .. admonition:: The first reranked query after a sidecar start is slow
+         :class: note
 
-         The first query with ``rerank: true`` loads a 610 MB model on CPU, and that load exceeds the client's default timeout. A deployment that enables reranking gets a hard failure on its **first** query; subsequent queries are fine. Run one throwaway query after starting the sidecar, or start with ``rerank: false``.
+         The first query with ``rerank: true`` loads a 610 MB model on CPU, and that load commonly runs past the client's 30-second request timeout. That first query is not lost: it falls back to the non-reranked ordering with a warning, and every query after the model is resident is reranked normally. This is the ordinary first-run experience after starting or restarting the sidecar, not a fault to chase. Run one throwaway query when the sidecar comes up if you want the first real one to be fast.
 
       .. admonition:: Known limitation --- entry IDs that are not numeric
          :class: note

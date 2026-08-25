@@ -19,6 +19,7 @@ from osprey.services.ariel_search.exceptions import (
     ARIELException,
     ConfigurationError,
     PatternError,
+    SearchConfigurationError,
     SearchExecutionError,
     SearchTimeoutError,
     VocabularyError,
@@ -189,13 +190,22 @@ class ARIELSearchService:
         source: str,
         error: Exception,
         *,
+        category: str = "search",
         expanded_terms: tuple[dict[str, Any], ...] = (),
     ) -> ARIELSearchResult:
+        """Build the ERROR diagnostic for a module that failed.
+
+        ``category`` defaults to the ordinary case -- the search itself broke.
+        A caller that knows better says so: a module refusing its own malformed
+        ``settings`` block passes ``"configuration"``, which is what lets an
+        agent-side surface answer with the offending config key instead of
+        advice about a sidecar that is not the problem.
+        """
         return ARIELSearchService._diagnostic_result(
             reasoning=f"{mode.capitalize()} search failed: {error}",
             level=DiagnosticLevel.ERROR,
             source=source,
-            category="search",
+            category=category,
             modes=(mode,),
             expanded_terms=expanded_terms,
         )
@@ -579,6 +589,18 @@ class ARIELSearchService:
             # named. Swallowing them into a generic error result would show the
             # agent an empty search instead.
             raise
+        except SearchConfigurationError as e:
+            # The module refused its own settings block. Same empty-result
+            # shape as any other module failure, but categorised so the caller
+            # can tell "this deployment is misconfigured" from "search broke".
+            logger.warning(f"{mode.capitalize()} search is misconfigured: {e}")
+            return self._error_result(
+                mode,
+                f"service.{mode}",
+                e,
+                category="configuration",
+                expanded_terms=_expansion_dicts(expansion.groups) if expansion else (),
+            )
         except Exception as e:
             logger.warning(f"{mode.capitalize()} search failed: {e}")
             return self._error_result(

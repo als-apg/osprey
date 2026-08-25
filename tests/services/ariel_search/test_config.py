@@ -913,3 +913,111 @@ class TestKeywordPatternSettings:
         """Same for the boolean knob: dead config is not refused."""
         errors = _keyword_config({"patterns_enabled": "yes"}, enabled=False).validate()
         assert not [error for error in errors if "patterns_enabled" in error]
+
+
+def _hybrid_config(
+    settings: dict[str, object] | None = None, *, enabled: bool = True
+) -> ARIELConfig:
+    """Build a config whose hybrid module carries the given settings block.
+
+    Args:
+        settings: The ``search_modules.hybrid.settings`` mapping, or None to
+            omit the block entirely.
+        enabled: Whether the hybrid module is enabled.
+
+    Returns:
+        The parsed configuration.
+    """
+    hybrid: dict[str, object] = {"enabled": enabled}
+    if settings is not None:
+        hybrid["settings"] = settings
+    return ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/ariel"},
+            "search_modules": {"hybrid": hybrid},
+        }
+    )
+
+
+def _semantic_config(
+    settings: dict[str, object] | None = None, *, enabled: bool = True
+) -> ARIELConfig:
+    """Build a config whose semantic module carries the given settings block.
+
+    A ``model`` is always named: semantic search without one is a separate,
+    unrelated validate() error, and these tests are about the settings block.
+
+    Args:
+        settings: The ``search_modules.semantic.settings`` mapping, or None to
+            omit the block entirely.
+        enabled: Whether the semantic module is enabled.
+
+    Returns:
+        The parsed configuration.
+    """
+    semantic: dict[str, object] = {"enabled": enabled, "model": "nomic-embed-text"}
+    if settings is not None:
+        semantic["settings"] = settings
+    return ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/ariel"},
+            "search_modules": {"semantic": semantic},
+        }
+    )
+
+
+class TestHybridSettingsValidation:
+    """Tests for ``search_modules.hybrid.settings`` reaching validate()."""
+
+    def test_rerank_error_surfaces_from_validate(self) -> None:
+        """``vocab-check``, ``status`` and startup all report it, naming the key."""
+        errors = _hybrid_config({"rerank": "junk"}).validate()
+        assert "search_modules.hybrid.settings.rerank must be a boolean, got 'junk'" in errors
+
+    def test_candidate_limit_error_surfaces_from_validate(self) -> None:
+        """The other knob in the block is validated by the same resolver call."""
+        errors = _hybrid_config({"candidate_limit": 0}).validate()
+        assert (
+            "search_modules.hybrid.settings.candidate_limit must be a positive integer, got 0"
+            in errors
+        )
+
+    def test_settings_are_not_validated_when_hybrid_is_disabled(self) -> None:
+        """A disabled module's settings reach no reader, so validate() stays quiet."""
+        errors = _hybrid_config({"rerank": "junk"}, enabled=False).validate()
+        assert not [error for error in errors if "search_modules.hybrid.settings" in error]
+
+    def test_absent_settings_block_is_quiet_when_hybrid_is_enabled(self) -> None:
+        """No block is the normal case: the defaults resolve and nothing is reported."""
+        errors = _hybrid_config().validate()
+        assert not [error for error in errors if "search_modules.hybrid.settings" in error]
+
+
+class TestSemanticSettingsValidation:
+    """Tests for ``search_modules.semantic.settings`` reaching validate()."""
+
+    def test_similarity_threshold_error_surfaces_from_validate(self) -> None:
+        """``vocab-check``, ``status`` and startup all report it, naming the key."""
+        errors = _semantic_config({"similarity_threshold": "high"}).validate()
+        assert (
+            "search_modules.semantic.settings.similarity_threshold must be a float in [0, 1], "
+            "got 'high'" in errors
+        )
+
+    def test_out_of_range_threshold_surfaces_from_validate(self) -> None:
+        """A number outside ``[0, 1]`` is named rather than clamped into range."""
+        errors = _semantic_config({"similarity_threshold": 1.5}).validate()
+        assert (
+            "search_modules.semantic.settings.similarity_threshold must be a float in [0, 1], "
+            "got 1.5" in errors
+        )
+
+    def test_settings_are_not_validated_when_semantic_is_disabled(self) -> None:
+        """A disabled module's settings reach no reader, so validate() stays quiet."""
+        errors = _semantic_config({"similarity_threshold": "high"}, enabled=False).validate()
+        assert not [error for error in errors if "search_modules.semantic.settings" in error]
+
+    def test_absent_settings_block_is_quiet_when_semantic_is_enabled(self) -> None:
+        """No block is the normal case: the defaults resolve and nothing is reported."""
+        errors = _semantic_config().validate()
+        assert not [error for error in errors if "search_modules.semantic.settings" in error]

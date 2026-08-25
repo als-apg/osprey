@@ -1,4 +1,4 @@
-"""The graph MCP tools against a real Neo4j 5.20 + neosemantics store.
+"""The graph MCP tools against a real Neo4j 5.26 + neosemantics store.
 
 Every other graph test mocks the driver.  That proves the call shapes and the
 envelope wiring, but it cannot prove the four things this feature actually

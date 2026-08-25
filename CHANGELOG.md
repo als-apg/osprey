@@ -11,6 +11,26 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- The build-drift gate no longer counts material `osprey up` mints itself: the
+  per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
+  reserved runtime-output subpath the fingerprint never hashes and the build
+  never stages, so a started deployment stays CLEAN and the scaffolded systemd
+  unit's bare `osprey up -d` comes back after a reboot (#716). Existing key
+  material at the old `data/<lane>_curve/` path is relocated — not re-minted —
+  on the next `osprey up`.
+- Target switch: a configured-but-unserved `write_access` gateway no longer strands a
+  write-armed session off the baseline. When the write-role readiness probe fails, the
+  switch retries through the `read_only` gateway and lands with a warning; writes on
+  such a session still go through the unchanged write path and are refused at the
+  read-only gateway. (#718)
+- Target switch: a readiness-probe failure now names the gateway role, host and port
+  it probed — in the error detail, the structured `details.gateway`, and an
+  actionable suggestion — instead of only the probe channel, which misread as "the
+  control system is down" when a single gateway beside a healthy one was unserved.
+  (#718)
+
 ### Added
 
 - Build interview: an upstream fit watch — places where OSPREY cannot express what a
@@ -135,6 +155,19 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The graphdb container's healthcheck now probes with `wget`, which the Neo4j
+  community image ships, instead of `curl`, which it does not — the container
+  no longer sits at `unhealthy` forever while the store is serving.
+- The documented removal spelling for the graph store works: a bare
+  `services.graphdb:` in a profile's `config:` block now renders a project with
+  no graphdb container, no `graphdb` in `deployed_services`, and no `graph` MCP
+  server, instead of crashing the build. The ambiguous `services.graphdb: {}`
+  is refused at validation with a message naming both working spellings.
+- `osprey knowledge seed-graph` can succeed out of the box again: the graphdb
+  service's default image moved to `neo4j:5.26-community`, the newest server
+  line the neosemantics (n10s) plugin manifest covers. A store whose plugin
+  never installed is now reported as "no compatible n10s plugin installed for
+  Neo4j <version>" with the remedy, instead of a missing stored procedure.
 - Dependabot pull requests no longer fail CI: the Deploy E2E lane now skips on
   Dependabot runs (which get no Actions secrets) like every other secret-gated
   lane, and the run summary names it among the lanes to revalidate. Dependency
@@ -582,6 +615,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   sharing a `project` across different renders, and a persona `project` equal
   to the deployment's own name. Images under the old doubled tags are not
   removed automatically — prune them by hand after the next `osprey up`.
+- The ARIEL search panel now follows the deployment's configuration for every
+  knob you have not touched — Reset returns it to that state — and shows the
+  fast results of a reranked search before the reranking finishes, replacing
+  them when it does. When the reranker is unavailable the fast ranking stays on
+  screen with a note instead of the search failing. The `hybrid_search` tool
+  takes a per-query `rerank` argument; panel and tool share the one
+  `ariel.search_modules.hybrid.settings.rerank` key.
+
+- A malformed ARIEL `hybrid` or `semantic` search setting is now named at
+  startup validation instead of passing silently, and a malformed per-query
+  `rerank` or `candidate_limit` sent over HTTP is refused with a 400 rather
+  than coerced.
+
 - CI: the unit lane's step summary now tabulates the slowest tests of the run
   and the uploaded diagnostics artifact carries the full pytest log.
 - `osprey-connectors` now versions with the framework's calendar stream —

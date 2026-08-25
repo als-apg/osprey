@@ -384,14 +384,17 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
 
     digests: dict[str, str] = {}
 
-    def fold(key: str, label: str, source: Path) -> None:
+    def fold(key: str, label: str, source: Path, *, skip_runtime_output: bool = False) -> None:
         digest = hashlib.sha256()
-        _fold_source_tree(digest, label, source)
+        _fold_source_tree(digest, label, source, skip_runtime_output=skip_runtime_output)
         digests[f"{MATERIAL_PREFIX}{key}"] = digest.hexdigest()
 
     data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
     if data_root is not None:
-        fold("data/", "data", data_root)
+        # Same carve-out as the build's material fold: data/.runtime/ is
+        # runtime-minted, so a start must not move this diagnostic digest
+        # either — the refusal would name data/ for files nobody authored.
+        fold("data/", "data", data_root, skip_runtime_output=True)
 
     for source in sorted(CONVENTION_SOURCES):
         candidate = profile_dir / source

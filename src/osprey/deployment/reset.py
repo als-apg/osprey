@@ -844,16 +844,22 @@ class ResetPlan:
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."
         )
-        curve_dir = self.repo_root / "data" / "bluesky_curve"
-        if curve_dir.is_dir():
-            kept.append(
-                "    data/bluesky_curve/  the document-plane CURVE certificates, which live "
-                "in the source zone. They are"
-            )
-            kept.append(
-                "      regenerated only when absent, so a reset leaves this deployment's "
-                "existing key material in place."
-            )
+        # Both spellings: data/.runtime/ is where `osprey up` mints today, and
+        # data/bluesky_curve/ is where a deployment that has not started since
+        # the #716 relocation still holds its keys.
+        for curve_dir, shown in (
+            (self.repo_root / "data" / ".runtime", "data/.runtime/"),
+            (self.repo_root / "data" / "bluesky_curve", "data/bluesky_curve/"),
+        ):
+            if curve_dir.is_dir():
+                kept.append(
+                    f"    {shown}  the document-plane CURVE certificates, which live "
+                    "in the source zone. They are"
+                )
+                kept.append(
+                    "      regenerated only when absent, so a reset leaves this deployment's "
+                    "existing key material in place."
+                )
         return kept
 
     def _path_note(self, path: Path) -> str:

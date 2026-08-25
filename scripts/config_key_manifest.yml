@@ -218,11 +218,12 @@ keys:
   services.graphdb.image:
     evidence: '_text\(block\.get\("image"\)'
     note: >-
-      Pinned to neo4j:5.20-community by DEFAULT_IMAGE, and the pin is about the
+      Pinned to neo4j:5.26-community by DEFAULT_IMAGE, and the pin is about the
       neosemantics (n10s) plugin's release cadence rather than Neo4j's: without
-      n10s the store cannot import the RDF corpus at all, and it publishes no
-      build for 5.23+. Overridable per project for a mirror or a pre-baked
-      image; the compose fragment layers ${OSPREY_GRAPHDB_IMAGE} over it.
+      n10s the store cannot import the RDF corpus at all, and 5.26 is the
+      newest server line its plugin manifest covers. Overridable per project
+      for a mirror or a pre-baked image; the compose fragment layers
+      ${OSPREY_GRAPHDB_IMAGE} over it.
   services.graphdb.port_host:
     evidence: '_port\(block\.get\("port_host"\)'
     note: >-
@@ -723,19 +724,22 @@ keys:
   ariel.search_modules.hybrid.settings.rerank:
     evidence: '_SETTINGS_PREFIX\}\.rerank must be a boolean'
     note: >-
-      Shipped as `true`, matching DEFAULT_RERANK and qmd's own default. The
-      reranker costs ~4x the query latency at near-constant cost in corpus
-      size; this is the agent-facing tool, which has no interactive budget to
-      protect, so it keeps the quality path. The OKF side defaults the other
-      way. The evidence anchors on the type refusal rather than the read: a
-      present-but-malformed knob is rejected, never defaulted, because
+      Shipped as `true`, matching DEFAULT_RERANK and qmd's own default. One
+      key, both surfaces: the agent-facing hybrid_search tool and the ARIEL
+      search panel read it, and each can override it without changing the
+      deployment — the tool per call, the panel per session until Reset. The
+      reranker dominates query latency — an LLM reviews each candidate — but
+      it is not load-bearing: a reranked query that fails is
+      retried once without it. The OKF side is a separate key and defaults the
+      other way. The evidence anchors on the type refusal rather than the read:
+      a present-but-malformed knob is rejected, never defaulted, because
       defaulting it would strand a deployment on the path it asked to leave.
   ariel.search_modules.hybrid.settings.candidate_limit:
     evidence: '_SETTINGS_PREFIX\}\.candidate_limit must be a positive integer'
     note: >-
       Shipped as `40`, matching DEFAULT_CANDIDATE_LIMIT and qmd's own
-      `candidateLimit`. The other documented latency lever: lowering it trades
-      recall for speed.
+      `candidateLimit`. One key for both surfaces, like `rerank` above. The
+      other documented latency lever: lowering it trades recall for speed.
   ariel.enhancement_modules:
     evidence: 'get\("enhancement_modules", \{\}\)'
     note: >-

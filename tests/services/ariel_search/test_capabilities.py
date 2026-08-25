@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import types
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from osprey.services.ariel_search.capabilities import (
@@ -10,6 +13,7 @@ from osprey.services.ariel_search.capabilities import (
     shared_parameters,
 )
 from osprey.services.ariel_search.config import ARIELConfig
+from osprey.services.ariel_search.search import keyword as keyword_module
 from osprey.services.ariel_search.search.base import ParameterDescriptor
 from osprey.services.ariel_search.search.keyword import (
     get_parameter_descriptors as keyword_params,
@@ -360,6 +364,165 @@ class TestGetCapabilities:
         result = get_capabilities(config)
         direct_modes = result["categories"]["direct"]["modes"]
         assert direct_modes == []
+
+
+class TestModeParametersFollowTheConfig:
+    """``_add_search_modules`` hands the config to modules that ask for it."""
+
+    def _make_config(self, search_modules: dict) -> ARIELConfig:
+        """Create an ARIELConfig with the given ``search_modules`` block."""
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "search_modules": search_modules,
+            }
+        )
+
+    def _mode_defaults(self, config: ARIELConfig, mode: str) -> dict:
+        """Return ``{parameter name: advertised default}`` for one direct mode."""
+        modes = get_capabilities(config)["categories"]["direct"]["modes"]
+        entry = next(m for m in modes if m["name"] == mode)
+        return {p["name"]: p["default"] for p in entry["parameters"]}
+
+    def _modes_from_stub(self, name: str, module: types.ModuleType) -> list[dict]:
+        """Describe a registry holding one stub search module, enabled.
+
+        Args:
+            name: The module's registry name, also its mode name.
+            module: The stub, carrying ``get_tool_descriptor`` and
+                ``get_parameter_descriptors``.
+
+        Returns:
+            The ``direct`` modes the capabilities payload describes.
+        """
+        registry = MagicMock()
+        registry.list_ariel_search_modules.return_value = [name]
+        registry.get_ariel_search_module.side_effect = {name: module}.get
+
+        config = self._make_config({name: {"enabled": True}})
+        with patch("osprey.registry.get_registry", return_value=registry):
+            return get_capabilities(config)["categories"]["direct"]["modes"]
+
+    def test_hybrid_defaults_mirror_the_deployment(self):
+        """The panel opens hybrid's knobs on the deployment's settings block."""
+        config = self._make_config(
+            {"hybrid": {"enabled": True, "settings": {"rerank": False, "candidate_limit": 12}}}
+        )
+
+        defaults = self._mode_defaults(config, "hybrid")
+
+        assert defaults["rerank"] is False
+        assert defaults["candidate_limit"] == 12
+
+    def test_semantic_default_mirrors_the_deployment(self):
+        """The similarity slider opens on the deployment's own threshold."""
+        config = self._make_config(
+            {
+                "semantic": {
+                    "enabled": True,
+                    "model": "test",
+                    "settings": {"similarity_threshold": 0.8},
+                }
+            }
+        )
+
+        assert self._mode_defaults(config, "semantic")["similarity_threshold"] == 0.8
+
+    def test_shipped_defaults_survive_an_absent_settings_block(self):
+        """A deployment that tunes nothing still sees the shipped defaults."""
+        config = self._make_config(
+            {"hybrid": {"enabled": True}, "semantic": {"enabled": True, "model": "test"}}
+        )
+
+        hybrid = self._mode_defaults(config, "hybrid")
+        assert hybrid["rerank"] is True
+        assert hybrid["candidate_limit"] == 40
+        assert self._mode_defaults(config, "semantic")["similarity_threshold"] == 0.5
+
+    def test_malformed_settings_still_yield_a_payload(self):
+        """One bad key must not cost the panel its modes.
+
+        Startup validation is the surface that names a malformed key. Describing
+        the modules falls back to the shipped defaults instead of raising, so an
+        operator with a typo still gets a usable page to fix it from.
+        """
+        config = self._make_config(
+            {
+                "hybrid": {"enabled": True, "settings": {"rerank": "junk"}},
+                "semantic": {
+                    "enabled": True,
+                    "model": "test",
+                    "settings": {"similarity_threshold": "0.8"},
+                },
+            }
+        )
+
+        result = get_capabilities(config)
+        mode_names = [m["name"] for m in result["categories"]["direct"]["modes"]]
+
+        assert mode_names == ["semantic", "hybrid"]
+        assert self._mode_defaults(config, "hybrid")["rerank"] is True
+        assert self._mode_defaults(config, "semantic")["similarity_threshold"] == 0.5
+
+    def test_zero_arg_module_still_contributes_parameters(self):
+        """A third-party module that takes no config keeps its UI knobs.
+
+        The "add a module, get a UI knob for free" contract: a module whose
+        descriptors do not depend on the deployment stays a zero-argument
+        function, and calling it with a config would raise ``TypeError``.
+        """
+        third_party = types.ModuleType("legacy_third_party")
+        third_party.get_tool_descriptor = keyword_module.get_tool_descriptor
+        third_party.get_parameter_descriptors = lambda: [
+            ParameterDescriptor(
+                name="pin_depth",
+                label="Pin Depth",
+                description="A knob that owes nothing to the deployment config",
+                param_type="int",
+                default=7,
+                section="Options",
+            )
+        ]
+
+        modes = self._modes_from_stub("legacy_third_party", third_party)
+
+        assert [m["name"] for m in modes] == ["legacy_third_party"]
+        assert modes[0]["parameters"][0]["name"] == "pin_depth"
+        assert modes[0]["parameters"][0]["default"] == 7
+
+    def test_uninspectable_callable_is_treated_as_zero_arg(self):
+        """A callable whose signature cannot be read falls back to no arguments.
+
+        Some builtins and C-implemented callables refuse ``inspect.signature``.
+        Guessing "config-aware" there would break a working module; guessing
+        "zero-arg" only reproduces the older shape.
+        """
+
+        class _Opaque:
+            """A callable that refuses signature inspection."""
+
+            def __call__(self):
+                return [
+                    ParameterDescriptor(
+                        name="opaque",
+                        label="Opaque",
+                        description="From a callable with no readable signature",
+                        param_type="bool",
+                        default=True,
+                    )
+                ]
+
+            @property
+            def __signature__(self):
+                raise ValueError("no signature available")
+
+        module = types.ModuleType("opaque_module")
+        module.get_tool_descriptor = keyword_module.get_tool_descriptor
+        module.get_parameter_descriptors = _Opaque()
+
+        modes = self._modes_from_stub("opaque_module", module)
+
+        assert [p["name"] for p in modes[0]["parameters"]] == ["opaque"]
 
 
 VOCABULARY_YML = """

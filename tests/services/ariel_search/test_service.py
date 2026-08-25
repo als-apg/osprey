@@ -462,6 +462,56 @@ class TestServiceRouting:
         assert isinstance(error.__cause__, RuntimeError)
 
     @pytest.mark.asyncio
+    async def test_malformed_module_settings_reported_as_configuration(self):
+        """A module refusing its own settings block yields a *configuration* error.
+
+        The service answers module failures with an empty result plus one ERROR
+        diagnostic, so the diagnostic's category is the only machine-readable
+        signal an agent-side caller has. A malformed knob must not look like a
+        broken search -- otherwise the caller sends the operator to check a
+        sidecar that is healthy instead of the config key that is not.
+        """
+        from osprey.services.ariel_search.models import DiagnosticLevel
+
+        service = self._create_mock_service(
+            search_modules={"hybrid": {"enabled": True, "settings": {"rerank": "junk"}}}
+        )
+
+        result = await service.search("beam current", mode="hybrid")
+
+        assert result.entries == ()
+        errors = [d for d in result.diagnostics if d.level is DiagnosticLevel.ERROR]
+        assert len(errors) == 1
+        assert errors[0].category == "configuration"
+        assert errors[0].source == "service.hybrid"
+        # The module's own message survives verbatim, so it still names the key.
+        assert "search_modules.hybrid.settings.rerank" in errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_generic_module_failure_keeps_search_category(self):
+        """An ordinary module crash stays category "search"."""
+        from osprey.services.ariel_search.models import DiagnosticLevel
+
+        service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
+
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(side_effect=RuntimeError("index is on fire")),
+        ):
+            result = await service.search("beam current", mode="keyword")
+
+        errors = [d for d in result.diagnostics if d.level is DiagnosticLevel.ERROR]
+        assert len(errors) == 1
+        assert errors[0].category == "search"
+        assert "index is on fire" in errors[0].message
+
+    def test_error_result_defaults_to_search_category(self):
+        """The new category parameter does not move the default out from under callers."""
+        result = ARIELSearchService._error_result("keyword", "service.keyword", RuntimeError("x"))
+
+        assert result.diagnostics[0].category == "search"
+
+    @pytest.mark.asyncio
     async def test_semantic_results_projected_to_entries_and_sources(self, fake_embedding_provider):
         """Semantic hits become entries carrying _score, plus an entry_id source tuple."""
         service = self._create_mock_service(
@@ -851,6 +901,24 @@ class TestAdvancedParamsWiring:
         kwargs = keyword_search.call_args.kwargs
         assert kwargs["include_highlights"] is False
         assert kwargs["fuzzy_fallback"] is False
+
+    @pytest.mark.asyncio
+    async def test_advanced_params_rerank_reaches_hybrid(self):
+        """A per-query rerank override survives the trip into the hybrid module.
+
+        The spread at ``_run_module`` strips ``expand_query`` before dispatch;
+        this pins that ``rerank`` is not swallowed the same way, since the
+        module's ``**kwargs`` would hide the loss without a TypeError.
+        """
+        service = self._create_mock_service(search_modules={"hybrid": {"enabled": True}})
+
+        with patch(
+            "osprey.services.ariel_search.search.qmd.hybrid_search",
+            new=AsyncMock(return_value=[]),
+        ) as hybrid_search:
+            await service.search("test", mode="hybrid", advanced_params={"rerank": False})
+
+        assert hybrid_search.call_args.kwargs["rerank"] is False
 
     @pytest.mark.asyncio
     async def test_advanced_params_default_empty(self):

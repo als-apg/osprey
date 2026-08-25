@@ -541,6 +541,82 @@ class TestWipe:
 
 
 # ---------------------------------------------------------------------------
+# missing n10s plugin
+# ---------------------------------------------------------------------------
+
+
+class _FakeClientError(Exception):
+    """The shape of a driver ``Neo4jError``: a message plus a ``code``."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _procedure_not_found() -> _FakeClientError:
+    return _FakeClientError(
+        "Neo.ClientError.Procedure.ProcedureNotFound",
+        "There is no procedure with the name `n10s.graphconfig.show` "
+        "registered for this database instance.",
+    )
+
+
+class _NoPluginSession(FakeSession):
+    """A store that answers Cypher but has no n10s procedures registered."""
+
+    def __init__(self, raising: Exception, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._raising = raising
+
+    def run(self, query: str, **params: Any) -> FakeResult:
+        if "n10s." in query:
+            self.calls.append((query, params))
+            raise self._raising
+        return super().run(query, **params)
+
+
+class TestMissingPlugin:
+    """A store with no n10s plugin is named as such, not as a bad procedure.
+
+    The default image installs n10s at container start from the plugin
+    manifest; on a Neo4j version the manifest has no entry for, the jar is
+    silently absent and the first ``n10s.*`` call dies with
+    ``ProcedureNotFound`` — which reads like a corrupt database rather than an
+    unbuilt plugin (issue #715). ``bootstrap`` converts exactly that failure
+    into a :class:`MissingN10sPluginError` naming the server version.
+    """
+
+    _COMPONENTS = {
+        "dbms.components": [
+            {"name": "Neo4j Kernel", "versions": ["5.20.0"], "edition": "community"}
+        ]
+    }
+
+    def test_bootstrap_names_the_missing_plugin_and_the_server(self):
+        cause = _procedure_not_found()
+        session = _NoPluginSession(cause, responses=self._COMPONENTS)
+        with pytest.raises(graph_seeder.MissingN10sPluginError) as excinfo:
+            bootstrap(session)
+        message = str(excinfo.value)
+        assert "no compatible n10s plugin installed for Neo4j 5.20.0 community" in message
+        assert excinfo.value.__cause__ is cause
+
+    def test_message_survives_a_failed_version_lookup(self):
+        session = _NoPluginSession(_procedure_not_found())  # no components rows
+        with pytest.raises(graph_seeder.MissingN10sPluginError) as excinfo:
+            bootstrap(session)
+        assert "no compatible n10s plugin installed" in str(excinfo.value)
+
+    def test_other_client_errors_propagate_unchanged(self):
+        """Only the missing-procedure code is converted; a real fault keeps
+        its own type and message."""
+        cause = _FakeClientError("Neo.ClientError.Security.Unauthorized", "bad credentials")
+        session = _NoPluginSession(cause)
+        with pytest.raises(_FakeClientError, match="bad credentials"):
+            bootstrap(session)
+
+
+# ---------------------------------------------------------------------------
 # lazy import
 # ---------------------------------------------------------------------------
 

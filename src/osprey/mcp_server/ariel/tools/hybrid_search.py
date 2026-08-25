@@ -18,6 +18,7 @@ from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.tools.search_envelope import (
     ResultWindow,
     advanced_params,
+    diagnostics,
     raise_for_fault_exception,
     raise_for_vocabulary_error,
     raise_on_statement_fault,
@@ -35,6 +36,13 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.hybrid_search")
 # Diagnostic source the search service stamps on a failure of this mode.
 _QMD_DIAGNOSTIC_SOURCE = "service.hybrid"
 
+# Diagnostic category the service stamps when the module refused its own
+# settings block. The sidecar is healthy in that case, so the advice differs.
+_CONFIGURATION_CATEGORY = "configuration"
+
+# Prefix of the config keys the hybrid module resolves and can refuse.
+_SETTINGS_PREFIX = "search_modules.hybrid.settings"
+
 
 @mcp.tool()
 async def hybrid_search(
@@ -46,6 +54,7 @@ async def hybrid_search(
     source_system: str | None = None,
     exclude_entry_ids: list[str] | None = None,
     expand_query: bool | None = None,
+    rerank: bool | None = None,
 ) -> str:
     """Search the ARIEL logbook using hybrid keyword + semantic ranking.
 
@@ -73,11 +82,16 @@ async def hybrid_search(
         exclude_entry_ids: Entry IDs to exclude from results (for iterative search).
         expand_query: Apply the facility vocabulary (shorthand/acronym expansion).
             None = the configured default; see capabilities().vocabulary.expand_by_default.
+        rerank: Reorder the merged ranking with the qmd sidecar's LLM reranker.
+            None = the configured default. Reranking significantly improves
+            which entries come back and how they are ordered but is much
+            slower, so pass rerank=false and judge relevance yourself when
+            speed matters.
 
     Returns:
-        JSON with matching entries and relevance scores, plus the vocabulary
-        expansion applied. Scores order the results and are not comparable
-        across queries.
+        JSON with matching entries and relevance scores, the vocabulary
+        expansion applied, and any diagnostics the search reported. Scores
+        order the results and are not comparable across queries.
     """
     if not query or not query.strip():
         return make_error(
@@ -101,14 +115,25 @@ async def hybrid_search(
             time_range=time_range,
             mode="hybrid",
             advanced_params=advanced_params(
-                author=author, source_system=source_system, expand_query=expand_query
+                author=author,
+                source_system=source_system,
+                expand_query=expand_query,
+                rerank=rerank,
             ),
         )
 
         # Category-specific faults first: a rejected pattern or a cancelled
-        # statement is not a sidecar outage, and _sidecar_fault matches on the
-        # source alone.
+        # statement is not a sidecar outage, and _sidecar_fault matches on this
+        # mode's source with only the configuration category carved out.
         raise_on_statement_fault(result, "hybrid")
+
+        settings_fault = _settings_fault(result)
+        if settings_fault is not None:
+            return make_error(
+                "service_unavailable",
+                f"ARIEL hybrid search is misconfigured: {settings_fault}",
+                _settings_hints(settings_fault),
+            )
 
         fault = _sidecar_fault(result)
         if fault is not None:
@@ -117,6 +142,7 @@ async def hybrid_search(
             )
 
         response = success_envelope(query, "hybrid", result, window.select(result.entries))
+        response["diagnostics"] = diagnostics(result)
 
         return json.dumps(response, default=str)
 
@@ -177,20 +203,21 @@ def _configuration_hints(config_key: str) -> list[str]:
     return ["Check the ARIEL search module configuration in config.yml."]
 
 
-def _sidecar_fault(result: object) -> str | None:
-    """Return the message of a qmd-mode error diagnostic, or ``None``.
+def _mode_error(result: object) -> object | None:
+    """Return this mode's own ERROR diagnostic, or ``None``.
 
     The search service catches a module's exception and returns an empty result
-    carrying one ERROR diagnostic instead of propagating it, so an unreachable
-    sidecar reaches this tool looking exactly like a query that matched nothing.
-    Surfacing it as an error envelope is what keeps the agent from concluding
-    the corpus holds no answer when in fact nothing was searched.
+    carrying one ERROR diagnostic instead of propagating it, so a failed hybrid
+    query reaches this tool looking exactly like a query that matched nothing.
+    Finding that diagnostic is what keeps the agent from concluding the corpus
+    holds no answer when in fact nothing was searched.
 
     Args:
         result: The service's search result.
 
     Returns:
-        The diagnostic message, or ``None`` when the mode answered normally.
+        The diagnostic, or ``None`` when the mode answered normally. Another
+        mode's ERROR is not this mode's failure, so the source has to match.
     """
     from osprey.services.ariel_search.models import DiagnosticLevel
 
@@ -199,7 +226,86 @@ def _sidecar_fault(result: object) -> str | None:
             getattr(diagnostic, "level", None) is DiagnosticLevel.ERROR
             and getattr(diagnostic, "source", "") == _QMD_DIAGNOSTIC_SOURCE
         ):
-            return str(getattr(diagnostic, "message", "") or "no detail reported")
+            return diagnostic
+    return None
+
+
+def _settings_fault(result: object) -> str | None:
+    """Return the message of a refused-settings diagnostic, or ``None``.
+
+    Args:
+        result: The service's search result.
+
+    Returns:
+        The diagnostic message when the module refused its own configuration,
+        else ``None``. The service stamps the ``configuration`` category for
+        exactly this reason: the sidecar is answering fine and the operator
+        needs to be sent to a config key rather than to a health endpoint.
+    """
+    diagnostic = _mode_error(result)
+    if diagnostic is None or getattr(diagnostic, "category", None) != _CONFIGURATION_CATEGORY:
+        return None
+    return str(getattr(diagnostic, "message", "") or "no detail reported")
+
+
+def _sidecar_fault(result: object) -> str | None:
+    """Return the message of a qmd-mode outage diagnostic, or ``None``.
+
+    Args:
+        result: The service's search result.
+
+    Returns:
+        The diagnostic message, or ``None`` when the mode answered normally.
+        A ``configuration``-category error is deliberately not one of these --
+        ``_settings_fault`` claims that one first, because sidecar advice about
+        a healthy sidecar is worse than no advice at all.
+    """
+    diagnostic = _mode_error(result)
+    if diagnostic is None or getattr(diagnostic, "category", None) == _CONFIGURATION_CATEGORY:
+        return None
+    return str(getattr(diagnostic, "message", "") or "no detail reported")
+
+
+def _settings_hints(message: str) -> list[str]:
+    """Advise on a settings value the hybrid module refused.
+
+    Args:
+        message: The module's own error text, which normally names the key.
+
+    Returns:
+        Suggestions for the error envelope. The module raises with the full
+        dotted key in its message, so the first suggestion names it when it is
+        there and falls back to the settings block when it is not -- a module
+        message is the module's to write and is not guaranteed to carry one.
+    """
+    key = _offending_key(message)
+    return [
+        f"Fix ariel.{key} in config.yml and restart the ARIEL service."
+        if key
+        else (
+            f"Fix the hybrid search module's settings in config.yml "
+            f"(ariel.{_SETTINGS_PREFIX}) and restart the ARIEL service."
+        ),
+        "The qmd sidecar is not the problem here — the module rejected its own "
+        "configuration before querying it.",
+        "Use keyword_search or semantic_search meanwhile.",
+    ]
+
+
+def _offending_key(message: str) -> str | None:
+    """Pull the settings key out of the module's own error text.
+
+    Args:
+        message: The module's error text.
+
+    Returns:
+        The dotted key it names, or ``None``. Matching on the settings prefix
+        keeps this from quoting an arbitrary word back at the operator when the
+        message happens not to name a key.
+    """
+    for token in message.replace(",", " ").split():
+        if token.startswith(_SETTINGS_PREFIX):
+            return token.rstrip(".:")
     return None
 
 

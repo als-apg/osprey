@@ -21,7 +21,7 @@ Three claims, in the order the chain makes them:
    ``tests/cli/test_channel_finder_graph_tools.py`` pins the same shape off
    ``create_project``; this module pins it off the render ``osprey build``
    actually produces, which is a second code path (``regenerate_claude_code``).
-2. **That server talks to a real store.** A throwaway Neo4j 5.20 +
+2. **That server talks to a real store.** A throwaway Neo4j 5.26 +
    neosemantics container, seeded with the shipped demo-machine corpus through
    ``osprey knowledge seed-graph`` — the container, plugin and seeding recipe
    are imported wholesale from the sibling module rather than restated, so the
