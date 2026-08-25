@@ -61,7 +61,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="prev" title="CLI Reference" href="../cli-reference/index.html" />
+    <link rel="next" title="Development Setup" href="development-setup.html" />
+    <link rel="prev" title="Facility Graph Contracts" href="../reference/contracts/facility-graph.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -149,15 +150,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,15 +293,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -367,7 +382,13 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"></div>
+  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="development-setup.html">Development Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workflow.html">Git and GitHub Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extending-osprey.html">Extending Osprey</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-skills.html">Agent Skills</a></li>
+</ul>
+</div>
 </nav></div>
     </div>
   
@@ -425,511 +446,54 @@
                   
   <section id="contributing-to-osprey">
 <h1>Contributing to Osprey<a class="headerlink" href="#contributing-to-osprey" title="Link to this heading">#</a></h1>
-<p>Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, and community guidelines.</p>
+<p>Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, the agent skills that automate them, and community guidelines.</p>
 <hr class="docutils" />
-<section id="environment-setup">
-<h2>Environment Setup<a class="headerlink" href="#environment-setup" title="Link to this heading">#</a></h2>
-<p><strong>Prerequisites:</strong> Python 3.11+, Git, a GitHub account, and <a class="reference external" href="https://docs.astral.sh/uv/">uv</a>.</p>
-<p><strong>1. Fork and Clone</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/YOUR-USERNAME/osprey.git
-<span class="nb">cd</span><span class="w"> </span>osprey
-</pre></div>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Development Setup</div>
+<p class="sd-card-text">Fork, install with <code class="docutils literal notranslate"><span class="pre">uv</span></code>, wire up pre-commit — and the Python,
+front-end, and testing standards your change is held to.</p>
 </div>
-<p><strong>2. Install Dependencies</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install all dev and docs dependencies (creates .venv automatically)</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>docs
-
-<span class="c1"># Add a new dependency</span>
-uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
-</pre></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="development-setup.html"><span class="doc">Development Setup</span></a></div>
 </div>
-<p><strong>3. Set Up Pre-commit Hooks</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pre-commit<span class="w"> </span>install
-</pre></div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Git and GitHub Workflow</div>
+<p class="sd-card-text">Branch naming, the three-tier local test run, conventional commits, and
+what happens to your pull request on the way to <code class="docutils literal notranslate"><span class="pre">main</span></code>.</p>
 </div>
-<p>Hooks auto-fix formatting and prevent commits with common problems.</p>
-<p><strong>4. Verify Installation</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>-v
-</pre></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="workflow.html"><span class="doc">Git and GitHub Workflow</span></a></div>
 </div>
-<p>If all tests pass, you are ready to contribute.</p>
-</section>
-<hr class="docutils" />
-<section id="git-and-github-workflow">
-<h2>Git and GitHub Workflow<a class="headerlink" href="#git-and-github-workflow" title="Link to this heading">#</a></h2>
-<section id="branch-strategy">
-<h3>Branch Strategy<a class="headerlink" href="#branch-strategy" title="Link to this heading">#</a></h3>
-<p>Osprey follows <strong>GitHub Flow</strong>: a single long-lived branch (<code class="docutils literal notranslate"><span class="pre">main</span></code>) with
-short-lived topic branches that PR back into it. Releases are CalVer tags
-(<code class="docutils literal notranslate"><span class="pre">vYYYY.M.P</span></code>) on <code class="docutils literal notranslate"><span class="pre">main</span></code> — no separate release branch.</p>
-<p><strong>What this means for contributors:</strong></p>
-<ul class="simple">
-<li><p>Branch your work off <code class="docutils literal notranslate"><span class="pre">main</span></code>, and open your PR against <code class="docutils literal notranslate"><span class="pre">main</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">main</span></code> is always the integration target. CI gates every PR; protected status checks must pass before merge.</p></li>
-<li><p>Releases are cut by maintainers tagging a commit on <code class="docutils literal notranslate"><span class="pre">main</span></code>; the PyPI publish workflow runs on <code class="docutils literal notranslate"><span class="pre">v*.*.*</span></code> tags.</p></li>
-<li><p>The <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> workspace package versions with the framework’s calendar stream and releases from the <strong>same</strong> <code class="docutils literal notranslate"><span class="pre">v*.*.*</span></code> tag: one tag publishes both wheels, always carrying the same number. (Its old independent <code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> line is retired.)</p></li>
-<li><p>Hotfixes follow the same path: branch from the tag (or <code class="docutils literal notranslate"><span class="pre">main</span></code>), PR back, tag again as <code class="docutils literal notranslate"><span class="pre">vYYYY.M.P+1</span></code>. No special hotfix branches.</p></li>
-<li><p>Documentation publishes on the same tags: the site root is always the newest release; every push to <code class="docutils literal notranslate"><span class="pre">main</span></code> rebuilds <code class="docutils literal notranslate"><span class="pre">/latest/</span></code>, shown with a development banner.</p></li>
-</ul>
-</section>
-<section id="branch-naming">
-<h3>Branch Naming<a class="headerlink" href="#branch-naming" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">feature/description</span></code> – New features</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">fix/description</span></code> – Bug fixes</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">docs/description</span></code> – Documentation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">refactor/description</span></code> – Code refactoring</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">test/description</span></code> – Test improvements</p></li>
-</ul>
-</section>
-<section id="making-changes">
-<h3>Making Changes<a class="headerlink" href="#making-changes" title="Link to this heading">#</a></h3>
-<p><strong>1. Create a branch:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feature/your-feature-name
-</pre></div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Extending Osprey</div>
+<p class="sd-card-text">The seam map: connector, archiver, MCP server, chat bridge, ARIEL,
+health plugin, panel, LUME model – each with the class or registry to
+subclass, a pinning test, and the how-to that configures it.</p>
 </div>
-<p><strong>2. Make changes</strong> – follow the code standards below, add tests, update docs.</p>
-<p><strong>3. Test locally</strong> using the three-tier system:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Tier 1: Quick check (&lt; 30s) -- before every commit</span>
-./scripts/quick_check.sh
-
-<span class="c1"># Tier 2: Full CI check (2-3 min) -- before pushing</span>
-./scripts/ci_check.sh
-
-<span class="c1"># Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)</span>
-./scripts/premerge_check.sh<span class="w"> </span>main
-</pre></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="extending-osprey.html"><span class="doc">Extending Osprey</span></a></div>
 </div>
-<p><strong>4. Commit changes</strong> using conventional commit format:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>add<span class="w"> </span>.
-git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(scope): short description</span>
-
-<span class="s2">- Detail about what changed</span>
-<span class="s2">- Another detail&quot;</span>
-</pre></div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Agent Skills</div>
+<p class="sd-card-text">Six installable skills that teach a coding agent Osprey’s own
+playbooks – which one to install at each step of the contributor
+journey, and where the deployer-facing ones are documented.</p>
 </div>
-</section>
-<section id="commit-message-format">
-<h3>Commit Message Format<a class="headerlink" href="#commit-message-format" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">feat:</span></code> – New features</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">fix:</span></code> – Bug fixes</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">docs:</span></code> – Documentation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">refactor:</span></code> – Code refactoring</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">test:</span></code> – Tests</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">chore:</span></code> – Dependencies, build</p></li>
-</ul>
-<p>Every commit needs a corresponding CHANGELOG entry added <strong>before</strong> committing.</p>
-</section>
-<section id="pull-request-process">
-<h3>Pull Request Process<a class="headerlink" href="#pull-request-process" title="Link to this heading">#</a></h3>
-<ol class="arabic simple">
-<li><p>Push your branch: <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">origin</span> <span class="pre">feature/your-feature-name</span></code></p></li>
-<li><p>Open a PR on GitHub with a description, related issues, and testing performed.</p></li>
-<li><p>PR requirements: pass all required CI checks, include a <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.</p></li>
-<li><p>During review: respond to feedback promptly, make requested changes, ask questions if unclear.</p></li>
-</ol>
-</section>
-<section id="branch-protection-on-main">
-<h3>Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code><a class="headerlink" href="#branch-protection-on-main" title="Link to this heading">#</a></h3>
-<p>Direct pushes to <code class="docutils literal notranslate"><span class="pre">main</span></code> are rejected. All changes land via PR. The ruleset
-enforces:</p>
-<ul class="simple">
-<li><p>All required CI checks must pass (no admin bypass).</p></li>
-<li><p>Linear history (use <code class="docutils literal notranslate"><span class="pre">gh</span> <span class="pre">pr</span> <span class="pre">merge</span> <span class="pre">--rebase</span></code>; merge commits are rejected).</p></li>
-<li><p>Force-pushes and branch deletion on <code class="docutils literal notranslate"><span class="pre">main</span></code> are denied.</p></li>
-</ul>
-<p>If a required check turns out to be wrong, fix it forward — there is no
-escape hatch.</p>
-</section>
-<section id="dependency-update-pull-requests">
-<h3>Dependency Update Pull Requests<a class="headerlink" href="#dependency-update-pull-requests" title="Link to this heading">#</a></h3>
-<p>Dependabot opens pull requests for dependency bumps, subject to a <strong>seven-day
-cooldown</strong>: a release is not proposed until it has been public for a week, so
-that a hijacked or malicious version has time to be found and yanked before it
-reaches this repository. Security updates are exempt, by design — a fix for a
-known vulnerability should not wait.</p>
-<p>These pull requests run with a deliberate gap in coverage. GitHub treats a
-Dependabot-triggered run as if it came from a fork: it receives only the
-Dependabot secret store, never the repository’s Actions secrets. The lanes that
-need a live model endpoint therefore <strong>skip</strong> rather than run — the agentic
-flows, the E2E suite, the dispatch stacks, and the two chat bridges. The run
-summary of the <code class="docutils literal notranslate"><span class="pre">All</span> <span class="pre">CI</span> <span class="pre">Checks</span> <span class="pre">Passed</span></code> job names them explicitly, so a green
-check on a dependency PR is never mistaken for full coverage.</p>
-<p>To close that gap before merging, review the diff and then revalidate the branch
-yourself. Because <em>you</em> trigger it, that run gets the normal secrets:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gh<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>ci.yml<span class="w"> </span>--ref<span class="w"> </span>&lt;dependabot-branch&gt;<span class="w"> </span>-f<span class="w"> </span><span class="nv">revalidate_secret_lanes</span><span class="o">=</span><span class="nb">true</span>
-</pre></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="agent-skills.html"><span class="doc">Agent Skills</span></a></div>
 </div>
-<p>Find the branch name with <code class="docutils literal notranslate"><span class="pre">gh</span> <span class="pre">pr</span> <span class="pre">view</span> <span class="pre">&lt;number&gt;</span> <span class="pre">--json</span> <span class="pre">headRefName</span></code>. Watch the
-resulting run to completion before merging.</p>
-<p>The reason this is a manual step rather than an automatic one is worth stating:
-mirroring the model API key into the Dependabot secret store would make these
-lanes pass unattended, but it would also hand a live credential to a
-newly-published third-party package at install time — the precise supply-chain
-exposure the cooldown exists to reduce. The human read of the diff is the point,
-not an inconvenience around it.</p>
-</section>
-<section id="osprey-agent-workflow-skill">
-<h3>Osprey Agent Workflow Skill<a class="headerlink" href="#osprey-agent-workflow-skill" title="Link to this heading">#</a></h3>
-<p>If you use the Osprey agent (e.g., via <a class="reference external" href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>),
-install the bundled <code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> skill to get guided help following
-this workflow:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-contribute
-</pre></div>
 </div>
-<p>The skill walks you through branching, commits, push, PR, and CI iteration,
-auto-detecting whether you have push access to <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> or are
-contributing from a fork. It composes with the other bundled skills:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code> – standalone validation runs</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">commit-organize</span></code> – splits a messy working tree into atomic commits</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-release</span></code> – the release-cutting flow for maintainers</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-design-philosophy</span></code> – OSPREY’s design and architecture principles,
-for designing or reviewing a feature before you open the PR</p></li>
-</ul>
-<p>List all installable skills with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">osprey</span> <span class="pre">skills</span> <span class="pre">install</span> <span class="pre">--help</span></code>.</p>
-</section>
-</section>
-<hr class="docutils" />
-<section id="code-standards">
-<h2>Code Standards<a class="headerlink" href="#code-standards" title="Link to this heading">#</a></h2>
-<section id="design-principles">
-<h3>Design Principles<a class="headerlink" href="#design-principles" title="Link to this heading">#</a></h3>
-<p>Before designing a new connector, MCP server, provider, capability, or any
-non-trivial feature, consult OSPREY’s design and architecture principles – the
-safe-state default, facility-neutral core, measured symmetry with peer
-subsystems, swappable components, and discoverable user-facing features.
-Install the bundled skill so the Osprey agent applies them as you design and
-review:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-design-philosophy
-</pre></div>
 </div>
-<p>The principles guide decisions; they are not mechanical rules. When a change
-feels wrong but the reason is hard to name, they help you name the drift and
-correct it before you open the PR.</p>
-</section>
-<section id="python-style">
-<h3>Python Style<a class="headerlink" href="#python-style" title="Link to this heading">#</a></h3>
-<p>We follow PEP 8 with Ruff enforcement:</p>
-<ul class="simple">
-<li><p><strong>Line length</strong>: 100 characters</p></li>
-<li><p><strong>Type hints</strong>: Gradual typing enforced with mypy</p></li>
-<li><p><strong>Docstrings</strong>: Google style</p></li>
-<li><p><strong>Classes</strong>: PascalCase, <strong>Functions</strong>: snake_case, <strong>Constants</strong>: UPPER_SNAKE_CASE</p></li>
-</ul>
-<p><strong>Import organization:</strong> standard library, then third-party, then local (<code class="docutils literal notranslate"><span class="pre">from</span> <span class="pre">osprey...</span></code>).</p>
-</section>
-<section id="linting-and-formatting">
-<h3>Linting and Formatting<a class="headerlink" href="#linting-and-formatting" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Lint and format</span>
-uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>tests/
-uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>src/<span class="w"> </span>tests/
-
-<span class="c1"># Auto-fix lint issues</span>
-uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>--fix<span class="w"> </span>src/<span class="w"> </span>tests/
-
-<span class="c1"># Type checking</span>
-uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/
-</pre></div>
-</div>
-</section>
-<section id="testing">
-<h3>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h3>
-<p>All new functionality must include tests.</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 20.0%" />
-<col style="width: 40.0%" />
-<col style="width: 40.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Type</p></th>
-<th class="head"><p>When to Use</p></th>
-<th class="head"><p>Cost/Speed</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><strong>Unit</strong></p></td>
-<td><p>Pure functions, business logic, utilities</p></td>
-<td><p>Fast, no external dependencies</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Integration</strong></p></td>
-<td><p>Component interactions, API endpoints</p></td>
-<td><p>Medium</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>E2E</strong></p></td>
-<td><p>Critical user flows, deployment validation</p></td>
-<td><p>Slow, requires API keys ($0.10-$0.25/run)</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Browser</strong></p></td>
-<td><p>Real-browser page loads, theming, JS module loading (Playwright + Chromium)</p></td>
-<td><p>Slow; needs Chromium (auto-installed in CI, skips locally if absent)</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>Running tests:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Unit tests (fast, no API keys required)</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>-v
-
-<span class="c1"># Single test file</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/path/to/test_file.py<span class="w"> </span>-v
-
-<span class="c1"># Single test function</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/path/to/test_file.py::test_function_name<span class="w"> </span>-v
-
-<span class="c1"># E2E tests (requires API keys) -- MUST use path, NOT marker</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/e2e/<span class="w"> </span>-v
-
-<span class="c1"># Browser smokes (Playwright + Chromium; skips if the browser is absent)</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/interfaces/<span class="w"> </span>-m<span class="w"> </span>browser<span class="w"> </span>-v
-
-<span class="c1"># With coverage</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>--cov<span class="o">=</span>src/osprey
-</pre></div>
-</div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>E2E tests <strong>must</strong> be run with <code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">tests/e2e/</span></code> not <code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">-m</span> <span class="pre">e2e</span></code>.
-The marker-based approach causes registry state leaks and service conflicts.</p>
-</div>
-</section>
-<section id="front-end-javascript-testing">
-<h3>Front-End (JavaScript) Testing<a class="headerlink" href="#front-end-javascript-testing" title="Link to this heading">#</a></h3>
-<p>Front-end code (<code class="docutils literal notranslate"><span class="pre">static/js/</span></code> under each <code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/&lt;name&gt;/</span></code>) gets
-its own dev/CI-only Node toolchain – <code class="docutils literal notranslate"><span class="pre">tsc</span> <span class="pre">--noEmit</span></code> for types and
-<a class="reference external" href="https://vitest.dev/">Vitest</a> for unit tests. Neither is needed to install or
-run Osprey; both run only in dev and CI, the front-end analogues of <code class="docutils literal notranslate"><span class="pre">mypy</span></code>
-and <code class="docutils literal notranslate"><span class="pre">pytest</span></code>.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Type-check every // @ts-check&#39;d file (opt-in per file -- see below)</span>
-npm<span class="w"> </span>run<span class="w"> </span>typecheck
-
-<span class="c1"># All Vitest units (happy-dom, no real browser)</span>
-npm<span class="w"> </span>run<span class="w"> </span>test:js
-
-<span class="c1"># A single Vitest file</span>
-npx<span class="w"> </span>vitest<span class="w"> </span>run<span class="w"> </span>tests/interfaces/artifacts/preview.test.mjs
-</pre></div>
-</div>
-<p>A front-end change is covered by up to five rails, narrowest/fastest to
-broadest/slowest:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 18.0%" />
-<col style="width: 47.0%" />
-<col style="width: 35.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Rail</p></th>
-<th class="head"><p>Covers</p></th>
-<th class="head"><p>Run</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><strong>Vitest unit</strong></p></td>
-<td><p>Pure logic in one module: mocked <code class="docutils literal notranslate"><span class="pre">fetch</span></code>, no real browser (happy-dom)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">npx</span> <span class="pre">vitest</span> <span class="pre">run</span> <span class="pre">tests/interfaces/&lt;iface&gt;/&lt;module&gt;.test.mjs</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Loads-clean</strong></p></td>
-<td><p>Page boots in a real browser with no uncaught JS exception and no
-failed same-origin script/stylesheet fetch</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/test_load_smokes.py</span> <span class="pre">-m</span> <span class="pre">browser</span> <span class="pre">-k</span> <span class="pre">&lt;iface&gt;</span> <span class="pre">-v</span></code></p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Contract</strong></p></td>
-<td><p>Shell&lt;-&gt;panel chrome contract: <code class="docutils literal notranslate"><span class="pre">?embedded=true</span></code> hides branding, the
-theme switcher shows/hides correctly, a reload after a theme toggle
-carries no stale <code class="docutils literal notranslate"><span class="pre">?theme=</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span> <span class="pre">-m</span> <span class="pre">browser</span> <span class="pre">-v</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Visual</strong></p></td>
-<td><p>Pixel-level screenshot diff per interface x theme against a committed
-baseline PNG</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/design_system/test_visual.py</span> <span class="pre">-k</span> <span class="pre">&lt;iface&gt;</span> <span class="pre">-v</span></code></p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Interaction pin</strong></p></td>
-<td><p>A real user flow through a real browser and a real backend, proving a
-multi-module wiring didn’t drop a call across a split – the one net a
-per-module Vitest suite (which mocks its neighbors) cannot cast</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/&lt;iface&gt;/test_&lt;flow&gt;.py</span> <span class="pre">-m</span> <span class="pre">browser</span> <span class="pre">-v</span></code></p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p><code class="docutils literal notranslate"><span class="pre">test_visual.py</span></code> is marked <code class="docutils literal notranslate"><span class="pre">slow</span></code>, <strong>not</strong> <code class="docutils literal notranslate"><span class="pre">browser</span></code> – an
-<code class="docutils literal notranslate"><span class="pre">-m</span> <span class="pre">browser</span></code> selector silently matches zero of its cases. Select it with
-<code class="docutils literal notranslate"><span class="pre">-k</span> <span class="pre">&lt;target-name&gt;</span></code> (or run the file directly) instead.</p>
-</div>
-<p><strong>What a new panel or extracted module must ship with:</strong></p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">//</span> <span class="pre">&#64;ts-check</span></code> as line 1, plus full JSDoc (<code class="docutils literal notranslate"><span class="pre">&#64;param</span></code>/<code class="docutils literal notranslate"><span class="pre">&#64;returns</span></code>).
-<code class="docutils literal notranslate"><span class="pre">tsconfig.json</span></code> sets <code class="docutils literal notranslate"><span class="pre">checkJs:</span> <span class="pre">false</span></code> repo-wide, so a file is
-type-checked only once it opts in – a module missing the pragma makes
-<code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">typecheck</span></code> <em>pass</em> while checking nothing inside it.</p></li>
-<li><p>A Vitest file, one-to-one by name (<code class="docutils literal notranslate"><span class="pre">foo.js</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">foo.test.mjs</span></code>), covering
-the module’s pure logic and DOM-visible behavior in isolation.</p></li>
-<li><p>If the module is wired into a page: a <code class="docutils literal notranslate"><span class="pre">test_load_smokes.py</span></code> entry for
-that page, so a broken import or a typo’d export name surfaces as a real
-thrown exception instead of a silent no-op.</p></li>
-<li><p>If it’s a <strong>panel</strong> (embeddable in the Web Terminal hub): support both
-standalone and embedded modes – <code class="docutils literal notranslate"><span class="pre">applyEmbedded()</span></code> on load, an
-<code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;</span></code> that hides itself when embedded (the hub owns
-theme chrome there), branding hidden when embedded – plus a
-<code class="docutils literal notranslate"><span class="pre">test_contract_params.py</span></code> case, which is the up-to-date spec for the
-dual-mode checklist and well-known parameters. See
-<a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a> for how panels embed in the hub.</p></li>
-<li><p>If the change is visible on screen: a <code class="docutils literal notranslate"><span class="pre">test_visual.py</span></code> <code class="docutils literal notranslate"><span class="pre">TARGETS</span></code> entry
-and a committed baseline PNG (regenerate with <code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code> on
-Linux/CI – a baseline captured on macOS will mismatch there).</p></li>
-<li><p>If the change moves real behavior across a module boundary (a callback that
-used to call a sibling directly now goes through an injected factory, a
-delegator, or a re-exported method): an interaction pin that drives the
-whole chain through a real browser, not just each module’s own
-mocked-neighbor Vitest suite.</p></li>
-</ul>
-<p><strong>JSDoc / cast conventions</strong> (<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/vendor-globals.d.ts</span></code> and
-the exemplars below have worked examples):</p>
-<ul class="simple">
-<li><p>Vendored classic-script globals that never get real npm types (Plotly,
-<code class="docutils literal notranslate"><span class="pre">marked</span></code>, <code class="docutils literal notranslate"><span class="pre">hljs</span></code>, KaTeX) get <strong>one</strong> shared ambient-declarations file
-(<code class="docutils literal notranslate"><span class="pre">vendor-globals.d.ts</span></code>, <code class="docutils literal notranslate"><span class="pre">declare</span> <span class="pre">const</span> <span class="pre">X:</span> <span class="pre">any;</span></code>) rather than a
-per-call-site cast.</p></li>
-<li><p>A <code class="docutils literal notranslate"><span class="pre">document.getElementById</span></code>/<code class="docutils literal notranslate"><span class="pre">querySelector</span></code> result that needs a
-property the generic <code class="docutils literal notranslate"><span class="pre">Element</span></code>/<code class="docutils literal notranslate"><span class="pre">HTMLElement</span></code> type doesn’t have
-(<code class="docutils literal notranslate"><span class="pre">.value</span></code>, <code class="docutils literal notranslate"><span class="pre">.checked</span></code>, <code class="docutils literal notranslate"><span class="pre">.dataset</span></code>, <code class="docutils literal notranslate"><span class="pre">.disabled</span></code>) gets an inline
-type-assertion cast to the concrete element type at the call site –
-<code class="docutils literal notranslate"><span class="pre">/**</span> <span class="pre">&#64;type</span> <span class="pre">{HTMLInputElement}</span> <span class="pre">*/</span> <span class="pre">(document.getElementById(&quot;foo&quot;))</span></code>.</p></li>
-<li><p>For <code class="docutils literal notranslate"><span class="pre">querySelectorAll(...).forEach(callback)</span></code> where the callback needs a
-narrower element type than <code class="docutils literal notranslate"><span class="pre">Element</span></code>: cast the <strong>collection</strong>, not the
-per-item callback parameter. TypeScript’s contravariant
-function-parameter checking rejects a callback typed to accept only
-<code class="docutils literal notranslate"><span class="pre">HTMLInputElement</span></code> where one accepting any <code class="docutils literal notranslate"><span class="pre">Element</span></code> is expected, even
-though <code class="docutils literal notranslate"><span class="pre">HTMLInputElement</span></code> narrows <code class="docutils literal notranslate"><span class="pre">Element</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">catch</span> <span class="pre">(e)</span></code> blocks that read the error message use
-<code class="docutils literal notranslate"><span class="pre">e</span> <span class="pre">instanceof</span> <span class="pre">Error</span> <span class="pre">?</span> <span class="pre">e.message</span> <span class="pre">:</span> <span class="pre">String(e)</span></code> (<code class="docutils literal notranslate"><span class="pre">e</span></code> is <code class="docutils literal notranslate"><span class="pre">unknown</span></code> under
-<code class="docutils literal notranslate"><span class="pre">strict</span></code>); a <code class="docutils literal notranslate"><span class="pre">catch</span></code> that only logs the raw value needs no cast.</p></li>
-<li><p>Shared design-system helpers are imported by the absolute
-<code class="docutils literal notranslate"><span class="pre">/design-system/js/*</span></code> specifier, mapped in both <code class="docutils literal notranslate"><span class="pre">tsconfig.json</span></code> and
-<code class="docutils literal notranslate"><span class="pre">vitest.config.js</span></code>’s <code class="docutils literal notranslate"><span class="pre">resolve.alias</span></code> – the same import path resolves
-under the type-checker, Vitest, and the real browser.</p></li>
-</ul>
-<p><strong>Exemplars</strong> (concrete, complete, worth reading before writing your own):</p>
-<ul class="simple">
-<li><p>Vitest unit, factory-with-injected-callbacks pattern:
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/artifacts/preview.test.mjs</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/lattice_dashboard/render.test.mjs</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/scaffold-detail.test.mjs</span></code>.</p></li>
-<li><p>Interaction pin, proving a multi-module split still wires up end to end:
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/artifacts/test_gallery_interactions.py</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_scaffold_detail.py</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/lattice_dashboard/test_settings_form.py</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_session_page.py</span></code>.</p></li>
-<li><p>Contract + dual-mode chrome: <code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span></code>.</p></li>
-<li><p>Visual baselines: <code class="docutils literal notranslate"><span class="pre">tests/interfaces/design_system/test_visual.py</span></code>.</p></li>
-<li><p>Loads-clean: <code class="docutils literal notranslate"><span class="pre">tests/interfaces/test_load_smokes.py</span></code>.</p></li>
-</ul>
-</section>
-<section id="docstrings">
-<h3>Docstrings<a class="headerlink" href="#docstrings" title="Link to this heading">#</a></h3>
-<p>All public functions, classes, and methods need Google-style docstrings:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">capability_function</span><span class="p">(</span><span class="n">param1</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">param2</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Short description of function.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        param1: Description of first parameter.</span>
-<span class="sd">        param2: Description of second parameter.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Description of return value.</span>
-
-<span class="sd">    Raises:</span>
-<span class="sd">        ValueError: When parameter is invalid.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-</pre></div>
-</div>
-</section>
-</section>
-<hr class="docutils" />
-<section id="refreshing-documentation-screenshots">
-<h2>Refreshing documentation screenshots<a class="headerlink" href="#refreshing-documentation-screenshots" title="Link to this heading">#</a></h2>
-<p>The committed doc images under <code class="docutils literal notranslate"><span class="pre">docs/source/_static/screenshots/</span></code> are
-regenerated from a declarative registry, not captured by hand. Each image is one
-<code class="docutils literal notranslate"><span class="pre">DocShot</span></code> recipe in <code class="docutils literal notranslate"><span class="pre">docs/screenshots/recipes.py</span></code> – the authoritative list
-of every doc screenshot and how it is produced. List them with:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots<span class="w"> </span>list
-</pre></div>
-</div>
-<p><strong>The default is container-free.</strong> <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">screenshots</span></code> (or <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span>
-<span class="pre">docs.screenshots</span></code>) captures only the <code class="docutils literal notranslate"><span class="pre">standalone_interface</span></code> recipes – each
-boots a single interface <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> on a throwaway port, so it needs
-neither a container runtime nor seeded data. Regenerate one recipe with
-<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">screenshots-&lt;name&gt;</span></code>.</p>
-<p><strong>Two opt-in environments</strong> cover the images that need real data:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">SCREENSHOTOPTS=--stack</span></code> – the ARIEL search/browse/create/status views.
-Builds the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> tutorial project, brings up Postgres
-(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code>), and seeds the logbook with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">nominal</span> <span class="pre">--yes</span> <span class="pre">--now</span> <span class="pre">&lt;anchor&gt;</span></code>. Needs a container runtime
-and a free host port 5432. The <code class="docutils literal notranslate"><span class="pre">--now</span></code> anchor freezes the seeded dates, so
-repeat captures are byte-stable.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">SCREENSHOTOPTS=--agentic</span></code> – the Web Terminal hero. Drives a live agent
-session to produce a real beam-current plot, so it needs a live Claude
-session on your subscription budget. Success is a structural check (non-blank
-image, correct viewport, plot present), not a byte comparison.</p></li>
-</ul>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>make<span class="w"> </span>screenshots<span class="w">                          </span><span class="c1"># default: standalone only</span>
-<span class="gp">$ </span>make<span class="w"> </span>screenshots<span class="w"> </span><span class="nv">SCREENSHOTOPTS</span><span class="o">=</span>--stack<span class="w">    </span><span class="c1"># + ARIEL views (containers)</span>
-<span class="gp">$ </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots<span class="w"> </span>--agentic<span class="w"> </span>--only<span class="w"> </span>web_terminal_hero
-</pre></div>
-</div>
-<p><strong>Provenance is automatic.</strong> Every capture stamps <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code> with the
-OSPREY version and UTC timestamp, and each figure’s <em>“Captured with OSPREY
-vX.Y.Z”</em> caption is generated from it – never hand-edit the version in a
-caption.</p>
-<p>This framework is <strong>capture-only</strong>: it is never a CI gate (the stack needs
-Postgres; the hero needs a live agent). It is distinct from the CI visual-drift
-guard – pixel diffs of each rendered interface against a committed baseline
-live in the front-end <strong>Visual</strong> tests above (regenerated with
-<code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code>), and continue to run in CI unchanged.</p>
-</section>
-<hr class="docutils" />
-<section id="reviewing-a-web-interface-redesign-contact-sheet">
-<h2>Reviewing a web-interface redesign (contact sheet)<a class="headerlink" href="#reviewing-a-web-interface-redesign-contact-sheet" title="Link to this heading">#</a></h2>
-<p>When a web interface is being restyled, the <strong>contact-sheet renderer</strong> boots the
-<em>real</em> interface in every theme/mode variant and folds the shots into one
-self-contained page, so a whole redesign can be reviewed as a single artifact –
-no live agent, provider, hardware, or network. It lives beside the screenshot
-framework in <code class="docutils literal notranslate"><span class="pre">docs/screenshots/</span></code> but is a review tool, not a committed doc
-image: nothing it produces is checked in or CI-gated.</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots.contact_sheet<span class="w"> </span>--out<span class="w"> </span>/tmp/sheet
-</pre></div>
-</div>
-<p>That captures the Web Terminal’s four shells – the <strong>dark</strong> and <strong>light</strong> themes
-crossed with the <strong>expert</strong> and <strong>simple</strong> UI modes – writes one PNG per cell
-into the output directory, composes them into <code class="docutils literal notranslate"><span class="pre">contact-sheet.html</span></code> there, and
-prints its path. Open that one file to review every variant side by side.</p>
-<p><strong>Comparing accent candidates.</strong> Add <code class="docutils literal notranslate"><span class="pre">--accents</span></code> to render each of the four
-variants twice, once under each accent candidate (blue vs teal), so a pending
-accent decision can be made from real output rather than a mockup:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots.contact_sheet<span class="w"> </span>--out<span class="w"> </span>/tmp/sheet<span class="w"> </span>--accents
-</pre></div>
-</div>
-<p>To keep every cell looking like a working session with no live backend, the
-renderer points the workspace panel at a pre-seeded demo store and replays a
-canned terminal transcript. That transcript is width-guarded against the narrow
-terminal card – the run fails fast if a line would overflow, before any browser
-launches. Where no browser runtime is available the run skips with a one-line
-notice instead of erroring.</p>
-<p><strong>Extending it to another target.</strong> The variant grid is the <code class="docutils literal notranslate"><span class="pre">VARIANTS</span></code> list of
-<code class="docutils literal notranslate"><span class="pre">(theme,</span> <span class="pre">mode)</span></code> tuples near the top of <code class="docutils literal notranslate"><span class="pre">contact_sheet.py</span></code>, and the
-completeness invariant <code class="docutils literal notranslate"><span class="pre">_FULL_MATRIX</span></code> mirrors it – add a cell to <em>both</em> to
-capture a new theme/mode combination. To cover a new panel, seed its backing
-store the way <code class="docutils literal notranslate"><span class="pre">seed_demo_workspace</span></code> seeds the workspace artifacts and wire it
-into <code class="docutils literal notranslate"><span class="pre">hermetic_hub</span></code> so the panel renders populated; the capture loop and the
-composed sheet then pick it up unchanged.</p>
-</section>
 <hr class="docutils" />
 <section id="community-guidelines">
 <h2>Community Guidelines<a class="headerlink" href="#community-guidelines" title="Link to this heading">#</a></h2>
@@ -950,6 +514,8 @@ composed sheet then pick it up unchanged.</p>
 <li><p><a class="reference external" href="https://github.com/als-apg/osprey/discussions">GitHub Discussions</a> – Ask questions, share ideas</p></li>
 <li><p><a class="reference external" href="https://github.com/als-apg/osprey/issues">GitHub Issues</a> – Report bugs, request features</p></li>
 </ul>
+<div class="toctree-wrapper compound">
+</div>
 </section>
 </section>
 
@@ -964,13 +530,22 @@ composed sheet then pick it up unchanged.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../cli-reference/index.html"
+       href="../reference/contracts/facility-graph.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">CLI Reference</p>
+        <p class="prev-next-title">Facility Graph Contracts</p>
       </div>
+    </a>
+    <a class="right-next"
+       href="development-setup.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Development Setup</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
     </a>
 </div>
                 </footer>
@@ -991,29 +566,6 @@ composed sheet then pick it up unchanged.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-setup">Environment Setup</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#git-and-github-workflow">Git and GitHub Workflow</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-strategy">Branch Strategy</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-naming">Branch Naming</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-message-format">Commit Message Format</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pull-request-process">Pull Request Process</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-protection-on-main">Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dependency-update-pull-requests">Dependency Update Pull Requests</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-workflow-skill">Osprey Agent Workflow Skill</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-standards">Code Standards</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-principles">Design Principles</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#python-style">Python Style</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-and-formatting">Linting and Formatting</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#front-end-javascript-testing">Front-End (JavaScript) Testing</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#docstrings">Docstrings</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refreshing-documentation-screenshots">Refreshing documentation screenshots</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reviewing-a-web-interface-redesign-contact-sheet">Reviewing a web-interface redesign (contact sheet)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-guidelines">Community Guidelines</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#getting-help">Getting Help</a></li>
 </ul>

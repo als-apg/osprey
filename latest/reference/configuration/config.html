@@ -1,0 +1,1319 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Runtime Configuration — config.yml &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/configuration/config';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/configuration/config.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Environment Variables" href="environment-variables.html" />
+    <link rel="prev" title="Build Profile — profile.yml" href="profile.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 25, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Configuration</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Configuration</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Runtime Configuration — config.yml</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="runtime-configuration-config-yml">
+<span id="reference-config"></span><h1>Runtime Configuration — config.yml<a class="headerlink" href="#runtime-configuration-config-yml" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is the file an OSPREY deployment actually runs on. <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> renders it from the build profile, so the profile is where you edit a
+setting and this file is where you look one up: <a class="reference internal" href="profile.html"><span class="doc">Build Profile — profile.yml</span></a> describes the
+authoring side, and this page catalogues what the rendered result means.</p>
+<p>Three parts of that file are gathered here — the diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>),
+the browser UI’s documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), and the
+deployment keys that decide which container image each service runs and how
+<code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files are filled in. Settings that only
+ever arrive from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing
+note records the <strong>protected set</strong> — the files and keys no agent-side writer
+may touch.</p>
+<section id="health-the-diagnostic-suite">
+<span id="config-health"></span><h2><code class="docutils literal notranslate"><span class="pre">health:</span></code> — the diagnostic suite<a class="headerlink" href="#health-the-diagnostic-suite" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> always runs its built-in checks; a <code class="docutils literal notranslate"><span class="pre">health:</span></code> block adds a
+facility’s own checks and tunes the suite’s timing. Everything in the block is
+optional. For how to put these settings to work — the two recipes worth
+starting from, cost classes, and the <code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> dashboard — see
+<a class="reference internal" href="../../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>; for the shape of
+the <code class="docutils literal notranslate"><span class="pre">--json</span></code> report, see <a class="reference internal" href="../contracts/health-json.html"><span class="doc">The osprey health --json Contract</span></a>.</p>
+<section id="the-health-block">
+<h3>The <code class="docutils literal notranslate"><span class="pre">health:</span></code> block<a class="headerlink" href="#the-health-block" title="Link to this heading">#</a></h3>
+<p>All configuration lives under a top-level <code class="docutils literal notranslate"><span class="pre">health:</span></code> key. Every field is
+optional; an absent <code class="docutils literal notranslate"><span class="pre">health:</span></code> block runs the built-in checks with their
+default timing.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">suite_timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">          </span><span class="c1"># poll-class wall-clock budget (default 30)</span>
+<span class="w">  </span><span class="nt">on_demand_timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span><span class="w">     </span><span class="c1"># on_demand wall-clock budget (default: sum of budgets)</span>
+<span class="w">  </span><span class="nt">interval_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">              </span><span class="c1"># minimum server-side re-run interval</span>
+
+<span class="w">  </span><span class="nt">plugins</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_facility.health</span><span class="w">       </span><span class="c1"># dotted module paths to plugin modules</span>
+
+<span class="w">  </span><span class="nt">categories</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">beamline_services</span><span class="p">:</span><span class="w">         </span><span class="c1"># a facility-defined category of probe checks</span>
+<span class="w">      </span><span class="nt">checks</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://archiver.example.com/healthz</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bluesky_server</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp</span>
+<span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:8931/mcp</span>
+
+<span class="w">    </span><span class="nt">providers</span><span class="p">:</span><span class="w">                 </span><span class="c1"># metadata-only override of a built-in category</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
+</pre></div>
+</div>
+</section>
+<section id="probe-checks">
+<h3>Probe checks<a class="headerlink" href="#probe-checks" title="Link to this heading">#</a></h3>
+<p>A <strong>declarative category</strong> is a named entry under <code class="docutils literal notranslate"><span class="pre">health.categories</span></code> with a
+<code class="docutils literal notranslate"><span class="pre">checks:</span></code> list. Each check names a probe <code class="docutils literal notranslate"><span class="pre">type</span></code> and its parameters; the
+suite runs the checks and grades each result <code class="docutils literal notranslate"><span class="pre">ok</span></code> / <code class="docutils literal notranslate"><span class="pre">warning</span></code> / <code class="docutils literal notranslate"><span class="pre">error</span></code> /
+<code class="docutils literal notranslate"><span class="pre">skip</span></code>. Six probe types ship:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></th>
+<th class="head"><p>Purpose and parameters</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">http</span></code></p></td>
+<td><p>GET a URL and grade the response. <code class="docutils literal notranslate"><span class="pre">url</span></code> (required); <code class="docutils literal notranslate"><span class="pre">expect_status</span></code>
+(default <code class="docutils literal notranslate"><span class="pre">200</span></code>); <code class="docutils literal notranslate"><span class="pre">warn_latency_ms</span></code> / <code class="docutils literal notranslate"><span class="pre">error_latency_ms</span></code> (optional
+latency ceilings — over the warn ceiling is a <code class="docutils literal notranslate"><span class="pre">warning</span></code>, over the error
+ceiling an <code class="docutils literal notranslate"><span class="pre">error</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp</span></code></p></td>
+<td><p>Handshake an MCP server over streamable HTTP and list its tools. <code class="docutils literal notranslate"><span class="pre">url</span></code>
+(required); <code class="docutils literal notranslate"><span class="pre">expect_tools</span></code> (optional list of tool names that must be
+present). With no <code class="docutils literal notranslate"><span class="pre">expect_tools</span></code>, a server exposing zero tools is an
+<code class="docutils literal notranslate"><span class="pre">error</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">container</span></code></p></td>
+<td><p>Check a deployed container’s state and healthcheck. <code class="docutils literal notranslate"><span class="pre">container</span></code>
+(required; alias <code class="docutils literal notranslate"><span class="pre">service</span></code>) — the container/service name, matched
+fuzzily against the running containers. Not-deployed or non-running is a
+<code class="docutils literal notranslate"><span class="pre">warning</span></code>; <strong>no container runtime installed is a</strong> <code class="docutils literal notranslate"><span class="pre">skip</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_read</span></code></p></td>
+<td><p>Read one control-system channel through the suite’s connector and grade
+the value. <code class="docutils literal notranslate"><span class="pre">address</span></code> (required); <code class="docutils literal notranslate"><span class="pre">expect</span></code> (required exact value), or
+inclusive numeric bands <code class="docutils literal notranslate"><span class="pre">ok_range:</span> <span class="pre">[lo,</span> <span class="pre">hi]</span></code> and <code class="docutils literal notranslate"><span class="pre">warn_range:</span>
+<span class="pre">[lo,</span> <span class="pre">hi]</span></code> (outside the warn band is an <code class="docutils literal notranslate"><span class="pre">error</span></code>, outside the ok band a
+<code class="docutils literal notranslate"><span class="pre">warning</span></code>). With neither, a successful read is a liveness <code class="docutils literal notranslate"><span class="pre">ok</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider_canary</span></code></p></td>
+<td><p>Make a minimal connectivity call to a model provider. <code class="docutils literal notranslate"><span class="pre">provider</span></code> — the
+provider name to test (e.g. <code class="docutils literal notranslate"><span class="pre">cborg</span></code>); <code class="docutils literal notranslate"><span class="pre">api_key</span></code> / <code class="docutils literal notranslate"><span class="pre">base_url</span></code>
+(optional, <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> allowed; fall back to
+<code class="docutils literal notranslate"><span class="pre">api.providers.&lt;provider&gt;</span></code>); <code class="docutils literal notranslate"><span class="pre">model_id</span></code> (optional). A canary never
+emits <code class="docutils literal notranslate"><span class="pre">error</span></code> — an unreachable provider is a <code class="docutils literal notranslate"><span class="pre">warning</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code></p></td>
+<td><p>Verify the deployment’s archiver is reachable <strong>and actually
+accumulating data</strong>: query the newest archived sample of a canary
+channel through the <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> connector. <code class="docutils literal notranslate"><span class="pre">channel</span></code> (required);
+<code class="docutils literal notranslate"><span class="pre">max_age_s</span></code> (default 600) — a newest sample older than this is a
+<code class="docutils literal notranslate"><span class="pre">warning</span></code>, as is an empty query window. An unreachable archiver, or an
+<code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> check declared with no <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> configured,
+is an <code class="docutils literal notranslate"><span class="pre">error</span></code>. A reachable archiver UI does not prove data is flowing
+— this probe checks the data. A project that deploys its own archive can
+have this check <strong>derived</strong> rather than declared — see
+<a class="reference internal" href="../../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For <code class="docutils literal notranslate"><span class="pre">provider_canary</span></code>, <code class="docutils literal notranslate"><span class="pre">name:</span></code> and <code class="docutils literal notranslate"><span class="pre">provider:</span></code> are distinct: <code class="docutils literal notranslate"><span class="pre">name</span></code>
+is the check’s <strong>result identity</strong> (the row label in the report), while
+<code class="docutils literal notranslate"><span class="pre">provider</span></code> selects <strong>which provider to test</strong>. When <code class="docutils literal notranslate"><span class="pre">provider</span></code> is
+omitted, the probe falls back to <code class="docutils literal notranslate"><span class="pre">name</span></code> — so a check named after the
+provider works, but to test one provider under a different row label you must
+set both.</p>
+</div>
+<p>Every check also accepts the reserved keys <code class="docutils literal notranslate"><span class="pre">name</span></code> (required, unique within its
+category), <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>, <code class="docutils literal notranslate"><span class="pre">timeout_status</span></code>, and <code class="docutils literal notranslate"><span class="pre">requires:</span></code> (below). Any
+other key becomes a probe parameter.</p>
+</section>
+<section id="built-in-service-categories">
+<h3>Built-in service categories<a class="headerlink" href="#built-in-service-categories" title="Link to this heading">#</a></h3>
+<p>Beyond the always-on framework checks, four built-in categories are
+<strong>presence-gated on their config blocks</strong>: they contribute rows only when the
+corresponding service is configured, so a minimal build shows no empty tiles.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code> — appears when a top-level <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block is configured. Probes
+the ARIEL interface’s status endpoint and reports: reachability, logbook
+entry count, last ingestion time, and the registered search and enhancement
+modules. The interface sidecar runs with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, so a CLI-only run
+on a stopped stack reports the interface as unreachable (a <code class="docutils literal notranslate"><span class="pre">warning</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_finder</span></code> — appears when a top-level <code class="docutils literal notranslate"><span class="pre">channel_finder:</span></code> block is
+configured. Reports the active pipeline mode, verifies the pipeline’s
+channel-database file exists (a configured-but-missing database is an
+<code class="docutils literal notranslate"><span class="pre">error</span></code>), shows the database’s age, and — for the <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>
+pipeline — the channel count from the materialized DuckDB.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">graph</span></code> pipeline reads different rows, because it answers from the
+graph store rather than from a file on disk. The pipeline row reports it as
+store-backed, and in place of the database rows the category reports the
+store’s <strong>reachability</strong> and its <strong>resource count</strong> — the same two readings
+the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> category takes, so a stopped store warns rather than
+failing the suite. A graph-mode build configures no <code class="docutils literal notranslate"><span class="pre">database.path</span></code> and is
+never warned about one missing: there is no channel-database file in that
+paradigm to look for (see <a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>). The <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> tile is
+always alongside — graph mode needs that block — so these rows restate the
+same store readings in the channel finder’s own terms: whether <em>channel
+search</em> has anything to answer from.</p>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">graphdb</span></code> — appears when a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is configured (see
+<a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a>). Two rows: <strong>connection</strong>, which dials the store over
+bolt and reports the round-trip latency, and <strong>resources</strong>, the number of
+<code class="docutils literal notranslate"><span class="pre">(:Resource)</span></code> nodes in the graph — the nodes the TTL corpus imports.
+Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
+corpus was ever loaded, so counting <code class="docutils literal notranslate"><span class="pre">(:Resource)</span></code> specifically is what keeps
+an empty graph from reading as a populated one; a count of zero warns and
+names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> as the remedy. The agent’s own graph
+tools report the same degraded states from the inside — see
+<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">reach</span></code> — appears when this render has a client switched on for a shared
+service: hybrid logbook search and the OKF panel (the qmd sidecar), the
+graph MCP server (the graph store), the ARIEL panel and MCP server
+(Postgres), agent telemetry (the OpenObserve store), the Bluesky MCP server
+(the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
+virtual-accelerator connector. One row per service, and the address it
+knocks on is the one <strong>the client itself resolves</strong> from this config, in the
+process running the check — so the same category answers a different
+question on the host (what <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands reach) and inside a per-user
+web-terminal container, where the health MCP server runs it (what that
+user’s agent reaches). A knock is a TCP connect; a closed port warns and
+names the config key the client resolved it from, and a client switched on
+with nothing to resolve warns with the key that would give it one — the
+same condition <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses (<a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> category dials <strong>bolt</strong> — <code class="docutils literal notranslate"><span class="pre">services.graphdb.port_host</span></code>, or
+an explicit <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code> — never the <code class="docutils literal notranslate"><span class="pre">http_port_host</span></code> the Neo4j
+Browser and the container healthcheck use. That is the address its remedies
+name, so a probe that fails is pointing at the port the seeder also uses.</p>
+<p>Every row it produces is <code class="docutils literal notranslate"><span class="pre">ok</span></code> or <code class="docutils literal notranslate"><span class="pre">warning</span></code>, never <code class="docutils literal notranslate"><span class="pre">error</span></code>. A store that
+is stopped, unreachable, rejecting its credential, or simply unseeded is a
+service that is not running rather than a broken build, and the category says
+so in one line instead of failing the suite.</p>
+</div>
+<p>All three are ordinary categories: valid under <code class="docutils literal notranslate"><span class="pre">--category</span></code>, tunable via a
+metadata-only override, and rendered as dashboard tiles with no extra
+configuration.</p>
+</section>
+<section id="auto-derived-mcp-server-checks-health-auto">
+<h3>Auto-derived MCP server checks (<code class="docutils literal notranslate"><span class="pre">health.auto</span></code>)<a class="headerlink" href="#auto-derived-mcp-server-checks-health-auto" title="Link to this heading">#</a></h3>
+<p>Every MCP server your build wires up is already described in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+under <code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code>. Rather than make you re-declare each one as an
+<code class="docutils literal notranslate"><span class="pre">mcp</span></code> probe, the framework reads those blocks and builds an <code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code>
+category for you — one reachability check per server. It is on by default, so
+you normally configure nothing.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">auto</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">mcp</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># default true — set false to drop the category</span>
+<span class="w">      </span><span class="nt">url_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_url</span><span class="w">    </span><span class="c1"># which URL to probe (see below)</span>
+</pre></div>
+</div>
+<p>A server is included when its <code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code> block carries a <code class="docutils literal notranslate"><span class="pre">url</span></code> and
+a <code class="docutils literal notranslate"><span class="pre">network</span></code> block with a URL to reach it. Servers without those are skipped.</p>
+<p><strong>Which URL is probed.</strong> Each server block records two URLs: <code class="docutils literal notranslate"><span class="pre">host_url</span></code> (the
+server seen from the machine, <code class="docutils literal notranslate"><span class="pre">http://localhost:&lt;port&gt;/mcp</span></code>) and <code class="docutils literal notranslate"><span class="pre">docker_url</span></code>
+(the server seen from inside a container, <code class="docutils literal notranslate"><span class="pre">http://&lt;name&gt;:&lt;port&gt;/mcp</span></code>). The
+category picks one automatically:</p>
+<ul class="simple">
+<li><p>If you set <code class="docutils literal notranslate"><span class="pre">url_key</span></code> explicitly, that choice is always used.</p></li>
+<li><p>Otherwise the framework detects whether the health check is itself running
+inside a container — the runtime’s own marker file, <code class="docutils literal notranslate"><span class="pre">/.dockerenv</span></code> under
+Docker or <code class="docutils literal notranslate"><span class="pre">/run/.containerenv</span></code> under Podman, or an <code class="docutils literal notranslate"><span class="pre">OSPREY_IN_CONTAINER</span></code>
+environment variable you set yourself — and uses <code class="docutils literal notranslate"><span class="pre">docker_url</span></code> when
+containerized, <code class="docutils literal notranslate"><span class="pre">host_url</span></code> on a plain host. Nothing in the shipped
+deployment sets that variable; set <code class="docutils literal notranslate"><span class="pre">url_key</span></code> explicitly when the automatic
+answer is wrong for your network layout (a host-networked container is in a
+container but cannot resolve compose service names).</p></li>
+</ul>
+<p><strong>Expected tools.</strong> If a server block declares <code class="docutils literal notranslate"><span class="pre">permissions</span></code> (its <code class="docutils literal notranslate"><span class="pre">allow</span></code>
+and <code class="docutils literal notranslate"><span class="pre">ask</span></code> tool lists), the derived check also confirms the server actually
+exposes those tools, not just that it answers — a reachable server missing an
+expected tool is graded an <code class="docutils literal notranslate"><span class="pre">error</span></code>. A server with no declared permissions gets
+a plain reachability check.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">docker_url</span></code> assumes the container’s hostname matches the server’s key in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — a server named <code class="docutils literal notranslate"><span class="pre">matlab</span></code> is probed at <code class="docutils literal notranslate"><span class="pre">http://matlab:…</span></code>.
+If your compose service is named differently, the probe points at a host that
+does not exist. Either rename the service to match the key, or set
+<code class="docutils literal notranslate"><span class="pre">url_key:</span> <span class="pre">host_url</span></code> to probe the localhost URL instead.</p>
+</div>
+</section>
+<section id="timeouts">
+<h3>Timeouts<a class="headerlink" href="#timeouts" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> bounds a single check. Omit it and the probe’s per-type default
+applies:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 61.5%" />
+<col style="width: 38.5%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Check</p></th>
+<th class="head"><p>Default <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">http</span></code></p></td>
+<td><p>5</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp</span></code></p></td>
+<td><p>10</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">container</span></code></p></td>
+<td><p>10</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_read</span></code></p></td>
+<td><p>5</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider_canary</span></code></p></td>
+<td><p>5</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code></p></td>
+<td><p>10</p></td>
+</tr>
+<tr class="row-even"><td><p>callable category (poll)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">suite_timeout_s</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>callable category (on_demand)</p></td>
+<td><p>60</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">timeout_status</span></code> sets the status emitted when a check’s own timeout fires —
+<code class="docutils literal notranslate"><span class="pre">error</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">warning</span></code>. Use <code class="docutils literal notranslate"><span class="pre">warning</span></code> for a dependency whose
+unresponsiveness should be treated as non-fatal:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">categories</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">beamline_services</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">checks</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://archiver.example.com/healthz</span>
+<span class="w">          </span><span class="nt">timeout_status</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">warning</span><span class="w">   </span><span class="c1"># a slow archiver warns, never errors</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">timeout_status:</span> <span class="pre">warning</span></code> composes literally with <code class="docutils literal notranslate"><span class="pre">requires:</span></code> (below).
+A <code class="docutils literal notranslate"><span class="pre">requires:</span></code> dependency <em>passes</em> when its status is <code class="docutils literal notranslate"><span class="pre">ok</span></code> <strong>or</strong>
+<code class="docutils literal notranslate"><span class="pre">warning</span></code> — so a dependency that times out under <code class="docutils literal notranslate"><span class="pre">timeout_status:</span>
+<span class="pre">warning</span></code> still counts as passed, and its dependents still run. Setting
+<code class="docutils literal notranslate"><span class="pre">timeout_status:</span> <span class="pre">warning</span></code> on a check that <em>gates</em> others is therefore an
+explicit opt-in to “an unresponsive dependency is non-fatal”; leave it at the
+default <code class="docutils literal notranslate"><span class="pre">error</span></code> if a timed-out gate should skip everything downstream.</p>
+</div>
+</section>
+<section id="dependencies-requires">
+<h3>Dependencies (<code class="docutils literal notranslate"><span class="pre">requires:</span></code>)<a class="headerlink" href="#dependencies-requires" title="Link to this heading">#</a></h3>
+<p>A check may declare <code class="docutils literal notranslate"><span class="pre">requires:</span></code> — a list of <em>earlier</em> checks in the <strong>same
+category</strong> that must pass before it runs. A dependency passes when its status is
+<code class="docutils literal notranslate"><span class="pre">ok</span></code> or <code class="docutils literal notranslate"><span class="pre">warning</span></code>; if any dependency does not pass, the dependent is emitted
+as <code class="docutils literal notranslate"><span class="pre">skip</span></code> without running, and that <code class="docutils literal notranslate"><span class="pre">skip</span></code> in turn fails <em>its</em> dependents
+(the cascade). Independent checks in a category still run concurrently — only a
+genuine dependency chain serializes.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">categories</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">beamline_services</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">checks</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gateway</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://gateway.example.com/healthz</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://archiver.example.com/healthz</span>
+<span class="w">          </span><span class="nt">requires</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">gateway</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># skipped if the gateway check did not pass</span>
+</pre></div>
+</div>
+<p>A dependency must reference a check declared earlier in the list; a forward
+reference, a self-reference, an unknown name, or a duplicate check name is a
+configuration error at load time.</p>
+</section>
+<section id="category-metadata-overrides">
+<h3>Category metadata overrides<a class="headerlink" href="#category-metadata-overrides" title="Link to this heading">#</a></h3>
+<p>A <code class="docutils literal notranslate"><span class="pre">health.categories.&lt;name&gt;</span></code> entry with <strong>no</strong> <code class="docutils literal notranslate"><span class="pre">checks:</span></code> list is a
+metadata-only override. It may set <code class="docutils literal notranslate"><span class="pre">cost</span></code> (<code class="docutils literal notranslate"><span class="pre">poll</span></code> / <code class="docutils literal notranslate"><span class="pre">on_demand</span></code>) and/or
+<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> for a category defined elsewhere — a built-in (core) category or a
+plugin category — without redefining it:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">categories</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">providers</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span><span class="w">        </span><span class="c1"># give the built-in providers category a longer budget</span>
+<span class="w">    </span><span class="nt">model_chat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">poll</span><span class="w">           </span><span class="c1"># run model_chat on every health check (use with care)</span>
+</pre></div>
+</div>
+<p>The reverse is rejected: a <code class="docutils literal notranslate"><span class="pre">checks:</span></code> list under a built-in category name is a
+load-time error (“cannot redefine built-in category”) — use metadata-only keys
+to adjust a built-in, and a new category name for your own probe checks.</p>
+</section>
+<section id="suite-timing">
+<h3>Suite timing<a class="headerlink" href="#suite-timing" title="Link to this heading">#</a></h3>
+<p>Three scalar settings tune the suite as a whole:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">suite_timeout_s</span></code> (default 30) — the wall-clock budget bounding all
+poll-class categories collectively. It is also the default budget for a
+poll-class callable category.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">on_demand_timeout_s</span></code> — the wall-clock budget bounding all on_demand
+categories collectively (only relevant under <code class="docutils literal notranslate"><span class="pre">--full</span></code>). When omitted it
+defaults to the sum of the selected on_demand categories’ budgets.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">interval_s</span></code> — the minimum interval between server-side re-runs. When
+omitted it derives as <code class="docutils literal notranslate"><span class="pre">max(60,</span> <span class="pre">2</span> <span class="pre">×</span> <span class="pre">suite_timeout_s)</span></code>; an explicit value must
+be greater than <code class="docutils literal notranslate"><span class="pre">suite_timeout_s</span></code> or the config is rejected. This value is
+validated but not yet enforced by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> itself.</p></li>
+</ul>
+<p>At a cost-class deadline, unfinished checks are not dropped — every configured
+check still produces a row (an eligible pending check becomes an <code class="docutils literal notranslate"><span class="pre">error</span></code>
+“suite deadline exceeded”; a pending check whose dependency failed becomes a
+<code class="docutils literal notranslate"><span class="pre">skip</span></code>), so the report always accounts for every declared check.</p>
+</section>
+</section>
+<section id="web-documentation-feedback-and-the-chat-pool">
+<span id="config-web"></span><h2><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback and the chat pool<a class="headerlink" href="#web-documentation-feedback-and-the-chat-pool" title="Link to this heading">#</a></h2>
+<p>The top-level <code class="docutils literal notranslate"><span class="pre">web:</span></code> section configures the browser UI the Web Terminal
+renders — not the terminal process itself, which has its own <code class="docutils literal notranslate"><span class="pre">web_terminal:</span></code>
+section. The keys below aim the rail’s two utility controls, bound the feedback
+store, name the deployment, and size the Simple-mode operator-chat pool.</p>
+<section id="documentation-and-feedback-keys">
+<span id="feedback-configuration"></span><h3>Documentation and feedback keys<a class="headerlink" href="#documentation-and-feedback-keys" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 26.0%" />
+<col style="width: 44.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.docs_url</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">https://als-apg.github.io/osprey</span></code></p></td>
+<td><p>Where the <strong>Documentation</strong> control — in the rail and in the status bar
+— points. Set it to your own hosted copy of the docs.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.github_repo</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">owner/repo</span></code> the feedback dialog’s GitHub channel opens a prefilled
+new issue against.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.email</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">thellert&#64;lbl.gov</span></code></p></td>
+<td><p>Recipient of the prefilled mail draft the dialog’s Email channel opens.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">268435456</span></code> (256 MB)</p></td>
+<td><p>Ceiling on the on-disk feedback store. Over it, the oldest saved session
+contexts are dropped; the submissions themselves are always kept.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.app_name</span></code></p></td>
+<td><p>unset (no badge)</p></td>
+<td><p>Optional name badge in the terminal header, so otherwise-identical
+deployments are told apart. The <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_APP_NAME</span></code> environment
+variable outranks it, which is what lets several containers sharing one
+baked config image each carry their own name.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_turn_timeout_s</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">600</span></code></p></td>
+<td><p>Ceiling in seconds on a single Simple-mode chat turn.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_idle_timeout_s</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1800</span></code></p></td>
+<td><p>How long an operator’s chat session may sit idle before it is reaped.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_max_sessions</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
+<td><p>Cap on concurrent operator-chat sessions.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">docs_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://docs.example-facility.org/osprey</span>
+<span class="w">  </span><span class="nt">feedback</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">github_repo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example-facility/controls</span>
+<span class="w">    </span><span class="nt">email</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls-support@example.org</span>
+<span class="w">    </span><span class="nt">max_store_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
+</pre></div>
+</div>
+<p>The last four keys are unset in every shipped template: they are read straight
+from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> when present and fall back to the defaults above when not.</p>
+</section>
+<section id="blank-absent-and-written-with-no-value">
+<h3>Blank, absent, and written-with-no-value<a class="headerlink" href="#blank-absent-and-written-with-no-value" title="Link to this heading">#</a></h3>
+<p>Three ways of writing one of the three <strong>string</strong> keys mean three different
+things:</p>
+<ul class="simple">
+<li><p><strong>Leave the key out</strong> and the deployment uses the shipped default above.</p></li>
+<li><p><strong>Set it to an explicitly blank value</strong> (<code class="docutils literal notranslate"><span class="pre">docs_url:</span> <span class="pre">&quot;&quot;</span></code>) and the deployment
+declares it has no such target: the Documentation link is not rendered at all,
+or the matching feedback channel is refused with an explanation rather than
+aimed at the upstream maintainers. This is the air-gapped posture — blanking
+<code class="docutils literal notranslate"><span class="pre">web.docs_url</span></code> is how you avoid shipping a link that opens a dead tab, and
+blanking <code class="docutils literal notranslate"><span class="pre">web.feedback.github_repo</span></code> retires the GitHub channel instead of
+aiming reports at the upstream maintainers’ tracker.</p></li>
+<li><p><strong>Write the key with no value at all</strong> (<code class="docutils literal notranslate"><span class="pre">docs_url:</span></code> and nothing after it)
+and it reads as <em>absent</em>, not blank — “I have not decided yet” rather than
+“there is none” — so you get the default. Write <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code> when you mean none.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">max_store_bytes</span></code> takes a positive byte count; anything else — blank
+included — is reported in the log and the default is used. The feedback
+dialog’s Local channel is always available and needs no configuration at all.</p>
+<p>A build profile overrides any of these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
+dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes:</span> <span class="pre">536870912</span></code>.</p>
+</section>
+</section>
+<section id="deployment-service-images-and-var-interpolation">
+<span id="config-deployment"></span><h2>Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation<a class="headerlink" href="#deployment-service-images-and-var-interpolation" title="Link to this heading">#</a></h2>
+<p>Two deployment-wide surfaces are settled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> rather than in a
+compose template: which image each service runs, and how the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
+placeholders in the rendered compose files are filled in. Declaring a service
+in the first place, and the env chain those placeholders resolve against, are
+covered in <a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a> and
+<a class="reference internal" href="../../how-to/deploy-project/env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a>.</p>
+<section id="overriding-service-images">
+<span id="deployment-image-overrides"></span><h3>Overriding Service Images<a class="headerlink" href="#overriding-service-images" title="Link to this heading">#</a></h3>
+<p>Every service image resolves through the same three-layer chain — an
+environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
+default. Thirteen images, one row each:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 30.0%" />
+<col style="width: 28.0%" />
+<col style="width: 22.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Service</p></th>
+<th class="head"><p>Environment variable</p></th>
+<th class="head"><p>Config key</p></th>
+<th class="head"><p>Packaged default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>postgresql</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_POSTGRES_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.postgresql.image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-odd"><td><p>openobserve</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OPENOBSERVE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.openobserve.image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-even"><td><p>mongodb</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_MONGODB_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.mongodb.image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-odd"><td><p>event_dispatcher</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DISPATCH_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-dispatch</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>dispatch_worker</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>nextcloud_bridge</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_NEXTCLOUD_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.nextcloud_bridge.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-nextcloud-bridge</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>gchat_bridge</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_GCHAT_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.gchat_bridge.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-gchat-bridge</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-bridge</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>bluesky (Tiled sidecar)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TILED_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky (Redis sidecar)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_REDIS_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.redis_image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-even"><td><p>bluesky_web</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_WEB_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-web</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>virtual_accelerator</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-va</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>qmd</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Point either of the first two layers at an internal registry mirror or a
+pinned digest when your deployment host cannot (or should not) pull public
+images.</p>
+<p>Five of the thirteen are <strong>upstream pins</strong> — images somebody else publishes,
+named exactly as they publish them. The other eight are <strong>built by OSPREY</strong>
+from your project, and their default reference is assembled rather than
+fixed: a project name, a per-service suffix, and the two axes below.</p>
+<section id="the-two-image-axes">
+<span id="deployment-image-axes"></span><h4>The two image axes<a class="headerlink" href="#the-two-image-axes" title="Link to this heading">#</a></h4>
+<p>An OSPREY-built default is always spelled the same way:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="n">registry</span><span class="o">&gt;/&lt;</span><span class="n">project</span><span class="o">&gt;&lt;</span><span class="n">service</span> <span class="n">suffix</span><span class="o">&gt;</span><span class="p">:</span><span class="o">&lt;</span><span class="n">tag</span><span class="o">&gt;</span>
+</pre></div>
+</div>
+<p>Two stack-wide settings supply the ends of that name, so an entire deployment
+can be moved to a registry — or to a different tag — without touching any of
+the thirteen rows above:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 30.0%" />
+<col style="width: 24.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Axis</p></th>
+<th class="head"><p>Environment variable</p></th>
+<th class="head"><p>Config key</p></th>
+<th class="head"><p>When neither is set</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Registry</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.registry</span></code></p></td>
+<td><p>no prefix at all</p></td>
+</tr>
+<tr class="row-odd"><td><p>Tag</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.tag</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml — every OSPREY-built image comes from the mirror,</span>
+<span class="c1"># at the tag the pipeline pushed</span>
+<span class="nt">images</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator</span>
+<span class="w">  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.08.1&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># or, for one build</span>
+<span class="nv">OSPREY_IMAGE_REGISTRY</span><span class="o">=</span>registry.example.org/accelerator<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">OSPREY_IMAGE_TAG</span><span class="o">=</span><span class="m">2026</span>.08.1<span class="w"> </span>osprey<span class="w"> </span>build
+</pre></div>
+</div>
+<p>For each axis the environment variable wins, then the config key, then the
+packaged default. A blank value counts as unset on both layers — an
+exported-but-empty variable is how a shell spells “I did not set this”, so a
+stray <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG=</span></code> cannot render an image reference with no tag. A
+trailing slash on the registry is optional: one is added if you leave it out,
+and never doubled if you put it in.</p>
+<p>Two things about <em>when</em> and <em>where</em> this applies are worth having straight:</p>
+<ul class="simple">
+<li><p><strong>The axes are the innermost layer, not an override.</strong> They decide what the
+packaged default of an OSPREY-built image is. A <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code>
+pin still beats them for that one service, and an <code class="docutils literal notranslate"><span class="pre">OSPREY_&lt;SVC&gt;_IMAGE</span></code>
+variable still beats both. Setting an axis moves everything you have not
+pinned individually.</p></li>
+<li><p><strong>The axes are read when the compose files are rendered</strong>, not when the
+containers start. Export them for the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> that produces the
+deployment; the per-image <code class="docutils literal notranslate"><span class="pre">OSPREY_&lt;SVC&gt;_IMAGE</span></code> variables, by contrast, are
+filled in by compose at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> time. With neither axis set the render
+is what it always was — <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> and its siblings — so a
+deployment that never heard of them is unaffected.</p></li>
+</ul>
+<p>The axes never touch the five upstream pins. Prefixing <code class="docutils literal notranslate"><span class="pre">mongo:7</span></code> with your
+registry would name an image that exists in no registry; mirror those through
+their own row instead.</p>
+</section>
+</section>
+<section id="where-var-values-come-from">
+<span id="compose-interpolation-precedence"></span><h3>Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from<a class="headerlink" href="#where-var-values-come-from" title="Link to this heading">#</a></h3>
+<p>Compose fills in <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files from two
+sources: the env file(s) the command passes, and the environment of the shell
+you typed the command in. <strong>The two supported providers disagree about which of
+those wins</strong>, and the disagreement is a straight inversion:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 72.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Provider</p></th>
+<th class="head"><p>What gets substituted when both sources set a variable</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Docker Compose v2</p></td>
+<td><p>The <strong>exported shell value</strong>. <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> is its lower-precedence
+source, so a variable exported in your shell overrides the env chain.</p></td>
+</tr>
+<tr class="row-odd"><td><p>podman-compose</p></td>
+<td><p>The <strong>env-file value</strong>. It resolves from the env file before the calling
+shell, so the export reaches nothing.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>You do not have to remember this. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> compares the two sources on
+every start, and when an exported variable disagrees with the value the env
+chain resolves to it warns by name — never by value — and states which value
+the provider it just probed will actually use, plus what to do about it. The
+reliable habit is to put the value in the env chain and leave your shell out of
+it: that is the one gesture that means the same thing on both providers.</p>
+</section>
+</section>
+<section id="the-protected-set">
+<span id="config-protected-set"></span><h2>The protected set<a class="headerlink" href="#the-protected-set" title="Link to this heading">#</a></h2>
+<p>A closed list of files and config keys may not be rewritten by the running
+agent, whichever surface the write arrives through: the rendered
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, the
+safety hooks, rules and skills, the limits tables — and, inside <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>,
+the key families that gate writes and approval (<code class="docutils literal notranslate"><span class="pre">control_system.*</span></code>,
+<code class="docutils literal notranslate"><span class="pre">approval.*</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks.*</span></code>, <code class="docutils literal notranslate"><span class="pre">claude_code.*</span></code>, among others). These artifacts
+are owned by the build profile: edit them in the profile and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Every refused attempt names the owning channel and is
+recorded in <code class="docutils literal notranslate"><span class="pre">var/audit/protected-writes.jsonl</span></code>.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="profile.html"><span class="doc">Build Profile — profile.yml</span></a></dt><dd><p>The build profile these settings are rendered from.</p>
+</dd>
+<dt><a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a></dt><dd><p>Settings that arrive from the environment rather than from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+</dd>
+<dt><a class="reference internal" href="../../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a></dt><dd><p>Putting the <code class="docutils literal notranslate"><span class="pre">health:</span></code> block to work, and the <code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> dashboard.</p>
+</dd>
+<dt><a class="reference internal" href="../../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a></dt><dd><p>Running the terminal the <code class="docutils literal notranslate"><span class="pre">web:</span></code> settings render.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="profile.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Build Profile — profile.yml</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="environment-variables.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Environment Variables</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#health-the-diagnostic-suite"><code class="docutils literal notranslate"><span class="pre">health:</span></code> — the diagnostic suite</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-health-block">The <code class="docutils literal notranslate"><span class="pre">health:</span></code> block</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#probe-checks">Probe checks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-service-categories">Built-in service categories</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-derived-mcp-server-checks-health-auto">Auto-derived MCP server checks (<code class="docutils literal notranslate"><span class="pre">health.auto</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#timeouts">Timeouts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dependencies-requires">Dependencies (<code class="docutils literal notranslate"><span class="pre">requires:</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#category-metadata-overrides">Category metadata overrides</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#suite-timing">Suite timing</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-documentation-feedback-and-the-chat-pool"><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback and the chat pool</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-keys">Documentation and feedback keys</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#blank-absent-and-written-with-no-value">Blank, absent, and written-with-no-value</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#the-two-image-axes">The two image axes</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-var-values-come-from">Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-protected-set">The protected set</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/configuration/config.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

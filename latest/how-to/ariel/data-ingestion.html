@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Search Modes" href="search-modes.html" />
-    <link rel="prev" title="Osprey Integration" href="osprey-integration.html" />
+    <link rel="prev" title="Logbook Search Service (ARIEL)" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -149,16 +149,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="../index.html">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,16 +292,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="../index.html">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -371,67 +385,73 @@
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../multi-user/tiers.html">Privilege Tiers</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/google-chat.html">Google Chat</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../protected-set.html">The Protected Set</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../switch-control-target.html">Switch the Control Target at Run Time</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -497,7 +517,7 @@
                   
   <section id="data-ingestion">
 <h1>Data Ingestion<a class="headerlink" href="#data-ingestion" title="Link to this heading">#</a></h1>
-<p>ARIEL’s ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Logbook systems differ in their APIs, file formats, field names, and conventions; ARIEL’s ingestion layer abstracts over these differences through pluggable <a class="reference internal" href="#facility-adapters">facility adapters</a> that normalize entries into a common schema and store them in the <a class="reference internal" href="#database">database</a>. After ingestion, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can enrich the stored entries with additional computed fields — vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.</p>
+<p>ARIEL’s ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Logbook systems differ in their APIs, file formats, field names, and conventions; ARIEL’s ingestion layer abstracts over these differences through pluggable <a class="reference internal" href="#facility-adapters">facility adapters</a> that normalize entries into a common schema and store them in the <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">database</span></a>. After ingestion, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can enrich the stored entries with additional computed fields — vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.</p>
 <section id="ingestion-architecture">
 <h2>Ingestion Architecture<a class="headerlink" href="#ingestion-architecture" title="Link to this heading">#</a></h2>
 <div class="osprey-diagram">
@@ -550,7 +570,7 @@
   <text class="ts" x="680" y="384" text-anchor="middle">→ keywords + summary fields</text>
 </svg>
 </div>
-<p>The ingestion pipeline follows a linear flow. A <a class="reference internal" href="#facility-adapters">facility adapter</a> connects to the source system — whether that is a live HTTP API, a JSONL dump, or any other data source — and yields entries one at a time as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The <code class="docutils literal notranslate"><span class="pre">ARIELRepository</span></code> upserts these entries into the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can be run as a separate step to compute additional derived fields — embeddings, keywords, summaries, or any other enrichment — and write them back to the <a class="reference internal" href="#database">database</a>.</p>
+<p>The ingestion pipeline follows a linear flow. A <a class="reference internal" href="#facility-adapters">facility adapter</a> connects to the source system — whether that is a live HTTP API, a JSONL dump, or any other data source — and yields entries one at a time as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The <code class="docutils literal notranslate"><span class="pre">ARIELRepository</span></code> upserts these entries into the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can be run as a separate step to compute additional derived fields — embeddings, keywords, summaries, or any other enrichment — and write them back to the <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">database</span></a>.</p>
 <div class="note admonition">
 <p class="admonition-title">Batch and Live Ingestion</p>
 <p>ARIEL supports both <strong>batch</strong> and <strong>live</strong> ingestion. Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">ingest</span></code>
@@ -559,23 +579,7 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </div>
 <section id="facility-adapters">
 <span id="id2"></span><h3>Facility Adapters<a class="headerlink" href="#facility-adapters" title="Link to this heading">#</a></h3>
-<p>Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL — storage, enhancement, search — never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts that the repository can store directly. All adapters inherit from <code class="docutils literal notranslate"><span class="pre">FacilityAdapter</span></code> and implement two required members:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">FacilityAdapter</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
-    <span class="nd">@property</span>
-    <span class="nd">@abstractmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">source_system_name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the source system identifier.&quot;&quot;&quot;</span>
-
-    <span class="nd">@abstractmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">fetch_entries</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span>
-        <span class="n">since</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">until</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncIterator</span><span class="p">[</span><span class="n">EnhancedLogbookEntry</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Yield entries from the source system.&quot;&quot;&quot;</span>
-</pre></div>
-</div>
+<p>Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL — storage, enhancement, search — never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts that the repository can store directly. All adapters inherit from <code class="docutils literal notranslate"><span class="pre">FacilityAdapter</span></code> and implement two required members — a source-system name and an entry generator. Writing one for a logbook Osprey does not ship is a developer task: the base class, the registration and the test that pins them are the ARIEL seam in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
 <p>Adapters are discovered through Osprey’s central registry. The framework ships with the following built-in adapters:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -609,24 +613,8 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </tbody>
 </table>
 </div>
-<p><strong>Registering a custom adapter:</strong></p>
-<p>To add your own facility adapter, subclass <code class="docutils literal notranslate"><span class="pre">FacilityAdapter</span></code>, implement <code class="docutils literal notranslate"><span class="pre">source_system_name</span></code> and <code class="docutils literal notranslate"><span class="pre">fetch_entries()</span></code>, and register it through your application’s registry configuration:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">extend_framework_registry</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArielIngestionAdapterRegistration</span>
-
-<span class="n">app_config</span> <span class="o">=</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
-    <span class="n">ariel_ingestion_adapters</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">ArielIngestionAdapterRegistration</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_facility&quot;</span><span class="p">,</span>
-            <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_app.adapters.my_facility&quot;</span><span class="p">,</span>
-            <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;MyFacilityAdapter&quot;</span><span class="p">,</span>
-            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Adapter for My Facility&#39;s logbook system&quot;</span><span class="p">,</span>
-        <span class="p">),</span>
-    <span class="p">],</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<p>Once registered, you can use your adapter by setting <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter:</span> <span class="pre">my_facility</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. See <code class="xref py py-class docutils literal notranslate"><span class="pre">FacilityAdapter</span></code> for the full interface (including the optional <code class="docutils literal notranslate"><span class="pre">count_entries()</span></code> method) and <code class="xref py py-class docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> for the field reference.</p>
+<p><strong>Using a custom adapter:</strong></p>
+<p>An adapter written and registered as described in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> is selected the same way as a built-in one: set <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> to its registered name in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>The adapters above reflect the logbook schemas we have had access to so far. If you implement an adapter for your facility and test it successfully, we encourage you to open a pull request to make it natively available in Osprey — this makes it easier for other sites running similar logbook systems to get started.</p>
@@ -687,28 +675,11 @@ qmd Export</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is resolved against the project root — the deployment repo, not the <code class="docutils literal notranslate"><span class="pre">build/</span></code> render inside it, which is exactly where the qmd sidecar bind-mounts the same path from. Keep it under <code class="docutils literal notranslate"><span class="pre">var/</span></code>: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and <code class="docutils literal notranslate"><span class="pre">var/</span></code> is the directory git ignores — a path under <code class="docutils literal notranslate"><span class="pre">data/</span></code> would commit a generated corpus. An enabled export with no <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is refused at startup rather than skipped, because a mirror nobody writes looks exactly like “search returns nothing”.</p>
-<p><strong>Requirements:</strong> the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar, which bind-mounts this same directory read-only. See <a class="reference internal" href="../search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
+<p><strong>Requirements:</strong> the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar, which bind-mounts this same directory read-only. See <a class="reference internal" href="search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
 </div>
 </div>
-<p><strong>Registering a custom enhancement module:</strong></p>
-<p>To add your own module, subclass <code class="docutils literal notranslate"><span class="pre">BaseEnhancementModule</span></code>, implement the <code class="docutils literal notranslate"><span class="pre">name</span></code> property and <code class="docutils literal notranslate"><span class="pre">enhance()</span></code> method, and register it through your application’s registry configuration:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">extend_framework_registry</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArielEnhancementModuleRegistration</span>
-
-<span class="n">app_config</span> <span class="o">=</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
-    <span class="n">ariel_enhancement_modules</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">ArielEnhancementModuleRegistration</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_enhancer&quot;</span><span class="p">,</span>
-            <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_app.enhancement.my_enhancer&quot;</span><span class="p">,</span>
-            <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;MyEnhancerModule&quot;</span><span class="p">,</span>
-            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Custom enhancement module&quot;</span><span class="p">,</span>
-            <span class="n">execution_order</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span>  <span class="c1"># Runs after built-in modules (10, 20, 30)</span>
-        <span class="p">),</span>
-    <span class="p">],</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<p>The <code class="docutils literal notranslate"><span class="pre">execution_order</span></code> field controls the order in which modules run during enhancement. Built-in modules use orders 10 (semantic processor), 20 (text embedding) and 30 (qmd export). See <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEnhancementModule</span></code> for the full interface, including <code class="docutils literal notranslate"><span class="pre">configure()</span></code>, <code class="docutils literal notranslate"><span class="pre">health_check()</span></code>, and the <code class="docutils literal notranslate"><span class="pre">migration</span></code> property.</p>
+<p><strong>Using a custom enhancement module:</strong></p>
+<p>A module of your own runs alongside the built-in ones once it is registered — see <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>. Its registration carries an <code class="docutils literal notranslate"><span class="pre">execution_order</span></code> that decides where in the run it lands; the built-ins use 10 (semantic processor), 20 (text embedding) and 30 (qmd export), so a value above 30 runs last.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>The enhancement modules above are a starting point — there is plenty of room for new modules (e.g., named-entity extraction, automatic tagging, cross-entry linking). If you build a useful enhancement module, we encourage you to open a pull request so it becomes natively available to all Osprey users.</p>
@@ -803,158 +774,19 @@ run so that it has a since-timestamp to poll from. If no previous run is found t
 scheduler will log a message and skip the cycle. Set <code class="docutils literal notranslate"><span class="pre">require_initial_ingest:</span> <span class="pre">false</span></code>
 in the <code class="docutils literal notranslate"><span class="pre">watch</span></code> config block to start polling from the beginning of time instead.</p>
 </div>
+<p>The PostgreSQL schema this data lands in — the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table, the
+per-model embedding tables, and the migrations that create them — is documented
+in <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a>.</p>
 </section>
 </section>
-<section id="database-schema">
-<span id="database"></span><h3>Database Schema<a class="headerlink" href="#database-schema" title="Link to this heading">#</a></h3>
-<p>All ingested and enhanced data lives in PostgreSQL. The core <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table stores one row per logbook entry with the normalized fields that every adapter produces — entry ID, timestamp, author, raw text, and a JSONB metadata column for facility-specific extras. Enhancement modules write their results either into columns on this same table (keywords, summaries) or into dedicated per-model tables (vector embeddings). The pgvector extension provides the <code class="docutils literal notranslate"><span class="pre">vector</span></code> column type and cosine-distance operators that power semantic search. Core tables and an embedding table for each configured model are created automatically by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which reads <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> to determine which embedding tables to create. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
-<div class="important admonition">
-<p class="admonition-title">pgvector requirement</p>
-<p>The <strong>pgvector</strong> extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>). For external databases, install it manually: <code class="docutils literal notranslate"><span class="pre">CREATE</span> <span class="pre">EXTENSION</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">vector;</span></code></p>
-</div>
-</section>
-</section>
-<section id="core-tables">
-<h2>Core Tables<a class="headerlink" href="#core-tables" title="Link to this heading">#</a></h2>
-<p><strong>enhanced_entries</strong> — Primary storage for logbook entries:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 20.0%" />
-<col style="width: 55.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Column</p></th>
-<th class="head"><p>Type</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span> <span class="pre">PRIMARY</span> <span class="pre">KEY</span></code></p></td>
-<td><p>Unique entry identifier</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">source_system</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
-<td><p>Origin system name (e.g., “ALS eLog”)</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timestamp</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TIMESTAMPTZ</span></code></p></td>
-<td><p>Entry creation time</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">author</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
-<td><p>Entry author</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">raw_text</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
-<td><p>Full entry text (subject + details)</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">summary</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
-<td><p>LLM-generated summary (from semantic processor)</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">keywords</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT[]</span></code></p></td>
-<td><p>LLM-extracted keywords (from semantic processor)</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">JSONB</span></code></p></td>
-<td><p>Additional structured data (title, tags, attachments)</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>Per-model embedding tables</strong> (e.g., <code class="docutils literal notranslate"><span class="pre">text_embeddings_nomic_embed_text</span></code>):</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 25.0%" />
-<col style="width: 50.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Column</p></th>
-<th class="head"><p>Type</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">SERIAL</span> <span class="pre">PRIMARY</span> <span class="pre">KEY</span></code></p></td>
-<td><p>Auto-incrementing primary key</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span> <span class="pre">UNIQUE</span></code></p></td>
-<td><p>Foreign key to enhanced_entries</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">embedding</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">vector(&lt;dim&gt;)</span></code></p></td>
-<td><p>pgvector embedding column</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>ingestion_runs</strong> — Tracks ingestion history:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 20.0%" />
-<col style="width: 55.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Column</p></th>
-<th class="head"><p>Type</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">SERIAL</span></code></p></td>
-<td><p>Auto-incrementing ID</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">started_at</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TIMESTAMPTZ</span></code></p></td>
-<td><p>Ingestion start time</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">completed_at</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TIMESTAMPTZ</span></code></p></td>
-<td><p>Ingestion completion time</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_added</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
-<td><p>Number of new entries added</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entries_updated</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
-<td><p>Number of existing entries updated</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_failed</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
-<td><p>Number of entries that failed</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">source_system</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
-<td><p>Source adapter name</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-</section>
-<section id="migration-system">
-<h2>Migration System<a class="headerlink" href="#migration-system" title="Link to this heading">#</a></h2>
-<p>Migrations are run via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> and managed by the <code class="docutils literal notranslate"><span class="pre">run_migrations()</span></code> function in <code class="docutils literal notranslate"><span class="pre">database/migrations.py</span></code>. When <code class="docutils literal notranslate"><span class="pre">text_embedding</span></code> is enabled, <code class="docutils literal notranslate"><span class="pre">migrate</span></code> creates an embedding table for each model listed in <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> (falling back to <code class="docutils literal notranslate"><span class="pre">nomic-embed-text</span></code>, 768, if none is configured); <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
-<div class="outreach admonition">
-<p class="admonition-title">Schema Evolution</p>
-<p>The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The <code class="docutils literal notranslate"><span class="pre">metadata</span></code> JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us — the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.</p>
-</div>
 <section id="see-also">
 <h3>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h3>
 <dl class="simple">
 <dt><a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a></dt><dd><p>How search uses the ingested and enhanced data</p>
 </dd>
-<dt><a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a></dt><dd><p>Capability, context flow, and error classification</p>
+<dt><a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a></dt><dd><p>MCP tools, the capabilities API, and the database schema</p>
 </dd>
-<dt><a class="reference internal" href="../../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>CLI reference for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">ingest</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code>, and other commands</p>
+<dt><a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a></dt><dd><p>CLI reference for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">ingest</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code>, and other commands</p>
 </dd>
 </dl>
 </section>
@@ -972,12 +804,12 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="osprey-integration.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Osprey Integration</p>
+        <p class="prev-next-title">Logbook Search Service (ARIEL)</p>
       </div>
     </a>
     <a class="right-next"
@@ -1017,11 +849,6 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#backoff-behavior">Backoff Behavior</a></li>
 </ul>
 </li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#database-schema">Database Schema</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-tables">Core Tables</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-system">Migration System</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
 </ul>
 </li>

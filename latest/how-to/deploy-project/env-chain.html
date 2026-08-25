@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Containerize a Project" href="../containerize-project.html" />
+    <link rel="next" title="The Project Image" href="project-image.html" />
     <link rel="prev" title="Network Binding and Security" href="networking.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -149,16 +149,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="../index.html">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,16 +292,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="../index.html">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -371,67 +385,73 @@
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Container Deployment</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="compose-templates.html">Compose Templates and Images</a></li>
 <li class="toctree-l2"><a class="reference internal" href="networking.html">Network Binding and Security</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="project-image.html">The Project Image</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../multi-user/tiers.html">Privilege Tiers</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/google-chat.html">Google Chat</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../protected-set.html">The Protected Set</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../switch-control-target.html">Switch the Control Target at Run Time</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -545,7 +565,8 @@ exported. Otherwise start from the example:</p>
 <span class="c1"># Edit .env with your actual values</span>
 </pre></div>
 </div>
-<p>See <a class="reference internal" href="../build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> can give a new repository a head start on this file, once, from
+your shell — see <a class="reference internal" href="../build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
 <section id="the-env-family">
 <h2>The <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family<a class="headerlink" href="#the-env-family" title="Link to this heading">#</a></h2>
 <p>Two files are yours to edit and one is documentation. The rest are written for
@@ -578,7 +599,7 @@ derived from the chain (multi-user deployments only)</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.auth</span></code></p></td>
 <td><p>both — the web terminals’ password hashes and cookie-signing secrets,
 minted by the deploy, but also where you put an OIDC client id and
-secret by hand (multi-user deployments only; see <a class="reference internal" href="../multi-user/index.html"><span class="doc">Multi-User Support</span></a>)</p></td>
+secret by hand (multi-user deployments only; see <a class="reference internal" href="../web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code></p></td>
 <td><p>machine — the chain collapsed into one file, for compose providers that
@@ -615,13 +636,22 @@ service tokens and passwords (for example <code class="docutils literal notransl
 <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>, or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so no service ever starts
 on a blank or publicly-known credential, appends them under a “Minted by
 deploy” heading, and restricts the file to owner-only permissions.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> appends the pointers it derives from what it just rendered,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> appends the pointers it derives from what it just rendered —
+currently two: <code class="docutils literal notranslate"><span class="pre">VA_CHANNELS_FILE</span></code>, the name of the virtual accelerator’s
+generated channel manifest (a name, not a path: the entrypoint resolves it
+against its data mount), and <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>, which states the lattice that
+manifest is backed by rather than letting the entrypoint default it away —
 under a “Derived by build” heading.</p>
-<p>Both writers are append-only, and a value already on file always wins. That is
-what makes the stack reproducible: a later start comes up on the same
-credentials the running containers were initialized with, instead of minting a
-second set they do not trust. There is no second copy anywhere — the <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the deployment’s whole secret store — so back it up.</p>
+<p>Both writers are append-only, and a value already on file always wins. A value
+that disagrees with what a writer would have put there is <em>reported</em>, by name
+and never by value, for you to resolve by hand. That is what makes the stack
+reproducible: a later start comes up on the same credentials the running
+containers were initialized with, instead of minting a second set they do not
+trust. The <code class="docutils literal notranslate"><span class="pre">.env</span></code> beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the deployment’s whole secret
+store — the only copy you maintain. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes no secret into
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> and reads none out of it, so a value you set once survives every
+rebuild; <code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code> is a derived copy the deploy regenerates, so
+wiping <code class="docutils literal notranslate"><span class="pre">build/</span></code> loses nothing — so back <code class="docutils literal notranslate"><span class="pre">.env</span></code> up.</p>
 <p>Minted values only ever land in <code class="docutils literal notranslate"><span class="pre">.env</span></code>, never in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>. A minted
 credential belongs to this host, and <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> is committed.</p>
 </section>
@@ -652,7 +682,7 @@ refuses and names <code class="docutils literal notranslate"><span class="pre">o
 <li><p><strong>Shell exports</strong> — when a variable exported in your shell disagrees with the
 value the chain resolves to, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names it and says which of the two
 the compose provider it just probed will actually substitute (see
-<a class="reference internal" href="index.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>). A warning, so the export stays
+<a class="reference internal" href="../../reference/configuration/config.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>). A warning, so the export stays
 available as an escape hatch — except for a pinned name, where it is a
 refusal.</p></li>
 </ul>
@@ -752,11 +782,11 @@ It is unrelated to <code class="docutils literal notranslate"><span class="pre">
       </div>
     </a>
     <a class="right-next"
-       href="../containerize-project.html"
+       href="project-image.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Containerize a Project</p>
+        <p class="prev-next-title">The Project Image</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

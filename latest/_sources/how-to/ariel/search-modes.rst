@@ -184,7 +184,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       An LLM reviews every candidate before the results come back, which is what makes reranking the dominant term: its cost is dominated by the candidate pool and grows far more slowly than the corpus does, so no logbook is small enough to outrun it. Both surfaces ship with the quality path on.
 
-      **One key, both surfaces.** ``search_modules.hybrid.settings.rerank`` governs the agent-facing ``hybrid_search`` tool *and* the web interface's search panel --- and ``candidate_limit`` likewise. There is no separate panel key. The two surfaces override it differently. The panel's **Rerank Results** toggle opens showing whatever the deployment configured, and clicking it overrides that value for every search you run from then on, until **Reset** returns the panel to the deployment's value. On the agent side, ``hybrid_search`` takes a ``rerank`` argument that applies to the one call: leave it unset and the tool follows the configured key, pass ``false`` and that one search takes the fast path and nothing else changes. Set the key itself to ``false`` only when you want the fast path for every search, on both surfaces. (The OKF bundle is a different key over a different corpus and defaults the other way; see :doc:`../okf-bundle`.)
+      **One key, both surfaces.** ``search_modules.hybrid.settings.rerank`` governs the agent-facing ``hybrid_search`` tool *and* the web interface's search panel --- and ``candidate_limit`` likewise. There is no separate panel key. The two surfaces override it differently. The panel's **Rerank Results** toggle opens showing whatever the deployment configured, and clicking it overrides that value for every search you run from then on, until **Reset** returns the panel to the deployment's value. On the agent side, ``hybrid_search`` takes a ``rerank`` argument that applies to the one call: leave it unset and the tool follows the configured key, pass ``false`` and that one search takes the fast path and nothing else changes. Set the key itself to ``false`` only when you want the fast path for every search, on both surfaces. (The OKF bundle is a different key over a different corpus and defaults the other way; see :doc:`../facility-knowledge/okf-bundle`.)
 
       **What the panel does with a reranked search.** Rather than hold an empty screen for the length of a reranked query, the panel runs it in two phases: it fetches and paints the fast ranking first, under a status line saying the results are being reranked, then replaces them with the reranked ranking under a line saying they were updated. The second response is drawn from a larger candidate pool, so *which* entries come back can change, not only the order they come back in.
 
@@ -609,7 +609,7 @@ mode.
 
 Need behavior beyond these search modules --- multi-step reasoning, answer
 synthesis, custom prompting? That lives in the Osprey agent layer; see
-:doc:`osprey-integration` under "Extending the integration."
+:doc:`/reference/contracts/ariel` under "Extending the integration."
 
 
 See Also
@@ -618,7 +618,7 @@ See Also
 :doc:`data-ingestion`
     How data gets into the system --- facility adapters, enhancement modules, and database schema
 
-:doc:`osprey-integration`
+:doc:`/reference/contracts/ariel`
     MCP tools, service factory, and search result structure
 
 :doc:`web-interface`

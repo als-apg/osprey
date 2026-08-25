@@ -99,7 +99,7 @@ result was cut short. Raising them spends the agent's context window rather than
 the store's memory — a few thousand rows crowd out the conversation long before
 they trouble Neo4j. For what the agent does with the store once it is up — the
 query tools, the read-only posture, and how to generate a corpus of your own —
-see :doc:`/how-to/use-facility-graph`.
+see :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The block carries **no password**, deliberately — the same convention
 ``postgresql`` follows. ``osprey up`` mints ``GRAPHDB_PASSWORD`` into the
@@ -111,12 +111,11 @@ bootstraps it, and imports ``ttl_path`` — a store that came up empty would ans
 every query with zero rows, which reads as wrong data rather than as no data.
 Later deploys find the corpus already there and leave it alone. If bootstrapping
 or seeding fails the deploy warns and carries on, naming ``osprey knowledge
-seed-graph`` (see :doc:`/how-to/okf-bundle`), the verb that finishes the job by hand.
+seed-graph`` (see :doc:`/how-to/facility-knowledge/okf-bundle`), the verb that finishes the job by hand.
 
-To query a graph store this deployment does *not* run, give the block an
-explicit ``uri:`` and leave ``graphdb`` out of ``deployed_services``. Nothing is
-minted or seeded on that path — the graph is somebody else's, so set
-``GRAPHDB_PASSWORD`` in the project ``.env`` yourself.
+To query a graph store this deployment does *not* run, point the block at it
+instead of deploying one — see
+:ref:`Pointing at a store the facility runs <graph-external-store>`.
 
 CLI Commands
 ============
@@ -136,7 +135,7 @@ CLI Commands
    osprey users prune            # Remove workspaces of users no longer on the roster
                                  #   (--archive | --purge, --dry-run)
 
-Full command and flag reference: :doc:`/cli-reference/index`.
+Full command and flag reference: :doc:`/reference/cli`.
 
 Every verb acts on the deployment repository enclosing the working directory —
 the nearest ``profile.yml`` at or above it. ``--repo DIRECTORY`` names another
@@ -239,35 +238,13 @@ starts.
 
 If you write your own service template, leave ``profiles:`` out of it.
 
-.. _compose-interpolation-precedence:
-
 Where ``${VAR}`` values come from
 ---------------------------------
 
-Compose fills in ``${VAR}`` placeholders in the rendered compose files from two
-sources: the env file(s) the command passes, and the environment of the shell
-you typed the command in. **The two supported providers disagree about which of
-those wins**, and the disagreement is a straight inversion:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
-
-   * - Provider
-     - What gets substituted when both sources set a variable
-   * - Docker Compose v2
-     - The **exported shell value**. ``--env-file`` is its lower-precedence
-       source, so a variable exported in your shell overrides the env chain.
-   * - podman-compose
-     - The **env-file value**. It resolves from the env file before the calling
-       shell, so the export reaches nothing.
-
-You do not have to remember this. ``osprey up`` compares the two sources on
-every start, and when an exported variable disagrees with the value the env
-chain resolves to it warns by name — never by value — and states which value
-the provider it just probed will actually use, plus what to do about it. The
-reliable habit is to put the value in the env chain and leave your shell out of
-it: that is the one gesture that means the same thing on both providers.
+Compose fills in ``${VAR}`` placeholders from the env file(s) the command
+passes and from the shell you typed it in, and the two supported providers
+disagree about which wins. The precedence table, and what ``osprey up`` does
+about the disagreement, are in :ref:`compose-interpolation-precedence`.
 
 .. _podman-network-backend:
 
@@ -395,12 +372,27 @@ the stack beyond one machine, or manage its configuration values:
       ``.env.shared`` and ``.env``, what a deploy writes back, and the
       warnings and refusals that keep the chain honest.
 
+   .. grid-item-card:: The Project Image
+      :link: project-image
+      :link-type: doc
+
+      The agent's own container image: what ``osprey build`` generates, who
+      owns the ``Dockerfile``, and how to customize it.
+
+   .. grid-item-card:: Search Sidecar
+      :link: ../ariel/search-sidecar
+      :link-type: doc
+
+      The optional search service deployed beside the stack, and where it
+      listens.
+
 .. toctree::
    :hidden:
 
    compose-templates
    networking
    env-chain
+   project-image
 
 .. _development-mode:
 
@@ -461,17 +453,17 @@ change — rerun ``osprey up --build --dev`` to re-render and rebuild it.
 
 .. seealso::
 
-   :doc:`/cli-reference/index`
+   :doc:`/reference/cli`
        Full lifecycle command and flag reference.
 
    :ref:`profile-services`
        Authoritative ``services:`` schema for build profiles.
 
-   :doc:`/how-to/containerize-project`
+   :doc:`project-image`
        The *project image* (assistant + web terminal in one container) built
        from the generated ``Dockerfile`` — distinct from the service
        containers this page covers.
 
-   :doc:`/how-to/search-sidecar`
+   :doc:`/how-to/ariel/search-sidecar`
        The qmd search sidecar — a shared search service some presets
-       co-deploy, documented with the facility-knowledge system it serves.
+       co-deploy, documented with the ARIEL logbook search it serves.

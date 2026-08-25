@@ -61,7 +61,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Architecture Overview" href="../architecture/index.html" />
+    <link rel="next" title="How-To Guides" href="../how-to/index.html" />
     <link rel="prev" title="Guided Project Setup" href="osprey-build-interview.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -150,15 +150,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -286,15 +293,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -469,7 +483,7 @@ them.</p></li>
 <p class="admonition-title">Note</p>
 <p>New to Osprey? Start with the <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a>.
 It covers project layout, the <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server, and the safety model
-in detail — everything below builds directly on it.</p>
+in detail — everything on this page builds directly on it.</p>
 </div>
 <section id="step-1-build-the-project-and-bring-it-up">
 <h2>Step 1: Build the Project and Bring It Up<a class="headerlink" href="#step-1-build-the-project-and-bring-it-up" title="Link to this heading">#</a></h2>
@@ -496,9 +510,10 @@ dependencies. Subsequent builds are near-instant.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up
 </pre></div>
 </div>
-<p>This starts the containers the preset declares: the Virtual Accelerator
-soft-IOC the agent reads and writes, and the <strong>archive</strong> — a MongoDB store and a
-recorder service — that holds what those channels did.</p>
+<p>This starts the containers the preset declares: the Virtual Accelerator the
+agent reads and writes — a containerized simulator with LUME-backed physics, laid
+out in <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a> — and the <strong>archive</strong>, a
+MongoDB store and a recorder service that holds what those channels did.</p>
 <p><strong>The first deploy seeds the archive</strong>, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
 serves, reporting a step under the start phase every 15 seconds or so while it
@@ -701,7 +716,7 @@ skills here. The preset withholds the <code class="docutils literal notranslate"
 <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool from the control-room agent — including the one this
 tutorial runs — because rewriting the project is administration rather than
 control-room work. The multi-user stack grants both to a single admin
-login; see <a class="reference internal" href="../how-to/multi-user/tiers.html#multi-user-tiers"><span class="std std-ref">the tier table</span></a>. To change something in
+login; see <a class="reference internal" href="../how-to/web-terminal/multi-user/tiers.html#multi-user-tiers"><span class="std std-ref">the tier table</span></a>. To change something in
 this tutorial, edit <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, which is what
 the rest of this page does.</p>
 </div>
@@ -770,7 +785,7 @@ search, historical plotting, and operator skills. Where to go next:</p>
 <li><p><strong>Run your first plan</strong>: this project can run real measurement plans — ask
 the agent for a grid scan, review it in the BLUESKY panel, and start it from
 the BLUESKY panel, all against the Virtual Accelerator.
-<a class="reference internal" href="../how-to/bluesky/run-first-plan.html"><span class="doc">Run Your First Scan</span></a> walks through it in ten minutes.</p></li>
+<a class="reference internal" href="../how-to/bluesky/run-first-plan.html"><span class="doc">Run Your First Plan</span></a> walks through it in ten minutes.</p></li>
 <li><p><strong>Channel finder in depth</strong>: <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> compares the
 hierarchical, in-context, and middle-layer strategies and explains the database
 format.</p></li>
@@ -781,7 +796,7 @@ to turn <code class="docutils literal notranslate"><span class="pre">control-ass
 <li><p><strong>Architecture deep dive</strong>: the <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> and the
 <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture</span></a> section explain the agent + MCP
 design, the connector system, and the safety mechanisms.</p></li>
-<li><p><strong>CLI reference</strong>: see <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a> for all <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands.</p></li>
+<li><p><strong>CLI reference</strong>: see <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a> for all <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands.</p></li>
 </ul>
 </section>
 </section>
@@ -807,11 +822,11 @@ design, the connector system, and the safety mechanisms.</p></li>
       </div>
     </a>
     <a class="right-next"
-       href="../architecture/index.html"
+       href="../how-to/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Architecture Overview</p>
+        <p class="prev-next-title">How-To Guides</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

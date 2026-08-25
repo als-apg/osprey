@@ -1,0 +1,1640 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>CLI Reference &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/cli';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/cli.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Configuration" href="configuration/index.html" />
+    <link rel="prev" title="Reference" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 25, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration/environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/facility-graph.html">Facility Graph Contracts</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Reference</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">CLI Reference</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="cli-reference">
+<span id="reference-cli"></span><h1>CLI Reference<a class="headerlink" href="#cli-reference" title="Link to this heading">#</a></h1>
+<p>Complete reference for all Osprey Framework CLI commands.</p>
+<p><strong>Prerequisites:</strong> Framework installed (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code>)</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>All commands are accessed through the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> command.</p>
+<p>A deployment is a git repository: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at its root is the source you
+edit, <code class="docutils literal notranslate"><span class="pre">build/</span></code> is what a build renders from it, and <code class="docutils literal notranslate"><span class="pre">var/</span></code> is durable state.
+The lifecycle verbs find that repository by walking up from wherever you are
+standing, so none of them has to be told where it is; <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code>
+names another one explicitly.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>--version<span class="w">          </span><span class="c1"># Show framework version</span>
+osprey<span class="w"> </span>init<span class="w">               </span><span class="c1"># Create a deployment repo from a preset</span>
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">KEY</span><span class="o">=</span>VALUE<span class="w">      </span><span class="c1"># Write a setting into profile.yml</span>
+osprey<span class="w"> </span>validate<span class="w">           </span><span class="c1"># Check profile.yml without building</span>
+osprey<span class="w"> </span>build<span class="w">              </span><span class="c1"># Render build/ from profile.yml</span>
+osprey<span class="w"> </span>up<span class="w">                 </span><span class="c1"># Start the deployment, as built</span>
+osprey<span class="w"> </span>down<span class="w">               </span><span class="c1"># Stop it, keeping all data</span>
+osprey<span class="w"> </span>restart<span class="w">            </span><span class="c1"># Stop and start it again</span>
+osprey<span class="w"> </span>status<span class="w">             </span><span class="c1"># Show what it is doing</span>
+osprey<span class="w"> </span>logs<span class="w">               </span><span class="c1"># Show its container logs</span>
+osprey<span class="w"> </span>reset<span class="w">              </span><span class="c1"># Wipe it back to a fresh state</span>
+osprey<span class="w"> </span>config<span class="w">             </span><span class="c1"># Show the deployment configuration</span>
+osprey<span class="w"> </span>chat<span class="w">               </span><span class="c1"># Talk to this deployment&#39;s agent</span>
+osprey<span class="w"> </span>users<span class="w">              </span><span class="c1"># Manage web-terminal users</span>
+osprey<span class="w"> </span>feedback<span class="w">           </span><span class="c1"># Read feedback sent from the web terminals</span>
+osprey<span class="w"> </span>profile<span class="w">            </span><span class="c1"># Validate and inspect build profiles</span>
+osprey<span class="w"> </span>health<span class="w">             </span><span class="c1"># Check system health</span>
+osprey<span class="w"> </span>channel-finder<span class="w">     </span><span class="c1"># Channel finder CLI</span>
+osprey<span class="w"> </span>knowledge<span class="w">          </span><span class="c1"># Facility knowledge bundles and graph corpus</span>
+osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
+osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
+osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
+osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
+osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
+osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># CI files, boot unit, build artifact overrides</span>
+osprey<span class="w"> </span>audit<span class="w">              </span><span class="c1"># Audit project or profile safety</span>
+osprey<span class="w"> </span>skills<span class="w">             </span><span class="c1"># Manage bundled Osprey skills</span>
+osprey<span class="w"> </span>vendor<span class="w">             </span><span class="c1"># Manage locally bundled vendor assets</span>
+</pre></div>
+</div>
+</section>
+<section id="global-options">
+<h2>Global Options<a class="headerlink" href="#global-options" title="Link to this heading">#</a></h2>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">--version</span></code></dt><dd><p>Show framework version and exit.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code></dt><dd><p>Show debug output, including every container command run. The transcript
+takes the place of the progress report rather than joining it, so under
+<code class="docutils literal notranslate"><span class="pre">-v</span></code> no phase or step lines are printed at all. Without it, a run prints
+the progress report and the command’s own output only; log records below
+WARNING never reach the screen, though they still reach every sink the
+deployment configures.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">--help</span></code></dt><dd><p>Show help for any command (e.g., <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--help</span></code>).</p>
+</dd>
+</dl>
+</section>
+<section id="osprey-init">
+<h2>osprey init<a class="headerlink" href="#osprey-init" title="Link to this heading">#</a></h2>
+<p>Create a deployment repository from a bundled preset.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span><span class="o">[</span>DIRECTORY<span class="o">]</span><span class="w"> </span>--preset<span class="w"> </span>NAME<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">DIRECTORY</span></code> is the repository the deployment lives in, and its name <em>is</em> the
+deployment’s name. Omit it to initialize the current directory in place, which
+is how a repository cloned empty from a forge is filled in.</p>
+<p>The repository holds four zones — source you edit, secrets, disposable build
+output, and durable state:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>DIRECTORY/
+  profile.yml                    the manifest; everything the preset configures
+  data/ personas/ triggers.yml   the material it names — yours to edit
+  .env                           provider keys, seeded from your shell
+  build/                         rendered by `osprey build`; gitignored
+  var/                           agent memory and audit log; gitignored
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and an initial commit run at the end, unless a git repository
+already encloses the target or <code class="docutils literal notranslate"><span class="pre">--no-git</span></code> is given.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> — Bundled preset to materialize.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--list-presets</span></code> — List bundled preset names and exit.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">FILE</span></code> — Layer a YAML file on top of the preset before writing
+(repeatable, in order).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline scalar/list override baked into the emitted
+profile (repeatable). RHS is parsed as YAML. Top-level shorthands: <code class="docutils literal notranslate"><span class="pre">provider</span></code>,
+<code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code>, <code class="docutils literal notranslate"><span class="pre">connector</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> — Re-materialize the source zone of an existing deployment
+repository, discarding edits to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">personas/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. Never touches
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code>, <code class="docutils literal notranslate"><span class="pre">build/</span></code>, <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>, <code class="docutils literal notranslate"><span class="pre">README.md</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, the CI file, or <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--no-git</span></code> — Skip <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and the initial commit.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--up</span></code> / <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detach</span></code> / <code class="docutils literal notranslate"><span class="pre">--dev</span></code> — Build and start the deployment right
+away, optionally in the background or in development mode.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>--list-presets
+osprey<span class="w"> </span>init<span class="w"> </span>als-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+osprey<span class="w"> </span>init<span class="w"> </span>demo<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--up<span class="w"> </span>-d<span class="w"> </span>--dev
+</pre></div>
+</div>
+</section>
+<section id="osprey-set">
+<h2>osprey set<a class="headerlink" href="#osprey-set" title="Link to this heading">#</a></h2>
+<p>Write settings into the deployment profile.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">KEY</span><span class="o">=</span>VALUE...<span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span>
+</pre></div>
+</div>
+<p>Each <code class="docutils literal notranslate"><span class="pre">KEY=VALUE</span></code> is written into this repository’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> in place,
+comments intact. That file is the source of truth, so this is the only command
+that edits configuration for you — the rendered <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> is
+generated from it and is never hand-edited. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to carry a
+setting through to <code class="docutils literal notranslate"><span class="pre">build/</span></code>, then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> to deploy it.</p>
+<p><code class="docutils literal notranslate"><span class="pre">KEY</span></code> is a top-level profile key (<code class="docutils literal notranslate"><span class="pre">provider</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">tier</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code>, <code class="docutils literal notranslate"><span class="pre">connector</span></code>) or a dotted path. Keys under <code class="docutils literal notranslate"><span class="pre">config.</span></code>
+address the rendered config: <code class="docutils literal notranslate"><span class="pre">config.control_system.type=epics</span></code> writes that
+literal dotted entry into the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. <code class="docutils literal notranslate"><span class="pre">VALUE</span></code> is read as
+YAML, so <code class="docutils literal notranslate"><span class="pre">true</span></code>/<code class="docutils literal notranslate"><span class="pre">false</span></code> become booleans and bare numbers become numbers.</p>
+<p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code> names the channel-finder paradigm the build renders:
+<code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code> or <code class="docutils literal notranslate"><span class="pre">graph</span></code>. The first three
+search a channel database file; <code class="docutils literal notranslate"><span class="pre">graph</span></code> searches the graph store named by
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> – deployed with the stack or facility-hosted – instead of
+a database file.</p>
+<p>Two shorthands stand in for longer key paths: <code class="docutils literal notranslate"><span class="pre">connector=</span></code> writes
+<code class="docutils literal notranslate"><span class="pre">config.control_system.type</span></code>, and <code class="docutils literal notranslate"><span class="pre">epics_gateway=</span></code> writes a known facility’s
+EPICS gateway addresses. (Control systems beyond the bundled ones are reachable
+through custom connector packages — see <a class="reference internal" href="../how-to/control-systems/use-connectors.html"><span class="doc">Use Connectors</span></a>.)</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">model</span><span class="o">=</span>sonnet
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">tier</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.facility.name<span class="o">=</span><span class="s1">&#39;ALS Storage Ring&#39;</span>
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">epics_gateway</span><span class="o">=</span>als
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--repo<span class="w"> </span>~/als-assistant<span class="w"> </span>config.control_system.writes_enabled<span class="o">=</span><span class="nb">true</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-validate">
+<h2>osprey validate<a class="headerlink" href="#osprey-validate" title="Link to this heading">#</a></h2>
+<p>Check the deployment profile without building.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>TARGET<span class="o">]</span><span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span>
+</pre></div>
+</div>
+<p>With no argument, validates the deployment repository enclosing the working
+directory. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> names a different profile to check instead — a persona
+delta file under <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, or a directory holding a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>.</p>
+<p>Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains and runs the full consistency check — convention
+directories, the <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree, service templates, lifecycle steps, env vars —
+then lints the declared web stack against the config a build would render. Every
+problem found is reported, not just the first. Exits 0 when the profile is
+valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
+osprey<span class="w"> </span>validate<span class="w"> </span>personas/reader.yml
+osprey<span class="w"> </span>validate<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant
+</pre></div>
+</div>
+</section>
+<section id="osprey-config">
+<h2>osprey config<a class="headerlink" href="#osprey-config" title="Link to this heading">#</a></h2>
+<p>Show the deployment configuration.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span><span class="o">[</span>--rendered<span class="w"> </span><span class="p">|</span><span class="w"> </span>--defaults<span class="o">]</span><span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span>
+</pre></div>
+</div>
+<p>With no flag, prints the source <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — the tracked, hand-edited
+manifest — exactly as it is on disk, comments included. Output is piped through
+unchanged when stdout is not a terminal. This command only reads; to change a
+setting, use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--rendered</span></code> — Show the built <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> the deployment actually runs on.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--defaults</span></code> — Show the framework’s default template, with every key the
+framework understands and its default. Needs no deployment repository.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config
+osprey<span class="w"> </span>config<span class="w"> </span>--rendered
+osprey<span class="w"> </span>config<span class="w"> </span>--defaults<span class="w"> </span>&gt;<span class="w"> </span>defaults.yml
+</pre></div>
+</div>
+</section>
+<section id="osprey-profile">
+<h2>osprey profile<a class="headerlink" href="#osprey-profile" title="Link to this heading">#</a></h2>
+<p>Validate and inspect build profiles. The profile is the durable, facility-owned
+source a deployment is built from — see <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>TARGET
+osprey<span class="w"> </span>profile<span class="w"> </span>presets
+osprey<span class="w"> </span>profile<span class="w"> </span>artifacts
+</pre></div>
+</div>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span> <span class="pre">TARGET</span></code></dt><dd><p>Check a profile without building anything. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> is a directory holding
+a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or a path to a profile file. Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains
+and reports every problem found — convention directories, the <code class="docutils literal notranslate"><span class="pre">data:</span></code>
+tree, service templates, lifecycle steps, env vars. Exits 0 when valid, 2
+with the accumulated errors when not. Inside a deployment repository, plain
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> checks that repository without naming a target.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code></dt><dd><p>List bundled preset names, one per line. Every name printed is usable as
+<code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">artifacts</span></code></dt><dd><p>List every artifact the six profile lists can name — hooks, rules, skills,
+agents, output styles, and web panels — with a one-line description of
+each. The same menu appears as commented entries in an emitted profile.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
+osprey<span class="w"> </span>init<span class="w"> </span>my-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>opus
+<span class="nb">cd</span><span class="w"> </span>my-facility
+osprey<span class="w"> </span>validate
+osprey<span class="w"> </span>build
+</pre></div>
+</div>
+</section>
+<section id="osprey-build">
+<h2>osprey build<a class="headerlink" href="#osprey-build" title="Link to this heading">#</a></h2>
+<p>Render this deployment repository’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> from its profile.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p>Run it with no arguments, anywhere inside a deployment repository. It walks up
+to the repository’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and renders the whole output zone from it:
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, the Osprey agent artifacts, the data tree, the service templates
+and the compose files that deploy them.</p>
+<p><code class="docutils literal notranslate"><span class="pre">build/</span></code> is derived in full and holds nothing durable — your keys are in
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>, the agent’s memory is in <code class="docutils literal notranslate"><span class="pre">var/</span></code> — so every build wipes and
+re-renders it. The render lands in <code class="docutils literal notranslate"><span class="pre">build/.tmp</span></code> and replaces <code class="docutils literal notranslate"><span class="pre">build/</span></code> only
+once it has succeeded, so a build that fails, or one you interrupt, leaves the
+previous build exactly as it was and still able to stop the stack it started.</p>
+<p>It renders files, never containers: rebuild while the stack is up and the change
+takes effect at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code> — Stream lifecycle step output in real time.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code> — Skip the profile’s <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">validate</span></code> steps.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> — Skip venv creation and dependency installation (CI mode).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> — Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config, for
+a build whose output runs somewhere other than where it was made.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> — Deployment repository to act on (default: the nearest
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above the working directory).</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+osprey<span class="w"> </span>build<span class="w"> </span>--repo<span class="w"> </span>~/deployments/als-assistant
+osprey<span class="w"> </span>build<span class="w"> </span>--skip-lifecycle<span class="w"> </span>--skip-deps<span class="w">          </span><span class="c1"># CI: no venv, no hooks</span>
+</pre></div>
+</div>
+</section>
+<section id="lifecycle-verbs">
+<h2>Lifecycle verbs<a class="headerlink" href="#lifecycle-verbs" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">logs</span></code> and <code class="docutils literal notranslate"><span class="pre">reset</span></code> run the
+deployment’s container stack. Each one takes <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> and otherwise
+needs no arguments: run it anywhere inside the deployment repository.</p>
+<section id="osprey-up">
+<h3>osprey up<a class="headerlink" href="#osprey-up" title="Link to this heading">#</a></h3>
+<p>Start this deployment from <code class="docutils literal notranslate"><span class="pre">build/</span></code>, as built.</p>
+<p>It starts what the last <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> rendered and re-renders nothing from
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so the services that come up are always the ones you can read
+on disk. It reads <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> for one thing: a fingerprint. If the profile
+has changed since the build, <code class="docutils literal notranslate"><span class="pre">up</span></code> refuses and says what moved, because
+starting would deploy something other than what the profile now describes.</p>
+<p>One exception, by design: a deployment with web terminals re-renders that stack
+at every start — its compose file, nginx config, landing page, and any persona
+whose project is missing. Those follow the user roster rather than the build, so
+a roster edit takes effect on the next start.</p>
+<p>Whether the deployment is reachable off-host is a property of the build, not of
+this command: the bind address is rendered into every published port. Change it
+with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">deployment.bind_address=0.0.0.0</span></code>, then rebuild.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detached</span></code> — Run services in the background.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> — Bake the local osprey checkout into the images instead of the
+published release.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--build</span></code> — Re-render <code class="docutils literal notranslate"><span class="pre">build/</span></code> from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> first, then start it.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--as-built</span></code> — Start <code class="docutils literal notranslate"><span class="pre">build/</span></code> as it was rendered, even though <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
+has moved on.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--keep-archiver-base</span></code> — Keep the existing archiver history even when the
+profile’s retention/cadence knobs no longer match it.</p>
+</section>
+<section id="osprey-down">
+<h3>osprey down<a class="headerlink" href="#osprey-down" title="Link to this heading">#</a></h3>
+<p>Stop this deployment, keeping all data. It renders nothing; destroying data is
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code>, which asks first.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">build/</span></code> is gone or was never rendered, <code class="docutils literal notranslate"><span class="pre">down</span></code> does not re-derive the
+compose files from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — those describe what would be started now,
+not what is running. Instead it stops the containers this repository labelled as
+its own, which is the recovery path for a <code class="docutils literal notranslate"><span class="pre">build/</span></code> deleted while the stack was
+up. Containers are labelled when they are <em>created</em>, so a stack started before
+this labelling existed cannot be found that way; run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to restore
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> and <code class="docutils literal notranslate"><span class="pre">down</span></code> works normally again.</p>
+</section>
+<section id="osprey-restart">
+<h3>osprey restart<a class="headerlink" href="#osprey-restart" title="Link to this heading">#</a></h3>
+<p>Stop and start this deployment again. Takes the same options as <code class="docutils literal notranslate"><span class="pre">up</span></code>:
+<code class="docutils literal notranslate"><span class="pre">-d/--detached</span></code>, <code class="docutils literal notranslate"><span class="pre">--dev</span></code>, <code class="docutils literal notranslate"><span class="pre">--build</span></code>, <code class="docutils literal notranslate"><span class="pre">--as-built</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--keep-archiver-base</span></code>.</p>
+</section>
+<section id="osprey-status">
+<h3>osprey status<a class="headerlink" href="#osprey-status" title="Link to this heading">#</a></h3>
+<p>Show what this deployment is doing. It reads and reports — it starts nothing,
+stops nothing and renders nothing — so it is safe to run against a live stack at
+any time.</p>
+<p>Four sections. <strong>Build</strong> says whether <code class="docutils literal notranslate"><span class="pre">build/</span></code> still matches <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
+the same check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses on, and which version of osprey rendered it.
+<strong>Containers</strong> is what the container runtime reports, not what compose thinks
+should exist. <strong>Endpoints</strong> is where the services are declared to answer.
+<strong>Agent</strong> is the provider, whether its credential can be found, and whether the
+rendered agent files still match the config.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--agents</span></code> — Also show the per-subagent model assignments.</p>
+</section>
+<section id="osprey-logs">
+<h3>osprey logs<a class="headerlink" href="#osprey-logs" title="Link to this heading">#</a></h3>
+<p>Show this deployment’s container logs, and step out of the way: <code class="docutils literal notranslate"><span class="pre">-f</span></code> streams,
+Ctrl-C stops it, piping into other commands works, and the exit code is the
+runtime’s own. Both halves of a deployment are covered — the services and, when
+there is one, the web-terminal stack.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--follow</span></code> — Keep streaming new output until interrupted.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--tail</span> <span class="pre">INTEGER</span></code> — Show only the last N lines per container.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>logs
+osprey<span class="w"> </span>logs<span class="w"> </span>event-dispatcher<span class="w"> </span>-f
+osprey<span class="w"> </span>logs<span class="w"> </span>--tail<span class="w"> </span><span class="m">50</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-reset">
+<h3>osprey reset<a class="headerlink" href="#osprey-reset" title="Link to this heading">#</a></h3>
+<p>Wipe this deployment back to a fresh state. It stops the stack, removes the
+containers, volumes and images carrying this checkout’s identity, destroys the
+agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>, strips the tokens <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> minted
+out of <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and deletes <code class="docutils literal notranslate"><span class="pre">build/</span></code>.</p>
+<p>Two things survive, and the plan says so before you confirm: <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>, the
+safety audit log, and everything in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that a deploy did not mint — your
+provider keys. The source zone is never touched: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">personas/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are exactly what they were.</p>
+<p>Reset removes a container or volume only when it also carries this repository’s
+identity label, and refuses outright — removing nothing — when it finds
+same-named resources created from a different path.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> — Show the removal plan and stop. Nothing is stopped, removed, or
+written.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> — Skip the typed confirmation. The plan is still printed.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code> — Destroy <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> as well. It is kept by default.</p>
+<p>Exit status: <code class="docutils literal notranslate"><span class="pre">0</span></code> the reset did what it said (or there was nothing to do),
+<code class="docutils literal notranslate"><span class="pre">1</span></code> you declined or it refused, <code class="docutils literal notranslate"><span class="pre">3</span></code> it ran but the deployment is only partly
+reset, with each survivor named above the exit.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
+osprey<span class="w"> </span>status
+osprey<span class="w"> </span>up<span class="w"> </span>--build<span class="w"> </span>-d
+osprey<span class="w"> </span>restart<span class="w"> </span>--dev
+osprey<span class="w"> </span>logs<span class="w"> </span>-f
+osprey<span class="w"> </span>down
+osprey<span class="w"> </span>reset<span class="w"> </span>--dry-run
+</pre></div>
+</div>
+</section>
+</section>
+<section id="osprey-users">
+<h2>osprey users<a class="headerlink" href="#osprey-users" title="Link to this heading">#</a></h2>
+<p>Manage this repository’s web-terminal users. A multi-user deployment gives each
+person on the roster their own web terminal, container and workspace volumes;
+these verbs act on that roster, which lives in the profile. Every verb takes
+<code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 46.0%" />
+<col style="width: 32.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Verb</p></th>
+<th class="head"><p>What it does</p></th>
+<th class="head"><p>Also accepts</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">remove</span> <span class="pre">USER</span></code></p></td>
+<td><p>Retire one person: remove their web-terminal workspace.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--archive</span></code>, <code class="docutils literal notranslate"><span class="pre">--purge</span></code>, <code class="docutils literal notranslate"><span class="pre">-y/--yes</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">prune</span></code></p></td>
+<td><p>Remove workspaces for people no longer on the roster.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--archive</span></code>, <code class="docutils literal notranslate"><span class="pre">--purge</span></code>, <code class="docutils literal notranslate"><span class="pre">-y/--yes</span></code>, <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">seed</span> <span class="pre">[USER]</span></code></p></td>
+<td><p>(Re)seed workspaces from the roster; <code class="docutils literal notranslate"><span class="pre">USER</span></code> targets one person, omit
+to reseed all.</p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">passwd</span> <span class="pre">USER</span></code></p></td>
+<td><p>Change one user’s login password (password authentication only).
+Prompts without echoing, and ends that user’s sessions.</p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">login-url</span> <span class="pre">USER</span></code></p></td>
+<td><p>Print the URL that opens that user’s terminal. Only the URL goes to
+stdout, so it can be piped or copied. Refuses for a user who signs in
+through the login page.</p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<td><p>Render <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the env file every per-user container runs
+with.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--env-file</span></code>, <code class="docutils literal notranslate"><span class="pre">-o/--output</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--archive</span></code> – Archive a user’s workspace before removing it (mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--purge</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--purge</span></code> – Permanently delete a user’s workspace without archiving it (mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--archive</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> – Assume yes to confirmation prompts.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> – Show what would happen without making changes.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span></code> builds the URL from that user’s operator secret in
+the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints for every roster user in
+every auth mode. Opening it once trades the token for a session cookie. It is
+how someone gets in when nginx authenticates nobody — <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code>, or
+a roster entry with <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> — and it is a password: send each person
+only their own. Rotate one by deleting that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code>
+line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again.</p>
+<p>For a user who <em>is</em> behind the login wall the command refuses and names their
+login page instead. The URL would not work for them — the authentication
+service turns the request away before the terminal can read the token — and
+printing it would put a live credential in someone’s inbox for nothing.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env</span></code> renders the same subset a deploy would generate, from the
+same two inputs — the rendered deploy config and the repository root’s env
+chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> then <code class="docutils literal notranslate"><span class="pre">.env</span></code>, so <code class="docutils literal notranslate"><span class="pre">.env</span></code> wins on a key both set) — so
+a file rendered here and one generated by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> cannot disagree. Values
+come only from those files, never from the surrounding environment.
+<code class="docutils literal notranslate"><span class="pre">--env-file</span> <span class="pre">PATH</span></code> renders from that one file instead of the chain.
+<code class="docutils literal notranslate"><span class="pre">-o/--output</span> <span class="pre">PATH</span></code> writes the result at mode <code class="docutils literal notranslate"><span class="pre">0600</span></code> instead of to stdout;
+unlike a deploy, which never overwrites an existing <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, an
+explicit <code class="docutils literal notranslate"><span class="pre">--output</span></code> is taken as an instruction and replaces what is there. In
+CI, pass it: without <code class="docutils literal notranslate"><span class="pre">--output</span></code> the assembled secrets go to the job log.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>remove<span class="w"> </span>alice<span class="w"> </span>--archive
+osprey<span class="w"> </span>users<span class="w"> </span>prune<span class="w"> </span>--dry-run
+osprey<span class="w"> </span>users<span class="w"> </span>seed<span class="w"> </span>alice
+osprey<span class="w"> </span>users<span class="w"> </span>passwd<span class="w"> </span>alice
+osprey<span class="w"> </span>users<span class="w"> </span>login-url<span class="w"> </span>alice
+osprey<span class="w"> </span>users<span class="w"> </span>env<span class="w"> </span>--output<span class="w"> </span>.env.users
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for the walkthrough that uses these
+verbs end to end.</p>
+</section>
+<section id="osprey-feedback">
+<h2>osprey feedback<a class="headerlink" href="#osprey-feedback" title="Link to this heading">#</a></h2>
+<p>Read the feedback this deployment’s web terminals collected. People using a web
+terminal can send a report from the terminal itself; each submission is stored
+with the session it was sent from, in the sender’s own workspace, and these
+verbs read it back. Every verb takes <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code>.</p>
+<p>A multi-user deployment keeps one store per person, and reading it starts a
+short-lived read-only container on each person’s workspace — so the
+deployment’s container runtime has to be up. A single-user deployment keeps one
+store on this machine, read straight off disk.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 46.0%" />
+<col style="width: 32.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Verb</p></th>
+<th class="head"><p>What it does</p></th>
+<th class="head"><p>Also accepts</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">list</span></code></p></td>
+<td><p>One line per submission, newest first: id, who sent it, when (UTC),
+which channel it went out on, and the start of the message. Headers
+only.</p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">export</span></code></p></td>
+<td><p>Every submission’s whole record plus the session captured with it, as
+one JSON array. Written a record at a time, so a large store never has
+to fit in memory.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">-o/--output</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output</span> <span class="pre">PATH</span></code> – Write the export to this file instead of stdout. Naming
+a directory, or a file inside a directory that does not exist, is a usage error
+at parse time, before any workspace is read.</p>
+<p>With no <code class="docutils literal notranslate"><span class="pre">--output</span></code>, <code class="docutils literal notranslate"><span class="pre">export</span></code> puts the JSON document on stdout and nothing
+else, so it can be redirected straight into a file; errors and the closing
+summary go to standard error. With <code class="docutils literal notranslate"><span class="pre">--output</span></code>, the human output stays on the
+terminal and the file holds the export. An empty store exports <code class="docutils literal notranslate"><span class="pre">[]</span></code>.</p>
+<p>A workspace that cannot be read is reported and the rest of the deployment is
+still listed or exported; the export’s closing summary distinguishes a workspace
+that contributed nothing from one that was only partly readable. If nothing at
+all could be read, both verbs stop rather than reporting a deployment with no
+feedback in it. A submission whose session was dropped to keep the store inside
+<code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code> carries <code class="docutils literal notranslate"><span class="pre">context_pruned</span></code>; one missing its
+session for any other reason carries <code class="docutils literal notranslate"><span class="pre">context_missing</span></code>. The submission is
+exported either way.</p>
+<p>Exit status: <code class="docutils literal notranslate"><span class="pre">0</span></code> on success, including a deployment nobody has sent feedback
+from. Non-zero when the repository has no build, when every workspace failed to
+read, and when an export stopped part-way — in which case the file still parses
+and holds what was read.</p>
+<p><code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> is checked on the <strong>single-user</strong> path only, and a
+<code class="docutils literal notranslate"><span class="pre">~</span></code>-relative value there is non-zero with the explanation (the data lands
+where the verb cannot reach it). The multi-user path never consults the key: it
+mounts each person’s volume and reads a fixed path inside it, so a rostered
+deployment with a <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> writes its feedback to
+a volume these verbs do not mount and simply reads as having none. Nothing
+detects that, so do not read an empty multi-user listing as proof. See
+<a class="reference internal" href="../how-to/web-terminal/send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>feedback<span class="w"> </span>list
+osprey<span class="w"> </span>feedback<span class="w"> </span>list<span class="w"> </span>--repo<span class="w"> </span>../other-deployment
+osprey<span class="w"> </span>feedback<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--output<span class="w"> </span>feedback.json
+osprey<span class="w"> </span>feedback<span class="w"> </span><span class="nb">export</span><span class="w"> </span>&gt;<span class="w"> </span>feedback.json
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="../how-to/web-terminal/send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a> for the dialog these records come from and what
+each submission carries.</p>
+</section>
+<section id="osprey-health">
+<h2>osprey health<a class="headerlink" href="#osprey-health" title="Link to this heading">#</a></h2>
+<p>Run comprehensive system health check.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>health<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> – Deployment repository or rendered project directory (default: the repository enclosing the current directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code> – Show per-warning and per-error details in the summary.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--json</span></code> – Emit the report as a single JSON document on stdout.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--category</span> <span class="pre">NAME</span></code> – Run only the named category (repeatable).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--full</span></code> – Also run on-demand categories (live model chat, pinned CLI download).</p>
+<p>Exit codes: <code class="docutils literal notranslate"><span class="pre">0</span></code> healthy, <code class="docutils literal notranslate"><span class="pre">1</span></code> warnings only, <code class="docutils literal notranslate"><span class="pre">2</span></code> one or more errors,
+<code class="docutils literal notranslate"><span class="pre">3</span></code> the command itself failed, <code class="docutils literal notranslate"><span class="pre">130</span></code> interrupted. See
+<a class="reference internal" href="contracts/health-json.html"><span class="doc">The osprey health --json Contract</span></a> for the <code class="docutils literal notranslate"><span class="pre">--json</span></code> document’s shape and the
+<code class="docutils literal notranslate"><span class="pre">jq</span></code> patterns for consuming it, and <a class="reference internal" href="../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a> for
+the <code class="docutils literal notranslate"><span class="pre">health:</span></code> config block.</p>
+</section>
+<section id="osprey-chat">
+<h2>osprey chat<a class="headerlink" href="#osprey-chat" title="Link to this heading">#</a></h2>
+<p>Talk to this deployment’s agent. See <a class="reference internal" href="../how-to/agent-interfaces/cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat<span class="w"> </span><span class="o">[</span>PROMPT<span class="o">]</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p>Starts the agent in the deployment’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory, wired to the
+provider, control system and facility knowledge that build was rendered with.
+<code class="docutils literal notranslate"><span class="pre">PROMPT</span></code>, when given, is the opening message — with <code class="docutils literal notranslate"><span class="pre">--print</span></code> it is answered
+and the command exits, which is the shape a script wants.</p>
+<p>Nothing is re-rendered: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> owns that. When the profile has changed
+since the last build, a warning says so and the session starts anyway against
+the build as it stands.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--resume</span> <span class="pre">SESSION_ID</span></code> — Resume a previous agent session by ID.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--print</span></code> — Print the answer and exit.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--effort</span> <span class="pre">[low|medium|high|max]</span></code> — Reasoning effort (default:
+<code class="docutils literal notranslate"><span class="pre">claude_code.effort</span></code> from the build).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--no-pin</span></code> — Ignore <code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> and use the installed agent CLI.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> — Deployment repository to act on.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat
+osprey<span class="w"> </span>chat<span class="w"> </span>--print<span class="w"> </span><span class="s2">&quot;what is the stored beam current?&quot;</span>
+osprey<span class="w"> </span>chat<span class="w"> </span>--resume<span class="w"> </span>abc123
+osprey<span class="w"> </span>chat<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant
+</pre></div>
+</div>
+</section>
+<section id="osprey-query">
+<h2>osprey query<a class="headerlink" href="#osprey-query" title="Link to this heading">#</a></h2>
+<p>Send a prompt to this deployment’s agent, print the answer, and exit. See
+<a class="reference internal" href="../how-to/agent-interfaces/cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span>PROMPT<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p>Runs read-only: write, execute and destructive tools are blocked at the agent
+SDK level, so the command is safe in CI pipelines and automated workflows. It
+asks the deployment enclosing the current directory, answering from its
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> as it was last rendered. When <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or a file it points at
+has changed since that build, a warning on stderr says so and the query runs
+anyway.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--json</span></code> — Emit a JSON object with <code class="docutils literal notranslate"><span class="pre">final_text</span></code>, <code class="docutils literal notranslate"><span class="pre">tool_traces</span></code>,
+<code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code> and <code class="docutils literal notranslate"><span class="pre">exit_code</span></code> on stdout.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> — Deployment repository to act on.</p>
+<p>Exit codes: <code class="docutils literal notranslate"><span class="pre">0</span></code> the agent completed and every expected MCP server connected,
+<code class="docutils literal notranslate"><span class="pre">1</span></code> the verdict failed (a server was missing from the session, the agent
+returned an error result, or the run hit its cost or turn budget), <code class="docutils literal notranslate"><span class="pre">2</span></code> a usage
+error (nothing built to answer from, the agent SDK is not installed, or the
+provider is not configured).</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span><span class="s2">&quot;What PVs are used for beam current?&quot;</span>
+osprey<span class="w"> </span>query<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
+osprey<span class="w"> </span>query<span class="w"> </span>--json<span class="w"> </span><span class="s2">&quot;Summarise recent alarms&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-eject">
+<h2>osprey eject<a class="headerlink" href="#osprey-eject" title="Link to this heading">#</a></h2>
+<p>Copy framework services to your project for customization.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">eject</span> <span class="pre">list</span></code></dt><dd><p>List all ejectable framework capabilities and services.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">eject</span> <span class="pre">service</span> <span class="pre">NAME</span> <span class="pre">[--output</span> <span class="pre">PATH]</span> <span class="pre">[--include-tests]</span></code></dt><dd><p>Copy a framework service directory locally.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>eject<span class="w"> </span>list
+osprey<span class="w"> </span>eject<span class="w"> </span>service<span class="w"> </span>channel_finder<span class="w"> </span>--include-tests
+</pre></div>
+</div>
+</section>
+<section id="osprey-channel-finder">
+<h2>osprey channel-finder<a class="headerlink" href="#osprey-channel-finder" title="Link to this heading">#</a></h2>
+<p>Tools for building, validating, previewing, and serving control system
+channel databases.</p>
+<p>Options: <code class="docutils literal notranslate"><span class="pre">--project</span> <span class="pre">PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">build-database</span></code></dt><dd><p>Build a channel database from a CSV file.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">validate</span> <span class="pre">[--database</span> <span class="pre">PATH]</span> <span class="pre">[--pipeline</span> <span class="pre">hierarchical|in_context|middle_layer]</span> <span class="pre">[-v]</span></code></dt><dd><p>Validate a channel database JSON file. The paradigm is auto-detected from the
+project’s config; <code class="docutils literal notranslate"><span class="pre">--pipeline</span></code> overrides that.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">preview</span></code></dt><dd><p>Preview a channel database with flexible display options.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">generate</span> <span class="pre">[--output-dir</span> <span class="pre">DIR]</span> <span class="pre">[--source</span> <span class="pre">PATH]</span> <span class="pre">[--format</span> <span class="pre">in_context|hierarchical|middle_layer|all]</span> <span class="pre">[--tier</span> <span class="pre">1|3|none]</span> <span class="pre">[--validate]</span></code></dt><dd><p>Generate channel databases from a hierarchical template. Produces one
+or more pipeline formats (default: all three) with optional tier filtering.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">benchmark</span> <span class="pre">--model</span> <span class="pre">PROVIDER/WIRE_ID</span> <span class="pre">[--queries</span> <span class="pre">SPEC]</span> <span class="pre">[--runs-per-query</span> <span class="pre">N]</span> <span class="pre">[--concurrency</span> <span class="pre">N]</span> <span class="pre">[--output-dir</span> <span class="pre">DIR]</span> <span class="pre">[--queries-path</span> <span class="pre">PATH]</span> <span class="pre">[-v]</span></code></dt><dd><p>Run the benchmark harness against a channel-finder pipeline using a
+LiteLLM-form model id (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-haiku-4-5</span></code>). Saves per-run
+JSON results for accuracy/cost analysis.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">web</span></code></dt><dd><p>Launch the Channel Finder web interface.</p>
+</dd>
+</dl>
+<p>A graph-mode project has no channel database file: <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code>
+say so and point at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> and the <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> tool,
+and <code class="docutils literal notranslate"><span class="pre">--pipeline</span></code> does not offer <code class="docutils literal notranslate"><span class="pre">graph</span></code> for the same reason.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w"> </span>--format<span class="w"> </span>hierarchical
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-haiku-4-5
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
+</pre></div>
+</div>
+</section>
+<section id="osprey-knowledge">
+<span id="cli-osprey-knowledge"></span><h2>osprey knowledge<a class="headerlink" href="#osprey-knowledge" title="Link to this heading">#</a></h2>
+<p>Build and load the facility’s knowledge material: the OKF bundle of concept
+documents, and the NARAD-convention corpus the graph store holds. An omitted
+<code class="docutils literal notranslate"><span class="pre">BUNDLE</span></code> comes from <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> and an omitted <code class="docutils literal notranslate"><span class="pre">TTL</span></code>
+from <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>. See <a class="reference internal" href="../how-to/facility-knowledge/okf-bundle.html"><span class="doc">The OKF Bundle</span></a> and
+<a class="reference internal" href="../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Regenerate the <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files throughout an OKF bundle. Run it twice and
+the second run changes nothing.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">validate</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Check every document in a bundle against the OKF format.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-from-ttl</span> <span class="pre">TTL</span> <span class="pre">BUNDLE</span> <span class="pre">[--force]</span></code></dt><dd><p>Write stub concept documents into a bundle from a TTL corpus, one per class,
+for a person to fill in.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">compile-ontology</span> <span class="pre">SOURCE</span> <span class="pre">OUTPUT</span> <span class="pre">[--check]</span></code></dt><dd><p>Compile an authored LinkML schema into the ontology table <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code>
+reads. <code class="docutils literal notranslate"><span class="pre">SOURCE</span></code> is the schema, and <code class="docutils literal notranslate"><span class="pre">OUTPUT</span></code> the JSON table to write; an
+existing file is overwritten. The output is deterministic, so compiling an
+unchanged schema twice leaves <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">diff</span></code> silent.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--check</span></code> writes nothing. It compares <code class="docutils literal notranslate"><span class="pre">OUTPUT</span></code> against a fresh compile of
+<code class="docutils literal notranslate"><span class="pre">SOURCE</span></code> and exits non-zero when the two disagree, naming the classes,
+synonyms and families that differ — which is what a CI job or a pre-commit
+hook runs to prove a committed table still matches its schema.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span> <span class="pre">OUTPUT</span> <span class="pre">[--channel-db</span> <span class="pre">PATH]</span> <span class="pre">[--descriptions</span> <span class="pre">PATH]</span> <span class="pre">[--limits</span> <span class="pre">PATH]</span> <span class="pre">[--ontology</span> <span class="pre">PATH]</span></code></dt><dd><p>Derive a NARAD-convention TTL corpus — the file <code class="docutils literal notranslate"><span class="pre">seed-graph</span></code> loads — from
+the project’s own channel databases, so the graph store and the channel
+finder describe the same machine. The corpus carries one device node per
+device, one binding per address, one class per device family, a read or write
+direction on every signal, and the prose from both databases on the nodes it
+describes, which is what lets the corpus be searched by meaning rather than
+by address alone.</p>
+<p>Two inputs describe the machine:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">--channel-db</span></code></dt><dd><p>The <strong>hierarchical</strong>-paradigm database, the one whose addresses are
+<code class="docutils literal notranslate"><span class="pre">RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD</span></code>. Its addresses become the
+devices, bindings and classes, and the text it carries per level becomes
+<code class="docutils literal notranslate"><span class="pre">ringDescription</span></code> / <code class="docutils literal notranslate"><span class="pre">systemDescription</span></code> / <code class="docutils literal notranslate"><span class="pre">familyDescription</span></code> on
+devices and <code class="docutils literal notranslate"><span class="pre">fieldDescription</span></code> / <code class="docutils literal notranslate"><span class="pre">subfieldDescription</span></code> on bindings.
+Unnamed, it comes from
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines.hierarchical.database.path</span></code>, resolved against
+the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> directory.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">--descriptions</span></code></dt><dd><p>The in-context database for the same machine: a flat list of addresses,
+each with a sentence about that one channel. Those sentences become
+<code class="docutils literal notranslate"><span class="pre">ChannelBinding.description</span></code>. Unnamed, it is looked for as
+<code class="docutils literal notranslate"><span class="pre">in_context.json</span></code> beside the file <code class="docutils literal notranslate"><span class="pre">--channel-db</span></code> named — which is how
+the OSPREY source tree keeps the two, side by side under <code class="docutils literal notranslate"><span class="pre">tiers/tier3/</span></code>.
+With no such neighbour the command asks for the flag.</p>
+</dd>
+</dl>
+<p>Two more inputs decide details:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">--limits</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code>. This file is what tells
+a readback from a setpoint, so the corpus and the write-safety layer agree
+on which channels are written. With no limits file configured the address
+grammar decides instead — a <code class="docutils literal notranslate"><span class="pre">:SP</span></code> subfield writes, everything else
+reads. Every run reports which of the two it used.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">--ontology</span></code></dt><dd><p>The FAMILY-to-class table, as compiled JSON. Defaults to the demo-machine
+table shipped with OSPREY; name your own when your device families are not
+the demo machine’s. The table is compiled from an authored LinkML schema
+(<code class="docutils literal notranslate"><span class="pre">compile-ontology</span></code> above) rather than written by hand, though a
+hand-written JSON table is still accepted, so an existing one keeps
+working untouched.</p>
+</dd>
+</dl>
+<p>The neighbour rule for <code class="docutils literal notranslate"><span class="pre">--descriptions</span></code> is a convenience of the OSPREY
+source tree. A rendered project keeps only the paradigm it runs, as a flat
+<code class="docutils literal notranslate"><span class="pre">data/channel_databases/&lt;paradigm&gt;.json</span></code>, and prunes the tier tree — so
+there is no neighbour to find and <code class="docutils literal notranslate"><span class="pre">--descriptions</span></code> has to be named there,
+and <code class="docutils literal notranslate"><span class="pre">--channel-db</span></code> too unless the project runs the hierarchical paradigm
+and its config already names the database. A graph-mode project ships no
+channel database at all, so the command refuses there and says to name the
+sources with <code class="docutils literal notranslate"><span class="pre">--channel-db</span></code> and <code class="docutils literal notranslate"><span class="pre">--descriptions</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">OUTPUT</span></code> deliberately does <strong>not</strong> default to
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>: that key usually names a hand-curated corpus,
+and a bare run of the verb would overwrite it. Point that key at the file you
+wrote to have every deployment seed it.
+<a class="reference internal" href="../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> runs the command in a
+rendered project and in the source tree, and shows what it prints.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span> <span class="pre">[TTL]</span> <span class="pre">[--force]</span></code></dt><dd><p>Load a TTL corpus into the deployed graph store. <code class="docutils literal notranslate"><span class="pre">--force</span></code> wipes the store
+and imports from scratch, which is what a changed store configuration needs.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>build-ttl<span class="w"> </span>data/demo_machine.ttl
+osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w"> </span>data/demo_machine.ttl
+osprey<span class="w"> </span>knowledge<span class="w"> </span>validate
+</pre></div>
+</div>
+</section>
+<section id="osprey-ariel">
+<h2>osprey ariel<a class="headerlink" href="#osprey-ariel" title="Link to this heading">#</a></h2>
+<p>Manage the ARIEL logbook search service.</p>
+<p><code class="docutils literal notranslate"><span class="pre">quickstart</span> <span class="pre">[--source</span> <span class="pre">PATH]</span></code> – Full setup: migrate and ingest demo data.</p>
+<p><code class="docutils literal notranslate"><span class="pre">status</span> <span class="pre">[--json]</span></code> – Show service status.</p>
+<p><code class="docutils literal notranslate"><span class="pre">migrate</span></code> – Create or update database tables.</p>
+<p><code class="docutils literal notranslate"><span class="pre">sync</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Idempotent migrate + incremental ingest + enhance.
+Safe to run on every build; on a fresh database, runs a full ingest.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">ingest</span> <span class="pre">--source</span> <span class="pre">PATH</span> <span class="pre">[--adapter</span> <span class="pre">TYPE]</span> <span class="pre">[--since</span> <span class="pre">DATE]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--dry-run]</span></code></dt><dd><p>Ingest logbook entries from file or URL.</p>
+</dd>
+</dl>
+<p><code class="docutils literal notranslate"><span class="pre">watch</span> <span class="pre">[--source]</span> <span class="pre">[--once]</span> <span class="pre">[--interval</span> <span class="pre">N]</span> <span class="pre">[--dry-run]</span></code> – Poll for new entries.</p>
+<p><code class="docutils literal notranslate"><span class="pre">enhance</span> <span class="pre">[--module</span> <span class="pre">NAME]</span> <span class="pre">[--force]</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Run enhancement modules.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">qmd-resync</span> <span class="pre">[--rebuild]</span></code></dt><dd><p>Re-export entries the qmd markdown mirror never saw — entries created in
+the web interface, attachment uploads, and entries written through the
+logbook write service. <code class="docutils literal notranslate"><span class="pre">--rebuild</span></code> wipes the mirror and re-exports
+everything, which is what to run after <code class="docutils literal notranslate"><span class="pre">purge</span></code>.
+<code class="docutils literal notranslate"><span class="pre">ingest</span></code> and <code class="docutils literal notranslate"><span class="pre">watch</span></code> already do this pass on their own.</p>
+</dd>
+</dl>
+<p><code class="docutils literal notranslate"><span class="pre">models</span></code> – List embedding models and tables.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">QUERY</span> <span class="pre">[--mode</span> <span class="pre">keyword|semantic|hybrid]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--json]</span></code></dt><dd><p>Execute a search query. Without <code class="docutils literal notranslate"><span class="pre">--mode</span></code>, the deployment’s
+<code class="docutils literal notranslate"><span class="pre">ariel.default_search_mode</span></code> decides.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">vocab-check</span> <span class="pre">[PATH]</span> <span class="pre">[--json]</span></code></dt><dd><p>Validate a facility vocabulary file — the shorthand-to-prose mapping that
+query expansion uses. Checks <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, or the file named by
+<code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code> when no path is given. Needs no database. Exits 1
+and lists every error when the file is broken; warnings never fail it.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span></code></dt><dd><p>Re-embed entries with a different model.</p>
+</dd>
+</dl>
+<p><code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">[--port</span> <span class="pre">N]</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--reload]</span></code> – Launch web interface.</p>
+<p><code class="docutils literal notranslate"><span class="pre">purge</span> <span class="pre">[--yes]</span> <span class="pre">[--embeddings-only]</span></code> – Delete all ARIEL data.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
+osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/ariel/vocabulary.yml
+osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-artifacts">
+<h2>osprey artifacts<a class="headerlink" href="#osprey-artifacts" title="Link to this heading">#</a></h2>
+<p>Manage the OSPREY Artifact Gallery – a local web gallery that displays
+interactive plots, tables, and other outputs produced by the Osprey agent during
+analysis sessions. Artifacts are written by the Osprey agent via <code class="docutils literal notranslate"><span class="pre">save_artifact()</span></code> in
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">execute</span></code> or the <code class="docutils literal notranslate"><span class="pre">artifact_register</span></code> MCP tool.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">artifacts</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Launch the Artifact Gallery web interface. Starts a FastAPI server on
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8086</span></code> by default.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or <code class="docutils literal notranslate"><span class="pre">8086</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-h,</span> <span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or
+<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--reload</span></code> — Enable auto-reload for development.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w">                    </span><span class="c1"># Start on localhost:8086</span>
+osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w">        </span><span class="c1"># Custom port</span>
+osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w">     </span><span class="c1"># Bind to all interfaces</span>
+osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--reload<span class="w">           </span><span class="c1"># Development mode</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-web">
+<h2>osprey web<a class="headerlink" href="#osprey-web" title="Link to this heading">#</a></h2>
+<p>Launch the Web Terminal interface. See <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Start the web terminal server (default: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>). On
+startup it prints a login URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) that sets a session cookie
+and then redirects to the clean address. The URL is printed once, but its
+token is the server’s own secret and stays valid for the life of the
+process — treat it like a password.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from config or 8087).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--shell</span> <span class="pre">TEXT</span></code> — Shell command to run (default: <code class="docutils literal notranslate"><span class="pre">claude</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">PATH</span></code> — Deployment repo to act on (default: nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above cwd).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--detach</span></code> — Run in background (PID written to <code class="docutils literal notranslate"><span class="pre">var/osprey-web.pid</span></code>). The
+login token is held only in memory; if the printed URL is lost, stop and
+restart the server to mint a new one.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--reload</span></code> — Auto-reload for development.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code></dt><dd><p>Stop a background web terminal server.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
+osprey<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0
+osprey<span class="w"> </span>web<span class="w"> </span>--detach
+osprey<span class="w"> </span>web<span class="w"> </span>stop
+</pre></div>
+</div>
+</section>
+<section id="osprey-theme-lab">
+<h2>osprey theme-lab<a class="headerlink" href="#osprey-theme-lab" title="Link to this heading">#</a></h2>
+<p>Design a theme in the browser. Starts a local server for OSPREY’s design
+system and opens the Theme Lab, where you pick an accent color and see it
+previewed live on dark and light mock-ups of the web terminal, with contrast
+badges that update as you go. Copying the export block gives you a
+ready-to-paste description of the theme to request; the lab itself does not
+write theme files. See <a class="reference internal" href="../how-to/web-terminal/theming.html"><span class="doc">Theming</span></a>.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">theme-lab</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Serve the Theme Lab and open it. The URL is printed as well, so the page can
+be opened by hand if no browser appears. It is a login URL at the server root
+(<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>): opening it sets a session cookie and then redirects to the
+lab itself.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port to serve on (default: an unused port chosen
+automatically).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--no-browser</span></code> — Do not open a browser window; print the URL only.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>theme-lab
+osprey<span class="w"> </span>theme-lab<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
+osprey<span class="w"> </span>theme-lab<span class="w"> </span>--no-browser
+</pre></div>
+</div>
+</section>
+<section id="osprey-audit">
+<h2>osprey audit<a class="headerlink" href="#osprey-audit" title="Link to this heading">#</a></h2>
+<p>Audit a build profile or project directory for safety risks. Uses an AI
+reviewer to analyze permissions, hooks, MCP server configs, convention
+directories, and lifecycle scripts.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>audit<span class="w"> </span>TARGET<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--build</span></code> — Build a profile in a temp directory, then audit the result.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--model</span> <span class="pre">TEXT</span></code> — Model for the reviewer agent.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--budget</span> <span class="pre">FLOAT</span></code> — Maximum budget in USD.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code> — Show verbose output.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--json</span></code> — Output as JSON.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>audit<span class="w"> </span>my-project/
+osprey<span class="w"> </span>audit<span class="w"> </span>profile.yml<span class="w"> </span>--build
+osprey<span class="w"> </span>audit<span class="w"> </span>project/<span class="w"> </span>--json
+</pre></div>
+</div>
+</section>
+<section id="osprey-scaffold">
+<h2>osprey scaffold<a class="headerlink" href="#osprey-scaffold" title="Link to this heading">#</a></h2>
+<p>Emit the repository’s CI files and boot unit, and manage build artifact
+ownership.
+Framework-managed build artifacts (agents, rules, etc.) can be claimed
+per-facility for in-place editing. A claim moves the artifact out of the build
+zone and into the profile beside it; the next build copies it back and registers
+it as user-owned, so a rebuild leaves your version alone.</p>
+<p>All subcommands accept a common flag:</p>
+<p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> — Deployment repository to act on (default: the nearest
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above the working directory).</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit this repository’s CI pipeline and health check from the profile’s
+<code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block: the pipeline at the repository root and the post-deploy
+health check at <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code>. Run it again whenever the block
+changes. Re-running is safe — a file whose content already matches is left
+untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
+file the scaffolder did not write is reported and left alone unless
+<code class="docutils literal notranslate"><span class="pre">--force</span></code> is given. <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> is never touched: it is yours, and the
+pipeline includes it.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">systemd</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit a systemd user unit that starts this deployment at boot: <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code>
+at the repository root, plus the commands to install it. The unit runs
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> from this repository and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> on stop, with both
+the repository and the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program written in as full paths — systemd
+starts a unit with no working directory and a short <code class="docutils literal notranslate"><span class="pre">PATH</span></code>. Run it on the
+machine that will run the deployment, and again after the repository moves or
+OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
+<code class="docutils literal notranslate"><span class="pre">ci</span></code>: a matching file is left untouched, and a file the scaffolder did not
+write needs <code class="docutils literal notranslate"><span class="pre">--force</span></code>. Refuses when no <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program can be found to
+name. Starting at boot also needs <code class="docutils literal notranslate"><span class="pre">loginctl</span> <span class="pre">enable-linger</span> <span class="pre">$USER</span></code> once —
+see <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code></dt><dd><p>List all build artifacts and their ownership status (framework vs.
+user-owned).</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">NAME</span></code></dt><dd><p>Move an artifact out of <code class="docutils literal notranslate"><span class="pre">build/</span></code> and into the repository’s profile, into
+the convention directory for its kind (<code class="docutils literal notranslate"><span class="pre">rules/safety.md</span></code>,
+<code class="docutils literal notranslate"><span class="pre">skills/orbit-check/</span></code>, <code class="docutils literal notranslate"><span class="pre">services/postgresql/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/my-guard</span></code>). A
+file moves as a file; skills and services move as whole directories. The
+build copy is <em>moved</em>, not copied — it lives in one place until the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders it again.</p>
+<p>Refused, with the reason: a <strong>generated</strong> artifact rather than an authored one —
+<code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>,
+<code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code> — where the message names the config key that does
+control it; and a profile slot that is already occupied. See
+<a class="reference internal" href="../how-to/build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">diff</span> <span class="pre">NAME</span></code></dt><dd><p>Show a unified diff between the current framework template (re-rendered)
+and your file at the canonical output path. For a claimed service
+directory, diffs every file in the directory against the packaged
+template.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">unclaim</span> <span class="pre">NAME</span></code></dt><dd><p>Release ownership and restore framework management. The next build overwrites
+the file with the framework template. Ownership a build derived from the
+profile is re-registered by the next build, so this holds only until then —
+give the artifact up for good by deleting it from the profile’s convention
+directory.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">[--repo</span> <span class="pre">PATH]</span></code></dt><dd><p>Validate the deployment’s <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza (port-family
+allocation, reserved service names, duplicate users, persona references).
+Exits non-zero on error-severity findings; warnings do not fail the check,
+so it is safe to wire into a CI gate.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">render</span> <span class="pre">[--repo</span> <span class="pre">PATH]</span> <span class="pre">-o</span> <span class="pre">DIRECTORY</span></code></dt><dd><p>Render the multi-user deployment artifacts (docker-compose overlay, nginx
+routing fragment, static landing page) into <code class="docutils literal notranslate"><span class="pre">-o/--output</span></code>. Lints first by
+default and aborts on errors; <code class="docutils literal notranslate"><span class="pre">--no-lint</span></code> skips the pre-check.</p>
+<p>Both verbs read the stanza from the repository’s built <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>ci<span class="w">                             </span><span class="c1"># Re-emit the CI files</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd<span class="w">                        </span><span class="c1"># Write the boot unit</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">      </span><span class="c1"># Freeze a service template</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>agents/channel-finder<span class="w">     </span><span class="c1"># Compare yours vs framework</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>rules/safety<span class="w">           </span><span class="c1"># Restore framework management</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>lint<span class="w">             </span><span class="c1"># lint this project&#39;s stanza</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>render<span class="w"> </span>-o<span class="w"> </span>deploy/
+</pre></div>
+</div>
+</section>
+<section id="osprey-skills">
+<h2>osprey skills<a class="headerlink" href="#osprey-skills" title="Link to this heading">#</a></h2>
+<p>Manage bundled Osprey skills — agent skills shipped with OSPREY that
+can be installed either globally or into a specific project’s
+<code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> directory.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">skills</span> <span class="pre">install</span> <span class="pre">NAME</span> <span class="pre">[--target</span> <span class="pre">PATH]</span></code></dt><dd><p>Install a bundled skill into <code class="docutils literal notranslate"><span class="pre">&lt;target&gt;/&lt;name&gt;/</span></code> (defaults to
+<code class="docutils literal notranslate"><span class="pre">~/.claude/skills/&lt;name&gt;/</span></code>). If the target already exists and is
+non-empty, the prior content is renamed to
+<code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.bak.&lt;YYYYMMDD-HHMMSS&gt;/</span></code> before the new copy is written, so a
+previous version is never lost.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">PATH</span></code> — directory to install into. Tilde is expanded. Use a
+project-local <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> path to scope the skill to one repo
+(e.g., a facility repository’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>). Omit for the global
+install.</p>
+<p>Currently supported skills:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — set up or migrate an OSPREY deployment
+through a guided conversation anchored on the live deployment repo (see
+<a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>). Typically installed
+globally so it is available in any Osprey agent session.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> — walks a contributor through the GitHub Flow
+journey from a working-tree change to a merged PR on <code class="docutils literal notranslate"><span class="pre">main</span></code> (branching,
+atomic commits, push, PR, rebase, merge).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code> — runs the quick / ci / premerge check scripts at
+the right gate before committing, pushing, or opening a PR.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-release</span></code> — cuts a CalVer release: opens the version-bump PR,
+tags the merge commit, and verifies the automated PyPI publish.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-design-philosophy</span></code> — OSPREY’s design and architecture principles
+for designing, adding, or reviewing a feature. Useful for framework
+contributors; install globally to have it available when working on
+<code class="docutils literal notranslate"><span class="pre">src/osprey</span></code> in any session.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">creating-an-osprey-panel</span></code> — author a themed, token-only web-terminal
+panel.</p></li>
+</ul>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-interview
+osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>creating-an-osprey-panel<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
+</pre></div>
+</div>
+</section>
+<section id="osprey-vendor">
+<h2>osprey vendor<a class="headerlink" href="#osprey-vendor" title="Link to this heading">#</a></h2>
+<p>Manage locally bundled vendor assets (JS/CSS/fonts) for firewalled
+deployments. By default OSPREY interfaces load third-party libraries directly
+from CDN; set <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE=1</span></code> (or <code class="docutils literal notranslate"><span class="pre">offline:</span> <span class="pre">true</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) to
+switch the interfaces over to local bundles.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Download all vendor assets declared in the manifest into
+<code class="docutils literal notranslate"><span class="pre">static/vendor/</span></code>. Run once on firewalled deployments before starting
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> with <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE=1</span></code>. In default CDN mode this command
+is optional.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-q,</span> <span class="pre">--quiet</span></code> — Suppress per-file output.</p>
+<p>Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
+fails cert verification until it is pointed at the site’s CA bundle.
+That is the first remedy to reach for — verification stays on:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">OSPREY_CA_BUNDLE</span><span class="o">=</span>/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>osprey<span class="w"> </span>vendor<span class="w"> </span>fetch
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code> works too (Python’s default SSL context honors it);
+<code class="docutils literal notranslate"><span class="pre">OSPREY_CA_BUNDLE</span></code> wins when both are set. The path above is the
+RHEL-family system bundle — on Debian-family hosts it is
+<code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-k,</span> <span class="pre">--insecure</span></code> — The fallback when no CA bundle is at hand: skip TLS
+cert verification. Every asset is still checked against its manifest
+SHA256, so this is safe behind corporate proxies that intercept TLS.
+Also enabled via <code class="docutils literal notranslate"><span class="pre">OSPREY_VENDOR_INSECURE=1</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">verify</span></code></dt><dd><p>Verify all vendor assets exist on disk with correct SHA256 checksums.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>vendor<span class="w"> </span>fetch<span class="w">                    </span><span class="c1"># Download all assets</span>
+<span class="nv">OSPREY_CA_BUNDLE</span><span class="o">=</span>/path/to/ca.pem<span class="w"> </span>osprey<span class="w"> </span>vendor<span class="w"> </span>fetch<span class="w">   </span><span class="c1"># TLS-intercepting proxy, verified</span>
+osprey<span class="w"> </span>vendor<span class="w"> </span>fetch<span class="w"> </span>--insecure<span class="w">         </span><span class="c1"># Fallback: no CA bundle at hand</span>
+osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w">                   </span><span class="c1"># Check checksums</span>
+</pre></div>
+</div>
+</section>
+<section id="environment-variables">
+<h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h2>
+<p>The variables the CLI reads, and where they belong, are listed in
+<a class="reference internal" href="configuration/environment-variables.html"><span class="doc">Environment Variables</span></a>.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Reference</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="configuration/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Configuration</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-options">Global Options</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-init">osprey init</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-set">osprey set</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-validate">osprey validate</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-config">osprey config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-profile">osprey profile</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-build">osprey build</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lifecycle-verbs">Lifecycle verbs</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-up">osprey up</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-down">osprey down</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-restart">osprey restart</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-status">osprey status</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-logs">osprey logs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-reset">osprey reset</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-users">osprey users</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-feedback">osprey feedback</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-health">osprey health</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-chat">osprey chat</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-query">osprey query</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-eject">osprey eject</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-channel-finder">osprey channel-finder</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-knowledge">osprey knowledge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-ariel">osprey ariel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-artifacts">osprey artifacts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-web">osprey web</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-theme-lab">osprey theme-lab</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-audit">osprey audit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-scaffold">osprey scaffold</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-skills">osprey skills</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-vendor">osprey vendor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/cli.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

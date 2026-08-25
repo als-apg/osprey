@@ -1,0 +1,1190 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Privilege Tiers &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/web-terminal/multi-user/tiers';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/web-terminal/multi-user/tiers.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="Require a Login" href="login.html" />
+    <link rel="prev" title="Multi-User Support" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 25, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 current active has-children"><a class="reference internal" href="index.html">Multi-User Support</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l3 current active"><a class="current reference internal" href="#">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Web Terminal</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Multi-User Support</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Privilege Tiers</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="privilege-tiers">
+<span id="how-to-multi-user-tiers"></span><h1>Privilege Tiers<a class="headerlink" href="#privilege-tiers" title="Link to this heading">#</a></h1>
+<p>Every card on the landing page opens a terminal with a fixed set of
+capabilities — a <strong>tier</strong>. This page says what each tier may do, where a tier
+comes from, and what stops a session from doing more than its tier allows. It
+is written for the person deciding who gets which login; the mechanics behind
+each boundary are one link away wherever they matter.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">The two questions that decide a tier</p></li>
+<li><p class="sd-card-text">What the three tiers the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships can and
+cannot do, login by login</p></li>
+<li><p class="sd-card-text">That a tier is nothing more than a persona file — and what that means
+when you rename one or add one</p></li>
+<li><p class="sd-card-text">Where the boundary is actually enforced, and the two places it is a
+matter of trust rather than enforcement</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> none. To watch the boundary act you need the stack
+running — see <a class="reference internal" href="index.html"><span class="doc">Multi-User Support</span></a>.</p>
+</div>
+</details><section id="two-questions-decide-a-tier">
+<h2>Two questions decide a tier<a class="headerlink" href="#two-questions-decide-a-tier" title="Link to this heading">#</a></h2>
+<p>A tier is the answer to two independent questions.</p>
+<p><strong>May this session move hardware?</strong> That is the reference monitor’s master
+write switch, <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>. Off, and every write surface
+refuses — channel writes, read-write Python execution, plan arming, all of it,
+from the single switch. On, and a write is <em>supervised</em>: it still passes the
+writes-check hook, the per-channel limits, and a human approval prompt before
+the connector executes it.</p>
+<p><strong>May this session change the deployment it runs in?</strong> That is a different
+capability altogether — the ability to rewrite the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every terminal
+of this tier runs under, through the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool, the web
+Config panel, or the scaffold gallery’s editors. The preset’s base profile
+takes this away from every tier built on it, and hands it back to exactly one.</p>
+<p>Put the two side by side and the tiers name themselves:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 33.0%" />
+<col style="width: 33.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head stub"></th>
+<th class="head"><p>Cannot edit the deployment</p></th>
+<th class="head"><p>Can edit the deployment</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><th class="stub"><p><strong>Control-system writes off</strong></p></th>
+<td><p><strong>readonly</strong></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><th class="stub"><p><strong>Control-system writes on</strong> (supervised)</p></th>
+<td><p><strong>readwrite</strong></p></td>
+<td><p><strong>admin</strong></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The preset ships the three named cells. The empty one is not forbidden by
+anything in OSPREY — a persona could be written for it — it simply has no use
+the preset wanted to ship.</p>
+</section>
+<section id="the-three-tiers-the-preset-ships">
+<span id="multi-user-tiers"></span><h2>The three tiers the preset ships<a class="headerlink" href="#the-three-tiers-the-preset-ships" title="Link to this heading">#</a></h2>
+<p>Each tier is a self-contained OSPREY project with its <strong>own</strong> permissions,
+because permissions are a property of a project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the tiers
+are genuinely different agents, not one agent with a UI toggle.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 26.0%" />
+<col style="width: 26.0%" />
+<col style="width: 32.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Tier (login)</p></th>
+<th class="head"><p>Control-system writes</p></th>
+<th class="head"><p>Editing the deployment</p></th>
+<th class="head"><p>What the screen looks like</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>readonly</strong> (bob)</p></td>
+<td><p>Off. Every write surface refuses, from the single switch</p></td>
+<td><p>No. The <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool is denied, the Config panel is off, and
+the scaffold gallery is readable but not writable</p></td>
+<td><p>Chat-first <code class="docutils literal notranslate"><span class="pre">simple</span></code> layout, without the EVENTS and BLUESKY panels</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>readwrite</strong> (alice)</p></td>
+<td><p>On, and supervised: a channel write still passes the writes-check
+hook, the per-channel limits, and a human approval prompt before it
+executes</p></td>
+<td><p>No — the same floor as readonly</p></td>
+<td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace with the EVENTS and BLUESKY panels</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>admin</strong> (carol)</p></td>
+<td><p>On, on exactly the supervised terms above</p></td>
+<td><p>Yes, and only here: the <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code> skill, the <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code>
+tool, the web Config panel, and the gallery’s edit, create and delete
+surfaces</p></td>
+<td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace, with the Config panel and without the
+EVENTS and BLUESKY panels</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>ariel</strong></p></td>
+<td><p>No control system behind it at all, so there is no write posture to
+compare</p></td>
+<td><p>No — it inherits the same floor as the operator tiers</p></td>
+<td><p>The standalone logbook terminal, opening on its ARIEL panel</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Read the write column one row at a time rather than as a single statement
+about the deployment. The posture is a property of the <strong>session</strong>, not of the
+person holding it: which teammates get a write-capable login is your roster’s
+call, and the point is that the framework provisions genuinely different
+postures out of one deployment.</p>
+<p>That the admin login has no EVENTS or BLUESKY panels looks like an oversight
+and is not one. Those two panels are declared only in the read-write delta
+(<code class="docutils literal notranslate"><span class="pre">personas/readwrite.yml</span></code>), so they reach that tier and no other — the admin
+delta never inherits them in the first place. It also suits what the admin
+card is for: queueing plans and watching the event dispatcher is operator
+work, done from an operator card.</p>
+<p><strong>The default stays on the safe side.</strong> <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> is <code class="docutils literal notranslate"><span class="pre">readonly</span></code>,
+so a roster entry added in a hurry with no <code class="docutils literal notranslate"><span class="pre">persona</span></code> of its own gets the
+read-only tier.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-code" viewBox="0 0 16 16" aria-hidden="true"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"></path></svg></span><span class="sd-summary-text">The exact tool names</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The same table, as the rendered projects spell it. The single-user column
+is the one worth knowing: a plain <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code>
+render is readwrite at the machine and floored at the deployment — no
+Config tab, no gallery writes. Admin in a single-user deployment means
+editing <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rebuilding.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 16.0%" />
+<col style="width: 18.0%" />
+<col style="width: 18.0%" />
+<col style="width: 20.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p class="sd-card-text">Capability</p></th>
+<th class="head"><p class="sd-card-text">readonly</p></th>
+<th class="head"><p class="sd-card-text">readwrite</p></th>
+<th class="head"><p class="sd-card-text">admin</p></th>
+<th class="head"><p class="sd-card-text">single-user base</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code></p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">mcp__controls__channel_write</span></code></p></td>
+<td><p class="sd-card-text">kill-switch deny</p></td>
+<td><p class="sd-card-text">ask + approval hook</p></td>
+<td><p class="sd-card-text">ask + approval hook</p></td>
+<td><p class="sd-card-text">ask + approval hook</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">Bluesky arming tools</p></td>
+<td><p class="sd-card-text">kill-switch deny</p></td>
+<td><p class="sd-card-text">ask</p></td>
+<td><p class="sd-card-text">ask</p></td>
+<td><p class="sd-card-text">ask</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">mcp__python__execute</span></code></p></td>
+<td><p class="sd-card-text">read-only kernel only</p></td>
+<td><p class="sd-card-text">both kernels</p></td>
+<td><p class="sd-card-text">both kernels</p></td>
+<td><p class="sd-card-text">both kernels</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">mcp__osprey_workspace__setup_patch</span></code></p></td>
+<td><p class="sd-card-text">deny (floor)</p></td>
+<td><p class="sd-card-text">deny (floor)</p></td>
+<td><p class="sd-card-text">ask + approval hook</p></td>
+<td><p class="sd-card-text">deny (floor)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">Config panel (<code class="docutils literal notranslate"><span class="pre">/api/config</span></code>)</p></td>
+<td><p class="sd-card-text">403</p></td>
+<td><p class="sd-card-text">403</p></td>
+<td><p class="sd-card-text">enabled</p></td>
+<td><p class="sd-card-text">403</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">Scaffold gallery edit / create / delete</p></td>
+<td><p class="sd-card-text">403 (read OK)</p></td>
+<td><p class="sd-card-text">403 (read OK)</p></td>
+<td><p class="sd-card-text">enabled</p></td>
+<td><p class="sd-card-text">403 (read OK)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">Session posture toggle → <em>writes</em></p></td>
+<td><p class="sd-card-text">refused</p></td>
+<td><p class="sd-card-text">confirm modal</p></td>
+<td><p class="sd-card-text">confirm modal</p></td>
+<td><p class="sd-card-text">confirm modal</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> owner in the container</p></td>
+<td><p class="sd-card-text">root</p></td>
+<td><p class="sd-card-text">root</p></td>
+<td><p class="sd-card-text">osprey</p></td>
+<td><p class="sd-card-text">root</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">The protected set</span></a></p></td>
+<td><p class="sd-card-text">refused</p></td>
+<td><p class="sd-card-text">refused</p></td>
+<td><p class="sd-card-text">refused</p></td>
+<td><p class="sd-card-text">refused</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">ariel</span></code> persona is not in the table because it has no control system
+to gate: its deployment-editing floor is the same as the operator tiers’.</p>
+</div>
+</details></section>
+<section id="a-tier-is-a-persona-file">
+<h2>A tier is a persona file<a class="headerlink" href="#a-tier-is-a-persona-file" title="Link to this heading">#</a></h2>
+<p>There is no <code class="docutils literal notranslate"><span class="pre">tier:</span></code> setting anywhere. A tier is what a <strong>persona</strong> turns out
+to be once it is built.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 312" role="img" aria-labelledby="tier-render-title tier-render-desc">
+  <title id="tier-render-title">A tier is a persona file, rendered</title>
+  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each persona file under personas/ holds only its differences — readonly turns control-system writes off, readwrite leaves them on, admin leaves them on and lifts the floor. osprey build merges every delta over the base and renders one project per persona, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
+  <defs>
+    <marker id="tier-render-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- input bus: four sources feed one build -->
+  <line class="e-thin" x1="240" y1="64" x2="324" y2="64"/>
+  <line class="e-thin" x1="240" y1="146" x2="324" y2="146"/>
+  <line class="e-thin" x1="240" y1="206" x2="324" y2="206"/>
+  <line class="e-thin" x1="240" y1="266" x2="324" y2="266"/>
+  <line class="e-thin" x1="324" y1="64" x2="324" y2="266"/>
+  <line class="e" x1="324" y1="164" x2="392" y2="164" marker-end="url(#tier-render-arr)"/>
+  <!-- output bus: one build, one project per persona -->
+  <line class="e" x1="576" y1="164" x2="644" y2="164"/>
+  <line class="e-thin" x1="644" y1="112" x2="644" y2="240"/>
+  <line class="e" x1="644" y1="112" x2="728" y2="112" marker-end="url(#tier-render-arr)"/>
+  <line class="e" x1="644" y1="176" x2="728" y2="176" marker-end="url(#tier-render-arr)"/>
+  <line class="e" x1="644" y1="240" x2="728" y2="240" marker-end="url(#tier-render-arr)"/>
+  <!-- edge labels -->
+  <rect class="mask" x="328" y="144" width="60" height="12" rx="2"/>
+  <text class="ta" x="358" y="153" text-anchor="middle">FLOOR + DELTA</text>
+  <rect class="mask" x="580" y="144" width="60" height="12" rx="2"/>
+  <text class="ta" x="610" y="153" text-anchor="middle">ONE EACH</text>
+  <!-- inputs -->
+  <rect class="mask" x="24" y="24" width="216" height="80" rx="6"/>
+  <rect class="nb-st" x="24" y="24" width="216" height="80" rx="6"/>
+  <text class="tn" x="132" y="46" text-anchor="middle">profile.yml</text>
+  <text class="ts" x="132" y="62" text-anchor="middle">the floor every tier inherits</text>
+  <text class="ts" x="132" y="78" text-anchor="middle">setup_patch denied · Config panel off</text>
+  <text class="ts" x="132" y="92" text-anchor="middle">gallery read-only</text>
+  <rect class="mask" x="24" y="124" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="124" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="143" text-anchor="middle">personas/readonly.yml</text>
+  <text class="ts" x="132" y="159" text-anchor="middle">writes_enabled: false</text>
+  <rect class="mask" x="24" y="184" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="184" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="203" text-anchor="middle">personas/readwrite.yml</text>
+  <text class="ts" x="132" y="219" text-anchor="middle">writes_enabled: true</text>
+  <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="263" text-anchor="middle">personas/admin.yml</text>
+  <text class="ts" x="132" y="279" text-anchor="middle">writes_enabled: true · lifts the floor</text>
+  <!-- the build -->
+  <rect class="mask" x="392" y="136" width="184" height="56" rx="6"/>
+  <rect class="nb-foc" x="392" y="136" width="184" height="56" rx="6"/>
+  <text class="tn" x="484" y="160" text-anchor="middle">osprey build</text>
+  <text class="ts" x="484" y="176" text-anchor="middle">merges each delta over the base</text>
+  <!-- outputs -->
+  <rect class="mask" x="728" y="88" width="192" height="48" rx="6"/>
+  <rect class="nb" x="728" y="88" width="192" height="48" rx="6"/>
+  <text class="tn" x="824" y="108" text-anchor="middle">build/…-readonly</text>
+  <text class="ts" x="824" y="124" text-anchor="middle">bob's container</text>
+  <rect class="mask" x="728" y="152" width="192" height="48" rx="6"/>
+  <rect class="nb" x="728" y="152" width="192" height="48" rx="6"/>
+  <text class="tn" x="824" y="172" text-anchor="middle">build/…-readwrite</text>
+  <text class="ts" x="824" y="188" text-anchor="middle">alice's container</text>
+  <rect class="mask" x="728" y="216" width="192" height="48" rx="6"/>
+  <rect class="nb" x="728" y="216" width="192" height="48" rx="6"/>
+  <text class="tn" x="824" y="236" text-anchor="middle">build/…-admin</text>
+  <text class="ts" x="824" y="252" text-anchor="middle">carol's container</text>
+</svg>
+</div>
+<p>Each file under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> holds only that persona’s <strong>differences</strong> from
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The base profile carries the floor — the three
+deployment-editing surfaces switched off — and a persona sets what it needs on
+top: <code class="docutils literal notranslate"><span class="pre">readonly.yml</span></code> turns control-system writes off, <code class="docutils literal notranslate"><span class="pre">readwrite.yml</span></code> leaves
+them on, <code class="docutils literal notranslate"><span class="pre">admin.yml</span></code> leaves them on and lifts the floor. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+merges each delta over the base and renders it into its own project, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds one container image from each. Every arrow in the drawing
+is a build step, never a runtime lookup: the web server never asks <em>who is
+this user and what tier are they?</em> Identity lives in the roster and the login
+wall; capability lives in the render.</p>
+<p>So the two words name two things. A <strong>persona</strong> is the mechanism: a named
+configuration any number of roster entries can share, so ten operators who
+need the same setup point at one file. A <strong>tier</strong> is what the preset’s three
+control personas <em>mean</em>. OSPREY itself enforces those two switches with
+some care; the names <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> and <code class="docutils literal notranslate"><span class="pre">admin</span></code>, and the fact
+that there are three of them, belong to the preset. Rename a persona and
+nothing in the framework notices; add a fourth and it inherits the floor and
+the read-only default until its file says otherwise. <a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> covers what a persona file may contain and how the floor
+is written so that a delta can lift it.</p>
+</section>
+<section id="what-makes-it-hold">
+<h2>What makes it hold<a class="headerlink" href="#what-makes-it-hold" title="Link to this heading">#</a></h2>
+<p>The persona file is the <em>input</em>. What a session actually meets when it tries
+to do more than its tier allows is three layers, and the one that ultimately
+holds is file ownership, not a permission list.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 256" role="img" aria-labelledby="tier-layers-title tier-layers-desc">
+  <title id="tier-layers-title">The three layers a write meets</title>
+  <desc id="tier-layers-desc">When the agent tries a write it meets three layers in order: the permissions rendered into settings.json at build time, the gates — setup_patch, the Config panel, the gallery and the Python executor — and finally file ownership, where build/ belongs to root. Only then does the write reach the control system or the disk. The protected set sits across the gates and applies to every tier, admin included.</desc>
+  <defs>
+    <marker id="tier-layers-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- the chain -->
+  <line class="e" x1="144" y1="96" x2="180" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <line class="e" x1="356" y1="96" x2="392" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <line class="e" x1="568" y1="96" x2="604" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <line class="e" x1="756" y1="96" x2="792" y2="96" marker-end="url(#tier-layers-arr)"/>
+  <!-- the protected set sits across the gates -->
+  <line class="e-warn e-dash" x1="480" y1="128" x2="480" y2="184"/>
+  <!-- layer tags -->
+  <text class="te" x="268" y="52" text-anchor="middle">LAYER 1</text>
+  <text class="te" x="480" y="52" text-anchor="middle">LAYER 2</text>
+  <text class="te" x="680" y="52" text-anchor="middle">LAYER 3 · THE ONE THAT HOLDS</text>
+  <!-- nodes -->
+  <rect class="mask" x="32" y="64" width="112" height="64" rx="6"/>
+  <rect class="nb-in" x="32" y="64" width="112" height="64" rx="6"/>
+  <text class="tn" x="88" y="92" text-anchor="middle">the agent</text>
+  <text class="ts" x="88" y="108" text-anchor="middle">tries a write</text>
+  <rect class="mask" x="180" y="64" width="176" height="64" rx="6"/>
+  <rect class="nb" x="180" y="64" width="176" height="64" rx="6"/>
+  <text class="tn" x="268" y="92" text-anchor="middle">rendered permissions</text>
+  <text class="ts" x="268" y="108" text-anchor="middle">settings.json, written at build</text>
+  <rect class="mask" x="392" y="64" width="176" height="64" rx="6"/>
+  <rect class="nb" x="392" y="64" width="176" height="64" rx="6"/>
+  <text class="tn" x="480" y="86" text-anchor="middle">the gates</text>
+  <text class="ts" x="480" y="102" text-anchor="middle">setup_patch · Config panel</text>
+  <text class="ts" x="480" y="116" text-anchor="middle">gallery · Python executor</text>
+  <rect class="mask" x="604" y="64" width="152" height="64" rx="6"/>
+  <rect class="nb-foc" x="604" y="64" width="152" height="64" rx="6"/>
+  <text class="tn" x="680" y="92" text-anchor="middle">file ownership</text>
+  <text class="ts" x="680" y="108" text-anchor="middle">build/ belongs to root</text>
+  <rect class="mask" x="792" y="64" width="144" height="64" rx="6"/>
+  <rect class="nb-ext" x="792" y="64" width="144" height="64" rx="6"/>
+  <text class="tn" x="864" y="92" text-anchor="middle">control system</text>
+  <text class="ts" x="864" y="108" text-anchor="middle">or the disk</text>
+  <rect class="mask" x="392" y="184" width="176" height="52" rx="6"/>
+  <rect class="nb-bnd" x="392" y="184" width="176" height="52" rx="6"/>
+  <text class="tn" x="480" y="206" text-anchor="middle">the protected set</text>
+  <text class="ts" x="480" y="222" text-anchor="middle">every tier, admin included</text>
+</svg>
+</div>
+<p><strong>Layer 1</strong> is what makes the readonly tier certain. <code class="docutils literal notranslate"><span class="pre">writes_enabled:</span> <span class="pre">false</span></code>
+does not merely tell the agent not to write; it renders the control-system
+write tools into a deny list that the agent runtime checks before any OSPREY
+code runs, and no persona setting can subtract from that list.</p>
+<p><strong>Layer 2</strong> is the set of gates that give the agent a readable refusal —
+<code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> denied by the floor, the Config panel and gallery refusing
+with a 403, the Python executor refusing to write into the render zone in
+either execution mode. Across all of them sits <a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>: the files and config keys no agent-side writer may
+rewrite on any tier.</p>
+<p><strong>Layer 3</strong> is what makes the readwrite-versus-admin line <em>true</em> rather than
+asserted. In the container the rendered project is owned by root and the
+agent runs as an unprivileged user, so a write that slipped every gate — or a
+command the operator types at the terminal’s own shell, which no permission
+list sees — fails at the operating system. Only the admin image hands one
+file, <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, to the agent’s user.</p>
+<p>Two things are worth saying plainly, because the drawing would otherwise imply
+more than is true:</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Readonly holds everywhere; readwrite-versus-admin holds in a container.</strong>
+Run the same project on a bare host with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> and layer 3 is
+absent: the server runs as you, and the render is only as protected as the
+file ownership you give it. <a class="reference internal" href="../../deploy-project/project-image.html#containerize-privilege-split"><span class="std std-ref">The privilege split</span></a> says what the container does and what a
+bare host would have to do instead.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Admin is a trusted person, not a gated one.</strong> Carol’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is
+hers to write, so the protected set’s refusal there is a gate, not a lock:
+her own shell can edit any key. The protected set defends against the
+<em>agent</em> rewriting its own safety layer; it does not defend against the
+deployment’s administrator, and does not pretend to.</p>
+</div>
+</section>
+<section id="watch-it-act">
+<h2>Watch it act<a class="headerlink" href="#watch-it-act" title="Link to this heading">#</a></h2>
+<p>The boundary is enforced, not asserted — so you can watch it act. Open alice’s
+and bob’s terminals and ask both agents to do the same two things:</p>
+<p><strong>Read.</strong> Ask either agent about a channel — a corrector setpoint, a BPM
+reading. Both sessions answer identically: reads are ungated on both tiers.</p>
+<p><strong>Write.</strong> Ask each agent to change a setpoint. In alice’s session the write
+goes to a human approval prompt, then executes. In bob’s session the same
+request is <strong>refused</strong>: the write tool is denied in his project’s rendered
+permissions, and the refusal states plainly that writes are disabled in his
+configuration.</p>
+<p>Both agents carry the <em>same</em> tool surface — the readonly tier is not a
+stripped-down agent that never heard of writing. It is the same agent whose
+write path is switched off in its own project, which is exactly what you want
+to demonstrate to a control room: the boundary holds at the enforcement layer,
+not at the menu. (The readonly terminal’s leaner look — no EVENTS/BLUESKY
+tabs, chat-first layout — is presentation for the viewer tier, not the
+boundary itself: the refusal above fires with or without it.)</p>
+</section>
+<section id="what-the-admin-tier-really-buys">
+<h2>What the admin tier really buys<a class="headerlink" href="#what-the-admin-tier-really-buys" title="Link to this heading">#</a></h2>
+<p>Being able to edit the deployment is not the same as being able to change
+anything, and it is worth being concrete about how much of an edit takes
+effect while the stack is running.</p>
+<p><strong>The protected set still refuses the admin login.</strong> The keys that gate
+writes, approval and limits — and the artifacts rendered from them — are
+refused for every tier, this one included. Admin lifts a <em>tier floor</em>; it does
+not open the safety layer. See <a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>
+for what is protected and where a refusal is recorded.</p>
+<p><strong>Most edits land on the next build.</strong> The safety hook scripts run as a fresh
+process per tool call, so each one reads <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as it stands at that
+moment. Everything else — the terminal server, the tool servers, the agent’s
+rendered artifacts — reads its configuration once and caches it for the life
+of the process, and nothing watches the file. So an edit outside those
+hook-read keys takes effect on the next build and restart. The honest summary
+is that the Config panel prepares a change; it is not a live control.</p>
+<p><strong>A run-time edit is invisible to the drift check.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> compares
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> against <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and the files that profile names — it never
+fingerprints the rendered <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>. An edit the admin login makes
+in the running deployment therefore leaves the drift check reading <em>in sync</em>,
+because as far as it is concerned nothing about the profile changed. What does
+record the edit is the copy every config write takes before it writes
+anything, kept in the state zone at <code class="docutils literal notranslate"><span class="pre">var/agent_data/config-backups/</span></code>: a copy
+of the file as it stood immediately before the last write, one slot per file,
+overwritten on each save — so it is a way back from the last change rather
+than a history of them. Carry a change you want to keep back into
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rebuild, or the next build renders it away.</p>
+<p>So the admin tier’s real distinction is not a wider set of live knobs. It is
+having the deployment-editing surfaces at all — <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code>
+and the Config panel — and being the login that drives the rebuild and restart
+that make an edit real.</p>
+</section>
+<section id="checked-not-merely-conventional">
+<h2>Checked, not merely conventional<a class="headerlink" href="#checked-not-merely-conventional" title="Link to this heading">#</a></h2>
+<p>The one capability it would be worst to leave open — editing the deployment —
+is guarded by the commands themselves, not only by the preset’s choices.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code>
+entry that resolves to a persona holding either deployment-editing surface,
+and refuse a privileged <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> in a deployment that draws a tier
+split at all; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks the same question of the render before it
+starts anything. Each refusal names the user, or the persona, and the remedy.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-shield-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.533.133 5.25 1.68A1.75 1.75 0 0 1 15 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.697 1.697 0 0 1-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 0 1 1.217-1.667l5.25-1.68a1.748 1.748 0 0 1 1.066 0Zm-.61 1.429.001.001-5.25 1.68a.251.251 0 0 0-.174.237V7c0 1.36.275 2.666 1.057 3.859.784 1.194 2.121 2.342 4.366 3.298a.196.196 0 0 0 .154 0c2.245-.957 3.582-2.103 4.366-3.297C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 0 0-.174-.238l-5.25-1.68a.25.25 0 0 0-.153 0ZM11.28 6.28l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l.97.97 2.97-2.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg></span><span class="sd-summary-text">Exactly what <code class="docutils literal notranslate"><span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">up</span></code> refuse</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse any <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code>
+entry that resolves to a persona holding either deployment-editing surface
+— the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool or the web Config panel — naming the
+user. That refusal does not ask whether your profile drew a tier split: a
+profile that floors neither surface hands both of them to every persona it
+has, so an open terminal there is the most exposed version of this rather
+than an exempt one. What the split changes is the remedy the message can
+honestly offer. Where an unprivileged tier exists you are told to point the
+entry at it (or to give the entry a login); where none does, you are told
+to write the floor first — a <code class="docutils literal notranslate"><span class="pre">claude_code.permissions.deny</span></code> carrying
+<code class="docutils literal notranslate"><span class="pre">mcp__osprey_workspace__setup_patch</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">web.config_panel.enabled:</span> <span class="pre">false</span></code>, in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block —
+and to lift both only in the persona meant to hold them.</p>
+<p class="sd-card-text">A privileged <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> is refused too, in a deployment that draws
+a privilege split at all — one whose profile floors those surfaces and lets
+a single persona lift them, which is what this preset ships. On a floorless
+profile that rule has no unprivileged tier to send the default to, so it
+stays quiet there and the entries actually exposed are the ones named. A
+persona named by either check that the command cannot read at all — a
+<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> pointing outside <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, say — is refused rather
+than taken to hold nothing, naming the persona, the value it was given and
+the remedy — plus the path it tried, where the value resolved to one; where
+the unreadable persona is an open terminal’s, that refusal too stands
+whatever the profile floors, so long as the deployment has a login wall for
+the entry to have opted out of.</p>
+<p class="sd-card-text">With <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> there is no wall for an entry to be exempt from,
+so the exposure belongs to the deployment rather than to any one entry: it
+is reported as an advisory naming every privileged terminal instead of
+failing the build, and it is the one of these rules measured against the
+profile’s own floor — a deployment that never drew a split would otherwise
+hear about every terminal it has, every time, for a posture it has always
+had. Both commands print advisories like this one with a <code class="docutils literal notranslate"><span class="pre">⚠</span></code>, above their
+success line.</p>
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> asks the same questions of what was
+last <em>rendered</em>, and so does the render step itself. A <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code>
+exposure is an error there too; the message adds that this is what the last
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> rendered, so a render made before the floor existed is
+refused until a rebuild puts the floor into it. A persona whose project has
+not been rendered yet is refused the same way where it is exposed, with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> as the remedy — or <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">true</span></code> for an entry that
+opted out of the wall — while behind a login it stays the plain warning it
+always was. A deployment that pulls its images from a registry has no
+persona render to read at all, so there only an open terminal is refused;
+its inherited default is judged where the deltas live, by <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. A privileged <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> in a
+render is advisory, because the entries it actually exposes are named by
+the rule that does block.</p>
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks the door question once more before it starts anything.
+A stack whose render serves an open privileged terminal, or one whose
+persona cannot be read there, does not come up — the refusal arrives with
+the other start-time problems, so one attempt reports them all — and the
+two advisories are printed beside it. Nothing else the lint finds stops a
+start: a duplicate port or a missing certificate belongs to the commands
+that author the render, and may already have been fixed by hand in it,
+while the open door is the one question those commands cannot answer for a
+tree that is about to be served.</p>
+</div>
+</details></section>
+<section id="related-pages">
+<h2>Related pages<a class="headerlink" href="#related-pages" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">The protected set</span></a> — the files and config keys
+no agent-side writer may rewrite, on any tier, and where a refusal is
+recorded.</p></li>
+<li><p><a class="reference internal" href="../../deploy-project/project-image.html#containerize-privilege-split"><span class="std std-ref">The privilege split</span></a> — what the
+container does with file ownership, and what a bare host does not.</p></li>
+<li><p><a class="reference internal" href="../../../architecture/python-executor.html#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>
+— the Python executor’s zone boundary, enforced in both execution modes.</p></li>
+<li><p><a class="reference internal" href="../operate.html#web-terminal-session-posture"><span class="std std-ref">Sandbox one session</span></a> — how an operator
+narrows a write-capable session for a while, never widens it.</p></li>
+<li><p><a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> — personas: what a delta file may contain, and how
+the floor is written so that one persona can lift it.</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Multi-User Support</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="login.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Require a Login</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-questions-decide-a-tier">Two questions decide a tier</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-tiers-the-preset-ships">The three tiers the preset ships</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-tier-is-a-persona-file">A tier is a persona file</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-makes-it-hold">What makes it hold</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#watch-it-act">Watch it act</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-admin-tier-really-buys">What the admin tier really buys</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#checked-not-merely-conventional">Checked, not merely conventional</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-pages">Related pages</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/web-terminal/multi-user/tiers.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

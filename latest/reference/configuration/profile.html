@@ -1,0 +1,1441 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Build Profile — profile.yml &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/configuration/profile';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/configuration/profile.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Runtime Configuration — config.yml" href="config.html" />
+    <link rel="prev" title="Configuration" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 25, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Configuration</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Configuration</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Build Profile — profile.yml</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="build-profile-profile-yml">
+<span id="reference-profile"></span><h1>Build Profile — profile.yml<a class="headerlink" href="#build-profile-profile-yml" title="Link to this heading">#</a></h1>
+<p>Every key a build profile’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> accepts, what the build does with
+it, and what the deployment does with the result. For what a profile <em>is</em> and
+how to write one — the concepts, the worked walkthrough, <code class="docutils literal notranslate"><span class="pre">extends</span></code>
+composition, and troubleshooting — see <a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+<section id="profile-yaml-reference">
+<h2>Profile YAML reference<a class="headerlink" href="#profile-yaml-reference" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 12.0%" />
+<col style="width: 14.0%" />
+<col style="width: 52.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>string</p></td>
+<td><p><em>required</em></p></td>
+<td><p>Human-readable profile name.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">app_template</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">control_assistant</span></code></p></td>
+<td><p>App template (data bundle) to render. Valid: <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>,
+<code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_standalone</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>Facility data tree, relative to the profile directory (<code class="docutils literal notranslate"><span class="pre">data</span></code> in a
+materialized profile). Replaces the bundled tree wholesale. May resolve
+outside the profile directory; only existence and shape are checked
+(see <a class="reference internal" href="../../how-to/build-profiles.html#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
+<td><p>string</p></td>
+<td><p><em>required</em></p></td>
+<td><p>LLM provider. Built-ins: <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">cborg</span></code>, <code class="docutils literal notranslate"><span class="pre">als-apg</span></code>; any
+provider declared under <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> also works. The build aborts
+if none is set.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>Default model: a tier name (<code class="docutils literal notranslate"><span class="pre">haiku</span></code>, <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>, <code class="docutils literal notranslate"><span class="pre">opus</span></code>) or a full
+provider model ID.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>,
+<code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">graph</span></code>). <code class="docutils literal notranslate"><span class="pre">graph</span></code> searches the deployment’s graph
+store instead of a channel database, so it needs a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code>
+block (see <a class="reference internal" href="#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tier</span></code></p></td>
+<td><p>int</p></td>
+<td><p>derived</p></td>
+<td><p>Channel-database tier (1 or 3). Defaults from the channel finder mode;
+tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only. <code class="docutils literal notranslate"><span class="pre">graph</span></code> has no tiered artifacts at all —
+leave <code class="docutils literal notranslate"><span class="pre">tier</span></code> unset there.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
+<td><p>string</p></td>
+<td><p><em>from preset</em></p></td>
+<td><p>Control-system connector (<code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>, <code class="docutils literal notranslate"><span class="pre">epics</span></code>,
+…). Shorthand for <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{control_system.type:</span> <span class="pre">...}</span></code>, so it can be
+set from the command line as <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">connector=epics</span></code>. Setting both
+spellings on one command line is an error rather than a silent
+last-one-wins; a custom connector is still addressed by its dotted
+module path under <code class="docutils literal notranslate"><span class="pre">config</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Dot-notation overrides for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Entries to subtract from what this profile would otherwise bring
+(see <a class="reference internal" href="../../how-to/build-profiles.html#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hooks</span></code> / <code class="docutils literal notranslate"><span class="pre">rules</span></code> / <code class="docutils literal notranslate"><span class="pre">skills</span></code> / <code class="docutils literal notranslate"><span class="pre">agents</span></code> / <code class="docutils literal notranslate"><span class="pre">output_styles</span></code></p></td>
+<td><p>list</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
+<td><p>Built-in artifacts to install. Your own files go in the matching
+convention directory instead.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>MCP server definitions to inject.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Container services the deployment runs (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p>absent</p></td>
+<td><p>Declares a stored archive for a simulated machine: a MongoDB store and a
+recorder the deploy stands up, seeds and records into
+(see <a class="reference internal" href="#profile-va-archiver"><span class="std std-ref">The va_archiver block</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>,
+<code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pinned</span></code>. <code class="docutils literal notranslate"><span class="pre">env.pinned</span></code> lists variables <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> decides and a
+host may not override; a deploy refuses rather than start on a
+contradicting value (see <a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>). Same name pattern
+as <code class="docutils literal notranslate"><span class="pre">required</span></code>, and a machine-minted name cannot be pinned.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<td><p>list</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
+<td><p>Python packages to install into the project venv.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Base interpreter the project environment is built from
+(see <a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>PEP 440 specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=2026.5.0</span></code>). The build aborts if unsatisfied.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
+<td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">pip</span></code>, or a
+PEP 508 spec.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
+<td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, or an absolute path.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><em>written</em></p></td>
+<td><p>Which preset this profile was materialized from, and that preset’s hash.
+Written by the materialization; do not edit it.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="configuration-overrides">
+<h2>Configuration overrides<a class="headerlink" href="#configuration-overrides" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">config:</span></code> section uses <strong>dot notation</strong> to override any key in the
+generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The base keys are in
+<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/project/config.yml.j2</span></code>; app data bundles add further
+sections in their own <code class="docutils literal notranslate"><span class="pre">config.yml.j2</span></code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Always write overrides as <strong>dotted keys</strong>, one per line — never as nested
+YAML. A nested block counts as <em>one</em> override whose value replaces the entire
+subtree. <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{claude_code:</span> <span class="pre">{model:</span> <span class="pre">opus}}</span></code> wipes out everything else
+under <code class="docutils literal notranslate"><span class="pre">claude_code</span></code> (servers, permissions, …), silently. The dotted form
+<code class="docutils literal notranslate"><span class="pre">claude_code.model:</span> <span class="pre">opus</span></code> changes just that setting.</p>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Control system</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
+<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="c1"># Archiver</span>
+<span class="w">  </span><span class="nt">archiver.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
+<span class="w">  </span><span class="nt">archiver.epics_archiver.url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.org</span>
+
+<span class="w">  </span><span class="c1"># Set your real facility zone: it governs how the agent reads operator</span>
+<span class="w">  </span><span class="c1"># times (parsed as facility-local) and renders every timestamp — not</span>
+<span class="w">  </span><span class="c1"># just a display label.</span>
+<span class="w">  </span><span class="nt">system.timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
+
+<span class="w">  </span><span class="c1"># Channel finder</span>
+<span class="w">  </span><span class="nt">channel_finder.pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">middle_layer</span>
+
+<span class="w">  </span><span class="c1"># Approval policy</span>
+<span class="w">  </span><span class="nt">approval.default_policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always</span>
+</pre></div>
+</div>
+</section>
+<section id="mcp-server-injection">
+<span id="profile-mcp-servers"></span><h2>MCP server injection<a class="headerlink" href="#mcp-server-injection" title="Link to this heading">#</a></h2>
+<p>The top-level <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> key declares the MCP servers a build wires into
+the agent. The build records each entry in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (under
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code>) and renders it from there into <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> (server
+configuration) and <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> (tool permissions) — so a later
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> re-renders them instead of losing them. For the procedure, see
+<a class="reference internal" href="../../how-to/agent-interfaces/add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my_server</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
+<span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;my_server&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">env</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
+<span class="w">      </span><span class="nt">API_KEY</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${MY_API_KEY}&quot;</span>
+<span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;safe_tool&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;write_tool&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Remote servers declare a <code class="docutils literal notranslate"><span class="pre">url</span></code> instead of a <code class="docutils literal notranslate"><span class="pre">command</span></code>, plus an optional
+<code class="docutils literal notranslate"><span class="pre">transport</span></code> — <code class="docutils literal notranslate"><span class="pre">http</span></code> (streamable-HTTP, the default) or <code class="docutils literal notranslate"><span class="pre">sse</span></code> (legacy
+Server-Sent Events):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">matlab</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">transport</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:8008/mcp&quot;</span>
+<span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;mml_search&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">command</span></code> and <code class="docutils literal notranslate"><span class="pre">url</span></code> are mutually exclusive, and stdio servers must not set
+<code class="docutils literal notranslate"><span class="pre">transport</span></code> (launching via <code class="docutils literal notranslate"><span class="pre">command</span></code> <em>is</em> the transport). A <code class="docutils literal notranslate"><span class="pre">port:</span></code> may
+stand in for a whole <code class="docutils literal notranslate"><span class="pre">url</span></code>: for an HTTP service the deployment publishes on
+one port, <code class="docutils literal notranslate"><span class="pre">port:</span> <span class="pre">8008</span></code> derives <code class="docutils literal notranslate"><span class="pre">http://localhost:8008/mcp</span></code>. It is
+mutually exclusive with <code class="docutils literal notranslate"><span class="pre">command</span></code> for the same reason <code class="docutils literal notranslate"><span class="pre">url</span></code> is, and it
+cannot stand in for an <code class="docutils literal notranslate"><span class="pre">sse</span></code> server’s <code class="docutils literal notranslate"><span class="pre">url</span></code>: <code class="docutils literal notranslate"><span class="pre">transport:</span> <span class="pre">sse</span></code> always
+requires an explicit <code class="docutils literal notranslate"><span class="pre">url</span></code>, whether or not a <code class="docutils literal notranslate"><span class="pre">port</span></code> is given, because an
+event stream does not live at the derived <code class="docutils literal notranslate"><span class="pre">/mcp</span></code> path. The derived block the
+build records alongside a <code class="docutils literal notranslate"><span class="pre">port:</span></code> names the container URL under the server’s
+own key — so name the compose service after the <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> key or that
+URL points at no host.</p>
+<p><strong>Placeholders:</strong> <code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> resolves at build time to the absolute
+project path; <code class="docutils literal notranslate"><span class="pre">${ENV_VAR}</span></code> is preserved for the container or shell to resolve
+at runtime.</p>
+<p><strong>Permission wiring:</strong> for a server named <code class="docutils literal notranslate"><span class="pre">my_server</span></code> with
+<code class="docutils literal notranslate"><span class="pre">allow:</span> <span class="pre">[&quot;safe_tool&quot;]</span></code>, the build adds <code class="docutils literal notranslate"><span class="pre">mcp__my_server__safe_tool</span></code> to the
+allow list.</p>
+<section id="shipping-the-server-s-code">
+<h3>Shipping the server’s code<a class="headerlink" href="#shipping-the-server-s-code" title="Link to this heading">#</a></h3>
+<p>Put the package in the profile’s <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> directory — one directory per
+server. The build copies it to <code class="docutils literal notranslate"><span class="pre">_mcp_servers/</span></code> in the project, so the launch
+command finds it:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
+  mcp_servers/
+    phoebus/
+      __init__.py
+      __main__.py
+      server.py
+</pre></div>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">phoebus</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
+<span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;phoebus&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">env</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
+<span class="w">      </span><span class="nt">PYTHONPATH</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/_mcp_servers&quot;</span>
+<span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;phoebus_launch&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>The directory name and the <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> key are independent: the directory
+delivers the code, the key launches it.</p>
+</section>
+</section>
+<section id="tool-permissions">
+<span id="profile-tool-permissions"></span><h2>Tool permissions<a class="headerlink" href="#tool-permissions" title="Link to this heading">#</a></h2>
+<p>By default OSPREY blocks a handful of general-purpose tools — <code class="docutils literal notranslate"><span class="pre">Bash</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>, and the Playwright/Context7 plugins — so a
+stock control-operator agent cannot shell out or browse the web. These defaults
+are overridable per facility from <code class="docutils literal notranslate"><span class="pre">config:</span></code>, using dotted keys:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.remove_deny</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebFetch&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># drop from the deny list</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">                    </span><span class="c1"># then allow outright</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebFetch&quot;</span><span class="p p-Indicator">]</span><span class="w">                       </span><span class="c1"># or route to human approval</span>
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Effect</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">remove_deny</span></code></p></td>
+<td><p>Remove entries from the deny list. Matches an entry <strong>exactly</strong> — the
+string has to be the one being denied, character for character.
+Removing a write-capable tool that nothing else gates fails the build —
+see below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">deny</span></code></p></td>
+<td><p>Add facility-specific deny entries</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">allow</span></code></p></td>
+<td><p>Add allow entries (no approval prompt)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ask</span></code></p></td>
+<td><p>Add entries that route through human approval</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">remove_ask</span></code></p></td>
+<td><p>Remove entries from the ask list</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="important admonition">
+<p class="admonition-title">Deny wins, and it wins at runtime too</p>
+<p>Permissions resolve as <strong>deny &gt; ask &gt; allow</strong>, and a static <code class="docutils literal notranslate"><span class="pre">deny</span></code> entry
+cannot be overridden during a session — an in-session “allow once” will not
+unblock it. Use <code class="docutils literal notranslate"><span class="pre">ask</span></code> for tools you want gated but still reachable. For the
+same reason, listing a tool under <code class="docutils literal notranslate"><span class="pre">ask</span></code> or <code class="docutils literal notranslate"><span class="pre">allow</span></code> does nothing until you
+also remove it from the deny list.</p>
+</div>
+<div class="warning admonition">
+<p class="admonition-title">You cannot un-gate a tool that can write</p>
+<p><code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">Write</span></code>, <code class="docutils literal notranslate"><span class="pre">MultiEdit</span></code> and <code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code> can write
+files or shell out, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a profile in which one of
+them is neither in <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> nor matched by a <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook
+matcher. A <code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;Bash&quot;]</span></code> with nothing put in its place is
+therefore a build failure, not a silent widening. (The shipped presets gate
+the three file-writing tools with the <code class="docutils literal notranslate"><span class="pre">memory-guard</span></code> hook rather than
+denying them, so ordinary memory and notebook writes still work.)</p>
+<p>The build checks that a covering rule <em>exists</em>, not that the hook behind it
+refuses anything: a <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook that exits 0 without a
+<code class="docutils literal notranslate"><span class="pre">permissionDecision</span></code> allows the call. A tool whose only cover is a matcher
+your own profile declares therefore builds with a warning — check that hook
+really denies. Matchers are read the way the agent runtime reads them: the
+bare tool name, a <code class="docutils literal notranslate"><span class="pre">|</span></code> alternation, any regex that matches the name
+(unanchored), or <code class="docutils literal notranslate"><span class="pre">*</span></code>/<code class="docutils literal notranslate"><span class="pre">.*</span></code>/empty for every tool.</p>
+</div>
+<section id="how-the-deny-list-is-assembled">
+<span id="profile-deny-assembly"></span><h3>How the deny list is assembled<a class="headerlink" href="#how-the-deny-list-is-assembled" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> array in the rendered <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> is
+built from three sources, in this order:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Source</p></th>
+<th class="head"><p>How it is treated</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>The framework’s deny defaults</p></td>
+<td><p>Minus anything the profile lists under <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>The profile’s own <code class="docutils literal notranslate"><span class="pre">deny</span></code></p></td>
+<td><p>Minus anything the profile lists under <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> — a profile may
+subtract what a profile added</p></td>
+</tr>
+<tr class="row-even"><td><p>The write kill switch</p></td>
+<td><p>Appended last and <strong>never</strong> filtered</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The third source is the one to know about. Setting
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code> does not merely stop the write path
+at run time; it also puts the write tools into the rendered deny list. Those
+entries are generated, not authored, and no <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> reaches them. A
+profile that sets <code class="docutils literal notranslate"><span class="pre">writes_enabled:</span> <span class="pre">false</span></code> and also writes
+<code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;mcp__controls__channel_write&quot;]</span></code> still renders that deny —
+which is the point. A read-only posture that a later edit could quietly lift
+would not be a posture at all.</p>
+<div class="important admonition">
+<p class="admonition-title">Permission lists grow across <code class="docutils literal notranslate"><span class="pre">extends</span></code>; they never shrink</p>
+<p>The permission lists under <code class="docutils literal notranslate"><span class="pre">config:</span></code> — <code class="docutils literal notranslate"><span class="pre">deny</span></code>, <code class="docutils literal notranslate"><span class="pre">ask</span></code> and their
+<code class="docutils literal notranslate"><span class="pre">remove_*</span></code> companions — <strong>union</strong> with the ones they inherit. A child
+profile or a persona delta can add to an inherited permission list, but it
+has no way to take an entry out of it: <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> subtracts from the
+convention lists (<code class="docutils literal notranslate"><span class="pre">skills</span></code>, <code class="docutils literal notranslate"><span class="pre">agents</span></code>, <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> and their
+siblings — see <a class="reference internal" href="../../how-to/build-profiles.html#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>) and does not reach inside <code class="docutils literal notranslate"><span class="pre">config:</span></code>
+at all.</p>
+<p>That is why a preset that wants to withhold a privilege from every tier and
+grant it back to one writes the floor as <code class="docutils literal notranslate"><span class="pre">deny</span></code>, and lets the privileged
+tier lift it with <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code>. Writing the floor the other way round —
+putting the tool under <code class="docutils literal notranslate"><span class="pre">ask</span></code> at the base and expecting a child to
+<code class="docutils literal notranslate"><span class="pre">remove_ask</span></code> it — does the opposite of what it looks like: the base’s
+<code class="docutils literal notranslate"><span class="pre">remove_ask</span></code> would union into <em>every</em> child, including the one meant to
+keep the approval prompt, and strip that prompt away. <code class="docutils literal notranslate"><span class="pre">deny</span></code> is
+subtractable per tier, which is the direction a floor has to work in.</p>
+<p>The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset is built exactly this way: its
+base denies the agent’s own deployment-editing tool, and the <code class="docutils literal notranslate"><span class="pre">admin</span></code>
+persona is the single delta that removes that deny. Writing the floor is
+not only a convention. A web terminal served without a login by a persona
+that can edit the deployment is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> alike, wherever the deployment has a login wall
+at all — with <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> there is no wall to be exempt from, and
+the same exposure is reported as an advisory instead. On a profile that
+wrote no floor at all, where every persona holds everything, the only
+remedy that refusal can offer is to write one. See
+<a class="reference internal" href="../../how-to/web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>.</p>
+</div>
+</section>
+</section>
+<section id="services">
+<span id="profile-services"></span><h2>Services<a class="headerlink" href="#services" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">services</span></code> section defines facility containers the deployment runs
+alongside OSPREY’s built-in ones.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">typesense</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/typesense</span><span class="w">     </span><span class="c1"># relative to the profile directory</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8108</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${TYPESENSE_API_KEY}&quot;</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">template</span></code> directory must contain at least <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>. It is
+copied into the project’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> tree, and the service is registered in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Optional <code class="docutils literal notranslate"><span class="pre">config</span></code> values land under <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;</span></code>.</p>
+<p>A service directory placed in the profile’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> convention directory is
+carried across the same way and marked as yours — that is what
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">services/&lt;name&gt;</span></code> produces.</p>
+<p>One <code class="docutils literal notranslate"><span class="pre">config</span></code> key is read by the build itself: <code class="docutils literal notranslate"><span class="pre">network</span></code>, which is either
+<code class="docutils literal notranslate"><span class="pre">bridge</span></code> (the default — the service joins the compose network and publishes
+the ports it wants reachable) or <code class="docutils literal notranslate"><span class="pre">host</span></code> (it shares the host’s network
+namespace, which is what a service needs to see broadcast traffic or reach
+ports other software publishes on the machine). Your template has to render the
+setting for it to mean anything, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a service that
+declares <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> whose render does not carry it. See
+<a class="reference internal" href="../../how-to/deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a> for what host mode changes and for
+<code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code>, the single knob that covers the event dispatcher and its
+workers.</p>
+</section>
+<section id="graph-mode-channel-finding">
+<span id="profile-graph-mode"></span><h2>Graph-mode channel finding<a class="headerlink" href="#graph-mode-channel-finding" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span> <span class="pre">graph</span></code> points the channel finder at the deployment’s
+graph store: the agent searches the facility knowledge graph for channels
+instead of reading a channel database. The store <em>is</em> the database, so the
+profile ships no channel-database inputs and pins no <code class="docutils literal notranslate"><span class="pre">tier</span></code> — what it does
+need is a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, and the paradigm works with either shape
+that block comes in.</p>
+<p>A deployment that runs its own store already has one. The <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>
+app template renders <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> into <code class="docutils literal notranslate"><span class="pre">services</span></code> and <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts, bootstraps and seeds it — see
+<a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-room</span>
+<span class="nt">app_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
+<span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
+<span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span><span class="w">     </span><span class="c1"># no `tier` — graph has no tiered artifacts</span>
+</pre></div>
+</div>
+<p>The mode reads the same <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block when the store is one the
+facility already runs and this deployment only connects to. The keys that
+express that are an explicit <code class="docutils literal notranslate"><span class="pre">uri</span></code>, <code class="docutils literal notranslate"><span class="pre">username</span></code> (default <code class="docutils literal notranslate"><span class="pre">neo4j</span></code>), and a
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> list without <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in it — the template’s default is
+<code class="docutils literal notranslate"><span class="pre">[postgresql,</span> <span class="pre">openobserve,</span> <span class="pre">qmd,</span> <span class="pre">graphdb]</span></code>, and the override replaces the list
+whole:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.org:7687</span>
+<span class="w">  </span><span class="nt">services.graphdb.username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">openobserve</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>The procedure that goes with those keys — the password to place, what is minted
+and seeded on each path, and how to load a corpus into a store OSPREY does not
+run — is in
+<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html#graph-external-store"><span class="std std-ref">Pointing at a store the facility runs</span></a>. A store
+this deployment runs is seeded during <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; a store it only connects
+to is not.</p>
+<p>A profile whose app template carries no <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block at all — the
+channel-finder app template carries none — is refused at build time, naming the
+missing block, rather than rendering a channel finder with nothing to read. An
+attached project (<code class="docutils literal notranslate"><span class="pre">deploy_services:</span> <span class="pre">false</span></code>) is refused the same way unless it
+names an external store, because it renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> whatever its app
+template says. For what the mode changes about the agent’s answers, see
+<a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; for the corpus behind them,
+<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<p>The qmd sidecar behind hybrid logbook search is guarded the same way. The
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates switch
+<code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> on and deploy the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar that
+answers it, but an attached project renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> — so on its own it
+would keep the mode with nothing behind it, and every logbook query would fail
+with <em>no qmd sidecar is configured</em>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses that instead of
+rendering it.</p>
+<p>An attached project rarely has to say anything, because <strong>the build tells it
+where the host’s services are</strong>. Every client-facing fact — the sidecar’s port,
+the graph store’s bolt port, the Postgres the logbook lives in, the telemetry
+store’s port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — is copied
+from the hosting deployment’s own render into each persona built beside it, so
+a service moved on the hosting profile moves every persona with it, and the
+shipped <code class="docutils literal notranslate"><span class="pre">control-assistant-*</span></code> presets pin none of them. A persona profile
+that spells one of these keys with a <em>different</em> value is refused — the two
+copies would dial different places, and the build names both. (A persona
+inherits the hosting profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys, so a port moved there is
+spelled in every persona as the host’s own value, and agrees.) A persona
+built <em>alone</em> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant-ariel</span></code> in a
+repo with no hosting deployment) is told what its app template deploys at the
+shipped defaults instead, and there its <code class="docutils literal notranslate"><span class="pre">config:</span></code> is where a host that
+differs is named:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">services.qmd.port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9180</span><span class="w">        </span><span class="c1"># the sidecar of the deployment this build shares a host with</span>
+<span class="w">  </span><span class="c1"># or: ariel.search_modules.hybrid.enabled: false</span>
+</pre></div>
+</div>
+<p>The same facts are checked again at run time: the <code class="docutils literal notranslate"><span class="pre">reach</span></code> category of
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> (and of the system-health tab, inside each user’s container)
+resolves every live client’s endpoint the way the client does and knocks on it
+(<a class="reference internal" href="../../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p>
+</section>
+<section id="the-va-archiver-block">
+<span id="profile-va-archiver"></span><h2>The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block<a class="headerlink" href="#the-va-archiver-block" title="Link to this heading">#</a></h2>
+<p>A deployment that serves simulated channels still needs somewhere to keep what
+those channels did. Declaring <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> is what gives it one: the build
+adds a MongoDB store and a recorder to the service stack, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+seeds the store with history and then records the running machine into it, and
+the <code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> connector reads it back.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">va_archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">  </span><span class="nt">retention_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">hot_span_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">48</span>
+<span class="w">  </span><span class="nt">hot_cadence_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">tail_cadence_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<span class="w">  </span><span class="nt">freshness_channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:DCCT:01:CURRENT:RB</span>
+</pre></div>
+</div>
+<p>Every key is optional and the defaults describe a working archive; the block’s
+presence is the decision, not its contents.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 12.0%" />
+<col style="width: 58.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">retention_days</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
+<td><p>How far back the archive reaches — both what a fresh deployment holds
+and what a running one keeps.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hot_span_hours</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">48</span></code></p></td>
+<td><p>How much of the recent end is kept at the dense cadence. May not exceed
+<code class="docutils literal notranslate"><span class="pre">retention_days</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hot_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Seconds between samples inside the hot span.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tail_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p>Seconds between samples outside it. Must be a whole multiple of
+<code class="docutils literal notranslate"><span class="pre">hot_cadence_sec</span></code> — the sparse tier is a subset of the dense grid, so a
+cadence that does not divide would put the two on timestamps that never
+coincide.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">recorder_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>How often the recorder samples the live machine.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">recorder_tail_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p>How often one of those samples is additionally kept for the full
+retention span, so recorded history survives as the dense copy ages out.
+Same whole-multiple rule.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">recorder_poll_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
+<td><p>How often the recorder re-reads the deployment’s config to decide whether
+to record at all. It records only for a <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> control
+system, and this is what lets that flip take effect without a restart.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code></p></td>
+<td><p>unset</p></td>
+<td><p>Canary channel for a derived <code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> health check. Unset
+derives no check (see
+<a class="reference internal" href="../../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">host</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">localhost</span></code></p></td>
+<td><p>Where the store is. <strong>Required</strong> when <code class="docutils literal notranslate"><span class="pre">deploy_services</span></code> is false: an
+attached project deploys no store of its own, so it has to name the host
+whose archive it reads.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">port_host</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">27017</span></code></p></td>
+<td><p>Host port the store publishes on — or, for an attached project, the port
+the other host published.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">database</span></code> / <code class="docutils literal notranslate"><span class="pre">collection</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey_archiver</span></code> / <code class="docutils literal notranslate"><span class="pre">pv_history</span></code></p></td>
+<td><p>Where the samples live inside the store.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">compression</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">zstd</span></code></p></td>
+<td><p>Block compressor for the collection: <code class="docutils literal notranslate"><span class="pre">zstd</span></code>, <code class="docutils literal notranslate"><span class="pre">snappy</span></code>, <code class="docutils literal notranslate"><span class="pre">zlib</span></code> or
+<code class="docutils literal notranslate"><span class="pre">none</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">username</span></code> / <code class="docutils literal notranslate"><span class="pre">auth_database</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span></code> / <code class="docutils literal notranslate"><span class="pre">admin</span></code></p></td>
+<td><p>The database user the deployment creates and the agent connects as, and
+the database it authenticates against.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">password_env</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">MONGO_ROOT_PASSWORD</span></code></p></td>
+<td><p><strong>Name</strong> of the variable holding that password. The value is minted into
+the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; it is never a profile field.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timeout_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
+<td><p>How long the connector waits to reach the store.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<section id="one-fact-one-home">
+<h3>One fact, one home<a class="headerlink" href="#one-fact-one-home" title="Link to this heading">#</a></h3>
+<p>The block is where the archive is described, and the build writes the rest from
+it. Do <strong>not</strong> also spell these in <code class="docutils literal notranslate"><span class="pre">config:</span></code> — a profile that does is refused,
+by name, rather than silently having one copy win:</p>
+<ul class="simple">
+<li><p>the connector’s eight connection keys —
+<code class="docutils literal notranslate"><span class="pre">archiver.mongodb_archiver.host</span></code>, <code class="docutils literal notranslate"><span class="pre">.port</span></code>, <code class="docutils literal notranslate"><span class="pre">.name</span></code>, <code class="docutils literal notranslate"><span class="pre">.collection</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.auth</span></code>, <code class="docutils literal notranslate"><span class="pre">.username</span></code>, <code class="docutils literal notranslate"><span class="pre">.password_env</span></code>, <code class="docutils literal notranslate"><span class="pre">.timeout</span></code> — all derived from
+the keys above;</p></li>
+<li><p>the shape knobs, written to <code class="docutils literal notranslate"><span class="pre">va_archiver.*</span></code> in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+for the seeder and the recorder to read;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">health.categories.archiver</span></code>, when <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code> is set.</p></li>
+</ul>
+<p>Two homes for one fact are free to disagree, and the disagreement is the
+dangerous case: a stale <code class="docutils literal notranslate"><span class="pre">collection</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code> in <code class="docutils literal notranslate"><span class="pre">config:</span></code> points the
+agent at an archive nothing is writing, which reads as empty rather than as
+broken.</p>
+<p>What the block does <em>not</em> do is select the archiver. Declaring where an archive
+lives and choosing it as the deployment’s archiver are separate decisions, so
+the block never flips <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> out from under you — set
+<code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{archiver.type:</span> <span class="pre">mongodb_archiver}</span></code> yourself, or the project deploys a
+store and then reads something else beside it.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> <strong>refuses</strong> a profile that pairs a <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>
+control system with the mock archiver, or with no <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at all
+(which resolves to the mock): a simulated machine whose history is
+synthesized at read time reports a past that never happened, and nothing can
+catch it. The error names the fix — declare this block and select
+<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code>, point the archiver at a store you run yourself, or set
+the control system to <code class="docutils literal notranslate"><span class="pre">mock</span></code> for an honestly storeless project. See
+<a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
+</div>
+</section>
+</section>
+<section id="lifecycle-commands">
+<h2>Lifecycle commands<a class="headerlink" href="#lifecycle-commands" title="Link to this heading">#</a></h2>
+<p>Lifecycle commands run shell commands at three phases of the build:</p>
+<ul class="simple">
+<li><p><strong>pre_build</strong> — before rendering (cwd: profile directory)</p></li>
+<li><p><strong>post_build</strong> — after git init (cwd: project directory)</p></li>
+<li><p><strong>validate</strong> — advisory checks that warn but don’t abort (cwd: project directory)</p></li>
+</ul>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">lifecycle</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pre_build</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Check</span><span class="nv"> </span><span class="s">dependencies&quot;</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pip</span><span class="nv"> </span><span class="s">check&quot;</span>
+<span class="w">  </span><span class="nt">post_build</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Build</span><span class="nv"> </span><span class="s">search</span><span class="nv"> </span><span class="s">index&quot;</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python</span><span class="nv"> </span><span class="s">scripts/build_index.py&quot;</span>
+<span class="w">      </span><span class="nt">cwd</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;data&quot;</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">      </span><span class="nt">stream</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>Each step requires <code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">run</span></code>. Optional: <code class="docutils literal notranslate"><span class="pre">cwd</span></code> (relative to the phase
+default), <code class="docutils literal notranslate"><span class="pre">timeout</span></code> (seconds, default 120), and <code class="docutils literal notranslate"><span class="pre">stream</span></code> (print output live;
+also available for all steps via <code class="docutils literal notranslate"><span class="pre">--stream</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> is replaced with the built project’s absolute path. The
+project venv’s <code class="docutils literal notranslate"><span class="pre">bin/</span></code> is prepended to <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, so <code class="docutils literal notranslate"><span class="pre">python</span></code> and <code class="docutils literal notranslate"><span class="pre">pytest</span></code>
+resolve to the project’s own Python.</p>
+</section>
+<section id="environment-variables">
+<h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section declares what the deployment needs. <code class="docutils literal notranslate"><span class="pre">required</span></code> documents
+variables the operator must supply; secrets live in the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+and never in the profile (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>).</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">required</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">API_KEY</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DB_HOST</span>
+<span class="w">  </span><span class="nt">defaults</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">LOG_LEVEL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
+</pre></div>
+</div>
+<p>Both lists are rendered into the repository’s <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, so an operator
+opening that file sees them alongside every other variable. Required names must
+match <code class="docutils literal notranslate"><span class="pre">^[A-Z_][A-Z0-9_]*$</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">defaults</span></code> values are additionally seeded into the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, under their own section banner, so a deployment created from
+the profile starts with them in force. Seeding is append-only: a value already
+in the file — set by the operator, or minted by a deploy — always wins, and
+later <code class="docutils literal notranslate"><span class="pre">init</span></code> runs never rewrite one. Declare a default only for a value the
+profile’s author can honestly choose for every deployment (the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset’s demo login passwords, say); values a <em>site</em>
+should share across hosts belong in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, which is committed with
+the repository and read by every host (see <a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>).</p>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code> adds Python package specifiers to the built project. They are
+installed into the project venv and recorded in its generated <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dependencies</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">numpy&gt;=1.24</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pandas</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scipy~=1.11</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-project
+uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>web<span class="w">     </span><span class="c1"># uses my-project/.venv</span>
+uv<span class="w"> </span>sync<span class="w">               </span><span class="c1"># rebuilds it from pyproject.toml</span>
+</pre></div>
+</div>
+<p>Builds run with <code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> create no environment and no <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>;
+install dependencies yourself in that mode.</p>
+<section id="the-execution-environment">
+<span id="profile-environment"></span><h3>The execution environment<a class="headerlink" href="#the-execution-environment" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code> says what <em>else</em> to install. The <code class="docutils literal notranslate"><span class="pre">environment:</span></code> block says
+what the project environment is built <em>on top of</em> — which interpreter it starts
+from, and, when that interpreter belongs to a virtual environment your facility
+already maintains, which of its packages to carry over.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/opt/facility/analysis-env/bin/python</span><span class="w">   </span><span class="c1"># base interpreter</span>
+<span class="w">  </span><span class="nt">packages</span><span class="p">:</span><span class="w">                                       </span><span class="c1"># installed on top</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lmfit&gt;=1.3</span>
+<span class="w">  </span><span class="nt">inherit_exclude</span><span class="p">:</span><span class="w">                                </span><span class="c1"># left out of the freeze</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">facility-inhouse-tools</span>
+</pre></div>
+</div>
+<p>All three keys are optional; the block as a whole can be omitted.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">python</span></code></dt><dd><p>The base interpreter, as an absolute path. It may be a plain interpreter
+(<code class="docutils literal notranslate"><span class="pre">/usr/bin/python3.12</span></code>) or the interpreter inside a virtual environment —
+the syntax is the same. The build aborts if the path does not exist or is not
+executable.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">packages</span></code></dt><dd><p>Extra requirements installed into the project environment. Resolved in the
+same install as <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>, so the two cannot disagree; where both name
+the same distribution, a pinned version wins over a bare name, and between two
+pins <code class="docutils literal notranslate"><span class="pre">packages</span></code> wins.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">inherit_exclude</span></code></dt><dd><p>Distribution names to leave out of the freeze described below. Only meaningful
+with a virtual environment base; declaring it otherwise is rejected at
+validation time rather than silently ignored.</p>
+</dd>
+</dl>
+<p><strong>Carrying a virtual environment’s packages over.</strong> Basing a project on a virtual
+environment’s <em>interpreter</em> does not inherit its <em>packages</em>. What carries them
+over is a <strong>freeze</strong>: when <code class="docutils literal notranslate"><span class="pre">environment.python</span></code> names a virtual environment’s
+interpreter, the build records that environment’s installed distributions as
+exact <code class="docutils literal notranslate"><span class="pre">name==version</span></code> requirements in the project’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. The
+project venv — and any container image built from it — installs that same set.</p>
+<p>A pin in <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> or <code class="docutils literal notranslate"><span class="pre">packages</span></code> overrides the version the base
+happened to carry.</p>
+<p>The freeze runs <strong>only when a base interpreter is declared</strong>. Without
+<code class="docutils literal notranslate"><span class="pre">environment.python</span></code> the base is whatever interpreter OSPREY itself was
+installed into — an accident, not a curated environment — and its packages are
+deliberately not carried over.</p>
+<p><strong>The build stops if a package cannot be reproduced.</strong> Two cases are refused: a
+distribution with no package-index coordinate (installed from a local path, a
+VCS checkout, or a bare archive URL), and a version outside OSPREY’s own
+requirement for that package. Every offending package is named in a single
+message, along with the <code class="docutils literal notranslate"><span class="pre">inherit_exclude</span></code> block that clears all of them.</p>
+</section>
+</section>
+<section id="bluesky">
+<h2>bluesky<a class="headerlink" href="#bluesky" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> section configures the Bluesky stack a deployment brings up —
+the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
+store. It accepts exactly five keys; a misspelled or unknown key <strong>fails the
+build</strong> and prints the valid set:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">port</span></code></p></td>
+<td><p>The bridge’s port (default 8090).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tiled_enabled</span></code></p></td>
+<td><p>Deploy the Tiled data store alongside the stack.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tiled_port</span></code></p></td>
+<td><p>Tiled’s port (default 8091).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">plan_dir</span></code></p></td>
+<td><p>A directory of your facility’s own plans — see
+<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code></p></td>
+<td><p>Plans to remove from the catalog entirely, e.g. <code class="docutils literal notranslate"><span class="pre">[orm]</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Whether a deployment can execute plans at all is not set here: it follows from
+the control system the deployment runs. See <a class="reference internal" href="../../how-to/bluesky/queue.html"><span class="doc">Plans and the Queue</span></a> for
+what the stack looks like when it is up.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Configuration</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="config.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Runtime Configuration — config.yml</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-reference">Profile YAML reference</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-overrides">Configuration overrides</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-injection">MCP server injection</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#shipping-the-server-s-code">Shipping the server’s code</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-permissions">Tool permissions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-deny-list-is-assembled">How the deny list is assembled</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-mode-channel-finding">Graph-mode channel finding</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-va-archiver-block">The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-fact-one-home">One fact, one home</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lifecycle-commands">Lifecycle commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment variables</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependencies">Dependencies</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-execution-environment">The execution environment</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bluesky">bluesky</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/configuration/profile.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Compose Templates and Images" href="compose-templates.html" />
-    <link rel="prev" title="Run Open &amp; Local Models" href="../run-open-models.html" />
+    <link rel="prev" title="Deploy a Facility" href="../deploy-a-facility.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -149,16 +149,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="../index.html">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,16 +292,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="../index.html">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -371,67 +385,73 @@
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Container Deployment</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="compose-templates.html">Compose Templates and Images</a></li>
 <li class="toctree-l2"><a class="reference internal" href="networking.html">Network Binding and Security</a></li>
 <li class="toctree-l2"><a class="reference internal" href="env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="project-image.html">The Project Image</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../multi-user/tiers.html">Privilege Tiers</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/google-chat.html">Google Chat</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../protected-set.html">The Protected Set</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../switch-control-target.html">Switch the Control Target at Run Time</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -515,7 +535,7 @@ a deployment. For the end-to-end walkthrough — deployment repository, CI
 pipeline, stack up — follow <a class="reference internal" href="../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>, which also covers the
 commands you run day to day once the stack is up. For the
 full <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema as authored inside a build profile, see
-<a class="reference internal" href="../build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
+<a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
 </div>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
@@ -552,7 +572,7 @@ project-specific configuration exposed to the template as
 declare <code class="docutils literal notranslate"><span class="pre">copy_src</span></code>, <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>, and <code class="docutils literal notranslate"><span class="pre">render_kernel_templates</span></code>
 (a multi-container service is expressed by the <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>
 template defining more than one compose service). For how facility services
-are declared inside a build profile, see <a class="reference internal" href="../build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
+are declared inside a build profile, see <a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
 <section id="service-lookup-namespaces">
 <h3>Service lookup namespaces<a class="headerlink" href="#service-lookup-namespaces" title="Link to this heading">#</a></h3>
 <p>A name in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is looked up by its literal spelling — there
@@ -582,7 +602,7 @@ result was cut short. Raising them spends the agent’s context window rather th
 the store’s memory — a few thousand rows crowd out the conversation long before
 they trouble Neo4j. For what the agent does with the store once it is up — the
 query tools, the read-only posture, and how to generate a corpus of your own —
-see <a class="reference internal" href="../use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+see <a class="reference internal" href="../facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 <p>The block carries <strong>no password</strong>, deliberately — the same convention
 <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> follows. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> into the
 project <code class="docutils literal notranslate"><span class="pre">.env</span></code> when it is unset, and the container reads it from there; a
@@ -592,11 +612,10 @@ bootstraps it, and imports <code class="docutils literal notranslate"><span clas
 every query with zero rows, which reads as wrong data rather than as no data.
 Later deploys find the corpus already there and leave it alone. If bootstrapping
 or seeding fails the deploy warns and carries on, naming <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span>
-<span class="pre">seed-graph</span></code> (see <a class="reference internal" href="../okf-bundle.html"><span class="doc">The OKF Bundle</span></a>), the verb that finishes the job by hand.</p>
-<p>To query a graph store this deployment does <em>not</em> run, give the block an
-explicit <code class="docutils literal notranslate"><span class="pre">uri:</span></code> and leave <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> out of <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. Nothing is
-minted or seeded on that path — the graph is somebody else’s, so set
-<code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> yourself.</p>
+<span class="pre">seed-graph</span></code> (see <a class="reference internal" href="../facility-knowledge/okf-bundle.html"><span class="doc">The OKF Bundle</span></a>), the verb that finishes the job by hand.</p>
+<p>To query a graph store this deployment does <em>not</em> run, point the block at it
+instead of deploying one — see
+<a class="reference internal" href="../facility-knowledge/use-facility-graph.html#graph-external-store"><span class="std std-ref">Pointing at a store the facility runs</span></a>.</p>
 </section>
 </section>
 <section id="cli-commands">
@@ -615,7 +634,7 @@ osprey<span class="w"> </span>users<span class="w"> </span>prune<span class="w">
 <span class="w">                              </span><span class="c1">#   (--archive | --purge, --dry-run)</span>
 </pre></div>
 </div>
-<p>Full command and flag reference: <a class="reference internal" href="../../cli-reference/index.html"><span class="doc">CLI Reference</span></a>.</p>
+<p>Full command and flag reference: <a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a>.</p>
 <p>Every verb acts on the deployment repository enclosing the working directory —
 the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above it. <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> names another
 one explicitly.</p>
@@ -762,39 +781,11 @@ starts.</p>
 <p>If you write your own service template, leave <code class="docutils literal notranslate"><span class="pre">profiles:</span></code> out of it.</p>
 </section>
 <section id="where-var-values-come-from">
-<span id="compose-interpolation-precedence"></span><h3>Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from<a class="headerlink" href="#where-var-values-come-from" title="Link to this heading">#</a></h3>
-<p>Compose fills in <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files from two
-sources: the env file(s) the command passes, and the environment of the shell
-you typed the command in. <strong>The two supported providers disagree about which of
-those wins</strong>, and the disagreement is a straight inversion:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 28.0%" />
-<col style="width: 72.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Provider</p></th>
-<th class="head"><p>What gets substituted when both sources set a variable</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Docker Compose v2</p></td>
-<td><p>The <strong>exported shell value</strong>. <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> is its lower-precedence
-source, so a variable exported in your shell overrides the env chain.</p></td>
-</tr>
-<tr class="row-odd"><td><p>podman-compose</p></td>
-<td><p>The <strong>env-file value</strong>. It resolves from the env file before the calling
-shell, so the export reaches nothing.</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>You do not have to remember this. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> compares the two sources on
-every start, and when an exported variable disagrees with the value the env
-chain resolves to it warns by name — never by value — and states which value
-the provider it just probed will actually use, plus what to do about it. The
-reliable habit is to put the value in the env chain and leave your shell out of
-it: that is the one gesture that means the same thing on both providers.</p>
+<h3>Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from<a class="headerlink" href="#where-var-values-come-from" title="Link to this heading">#</a></h3>
+<p>Compose fills in <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders from the env file(s) the command
+passes and from the shell you typed it in, and the two supported providers
+disagree about which wins. The precedence table, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does
+about the disagreement, are in <a class="reference internal" href="../../reference/configuration/config.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>.</p>
 </section>
 <section id="podman-s-network-backend-required-by-the-bluesky-stack">
 <span id="podman-network-backend"></span><h3>Podman’s network backend (required by the Bluesky stack)<a class="headerlink" href="#podman-s-network-backend-required-by-the-bluesky-stack" title="Link to this heading">#</a></h3>
@@ -921,6 +912,26 @@ warnings and refusals that keep the chain honest.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a></div>
 </div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+The Project Image</div>
+<p class="sd-card-text">The agent’s own container image: what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> generates, who
+owns the <code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code>, and how to customize it.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="project-image.html"><span class="doc">The Project Image</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Search Sidecar</div>
+<p class="sd-card-text">The optional search service deployed beside the stack, and where it
+listens.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="../ariel/search-sidecar.html"><span class="doc">The Search Sidecar (qmd)</span></a></div>
+</div>
 </div>
 </div>
 <div class="toctree-wrapper compound">
@@ -972,16 +983,16 @@ change — rerun <code class="docutils literal notranslate"><span class="pre">os
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><a class="reference internal" href="../../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full lifecycle command and flag reference.</p>
+<dt><a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full lifecycle command and flag reference.</p>
 </dd>
-<dt><a class="reference internal" href="../build-profiles.html#profile-services"><span class="std std-ref">Services</span></a></dt><dd><p>Authoritative <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema for build profiles.</p>
+<dt><a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a></dt><dd><p>Authoritative <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema for build profiles.</p>
 </dd>
-<dt><a class="reference internal" href="../containerize-project.html"><span class="doc">Containerize a Project</span></a></dt><dd><p>The <em>project image</em> (assistant + web terminal in one container) built
+<dt><a class="reference internal" href="project-image.html"><span class="doc">The Project Image</span></a></dt><dd><p>The <em>project image</em> (assistant + web terminal in one container) built
 from the generated <code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — distinct from the service
 containers this page covers.</p>
 </dd>
-<dt><a class="reference internal" href="../search-sidecar.html"><span class="doc">The Search Sidecar (qmd)</span></a></dt><dd><p>The qmd search sidecar — a shared search service some presets
-co-deploy, documented with the facility-knowledge system it serves.</p>
+<dt><a class="reference internal" href="../ariel/search-sidecar.html"><span class="doc">The Search Sidecar (qmd)</span></a></dt><dd><p>The qmd search sidecar — a shared search service some presets
+co-deploy, documented with the ARIEL logbook search it serves.</p>
 </dd>
 </dl>
 </div>
@@ -999,12 +1010,12 @@ co-deploy, documented with the facility-knowledge system it serves.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../run-open-models.html"
+       href="../deploy-a-facility.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Run Open &amp; Local Models</p>
+        <p class="prev-next-title">Deploy a Facility</p>
       </div>
     </a>
     <a class="right-next"

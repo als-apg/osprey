@@ -1,0 +1,1227 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ARIEL Contracts &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/ariel';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/ariel.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Channel Finder Contracts" href="channel-finder.html" />
+    <link rel="prev" title="Python Executor Contract" href="python-executor.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 25, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contracts</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">ARIEL Contracts</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="ariel-contracts">
+<span id="reference-ariel"></span><h1>ARIEL Contracts<a class="headerlink" href="#ariel-contracts" title="Link to this heading">#</a></h1>
+<p>ARIEL is integrated into Osprey as a dedicated MCP server
+(<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.ariel</span></code>) that exposes the logbook search service to the
+agent layer through a set of specialized tools. When a user asks a question
+like “What happened with the RF cavity last week?”, the Osprey agent selects
+the appropriate ARIEL MCP tool based on the query type, which invokes the
+<code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> and returns structured results that the agent uses to
+produce a cited answer. This page is the reference for the contracts that
+integration rests on: the MCP tools, the search result structure, the service
+factory, the capabilities endpoint the web interface reads, and the database
+schema every entry is stored in.</p>
+<section id="integration-architecture">
+<h2>Integration Architecture<a class="headerlink" href="#integration-architecture" title="Link to this heading">#</a></h2>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 256" role="img" aria-labelledby="ariel-integration-title ariel-integration-desc">
+  <title id="ariel-integration-title">ARIEL and agent integration</title>
+  <desc id="ariel-integration-desc">A user question goes to the Osprey agent, which calls ARIEL's MCP tools; the search service returns scored entries with metadata, and the agent answers the user with citations.</desc>
+  <defs>
+    <marker id="ariel-integration-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="224" y1="92" x2="400" y2="92" marker-end="url(#ariel-integration-arr)"/>
+  <line class="e" x1="560" y1="92" x2="736" y2="92" marker-end="url(#ariel-integration-arr)"/>
+  <path class="e e-dash" d="M816,120 V152 Q816,160 808,160 H488 Q480,160 480,152 V120" marker-end="url(#ariel-integration-arr)"/>
+  <path class="e e-dash" d="M456,120 V184 Q456,192 448,192 H152 Q144,192 144,184 V120" marker-end="url(#ariel-integration-arr)"/>
+  <rect class="mask" x="608" y="72" width="80" height="12" rx="2"/>
+  <text class="ta" x="648" y="81" text-anchor="middle">MCP TOOL CALL</text>
+  <rect class="mask" x="604" y="168" width="88" height="12" rx="2"/>
+  <text class="ta" x="648" y="177" text-anchor="middle">SCORED ENTRIES</text>
+  <rect class="mask" x="260" y="200" width="80" height="12" rx="2"/>
+  <text class="ta" x="300" y="209" text-anchor="middle">CITED ANSWER</text>
+
+  <rect class="mask" x="64" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-in" x="64" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="144" y="88" text-anchor="middle">user</text>
+  <text class="ts" x="144" y="104" text-anchor="middle">a question</text>
+  <rect class="mask" x="400" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb-foc" x="400" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">osprey chat</text>
+  <rect class="mask" x="736" y="64" width="160" height="56" rx="6"/>
+  <rect class="nb" x="736" y="64" width="160" height="56" rx="6"/>
+  <text class="tn" x="816" y="88" text-anchor="middle">ARIEL MCP server</text>
+  <text class="ts" x="816" y="104" text-anchor="middle">ARIELSearchService</text>
+</svg>
+</div>
+<p>The flow begins when the Osprey agent determines that a user query involves
+historical logbook data. It selects from ARIEL’s specialized MCP tools based
+on the query type — for example, <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> for exact-match lookups,
+<code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> for conceptual queries, or <code class="docutils literal notranslate"><span class="pre">browse</span></code> for exploring recent
+entries. Each tool builds the appropriate request and routes it through the
+<code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Results are returned directly to the agent, which
+uses them to generate a cited response.</p>
+</section>
+<section id="ariel-mcp-tools">
+<h2>ARIEL MCP Tools<a class="headerlink" href="#ariel-mcp-tools" title="Link to this heading">#</a></h2>
+<p>ARIEL exposes the following tools through its dedicated MCP server. The
+Osprey agent selects the appropriate tool based on the user’s query.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Tool</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">keyword_search</span></code></p></td>
+<td><p>Full-text keyword search across logbook entries</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">semantic_search</span></code></p></td>
+<td><p>Vector similarity search using embeddings</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code></p></td>
+<td><p>Direct SQL queries against the logbook database</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">browse</span></code></p></td>
+<td><p>Browse entries with pagination and filters</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">filter_options</span></code></p></td>
+<td><p>Get distinct values for a filterable field (authors or source systems)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">status</span></code></p></td>
+<td><p>Check ARIEL service health and configuration</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_publish</span></code></p></td>
+<td><p>Publish an existing ARIEL entry to the facility logbook</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code></p></td>
+<td><p>List available search capabilities and their status</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_get</span></code></p></td>
+<td><p>Retrieve a single entry by ID</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code></p></td>
+<td><p>Batch retrieve multiple entries by their IDs</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_create</span></code></p></td>
+<td><p>Create a new logbook entry</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Source:</strong> <code class="file docutils literal notranslate"><span class="pre">src/osprey/mcp_server/ariel/tools/</span></code></p>
+</section>
+<section id="search-result-structure">
+<h2>Search Result Structure<a class="headerlink" href="#search-result-structure" title="Link to this heading">#</a></h2>
+<p>Internally, each search produces an <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code> with the fields
+below; the MCP tools serialize this into their own JSON envelope for the
+agent:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 20.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entries</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[dict,</span> <span class="pre">...]</span></code></p></td>
+<td><p>Matching entries, ranked by relevance</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">answer</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span></code></p></td>
+<td><p>Synthesized answer text (set by callers)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sources</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[str,</span> <span class="pre">...]</span></code></p></td>
+<td><p>Entry IDs used as sources</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">search_modes_used</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[str,</span> <span class="pre">...]</span></code></p></td>
+<td><p>Modes executed (e.g., <code class="docutils literal notranslate"><span class="pre">keyword</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">reasoning</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">str</span></code></p></td>
+<td><p>Explanation of results</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">diagnostics</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[SearchDiagnostic,</span> <span class="pre">...]</span></code></p></td>
+<td><p>Structured diagnostics (level, source, message) from search execution</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="service-factory">
+<h2>Service Factory<a class="headerlink" href="#service-factory" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">get_ariel_search_service()</span></code> function provides a singleton
+<code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> instance. The service is lazily initialized from
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> on first access and reused for subsequent calls.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.services.ariel_search.capability</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_ariel_search_service</span>
+
+<span class="n">service</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_ariel_search_service</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">with</span> <span class="n">service</span><span class="p">:</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">service</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="s2">&quot;RF cavity fault&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Lifecycle:</strong> The singleton is created once per process. In the web
+interface, the <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> factory manages its own service instance
+through the FastAPI lifespan. For cleanup in tests, use
+<code class="docutils literal notranslate"><span class="pre">close_ariel_service()</span></code> (closes the connection pool) or
+<code class="docutils literal notranslate"><span class="pre">reset_ariel_service()</span></code> (resets without closing).</p>
+<p><strong>Source:</strong> <code class="file docutils literal notranslate"><span class="pre">src/osprey/services/ariel_search/capability.py</span></code></p>
+</section>
+<section id="capabilities-api">
+<h2>Capabilities API<a class="headerlink" href="#capabilities-api" title="Link to this heading">#</a></h2>
+<p>The web interface discovers its search modes and tunable parameters dynamically at startup by calling <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/capabilities</span></code>.</p>
+<p><strong>The “add a module, get a UI knob for free” pattern:</strong> When you register a custom search module with <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code>, its parameters automatically appear in the web interface’s advanced options panel. The <code class="docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> dataclass supports types <code class="docutils literal notranslate"><span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">float</span></code>, <code class="docutils literal notranslate"><span class="pre">bool</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">date</span></code>, <code class="docutils literal notranslate"><span class="pre">select</span></code>, and <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code> (which fetches options from an API endpoint). Parameters are grouped by <code class="docutils literal notranslate"><span class="pre">section</span></code> for visual organization.</p>
+<div class="note admonition">
+<p class="admonition-title">Security &amp; Resilience</p>
+<ul class="simple">
+<li><p><strong>XSS-safe highlights:</strong> Search result highlights from PostgreSQL <code class="docutils literal notranslate"><span class="pre">ts_headline</span></code> are sanitized by <code class="docutils literal notranslate"><span class="pre">sanitizeHighlight()</span></code> in <code class="docutils literal notranslate"><span class="pre">components.js</span></code> — only <code class="docutils literal notranslate"><span class="pre">&lt;b&gt;</span></code> and <code class="docutils literal notranslate"><span class="pre">&lt;/b&gt;</span></code> tags are preserved; all other HTML is escaped.</p></li>
+<li><p><strong>No cross-origin surface:</strong> The interface app registers no CORS middleware. The browser and the <code class="docutils literal notranslate"><span class="pre">/api</span></code> endpoints it calls are served from the same origin, so there is no cross-origin request path to allow or restrict.</p></li>
+<li><p><strong>Frontend fallback:</strong> If <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> is unavailable at startup, the frontend falls back to a default mode list so the interface remains usable.</p></li>
+</ul>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-text">Technical Reference</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+REST API</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">All endpoints are mounted under the <code class="docutils literal notranslate"><span class="pre">/api</span></code> prefix.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 30.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p class="sd-card-text">Method</p></th>
+<th class="head"><p class="sd-card-text">Endpoint</p></th>
+<th class="head"><p class="sd-card-text">Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code></p></td>
+<td><p class="sd-card-text">Discover available search modes and parameters</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/filter-options/{field}</span></code></p></td>
+<td><p class="sd-card-text">Get distinct values for a filterable field (<code class="docutils literal notranslate"><span class="pre">authors</span></code>, <code class="docutils literal notranslate"><span class="pre">source_systems</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">POST</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/search</span></code></p></td>
+<td><p class="sd-card-text">Execute a search query (body: <code class="xref py py-class docutils literal notranslate"><span class="pre">SearchRequest</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/entries</span></code></p></td>
+<td><p class="sd-card-text">List entries with pagination and filtering</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/entries/{entry_id}</span></code></p></td>
+<td><p class="sd-card-text">Get a single entry by ID</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">POST</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/entries</span></code></p></td>
+<td><p class="sd-card-text">Create a new logbook entry (body: <code class="xref py py-class docutils literal notranslate"><span class="pre">EntryCreateRequest</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">POST</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/entries/upload</span></code></p></td>
+<td><p class="sd-card-text">Create a new entry from multipart form data with attachments</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/attachments/{attachment_id}</span></code></p></td>
+<td><p class="sd-card-text">Download an attachment binary</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/status</span></code></p></td>
+<td><p class="sd-card-text">Service health, module status, and statistics</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
+<td><p class="sd-card-text">Read the current ARIEL configuration block</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">PUT</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
+<td><p class="sd-card-text">Update the ARIEL configuration block</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/publish-info</span></code></p></td>
+<td><p class="sd-card-text">Describe the configured logbook’s write capability (the create
+form adapts its credential prompt to it)</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">POST</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts</span></code></p></td>
+<td><p class="sd-card-text">Create a draft entry (pre-fill data for the web form)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts/{draft_id}</span></code></p></td>
+<td><p class="sd-card-text">Read a draft entry</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts/{draft_id}/attachments/{filename}</span></code></p></td>
+<td><p class="sd-card-text">Download a draft’s attachment</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="sd-card-text">Additionally, a <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/health</span></code> endpoint at the root level returns a simple health check response.</p>
+<p class="sd-card-text"><strong>SearchResponse:</strong></p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;entries&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;entry_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;12345&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;source_system&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ALS eLog&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T08:30:00Z&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;J. Smith&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;raw_text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;RF cavity trip at 08:15...&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;RF cavity fault requiring manual reset&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;keywords&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;RF&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;cavity&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;trip&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.92</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;highlights&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;&lt;b&gt;RF cavity&lt;/b&gt; trip at 08:15&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;search_modes_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;total_results&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;execution_time_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">340</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>StatusResponse:</strong></p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;healthy&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;database_connected&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;database_uri&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;postgresql://localhost:5432/ariel&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;entry_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15230</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;embedding_tables&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;table_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text_embeddings_nomic_embed_text&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;entry_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15230</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;dimension&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">768</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;is_active&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;active_embedding_model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;nomic-embed-text&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;enabled_search_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;enabled_enhancement_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;text_embedding&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic_processor&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;last_ingestion&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T06:00:00Z&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;errors&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text">See <code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey.interfaces.ariel.api.schemas</span></code> for the full Pydantic model definitions.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Capabilities</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single <code class="docutils literal notranslate"><span class="pre">direct</span></code> category), along with shared parameters:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;categories&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;direct&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Direct&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span>
+<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Keyword&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Full-text PostgreSQL search...&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">            </span><span class="p">{</span>
+<span class="w">              </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fuzzy_fallback&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fuzzy Fallback&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bool&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Options&quot;</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">          </span><span class="p">]</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span>
+<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Semantic&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Embedding-based similarity search...&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;shared_parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max_results&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;start_date&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;date&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;author&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;source_system&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dynamic_select&quot;</span><span class="p">,</span>
+<span class="w">     </span><span class="nt">&quot;options_endpoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/filter-options/source_systems&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>How it works:</strong> The <code class="docutils literal notranslate"><span class="pre">get_capabilities()</span></code> function in <code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey.services.ariel_search.capabilities</span></code> iterates over enabled search modules from the registry. Each module provides a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> (for its description) and optionally <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> (for its tunable parameters).</p>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+App Internals</label><div class="sd-tab-content docutils">
+<p class="sd-card-text"><strong>App factory:</strong> The <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> function in <code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey.interfaces.ariel.app</span></code> is a standard FastAPI app factory. It accepts an optional <code class="docutils literal notranslate"><span class="pre">config_path</span></code> argument and returns a fully configured FastAPI application with API routes and static file serving. It registers no CORS middleware — the app and its <code class="docutils literal notranslate"><span class="pre">/api</span></code> endpoints share one origin, so there is no cross-origin surface.</p>
+<p class="sd-card-text"><strong>Lifespan management:</strong> The app uses FastAPI’s <code class="docutils literal notranslate"><span class="pre">lifespan</span></code> context manager to initialize the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> on startup and clean it up on shutdown. During initialization:</p>
+<ol class="arabic simple">
+<li><p class="sd-card-text"><strong>Registry bootstrap</strong> — pre-creates the framework registry singleton (without an application registry path) so that ARIEL’s search module discovery works even when running outside a full Osprey application.</p></li>
+<li><p class="sd-card-text"><strong>Config loading</strong> — searches for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in four locations: the provided <code class="docutils literal notranslate"><span class="pre">config_path</span></code>, <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> (Docker mount), the <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> environment variable, and the current directory. Applies the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> environment variable override for Docker networking.</p></li>
+<li><p class="sd-card-text"><strong>Service creation</strong> — creates the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> from the loaded config and stores it in <code class="docutils literal notranslate"><span class="pre">app.state.ariel_service</span></code>.</p></li>
+<li><p class="sd-card-text"><strong>Health check</strong> — validates the database connection and logs the result.</p></li>
+</ol>
+<p class="sd-card-text"><strong>Docker environment overrides:</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 35.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p class="sd-card-text">Variable</p></th>
+<th class="head"><p class="sd-card-text">Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code></p></td>
+<td><p class="sd-card-text">Path to config.yml (alternative to default search)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code></p></td>
+<td><p class="sd-card-text">Override database hostname in URI (e.g., <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> for Docker compose networking)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Frontend</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">The frontend is a vanilla JavaScript SPA — no build tools, no framework, no transpilation. All files are served as static assets from <code class="file docutils literal notranslate"><span class="pre">src/osprey/interfaces/ariel/static/</span></code>.</p>
+<p class="sd-card-text"><strong>JavaScript modules:</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p class="sd-card-text">Module</p></th>
+<th class="head"><p class="sd-card-text">Responsibility</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">app.js</span></code></p></td>
+<td><p class="sd-card-text">Application initialization and hash-based routing</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">api.js</span></code></p></td>
+<td><p class="sd-card-text">REST client wrapping <code class="docutils literal notranslate"><span class="pre">fetch()</span></code> for all API endpoints</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">search.js</span></code></p></td>
+<td><p class="sd-card-text">Search form, query submission, results rendering</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">advanced-options.js</span></code></p></td>
+<td><p class="sd-card-text">Capabilities-driven advanced options panel (dynamic parameter controls)</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">entries.js</span></code>, <code class="docutils literal notranslate"><span class="pre">entries-detail.js</span></code>, <code class="docutils literal notranslate"><span class="pre">entries-form.js</span></code>, <code class="docutils literal notranslate"><span class="pre">entries-helpers.js</span></code></p></td>
+<td><p class="sd-card-text">Browse view with pagination, entry detail view, and the new
+entry form (split across the four modules)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">dashboard.js</span></code></p></td>
+<td><p class="sd-card-text">Status dashboard rendering and periodic health refresh</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.js</span></code></p></td>
+<td><p class="sd-card-text">Shared UI components (entry cards, loading states, error messages)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">utils.js</span></code></p></td>
+<td><p class="sd-card-text">Small shared helpers</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.js</span></code></p></td>
+<td><p class="sd-card-text">Settings UI: read/write ARIEL config block via <code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="sd-card-text">Side-drawer behavior (filters, advanced options, settings panels) comes
+from the shared <code class="docutils literal notranslate"><span class="pre">&lt;osprey-drawer&gt;</span></code> design-system component rather than
+a page-local module. The header’s display-preferences popover is the
+shared <code class="docutils literal notranslate"><span class="pre">&lt;osprey-display-menu&gt;</span></code> component in the same way: ARIEL
+mounts the element and passes it the settings drawer’s id, and the
+component supplies the trigger, the card, the Appearance/View/Theme
+rows, and the hiding-when-embedded rule.</p>
+<p class="sd-card-text">Theming role: standalone, ARIEL is the <em>hub</em> — the display menu is
+the operator’s control and its pick is the one that gets remembered.
+Embedded, it is a <em>follower</em>: the web terminal owns the pick and
+broadcasts it, and ARIEL applies what it is sent.</p>
+<p class="sd-card-text"><strong>CSS architecture:</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p class="sd-card-text">File</p></th>
+<th class="head"><p class="sd-card-text">Scope</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">base.css</span></code></p></td>
+<td><p class="sd-card-text">Reset, typography, form elements</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.css</span></code></p></td>
+<td><p class="sd-card-text">Cards, buttons, badges, modals, search results</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">layout.css</span></code></p></td>
+<td><p class="sd-card-text">Header, navigation, main content, responsive grid</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">drawer.css</span></code></p></td>
+<td><p class="sd-card-text">Page-level styling around the shared drawer component</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.css</span></code></p></td>
+<td><p class="sd-card-text">Settings drawer styling (config form, YAML editor, save bar)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="sd-card-text">Design tokens (colors, spacing, typography, transitions) are not
+defined per page — they come from the shared design system’s
+<code class="docutils literal notranslate"><span class="pre">/design-system/css/tokens.css</span></code>.</p>
+<p class="sd-card-text"><strong>Routing:</strong> The app uses <code class="docutils literal notranslate"><span class="pre">window.location.hash</span></code> for navigation. The <code class="docutils literal notranslate"><span class="pre">app.js</span></code> module listens for <code class="docutils literal notranslate"><span class="pre">hashchange</span></code> events and shows/hides view sections (<code class="docutils literal notranslate"><span class="pre">#search</span></code>, <code class="docutils literal notranslate"><span class="pre">#browse</span></code>, <code class="docutils literal notranslate"><span class="pre">#create</span></code>, <code class="docutils literal notranslate"><span class="pre">#status</span></code>). No page reloads occur during navigation.</p>
+</div>
+</div>
+</div>
+</details></section>
+<section id="database-schema">
+<span id="database"></span><h2>Database Schema<a class="headerlink" href="#database-schema" title="Link to this heading">#</a></h2>
+<p>All ingested and enhanced data lives in PostgreSQL. The core <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table stores one row per logbook entry with the normalized fields that every adapter produces — entry ID, timestamp, author, raw text, and a JSONB metadata column for facility-specific extras. Enhancement modules write their results either into columns on this same table (keywords, summaries) or into dedicated per-model tables (vector embeddings). The pgvector extension provides the <code class="docutils literal notranslate"><span class="pre">vector</span></code> column type and cosine-distance operators that power semantic search. Core tables and an embedding table for each configured model are created automatically by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which reads <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> to determine which embedding tables to create. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
+<div class="important admonition">
+<p class="admonition-title">pgvector requirement</p>
+<p>The <strong>pgvector</strong> extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>). For external databases, install it manually: <code class="docutils literal notranslate"><span class="pre">CREATE</span> <span class="pre">EXTENSION</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">vector;</span></code></p>
+</div>
+<section id="core-tables">
+<h3>Core Tables<a class="headerlink" href="#core-tables" title="Link to this heading">#</a></h3>
+<p><strong>enhanced_entries</strong> — Primary storage for logbook entries:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 20.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Column</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span> <span class="pre">PRIMARY</span> <span class="pre">KEY</span></code></p></td>
+<td><p>Unique entry identifier</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">source_system</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
+<td><p>Origin system name (e.g., “ALS eLog”)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timestamp</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TIMESTAMPTZ</span></code></p></td>
+<td><p>Entry creation time</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">author</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
+<td><p>Entry author</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">raw_text</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
+<td><p>Full entry text (subject + details)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">summary</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
+<td><p>LLM-generated summary (from semantic processor)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">keywords</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT[]</span></code></p></td>
+<td><p>LLM-extracted keywords (from semantic processor)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metadata</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">JSONB</span></code></p></td>
+<td><p>Additional structured data (title, tags, attachments)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Per-model embedding tables</strong> (e.g., <code class="docutils literal notranslate"><span class="pre">text_embeddings_nomic_embed_text</span></code>):</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Column</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SERIAL</span> <span class="pre">PRIMARY</span> <span class="pre">KEY</span></code></p></td>
+<td><p>Auto-incrementing primary key</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span> <span class="pre">UNIQUE</span></code></p></td>
+<td><p>Foreign key to enhanced_entries</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">embedding</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">vector(&lt;dim&gt;)</span></code></p></td>
+<td><p>pgvector embedding column</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>ingestion_runs</strong> — Tracks ingestion history:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 20.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Column</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SERIAL</span></code></p></td>
+<td><p>Auto-incrementing ID</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">started_at</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TIMESTAMPTZ</span></code></p></td>
+<td><p>Ingestion start time</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">completed_at</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TIMESTAMPTZ</span></code></p></td>
+<td><p>Ingestion completion time</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_added</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
+<td><p>Number of new entries added</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entries_updated</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
+<td><p>Number of existing entries updated</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_failed</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
+<td><p>Number of entries that failed</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">source_system</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
+<td><p>Source adapter name</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="migration-system">
+<h3>Migration System<a class="headerlink" href="#migration-system" title="Link to this heading">#</a></h3>
+<p>Migrations are run via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> and managed by the <code class="docutils literal notranslate"><span class="pre">run_migrations()</span></code> function in <code class="docutils literal notranslate"><span class="pre">database/migrations.py</span></code>. When <code class="docutils literal notranslate"><span class="pre">text_embedding</span></code> is enabled, <code class="docutils literal notranslate"><span class="pre">migrate</span></code> creates an embedding table for each model listed in <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> (falling back to <code class="docutils literal notranslate"><span class="pre">nomic-embed-text</span></code>, 768, if none is configured); <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
+<div class="outreach admonition">
+<p class="admonition-title">Schema Evolution</p>
+<p>The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The <code class="docutils literal notranslate"><span class="pre">metadata</span></code> JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us — the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.</p>
+</div>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="python-executor.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Python Executor Contract</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="channel-finder.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Channel Finder Contracts</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-architecture">Integration Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-mcp-tools">ARIEL MCP Tools</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-result-structure">Search Result Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-factory">Service Factory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capabilities-api">Capabilities API</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#database-schema">Database Schema</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#core-tables">Core Tables</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-system">Migration System</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/ariel.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

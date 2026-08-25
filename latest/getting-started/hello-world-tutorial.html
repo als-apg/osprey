@@ -150,15 +150,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -286,15 +293,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -574,8 +588,8 @@ It refuses to start if there is no build yet, so run <code class="docutils liter
 <p class="admonition-title">Note</p>
 <p>Prefer to stay in your terminal? <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> starts the same agent
 against the same build as a plain CLI session — see
-<a class="reference internal" href="../how-to/cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a>. Everything below works identically there;
-this tutorial assumes the web terminal.</p>
+<a class="reference internal" href="../how-to/agent-interfaces/cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a>. The remaining steps work
+identically there; this tutorial assumes the web terminal.</p>
 </div>
 </section>
 <section id="step-5-read-some-channels">
@@ -710,7 +724,7 @@ containerized service, and this is the deployment lesson:</p>
 local telemetry store bound to localhost, with its UI at
 <a class="reference external" href="http://localhost:5080">http://localhost:5080</a>. The agent already emits its logs and metrics there, so
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> plus <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> gives you a queryable record of every
-session out of the box — see <a class="reference internal" href="../how-to/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>. Stop the stack
+session out of the box — see <a class="reference internal" href="../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>. Stop the stack
 with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; the agent itself keeps working without it.</p>
 <p>The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> once, then edit →
@@ -728,7 +742,7 @@ archive, sub-agents, and operator skills — on the same safety model.</p></li>
 architecture, the connector system, and the safety mechanisms in depth.</p></li>
 <li><p><strong>The profile format</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> documents every key
 those 13 commented blocks can hold.</p></li>
-<li><p><strong>CLI reference</strong>: <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a> covers all <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
+<li><p><strong>CLI reference</strong>: <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a> covers all <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
 commands.</p></li>
 </ul>
 </section>

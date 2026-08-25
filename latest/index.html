@@ -149,15 +149,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -287,15 +294,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -395,8 +409,8 @@
   <section id="osprey-framework-documentation">
 <h1>Osprey Framework Documentation<a class="headerlink" href="#osprey-framework-documentation" title="Link to this heading">#</a></h1>
 <p><strong>An agentic interface to scientific control systems.</strong></p>
-<p>The <strong>Osprey Framework</strong> is an agentic interface and harness for scientific facilities managing complex technical infrastructure — particle accelerators, fusion experiments, beamlines, and large telescopes. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.</p>
-<p>Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, <a class="reference internal" href="how-to/add-connector.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS and Mock ship in-tree; LabVIEW, Tango, and other stacks are supported via custom connectors), <a class="reference internal" href="how-to/ariel/index.html"><span class="doc">logbook search</span></a> across facility electronic logbooks, and mandatory human oversight for safety-critical operations.</p>
+<p>The <strong>Osprey Framework</strong> is an agentic interface and harness for scientific facilities managing complex technical infrastructure, such as particle accelerators. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.</p>
+<p>Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, <a class="reference internal" href="how-to/control-systems/use-connectors.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS and Mock ship in-tree; LabVIEW, Tango, and other stacks are supported via custom connectors), <a class="reference internal" href="how-to/ariel/index.html"><span class="doc">logbook search</span></a> across facility electronic logbooks, and mandatory human oversight for safety-critical operations.</p>
 <figure class="align-center" id="id1">
 <a class="reference internal image-reference" href="_images/architecture.png"><img alt="Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line." src="_images/architecture.png" style="width: 100%;" />
 </a>
@@ -422,21 +436,31 @@ with a coding agent and MCP servers.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Architecture</div>
-<p class="sd-card-text">Core concepts: agentic orchestration, MCP servers, connectors,
-human-in-the-loop safety, and the runtime API.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="architecture/index.html"><span class="doc">Architecture Overview</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
 How-To Guides</div>
 <p class="sd-card-text">Task-oriented recipes for adding connectors, configuring providers,
 deploying projects, and customising MCP servers.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="how-to/index.html"><span class="doc">How-To Guides</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Architecture</div>
+<p class="sd-card-text">Core concepts: agentic orchestration, MCP servers, connectors,
+human-in-the-loop safety, and the runtime API.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="architecture/index.html"><span class="doc">Architecture</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Reference</div>
+<p class="sd-card-text">The exact keys, shapes, and commands: the CLI, every configuration
+file, and the contracts services exchange.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="reference/index.html"><span class="doc">Reference</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">

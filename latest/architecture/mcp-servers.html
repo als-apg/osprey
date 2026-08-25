@@ -61,8 +61,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="How-To Guides" href="../how-to/index.html" />
-    <link rel="prev" title="Architecture Overview" href="index.html" />
+    <link rel="next" title="Python Executor" href="python-executor.html" />
+    <link rel="prev" title="Retrieval Paths" href="retrieval-paths.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -149,16 +149,23 @@
 </li>
 
 
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Architecture Overview
+    Architecture
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,16 +292,23 @@
 </li>
 
 
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Architecture Overview
+    Architecture
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -369,7 +383,12 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">MCP Servers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
 </ul>
 </div>
 </nav></div>
@@ -411,7 +430,7 @@
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Architecture Overview</a></li>
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Architecture</a></li>
     
     <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">MCP Servers</span></li>
   </ul>
@@ -438,6 +457,73 @@ servers. The Osprey agent discovers servers from <code class="docutils literal n
 tools via stdio JSON-RPC. The <strong>10 core in-tree servers</strong> below are the ones a
 deployment normally renders; build profiles can inject additional servers beyond
 them.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
+  <title id="mcp-server-map-title">The MCP server map</title>
+  <desc id="mcp-server-map-desc">The Osprey agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, which run as child processes of the harness and expose no network port.</desc>
+  <defs>
+    <marker id="mcp-server-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="480" y1="80" x2="480" y2="120" marker-end="url(#mcp-server-map-arr)"/>
+  <line class="e" x1="480" y1="172" x2="480" y2="212" marker-end="url(#mcp-server-map-arr)"/>
+  <!-- arrow label (beside the vertical segment, 12px gap) -->
+  <rect class="mask" x="492" y="88" width="180" height="12" rx="2"/>
+  <text class="ta" x="496" y="97">TOOL CALLS · STDIO JSON-RPC</text>
+  <!-- zone -->
+  <rect class="zone" x="108" y="212" width="744" height="240" rx="6"/>
+  <rect class="mask" x="124" y="220" width="288" height="12" rx="2"/>
+  <text class="te" x="128" y="229">STDIO CHILD PROCESSES · NO NETWORK PORT</text>
+  <!-- agent -->
+  <rect class="mask" x="412" y="24" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="412" y="24" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="48" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="480" y="64" text-anchor="middle">reads .mcp.json</text>
+  <!-- hook chain (focal) -->
+  <rect class="mask" x="200" y="120" width="560" height="52" rx="6"/>
+  <rect class="nb-foc" x="200" y="120" width="560" height="52" rx="6"/>
+  <text class="tn" x="480" y="142" text-anchor="middle">PreToolUse hook chain</text>
+  <text class="ts" x="480" y="158" text-anchor="middle">writes_check · limits · approval</text>
+  <!-- servers, row 1 -->
+  <rect class="mask" x="124" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="124" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="204" y="274" text-anchor="middle">control_system</text>
+  <text class="ts" x="204" y="290" text-anchor="middle">read · write · archiver</text>
+  <rect class="mask" x="308" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="308" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="388" y="274" text-anchor="middle">channel-finder</text>
+  <text class="ts" x="388" y="290" text-anchor="middle">1 of 4 pipelines</text>
+  <rect class="mask" x="492" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="492" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="572" y="274" text-anchor="middle">workspace</text>
+  <text class="ts" x="572" y="290" text-anchor="middle">artifacts · session state</text>
+  <rect class="mask" x="676" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="676" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="756" y="274" text-anchor="middle">python_executor</text>
+  <text class="ts" x="756" y="290" text-anchor="middle">execute</text>
+  <!-- servers, row 2 -->
+  <rect class="mask" x="216" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="216" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="296" y="362" text-anchor="middle">ariel</text>
+  <text class="ts" x="296" y="378" text-anchor="middle">logbook search</text>
+  <rect class="mask" x="400" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="400" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="480" y="362" text-anchor="middle">facility_knowledge</text>
+  <text class="ts" x="480" y="378" text-anchor="middle">OKF bundle</text>
+  <rect class="mask" x="584" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="584" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="664" y="362" text-anchor="middle">graph</text>
+  <text class="ts" x="664" y="378" text-anchor="middle">facility graph · Cypher</text>
+  <!-- zone footnote -->
+  <text class="ts" x="480" y="428" text-anchor="middle">rendered from config.yml by osprey build — profiles can inject more servers</text>
+</svg>
+</div>
+<p>The four channel-finder variants count as four of the ten, but a deployment
+serves exactly one of them — whichever <code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> names —
+under the single <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name, which is why the map shows seven
+running processes.</p>
 <section id="control-system">
 <h2>Control System<a class="headerlink" href="#control-system" title="Link to this heading">#</a></h2>
 <section id="id1">
@@ -525,7 +611,7 @@ here under the <code class="docutils literal notranslate"><span class="pre">chan
 refusal of extension procedures and <code class="docutils literal notranslate"><span class="pre">LOAD</span> <span class="pre">CSV</span></code>, the same row and time bounds.
 The examples catalogue is this package’s own, written around the questions
 operators ask about channels rather than around general graph exploration. See
-<a class="reference internal" href="../how-to/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<a class="reference internal" href="../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> – Run one read-only Cypher query and return the matching rows,
@@ -620,8 +706,9 @@ them (<code class="docutils literal notranslate"><span class="pre">artifact_list
 <section id="id3">
 <h3><code class="docutils literal notranslate"><span class="pre">python_executor</span></code><a class="headerlink" href="#id3" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor</span></code></p>
-<p>Executes Python code in a sandboxed environment with process isolation,
-limits enforcement, and timeout protection.</p>
+<p>Runs agent-authored Python as a separate process on the host — a process
+boundary with limits enforcement and timeout protection, not a sandbox; see
+<a class="reference internal" href="python-executor.html"><span class="doc">Python Executor</span></a>.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">execute</span></code> – Execute Python code with safety checks, process isolation, and timeout.</p></li>
@@ -681,7 +768,7 @@ NARAD-convention RDF corpus held by the <code class="docutils literal notranslat
 <strong>facility-knowledge-graph subagent</strong>: the main agent’s route to the graph is
 delegation, mirroring the channel finder. Every query runs in a read
 transaction, and extension procedures, extension functions and <code class="docutils literal notranslate"><span class="pre">LOAD</span> <span class="pre">CSV</span></code> are
-refused before the store is dialed. See <a class="reference internal" href="../how-to/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+refused before the store is dialed. See <a class="reference internal" href="../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> – Run one read-only Cypher query and return the matching rows,
@@ -708,20 +795,20 @@ question shapes, each with per-corpus parameter values.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="index.html"
+       href="retrieval-paths.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Architecture Overview</p>
+        <p class="prev-next-title">Retrieval Paths</p>
       </div>
     </a>
     <a class="right-next"
-       href="../how-to/index.html"
+       href="python-executor.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">How-To Guides</p>
+        <p class="prev-next-title">Python Executor</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

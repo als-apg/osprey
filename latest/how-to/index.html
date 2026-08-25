@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Build Profiles" href="build-profiles.html" />
-    <link rel="prev" title="MCP Servers" href="../architecture/mcp-servers.html" />
+    <link rel="prev" title="Production Control Systems Tutorial" href="../getting-started/control-assistant.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -149,16 +149,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,16 +292,23 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
+    How-To Guides
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
-    How-To Guides
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -371,67 +385,73 @@
   <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
 <li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
 <li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/project-image.html">The Project Image</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
-<li class="toctree-l2"><a class="reference internal" href="multi-user/login.html">Require a Login</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli-agent.html">Run the Agent from the Command Line</a></li>
-<li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
-<li class="toctree-l2"><a class="reference internal" href="chat-bridges/google-chat.html">Google Chat</a></li>
-<li class="toctree-l2"><a class="reference internal" href="chat-bridges/add-a-channel.html">Add Your Own Chat Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="protected-set.html">The Protected Set</a></li>
-<li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="health-json-contract.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
-<li class="toctree-l1"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-graph.html">Search the Facility Graph</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Plans</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -493,11 +513,10 @@
 <h1>How-To Guides<a class="headerlink" href="#how-to-guides" title="Link to this heading">#</a></h1>
 <p>Task-oriented guides that walk you through common OSPREY operations step by step.
 Each guide focuses on a single goal and assumes you already have a working OSPREY installation.
-The sections follow the natural journey: build and deploy a project, run and
-operate the agent, extend it for your facility, then explore the bundled
-services and tutorials.</p>
-<section id="build-deploy-a-project">
-<h2>Build &amp; Deploy a Project<a class="headerlink" href="#build-deploy-a-project" title="Link to this heading">#</a></h2>
+The sections follow the natural journey: build and deploy a project, operate the
+agent day to day, then work with the bundled facility services.</p>
+<section id="build-deploy">
+<h2>Build &amp; deploy<a class="headerlink" href="#build-deploy" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -524,29 +543,9 @@ through the CI scaffolding to a running three-service stack.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Configure LLM Providers</div>
-<p class="sd-card-text">Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
-CBORG, AMSC i2, Ollama, and others — via the build profile (<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>).</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Run Open &amp; Local Models</div>
-<p class="sd-card-text">Drive the Osprey agent with open-weight or self-hosted models via the
-translation proxy, and benchmark their capability with <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code>.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="run-open-models.html"><span class="doc">Run Open &amp; Local Models</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Deploy a Project</div>
-<p class="sd-card-text">Create, configure, and deploy an OSPREY project from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> through
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> to a running instance.</p>
+Container Deployment</div>
+<p class="sd-card-text">The service stack behind a running project — compose templates, networking,
+the environment chain, and the agent’s own container image.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a></div>
 </div>
@@ -554,17 +553,18 @@ Deploy a Project</div>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Containerize a Project</div>
-<p class="sd-card-text">Build and run the container image generated for every project — build args,
-path relocation, air-gapped mode, and Kubernetes notes.</p>
+LLM Providers</div>
+<p class="sd-card-text">Pick the provider that drives the Osprey agent and map the model tiers
+each one serves, including open-weight and self-hosted models behind the
+translation proxy.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="containerize-project.html"><span class="doc">Containerize a Project</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="llm-providers/index.html"><span class="doc">LLM Providers</span></a></div>
 </div>
 </div>
 </div>
 </section>
-<section id="run-operate-the-agent">
-<h2>Run &amp; Operate the Agent<a class="headerlink" href="#run-operate-the-agent" title="Link to this heading">#</a></h2>
+<section id="operate">
+<h2>Operate<a class="headerlink" href="#operate" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -572,8 +572,9 @@ path relocation, air-gapped mode, and Kubernetes notes.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Web Terminal</div>
-<p class="sd-card-text">The browser cockpit for the Osprey agent — launching it, theming every
-OSPREY interface at once, and adding your own themed side panels.</p>
+<p class="sd-card-text">The browser cockpit for the Osprey agent — launching and theming it,
+adding your own side panels, reporting problems from inside it, and
+serving a whole team from one host.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="web-terminal/index.html"><span class="doc">Web Terminal</span></a></div>
 </div>
@@ -581,158 +582,37 @@ OSPREY interface at once, and adding your own themed side panels.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Multi-User Support</div>
-<p class="sd-card-text">Serve a whole team from one host — a landing page plus a private
-containerized Web Terminal per user, in read-only and write-capable
-capability tiers.</p>
+Agent Interfaces</div>
+<p class="sd-card-text">The CLI agent, event-driven dispatch, external MCP servers, and chat
+bridges — the four ways to reach the agent.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Send and Retrieve Feedback</div>
-<p class="sd-card-text">Let operators report problems from the Web Terminal itself — three
-channels, what each attaches, and the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span></code> verbs that read
-the results back.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="agent-interfaces/index.html"><span class="doc">Agent Interfaces</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Command-Line Agent</div>
-<p class="sd-card-text">Run the Osprey agent from your terminal — interactively with <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">chat</span></code>, or headlessly with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> for CI pipelines: read-only,
-structured JSON output, and clear exit codes.</p>
+Health and Monitoring</div>
+<p class="sd-card-text">Is it up, and what is it doing — facility health checks you can extend,
+plus the agent’s own logs and metrics over OTLP.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Event Dispatch</div>
-<p class="sd-card-text">Turn external events — webhooks and cron ticks — into headless Osprey agent
-runs, deployed as containers or run locally.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="event-dispatch.html"><span class="doc">Event Dispatch</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="health-and-monitoring/index.html"><span class="doc">Health and Monitoring</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Chat Bridges</div>
-<p class="sd-card-text">Let your team ask the Osprey agent questions from Nextcloud Talk or Google
-Chat and get answers, plots, and files back in the same conversation.</p>
+Control Systems</div>
+<p class="sd-card-text">Connectors for your control system, the virtual accelerator to rehearse
+on, switching to the live machine, and what the agent may not touch.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="chat-bridges/index.html"><span class="doc">Chat Bridges</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-The Protected Set</div>
-<p class="sd-card-text">The files and config keys the agent may not rewrite, which surfaces
-refuse them, and where a refused attempt is recorded.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="protected-set.html"><span class="doc">The Protected Set</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Monitor the Agent</div>
-<p class="sd-card-text">Emit the agent’s logs and metrics over OTLP to any backend, or deploy the
-opt-in local OpenObserve store alongside your project.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Configure Health Checks</div>
-<p class="sd-card-text">Extend <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> with facility probe checks and plugins, and tune
-the suite’s cost classes and timeouts via the <code class="docutils literal notranslate"><span class="pre">health:</span></code> config block.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="configure-health-checks.html"><span class="doc">Configure Health Checks</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</div>
-<p class="sd-card-text">The report envelope, the per-check row shape, the exit codes, and the
-<code class="docutils literal notranslate"><span class="pre">jq</span></code> patterns for consuming all of it from a CI job.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="health-json-contract.html"><span class="doc">The osprey health --json Contract</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Switch the Control Target</div>
-<p class="sd-card-text">Rehearse work on the virtual accelerator and then run it on the real
-machine, in one session — the roster, the live gate, and what refuses.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="control-systems/index.html"><span class="doc">Control Systems</span></a></div>
 </div>
 </div>
 </div>
 </section>
-<section id="extend-integrate">
-<h2>Extend &amp; Integrate<a class="headerlink" href="#extend-integrate" title="Link to this heading">#</a></h2>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Add a Control System Connector</div>
-<p class="sd-card-text">Create a custom connector to integrate a new control system protocol (beyond EPICS
-and Mock) with OSPREY’s protocol-agnostic architecture.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="add-connector.html"><span class="doc">Add a Connector</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Add an MCP Server</div>
-<p class="sd-card-text">Build and register a new FastMCP server to expose domain-specific tools that
-the Osprey agent can discover and call.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="add-mcp-server.html"><span class="doc">Add an MCP Server</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Use the Python Executor</div>
-<p class="sd-card-text">Run agent-generated Python scripts safely in a containerized environment with
-access to the OSPREY runtime API.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="use-python-executor.html"><span class="doc">Python Execution Service</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Facility Knowledge</div>
-<p class="sd-card-text">What the Open Knowledge Format is and why OSPREY stores facility knowledge
-as cross-linked markdown, plus how to structure, author, and serve a
-bundle to the agent on demand.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="use-facility-knowledge.html"><span class="doc">Facility Knowledge</span></a></div>
-</div>
-</div>
-</div>
-</section>
-<section id="bundled-services-tutorials">
-<h2>Bundled Services &amp; Tutorials<a class="headerlink" href="#bundled-services-tutorials" title="Link to this heading">#</a></h2>
+<section id="facility-services">
+<h2>Facility services<a class="headerlink" href="#facility-services" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -749,12 +629,11 @@ service and its web interface.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Search the Facility Graph</div>
-<p class="sd-card-text">Let the Osprey agent answer structure questions — device rollups, section
-walks, which PVs a device exposes — with read-only Cypher over the
-facility knowledge graph.</p>
+Facility Knowledge</div>
+<p class="sd-card-text">The Open Knowledge Format bundle, the facility graph, facility rules, and
+the search sidecar that serves all of it to the agent on demand.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="facility-knowledge/index.html"><span class="doc">Facility Knowledge</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
@@ -771,16 +650,6 @@ Osprey agent.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Use the Virtual Accelerator</div>
-<p class="sd-card-text">Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
-serves real EPICS Channel Access with live storage-ring physics.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
 Bluesky Plans</div>
 <p class="sd-card-text">Run measurement plans through a durable queue — compose with the Osprey
 agent, review, start and stop in the BLUESKY panel, and add plans
@@ -789,11 +658,6 @@ of your own.</p>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="bluesky/index.html"><span class="doc">Bluesky Plans</span></a></div>
 </div>
 </div>
-</div>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a> — complete reference for all
-<code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands: build, deploy, config, health, claude, web, and more.</p>
 </div>
 <div class="toctree-wrapper compound">
 </div>
@@ -811,12 +675,12 @@ of your own.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../architecture/mcp-servers.html"
+       href="../getting-started/control-assistant.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">MCP Servers</p>
+        <p class="prev-next-title">Production Control Systems Tutorial</p>
       </div>
     </a>
     <a class="right-next"
@@ -847,10 +711,9 @@ of your own.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-deploy-a-project">Build &amp; Deploy a Project</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-operate-the-agent">Run &amp; Operate the Agent</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#extend-integrate">Extend &amp; Integrate</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bundled-services-tutorials">Bundled Services &amp; Tutorials</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-deploy">Build &amp; deploy</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#operate">Operate</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-services">Facility services</a></li>
 </ul>
   </nav></div>
 
