@@ -855,6 +855,22 @@ class BuildProfile:
                 f"(got {type(self.config).__name__})"
             )
 
+        # The empty whole-block override is refused by name. `{}` is not the
+        # removal spelling — an empty mapping reads as "a store at the
+        # defaults" everywhere the block is resolved — but as a replacement it
+        # drops the `path` the compose render locates the service's fragment
+        # by, so the deploy it describes can only fail. Both working spellings
+        # are handed back instead of letting that failure surface as a missing
+        # compose file three phases later.
+        if isinstance(self.config, dict) and self.config.get(_GRAPHDB_CONFIG_PREFIX) == {}:
+            errors.append(
+                f"config: `{_GRAPHDB_CONFIG_PREFIX}: {{}}` replaces the rendered block "
+                f"with an empty mapping, which keeps the store but drops the `path` its "
+                f"compose fragment is rendered from. Write the bare "
+                f"`{_GRAPHDB_CONFIG_PREFIX}:` (no value) to remove the graph store, or "
+                f"set `{_GRAPHDB_CONFIG_PREFIX}.<key>:` entries to re-point it."
+            )
+
         if self.tier is not None and self.tier not in (1, 3):
             errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
 

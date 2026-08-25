@@ -259,10 +259,11 @@ services:
   # in the project .env yourself, or the store refuses the connection.
   graphdb:
     path: ./services/graphdb
-    image: neo4j:5.20-community  # Pinned to 5.20: neosemantics (n10s), the
-                                 # plugin that imports the RDF, publishes no
-                                 # build for 5.23+. Repoint it at a mirror or a
-                                 # pre-baked image on an air-gapped host.
+    image: neo4j:5.26-community  # Pinned to the 5.26 LTS line: neosemantics
+                                 # (n10s), the plugin that imports the RDF, has
+                                 # no manifest entry for anything newer. Repoint
+                                 # it at a mirror or a pre-baked image on an
+                                 # air-gapped host.
     port_host: 7687       # Bolt — the only protocol the neo4j driver speaks,
                           # so this is what the seeder and the agent dial.
     http_port_host: 7474  # HTTP — the Neo4j Browser an operator opens, and the

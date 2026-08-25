@@ -58,14 +58,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 #: Same server pin as the shipped compose template.  Load-bearing twice over:
-#: neosemantics publishes no build for 5.23+, and the n10s release below is the
-#: build made for exactly this server line.
-NEO4J_IMAGE = "neo4j:5.20-community"
+#: the 5.26 LTS line is the newest one the neosemantics plugin manifest
+#: covers, and the n10s release below is the build made for exactly this
+#: server line.
+NEO4J_IMAGE = "neo4j:5.26-community"
 
 #: neosemantics release matching :data:`NEO4J_IMAGE`.  n10s versions track the
 #: server they are built against, so this moves with the image pin or not at
 #: all — a mismatched jar loads and then fails every procedure call.
-N10S_VERSION = "5.20.0"
+N10S_VERSION = "5.26.0"
 
 N10S_JAR_URL = (
     f"https://github.com/neo4j-labs/neosemantics/releases/download/"

@@ -196,11 +196,12 @@ keys:
   services.graphdb.image:
     evidence: '_text\(block\.get\("image"\)'
     note: >-
-      Pinned to neo4j:5.20-community by DEFAULT_IMAGE, and the pin is about the
+      Pinned to neo4j:5.26-community by DEFAULT_IMAGE, and the pin is about the
       neosemantics (n10s) plugin's release cadence rather than Neo4j's: without
-      n10s the store cannot import the RDF corpus at all, and it publishes no
-      build for 5.23+. Overridable per project for a mirror or a pre-baked
-      image; the compose fragment layers ${OSPREY_GRAPHDB_IMAGE} over it.
+      n10s the store cannot import the RDF corpus at all, and 5.26 is the
+      newest server line its plugin manifest covers. Overridable per project
+      for a mirror or a pre-baked image; the compose fragment layers
+      ${OSPREY_GRAPHDB_IMAGE} over it.
   services.graphdb.port_host:
     evidence: '_port\(block\.get\("port_host"\)'
     note: >-

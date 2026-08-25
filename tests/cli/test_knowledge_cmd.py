@@ -960,6 +960,31 @@ def test_seed_graph_unreachable_store_is_a_clean_error(
     assert "Traceback" not in result.output
 
 
+def test_seed_graph_names_a_missing_n10s_plugin(
+    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A store without the plugin is reported in those words — not as a
+    missing stored procedure, and not as a connection failure."""
+    from osprey.services.facility_knowledge.seeder import graph_seeder
+
+    _patch_config(monkeypatch, {})
+
+    def _bootstrap(_session: object) -> BootstrapResult:
+        raise graph_seeder.MissingN10sPluginError(
+            "no compatible n10s plugin installed for Neo4j 5.20.0 community"
+        )
+
+    monkeypatch.setattr(graph_seeder, "bootstrap", _bootstrap)
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(graph_ttl)])
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "no compatible n10s plugin installed for Neo4j 5.20.0" in flat
+    assert "no procedure with the name" not in flat
+    assert "Traceback" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # Import isolation
 # ---------------------------------------------------------------------------
