@@ -138,6 +138,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The graphdb container's healthcheck now probes with `wget`, which the Neo4j
   community image ships, instead of `curl`, which it does not — the container
   no longer sits at `unhealthy` forever while the store is serving.
+- The documented removal spelling for the graph store works: a bare
+  `services.graphdb:` in a profile's `config:` block now renders a project with
+  no graphdb container, no `graphdb` in `deployed_services`, and no `graph` MCP
+  server, instead of crashing the build. The ambiguous `services.graphdb: {}`
+  is refused at validation with a message naming both working spellings.
 - Dependabot pull requests no longer fail CI: the Deploy E2E lane now skips on
   Dependabot runs (which get no Actions secrets) like every other secret-gated
   lane, and the run summary names it among the lanes to revalidate. Dependency
