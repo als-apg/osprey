@@ -12,11 +12,11 @@ import { initSessionSelector, startNewSession } from './sessions.js';
 import { initPostureBadge } from './posture-badge.js';
 import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
-import { stripQueryMode } from '/design-system/js/frame-params.js';
+import { onModeChange } from '/design-system/js/frame-params.js';
+import '/design-system/js/components/osprey-display-menu.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
-import { initDisplayMenu } from './display-menu.js';
 import { initIdentityMenu } from './identity-menu.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 import { initFeedback } from './feedback-boot.js';
@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCommandPalette();
   initNewSessionButton();
   initLogoutButton();
-  initModeToggle();
+  initUiModeFollowUps();
   initDisplayMenu();
   initIdentityMenu();
   initRailPosition();
@@ -221,30 +221,19 @@ async function endAuthSession() {
 /* ---- UI Mode Toggle (Expert / Simple) ---- */
 
 /**
- * Wire the Expert/Simple toggle (the View row inside the header display-menu
- * popover — see display-menu.js). The active segment is styled
- * purely off html[data-ui-mode] (see terminal.css), and mode-boot.js already
- * resolved the initial mode pre-paint; this only handles the runtime flip:
- * swap the attribute, persist the explicit choice, drop a leftover one-shot
- * ?mode= (mirrors theme-manager's _stripQueryTheme), and broadcast to panels.
+ * The hub-only half of an Expert/Simple flip. The View row of the header
+ * `<osprey-display-menu>` owns the pick itself — it persists the choice,
+ * drops a leftover one-shot ?mode=, and posts the same-origin
+ * `osprey-mode-change` message to this window — and frame-params.js's shared
+ * receive side stamps html[data-ui-mode] before handing the mode here. What
+ * follows is what only the hub has to do with it: broadcast to the panels,
+ * then the dock and panel follow-ups. mode-boot.js already resolved the
+ * initial mode pre-paint, so this only ever handles the runtime flip.
  */
-function initModeToggle() {
-  const STORAGE_KEY = 'osprey-ui-mode';
-  const toggle = document.getElementById('mode-toggle');
-  if (!toggle) return;
-
-  toggle.addEventListener('click', (e) => {
-    const target = e.target instanceof Element ? e.target.closest('.mode-segment') : null;
-    if (!(target instanceof HTMLElement)) return;
-    const mode = target.dataset.mode;
-    if (mode !== 'expert' && mode !== 'simple') return;
-
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    try {
-      localStorage.setItem(STORAGE_KEY, mode);
-    } catch { /* storage blocked — mode still applies for this session */ }
-    stripQueryMode();
-    // Panels read the current mode off <html>, so broadcast only after the swap.
+function initUiModeFollowUps() {
+  onModeChange((mode) => {
+    // Panels read the current mode off <html>, so broadcast only after the
+    // swap (onModeChange stamped it before calling back).
     broadcastMode();
     // Dock half of the flip: stash+lock into the simple layout, or reconcile+
     // restore the expert layout. Runs after the CSS/attribute swap so the dock
@@ -255,6 +244,22 @@ function initModeToggle() {
     // after applyDockMode so the activation docks into the target layout.
     handleUiModeFlip(mode);
   });
+}
+
+/**
+ * The hub's glue around the header `<osprey-display-menu>`: its projected
+ * Settings row is the one entry that closes the card, because opening the
+ * drawer moves the operator to another surface. The component leaves
+ * projected children alone by design (the projected Log out must NOT be
+ * closed away — see index.html), so the hub asks for the close itself. The
+ * open itself stays settings.js's: it binds the same `[data-drawer-trigger]`
+ * button behind its first-time warning gate.
+ */
+function initDisplayMenu() {
+  const menu = /** @type {any} */ (document.getElementById('display-menu'));
+  const settings = document.getElementById('display-menu-settings');
+  if (!menu || !settings || typeof menu.closeMenu !== 'function') return;
+  settings.addEventListener('click', () => menu.closeMenu());
 }
 
 /**

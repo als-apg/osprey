@@ -517,8 +517,10 @@ def test_mode_flip_swaps_chat_and_terminal_live(tmp_path, chromium_browser):
         # → Expert: xterm visible, console hidden — no reload, both attached.
         # (The mode toggle lives inside the display-menu popover — open it once;
         # a mode pick leaves the card open, so the return trip needs no reopen.)
-        page.locator("#display-menu-btn").click()
-        page.locator('#mode-toggle .mode-segment[data-mode="expert"]').click()
+        page.locator("#display-menu .display-menu-trigger").click()
+        page.locator(
+            '#display-menu .display-menu-view .display-seg-option[data-mode="expert"]'
+        ).click()
         expect(html).to_have_attribute("data-ui-mode", "expert")
         expect(term).to_be_visible()
         expect(console).to_be_hidden()
@@ -526,7 +528,9 @@ def test_mode_flip_swaps_chat_and_terminal_live(tmp_path, chromium_browser):
         expect(term).to_be_attached()
 
         # → Simple again: the swap is reversible with no teardown.
-        page.locator('#mode-toggle .mode-segment[data-mode="simple"]').click()
+        page.locator(
+            '#display-menu .display-menu-view .display-seg-option[data-mode="simple"]'
+        ).click()
         expect(html).to_have_attribute("data-ui-mode", "simple")
         expect(console).to_be_visible()
         expect(term).to_be_hidden()
