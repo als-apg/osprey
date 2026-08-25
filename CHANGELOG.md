@@ -30,6 +30,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   actionable suggestion — instead of only the probe channel, which misread as "the
   control system is down" when a single gateway beside a healthy one was unserved.
   (#718)
+- The `Unknown Claude Code provider` error now lists every provider the deployment
+  actually accepts — the built-ins and the ones declared under `api.providers` in
+  `config.yml`, marked as such — and suggests the closest name for a typo, instead
+  of naming only the three built-ins. (#725)
 - DOOCS connector: an explicit `verification_level="none"` write no longer consults
   the limits database for a tolerance it will not use, matching the Mock and EPICS
   connectors. An explicit `"callback"` write still resolves the channel's tolerance,
