@@ -338,6 +338,122 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypa
 
 
 @pytest.mark.unit
+async def test_envelope_carries_the_rerank_fallback_warning(tmp_path, monkeypatch):
+    """The degraded ordering has to reach the agent, not just the server log.
+
+    When the reranker is unavailable the module retries unreranked and reports
+    a WARNING. Those results are real, so the tool must succeed — but an agent
+    reading the ranking deserves to know it is the weaker one.
+    """
+    _setup_registry(tmp_path, monkeypatch)
+
+    fallback = SearchDiagnostic(
+        level=DiagnosticLevel.WARNING,
+        source="hybrid",
+        message=(
+            "Reranker unavailable — results are not reranked, so the "
+            "ordering may be less relevant than usual."
+        ),
+        category="rerank",
+    )
+    entries = [make_mock_entry(entry_id="e1")]
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result(entries, diagnostics=[fallback])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        result = await fn(query="beam loss")
+
+    data = extract_response_dict(result)
+    assert not data.get("error", False)
+    assert data["results_found"] == 1
+    assert data["diagnostics"] == [
+        {
+            "level": "warning",
+            "source": "hybrid",
+            "message": fallback.message,
+            "category": "rerank",
+        }
+    ]
+
+
+@pytest.mark.unit
+async def test_config_typo_advises_the_config_key_not_the_health_endpoint(tmp_path, monkeypatch):
+    """A refused settings value is an operator typo, not a dead sidecar.
+
+    The service categorises it as "configuration" precisely so this tool can
+    tell the two apart. Sending the reader to curl a health endpoint that
+    answers perfectly well wastes the one hint they get.
+    """
+    _setup_registry(
+        tmp_path,
+        monkeypatch,
+        config='{"ariel": {"database": {"uri": "postgresql://localhost/test"}},'
+        ' "services": {"qmd": {"port": 8199}}}',
+    )
+
+    misconfigured = SearchDiagnostic(
+        level=DiagnosticLevel.ERROR,
+        source="service.hybrid",
+        message="search_modules.hybrid.settings.rerank must be a boolean, got 'junk'",
+        category="configuration",
+    )
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
+            await fn(query="beam loss")
+
+    envelope = _exc_ctx["envelope"]
+    assert "search_modules.hybrid.settings.rerank" in envelope["error_message"]
+
+    suggestions = envelope["suggestions"]
+    assert any("search_modules.hybrid.settings.rerank" in s for s in suggestions)
+    assert any("config.yml" in s for s in suggestions)
+    assert not any("curl" in s for s in suggestions)
+    assert not any("/health" in s for s in suggestions)
+
+
+@pytest.mark.unit
+async def test_config_fault_without_a_key_still_points_at_the_settings_block(tmp_path, monkeypatch):
+    """The module's message is its own, so the key is not guaranteed to be in it."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    misconfigured = SearchDiagnostic(
+        level=DiagnosticLevel.ERROR,
+        source="service.hybrid",
+        message="the settings block is malformed",
+        category="configuration",
+    )
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
+            await fn(query="beam loss")
+
+    suggestions = _exc_ctx["envelope"]["suggestions"]
+    assert any("search_modules.hybrid.settings" in s for s in suggestions)
+    assert any("config.yml" in s for s in suggestions)
+    assert not any("curl" in s for s in suggestions)
+
+
+@pytest.mark.unit
 async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
     """A registered-but-disabled mode is an operator state, not an internal error."""
     from osprey.services.ariel_search.exceptions import ConfigurationError
@@ -447,6 +563,8 @@ def test_docstring_promises_no_field_the_response_omits():
 
     assert "workspace file path" not in doc
     assert "matching entries and relevance scores" in doc
+    # The envelope carries diagnostics now, so the Returns line must say so.
+    assert "diagnostics" in doc
 
 
 @pytest.mark.unit
@@ -539,9 +657,9 @@ async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
 async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monkeypatch):
     """A rejected pattern carries the mode's own source, but is not an outage.
 
-    ``_sidecar_fault`` matches on the source alone, so the category-specific
-    fault has to be checked first or a caller typo would send an operator to
-    look at a healthy sidecar.
+    ``_sidecar_fault`` carves out only the ``configuration`` category, so the
+    category-specific fault has to be checked first or a caller typo would send
+    an operator to look at a healthy sidecar.
     """
     _setup_registry(tmp_path, monkeypatch)
 
@@ -570,3 +688,57 @@ async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monke
     data = _exc_ctx["envelope"]
     assert "SR0[1-4" in data["error_message"]
     assert data["details"]["expanded_terms"] == [TS_GROUP]
+
+
+# --- rerank override --------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", [True, False])
+async def test_rerank_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+    """An explicit rerank reaches the service as an advanced parameter."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result([])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        await fn(query="beam loss", rerank=value)
+
+    assert mock_service.search.call_args.kwargs["advanced_params"]["rerank"] is value
+
+
+@pytest.mark.unit
+async def test_rerank_omitted_when_unset(tmp_path, monkeypatch):
+    """Silence leaves the deployment's ``settings.rerank`` in charge."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = _make_search_result([])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        await fn(query="beam loss")
+
+    assert "rerank" not in mock_service.search.call_args.kwargs["advanced_params"]
+
+
+@pytest.mark.unit
+def test_docstring_gives_the_rerank_speed_tradeoff():
+    """The agent can only choose rerank if the prompt tells it what it costs."""
+    from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search
+
+    doc = get_tool_fn(hybrid_search).__doc__ or ""
+    # The guidance is one wrapped sentence, so the pin must not depend on where
+    # the line breaks fall.
+    flat = " ".join(doc.split())
+
+    assert "rerank" in flat
+    assert "judge relevance yourself when speed matters" in flat

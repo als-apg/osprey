@@ -175,6 +175,45 @@ def _resolve_search_mode(service: ARIELSearchService, requested: str | None) -> 
     return mode
 
 
+def _validate_hybrid_overrides(advanced_params: dict[str, Any]) -> None:
+    """Reject malformed hybrid per-query overrides before the search runs.
+
+    The search panel sends ``rerank`` from a toggle and ``candidate_limit`` from
+    a number field, so real traffic is already well-formed; a hand-written HTTP
+    caller is not. Both keys are forwarded to the hybrid module verbatim, where
+    ``"false"`` is truthy and would silently run the slow reranked path the
+    caller asked to skip, and a zero or negative width is a nonsense retrieval
+    size. The wording matches the config-side parser, so an operator who sets
+    the same value badly in ``config.yml`` reads the same sentence either way.
+
+    A missing key -- and an explicit ``null``, which is how JSON spells the same
+    thing -- means "use the configured default" and is left alone.
+
+    Args:
+        advanced_params: The request's mode-specific parameters.
+
+    Raises:
+        HTTPException: 400 naming the offending key and the value it got.
+    """
+    rerank = advanced_params.get("rerank")
+    if rerank is not None and not isinstance(rerank, bool):
+        raise HTTPException(
+            status_code=400,
+            detail=f"rerank must be a boolean, got {rerank!r}",
+        )
+
+    candidate_limit = advanced_params.get("candidate_limit")
+    if candidate_limit is not None and (
+        not isinstance(candidate_limit, int)
+        or isinstance(candidate_limit, bool)
+        or candidate_limit < 1
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"candidate_limit must be a positive integer, got {candidate_limit!r}",
+        )
+
+
 def _invalid_capabilities(config_errors: list[str], remedy: str | None) -> dict:
     """Build the capabilities payload for a configuration that did not parse.
 
@@ -346,6 +385,8 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
 
     # Validated before the try block so the 400 is not swallowed into a 500.
     service_mode = _resolve_search_mode(service, search_req.mode)
+    if service_mode == "hybrid":
+        _validate_hybrid_overrides(search_req.advanced_params)
 
     try:
         # advanced_params takes precedence over top-level filter fields

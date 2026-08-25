@@ -582,6 +582,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   sharing a `project` across different renders, and a persona `project` equal
   to the deployment's own name. Images under the old doubled tags are not
   removed automatically — prune them by hand after the next `osprey up`.
+- The ARIEL search panel now follows the deployment's configuration for every
+  knob you have not touched — Reset returns it to that state — and shows the
+  fast results of a reranked search before the reranking finishes, replacing
+  them when it does. When the reranker is unavailable the fast ranking stays on
+  screen with a note instead of the search failing. The `hybrid_search` tool
+  takes a per-query `rerank` argument; panel and tool share the one
+  `ariel.search_modules.hybrid.settings.rerank` key.
+
+- A malformed ARIEL `hybrid` or `semantic` search setting is now named at
+  startup validation instead of passing silently, and a malformed per-query
+  `rerank` or `candidate_limit` sent over HTTP is refused with a 400 rather
+  than coerced.
+
 - CI: the unit lane's step summary now tabulates the slowest tests of the run
   and the uploaded diagnostics artifact carries the full pytest log.
 - `osprey-connectors` now versions with the framework's calendar stream —

@@ -1172,6 +1172,17 @@ textarea.input {
 }
 
 /* === Slider Control === */
+/* Each control's descriptor documentation, rendered under the control by
+   renderParameter(). The section body is a flex column at --space-3, which
+   would leave the hint floating equidistant between its own control and the
+   next one; the negative margin pulls it back to --space-2 so it reads as
+   belonging to the control above it. */
+.param-hint {
+  margin-top: calc(var(--space-2) - var(--space-3));
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
 .slider-control {
   display: flex;
   flex-direction: column;
