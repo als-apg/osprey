@@ -18,18 +18,15 @@ sit between the two claims and neither is visible from the TTL:
   ``osprey knowledge seed-graph --force``.  That is a real migration with a real
   failure mode, and it is only observable against a live n10s.
 
-So this lane seeds **both** shipped corpora through the seeder API and asks the
+So this lane seeds the shipped corpus through the seeder API and asks the
 questions in Cypher.  It is separate from ``tests/integration/test_graphdb_store.py``
-— which pins the ALS corpus's verified node counts — because it owns a different
+— which pins the corpus's verified node counts — because it owns a different
 claim (the *enrichment* is reachable) and because its tests wipe the store
 between steps, which would strand that module's session-scoped fixture.
 
-**Both corpora, one container, one at a time.**  Neo4j Community serves a single
-database, and the two corpora overlap on the shared ontology classes, so loading
-them together would merge class nodes and make an ``altLabel`` assertion read the
-union of two vocabularies.  Each test therefore starts from a wiped store and
-seeds exactly the corpus it is about — which is also the sequence
-``seed-graph --force`` performs, so the wipe is under test rather than around it.
+Each test starts from a wiped store and seeds the corpus itself — which is also
+the sequence ``seed-graph --force`` performs, so the wipe is under test rather
+than around it.
 
 The container recipe (pinned image, n10s jar from the pinned release or
 ``OSPREY_TEST_N10S_JAR``, APOC copied out of the image) comes from
@@ -96,12 +93,6 @@ DEMO_MULTI_LABEL_SYNONYM = "bpm"
 #: property of the config rather than of how many labels happened to be present.
 DEMO_SINGLE_LABEL_CLASS = f"{_SEMANTICS}Vacuum"
 DEMO_SINGLE_LABEL_SYNONYM = "vacuum"
-
-#: An ALS semantic signal carrying synonyms.  The ALS corpus is the one that puts
-#: ``skos:altLabel`` on signal individuals rather than only on classes, which is
-#: exactly the data ``handleMultival='OVERWRITE'`` used to collapse.
-ALS_SIGNAL_URI = f"{_SEMANTICS}beam_intensity_readback"
-ALS_SIGNAL_SYNONYM = "beam current"
 
 #: The n10s configuration a store bootstrapped before the array change carries.
 #: Spelled out rather than derived from the canonical dict: the point of the
@@ -194,12 +185,6 @@ WHERE ANY(label IN c.altLabel WHERE label = $synonym)
 RETURN c.uri AS uri
 """
 
-SIGNAL_BY_SYNONYM = """
-MATCH (s:SemanticSignal)
-WHERE ANY(label IN s.altLabel WHERE label = $synonym)
-RETURN s.uri AS uri
-"""
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -228,15 +213,6 @@ def demo_ttl() -> str:
         .joinpath("control_assistant")
         .joinpath("data")
         .joinpath("demo_machine.ttl")
-    )
-    return resource.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def als_ttl() -> str:
-    """The shipped ALS corpus, read the way installed code reads it."""
-    resource = (
-        files("osprey.templates").joinpath("services").joinpath("graphdb").joinpath("als_gtb.ttl")
     )
     return resource.read_text(encoding="utf-8")
 
@@ -430,39 +406,6 @@ def test_the_demo_corpus_answers_description_and_system_questions(
 
 
 # ---------------------------------------------------------------------------
-# The ALS corpus
-# ---------------------------------------------------------------------------
-
-
-def test_als_signal_synonyms_land_as_searchable_lists(clean_store: Any, als_ttl: str) -> None:
-    """Seed the shipped ALS corpus and search its signals by synonym.
-
-    The demo corpus puts ``skos:altLabel`` on ontology classes only; the ALS
-    corpus puts it on signal individuals too, and those are the ones an operator
-    reaches through when they say "beam current" rather than
-    "beam_intensity_readback".  Both corpora are covered because they carry the
-    predicate on different node kinds, and n10s applies ``multivalPropList`` by
-    predicate, not by node.
-    """
-    session = clean_store
-    _seed(session, als_ttl, "ALS")
-    assert _row(session, SIGNAL_COUNT)["n"] == _ttl_census(als_ttl)["signals"]
-
-    labels = _row(session, ALT_LABELS_FOR_URI, uri=ALS_SIGNAL_URI)["alt_labels"]
-    _assert_alt_labels(labels, subject=ALS_SIGNAL_URI, expected=ALS_SIGNAL_SYNONYM)
-    assert len(labels) > 1, (
-        f"{ALS_SIGNAL_URI} kept only {labels!r}; the corpus gives it several synonyms"
-    )
-
-    matched = [
-        record["uri"] for record in session.run(SIGNAL_BY_SYNONYM, synonym=ALS_SIGNAL_SYNONYM)
-    ]
-    assert ALS_SIGNAL_URI in matched, (
-        f"searching signals for {ALS_SIGNAL_SYNONYM!r} returned {matched!r}"
-    )
-
-
-# ---------------------------------------------------------------------------
 # The migration
 # ---------------------------------------------------------------------------
 
@@ -484,14 +427,16 @@ def _legacy_bootstrap(session: Any) -> None:
         ).consume()
 
 
-def test_a_legacy_store_is_reported_then_recovered_by_force(clean_store: Any, als_ttl: str) -> None:
+def test_a_legacy_store_is_reported_then_recovered_by_force(
+    clean_store: Any, demo_ttl: str
+) -> None:
     """Walk a pre-change store through the whole migration and back.
 
     One test rather than four because each step's precondition is the previous
     step's outcome: ``DIFFERS`` can only be observed on a store that was
     configured the old way, and ``ALREADY_CANONICAL`` only means something on a
-    store this test just re-initialized.  The ALS corpus is the payload because
-    its signal synonyms are the data the old configuration actually damaged, so
+    store this test just re-initialized.  The multi-synonym class is the subject
+    because its synonyms are the data the old configuration actually damaged, so
     the first and last assertions read the same subject on either side of the
     migration.
     """
@@ -501,13 +446,13 @@ def test_a_legacy_store_is_reported_then_recovered_by_force(clean_store: Any, al
 
     # --- 1. A store configured the old way collapses the synonyms ----------
     _legacy_bootstrap(session)
-    imported = graph_seeder.import_ttl(session, als_ttl)
+    imported = graph_seeder.import_ttl(session, demo_ttl)
     assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
 
-    collapsed = _row(session, ALT_LABELS_FOR_URI, uri=ALS_SIGNAL_URI)["alt_labels"]
+    collapsed = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
     assert isinstance(collapsed, str), (
         f"the legacy configuration was expected to leave one scalar synonym on "
-        f"{ALS_SIGNAL_URI}, but it came back as {collapsed!r}. If n10s no longer "
+        f"{DEMO_MULTI_LABEL_CLASS}, but it came back as {collapsed!r}. If n10s no longer "
         "collapses multi-valued predicates under handleMultival='OVERWRITE', "
         "this migration has nothing to recover and the test is obsolete"
     )
@@ -528,10 +473,10 @@ def test_a_legacy_store_is_reported_then_recovered_by_force(clean_store: Any, al
     assert graph_seeder.resource_count(session) == 0
     assert graph_seeder.read_marker(session) is None
 
-    _seed(session, als_ttl, "ALS")
+    _seed(session, demo_ttl, "demo")
 
-    recovered = _row(session, ALT_LABELS_FOR_URI, uri=ALS_SIGNAL_URI)["alt_labels"]
-    _assert_alt_labels(recovered, subject=ALS_SIGNAL_URI, expected=ALS_SIGNAL_SYNONYM)
+    recovered = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
+    _assert_alt_labels(recovered, subject=DEMO_MULTI_LABEL_CLASS, expected=DEMO_MULTI_LABEL_SYNONYM)
     assert len(recovered) > 1
 
     # --- 4. and the store is now canonical, permanently --------------------
@@ -539,6 +484,6 @@ def test_a_legacy_store_is_reported_then_recovered_by_force(clean_store: Any, al
     assert settled.status is graph_seeder.BootstrapStatus.ALREADY_CANONICAL, settled.message
     assert settled.differing_keys == ()
     assert settled.ok
-    assert graph_seeder.read_marker(session) == graph_seeder.ttl_sha256(als_ttl), (
+    assert graph_seeder.read_marker(session) == graph_seeder.ttl_sha256(demo_ttl), (
         "re-bootstrapping a canonical store must not disturb the seed marker"
     )

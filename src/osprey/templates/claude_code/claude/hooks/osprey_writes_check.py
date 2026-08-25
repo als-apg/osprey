@@ -2,8 +2,8 @@
 """
 ---
 name: Writes Kill Switch
-description: Blocks ALL write operations when control_system.writes_enabled is false
-summary: Blocks write operations when writes are disabled
+description: Blocks ALL write operations under a readonly session posture or writes kill switch
+summary: Blocks write operations when the session is sandboxed or writes are disabled
 event: PreToolUse
 tools: channel_write, execute
 safety_layer: 1
@@ -26,6 +26,12 @@ stdin ──► Parse JSON
              NO                         │
               │◄────────────────────────┘
               ▼
+         OSPREY_EXECUTION_MODE
+         == "readonly"?   ──YES──► DENY: sandbox posture
+              │
+             NO
+              │
+              ▼
          Load config.yml
               │
               ▼
@@ -39,9 +45,18 @@ stdin ──► Parse JSON
 
 ## Details
 
-First gate in the PreToolUse chain. Checks `control_system.writes_enabled`
-in `config.yml`. When false, **all** channel writes and non-readonly Python
-executions are blocked before any other hook runs.
+First gate in the PreToolUse chain. Two independent reasons to refuse, in
+order:
+
+1. **Session posture.** `OSPREY_EXECUTION_MODE=readonly` means *this terminal
+   session* was switched to the sandbox posture, whatever the deployment
+   allows. Answered from the environment alone, ahead of any config read.
+2. **Deployment kill switch.** `control_system.writes_enabled` in `config.yml`.
+   When false, **all** channel writes and non-readonly Python executions are
+   blocked before any other hook runs.
+
+The two keep separate vocabularies: a posture refusal never points the operator
+at `writes_enabled`, because flipping that key would not lift it.
 """
 
 import json
@@ -90,6 +105,49 @@ def main():
     if tool_name == "mcp__python__execute":
         if tool_input.get("execution_mode", "readonly") == "readonly":
             sys.exit(0)
+
+    # -- Session posture -------------------------------------------------
+    # A web terminal session switched to the sandbox posture launches its agent
+    # with OSPREY_EXECUTION_MODE=readonly, and this hook inherits it. The
+    # posture belongs to *this session*, not to the deployment, so it is
+    # answered from the environment alone — deliberately ahead of
+    # load_osprey_config() so the answer never depends on config I/O, on the
+    # config being parseable, or on PyYAML being importable at all.
+    #
+    # Value comparison, never a presence check (same semantics as the
+    # executor's posture clamp and osprey_connectors' is_readonly_run): only
+    # the exact "readonly" string sandboxes a session. "readwrite" is the
+    # writes posture, and a presence check would sandbox on it.
+    #
+    # It sits *after* the execute-readonly exit above: a readonly execution is
+    # exactly what a sandboxed session is for.
+    #
+    # Nothing here may raise. This hook fails OPEN — an uncaught exception
+    # exits non-zero with no JSON and the tool proceeds — and for a mixed
+    # read/write kernel this deny is the primary layer, since the renderer
+    # re-grants those tools via `allow` and leans on the hard deny. So the one
+    # call that touches the filesystem (the debug logger, which reads config
+    # and appends to a JSONL file) is wrapped: a broken config costs a log
+    # line, never the decision.
+    if os.environ.get("OSPREY_EXECUTION_MODE") == "readonly":
+        try:
+            log_hook("writes-check", hook_input, status="deny", detail="reason=posture")
+        except Exception:
+            pass  # logging must never cost the deny
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "\U0001f512 SANDBOX POSTURE — this terminal session refuses "
+                    "control-system writes.\n\n"
+                    "Switch the session to writes posture from the terminal card; "
+                    "config.yml is not the gate here."
+                ),
+            }
+        }
+        json.dump(output, sys.stdout)
+        sys.exit(0)
 
     config = load_osprey_config(hook_input)
     writes_enabled = config.get("control_system", {}).get("writes_enabled", False)

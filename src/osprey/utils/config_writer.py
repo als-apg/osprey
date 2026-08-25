@@ -25,6 +25,7 @@ Typical usage:
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -186,6 +187,128 @@ def anchored_put(mapping: Any, key: Any, value: Any) -> None:
 # =============================================================================
 # Core I/O
 # =============================================================================
+
+
+#: Directory, under the agent-data (state) root, holding config backups.
+#:
+#: Config backups deliberately do NOT sit beside the file they copy. A project's
+#: ``config.yml`` lives in the render, and the render becomes root-owned when the
+#: container split lands: creating a *new* file next to it needs write permission
+#: on the render directory, which the admin image will not have. Every backup
+#: here runs *before* its writer touches anything, so under the old sibling
+#: scheme the ``PermissionError`` would have turned each of these config writes
+#: into a 500 in that image, without a byte being written. The state zone is the
+#: tree that stays writable across the split and survives a rebuild, so backups
+#: belong there. This is a hard precondition for the split, not a tidy-up.
+#:
+#: The zone is never spelled literally: it is read from ``agent_data.base_dir``
+#: through :func:`agent_data_base_dir` and anchored with :func:`anchored_path`,
+#: so a project that relocates its state zone moves its config backups with it.
+CONFIG_BACKUP_DIRNAME = "config-backups"
+
+
+def config_backup_path(config_path: Path) -> Path:
+    """Where a backup of *config_path* belongs: inside the agent-data state zone.
+
+    The single spelling of the backup scheme. Three writers take config backups
+    — this module's :func:`update_yaml_file`, the Web Terminal's ``/api/config``
+    and ARIEL's ``PUT /config`` — and each of them writes into a project that the
+    container split will make read-only. One helper so the three cannot drift on
+    a location that has to be right in all three for the split to work at all.
+
+    **The anchor is a fact about the config file, not a caller's choice.**
+    ``agent_data.base_dir`` is documented and rendered relative to the deployment
+    repo ROOT — the directory holding ``profile.yml`` and ``var/`` — never
+    relative to the render that ``config.yml`` sits in. So the anchor is derived
+    from the config itself, applying the same precedence
+    :func:`~osprey.utils.workspace.resolve_project_root` applies at runtime: the
+    config's own ``project_root`` key when it names a directory that exists
+    here, and :func:`repo_root_for_config` otherwise. That is the helper every
+    other state-zone consumer resolves the root with:
+
+    * flat layout (``<project>/config.yml``) → ``<project>``, whose state zone
+      is ``<project>/var/agent_data``;
+    * deployment repo (``<repo>/build/config.yml``) → ``<repo>``, so the backup
+      lands in the durable ``var/`` and not in the disposable render;
+    * container (``/app/<project>/build/config.yml``) → ``/app/<project>``,
+      which is exactly the directory ``Dockerfile.j2`` pre-creates and chowns
+      ``var/agent_data/config-backups`` under.
+
+    That last one is why this takes no ``project_dir`` override any more. A
+    caller passing the *render* directory (the web panel's ``project_cwd``) made
+    the route mkdir ``<render>/var`` inside the root-owned render zone, which
+    fails with ``PermissionError`` before a byte of the save is written — the
+    admin Config panel could not save at all. One anchor rule, derived from the
+    one input every caller already holds, so no caller can disagree with the
+    runtime about where the state zone is.
+
+    The filename keeps the source file's own name, so two configs backed up into
+    one zone cannot land on each other; there is one slot per name, overwritten
+    on each save, which is the retention the sibling scheme had.
+
+    Args:
+        config_path: The config file that would be backed up.
+
+    Returns:
+        The path the backup should be written to. Nothing is created.
+    """
+    from osprey.utils.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
+
+    try:
+        config = _load(config_path)
+    except Exception:  # noqa: BLE001 -- an unreadable config still deserves a backup
+        # Falls back to the framework default rather than to the file's own
+        # directory: a config too broken to name its own state zone is precisely
+        # the one worth having a copy of, and the default is where every other
+        # reader would look for that copy anyway.
+        config = None
+
+    # The SAME precedence workspace.resolve_project_root applies, in the same
+    # order: the config's own ``project_root`` when it names a directory that
+    # exists here, and filesystem truth otherwise. Mirrored rather than
+    # delegated because resolve_project_root() re-reads the ambient config
+    # (OSPREY_CONFIG / the process-global cache), which would anchor a panel
+    # driving another project on whichever project this PROCESS was started in.
+    # The config is already loaded above, so the key can be read from it
+    # directly and the two cannot disagree.
+    #
+    # They diverge on exactly one shape, and it is not hypothetical: a project
+    # directory literally NAMED ``build`` reads as a render to
+    # repo_root_for_config (its documented non-goal), so without this the
+    # backup would land one level above the project while every runtime reader
+    # of the state zone looked inside it.
+    configured = (config or {}).get("project_root")
+    candidate = (
+        Path(configured).expanduser() if isinstance(configured, str) and configured else None
+    )
+    root = (
+        candidate
+        if candidate is not None and candidate.is_dir()
+        else repo_root_for_config(config_path)
+    )
+
+    zone = anchored_path(agent_data_base_dir(config), root)
+    return zone / CONFIG_BACKUP_DIRNAME / f"{config_path.name}.bak"
+
+
+def write_config_backup(config_path: Path) -> Path:
+    """Copy *config_path* into the state zone and return where it landed.
+
+    Not guarded: a backup that cannot be taken must stop the write, which is the
+    contract every caller already had. The failure mode this location exists to
+    prevent is exactly that stop happening for a reason nobody can fix — see
+    :data:`CONFIG_BACKUP_DIRNAME`.
+
+    Args:
+        config_path: The config file to copy.
+
+    Returns:
+        Path to the backup that was written.
+    """
+    backup_path = config_backup_path(config_path)
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(config_path, backup_path)
+    return backup_path
 
 
 def _load(path: Path) -> Any:
@@ -461,7 +584,8 @@ def update_yaml_file(
         updates: Dictionary of updates to apply. Supports nested paths using
                 dot notation in keys (e.g., {"control_system.type": "epics"})
                 or nested dictionaries that will be merged.
-        create_backup: If True, creates a .bak file before modifying
+        create_backup: If True, copies the file into the agent-data state zone
+                before modifying it (see :func:`config_backup_path`)
         section_comments: Optional dict mapping top-level keys to comment headers.
                          Comments are added with a blank line before them.
                          Example: {"simulation": "Simulation Configuration"}
@@ -486,8 +610,8 @@ def update_yaml_file(
     # Create backup before modifying
     backup_path = None
     if create_backup:
-        backup_path = file_path.with_suffix(".yml.bak")
-        backup_path.write_text(file_path.read_text(encoding="utf-8"), encoding="utf-8")
+        # Into the state zone, not beside the file -- see CONFIG_BACKUP_DIRNAME.
+        backup_path = write_config_backup(file_path)
 
     # Track which keys are being added (for comment placement)
     new_keys = set()
@@ -597,7 +721,8 @@ def set_control_system_type(
         config_path: Path to config.yml
         control_type: 'mock', 'epics', or 'virtual_accelerator'
         archiver_type: Optional archiver type ('mock_archiver', 'epics_archiver')
-        create_backup: If True, creates a .bak file before modifying
+        create_backup: If True, copies the file into the agent-data state zone
+                before modifying it (see :func:`config_backup_path`)
 
     Returns:
         Tuple of (updated_content, preview) where updated_content is the new file content
@@ -646,7 +771,8 @@ def set_epics_gateway_config(
         config_path: Path to config.yml
         facility: 'aps', 'als', or 'custom'
         custom_config: For 'custom', dict with 'read_only' and 'write_access' gateways
-        create_backup: If True, creates a .bak file before modifying
+        create_backup: If True, copies the file into the agent-data state zone
+                before modifying it (see :func:`config_backup_path`)
 
     Returns:
         Tuple of (updated_content, preview) where updated_content is the new file content

@@ -1276,6 +1276,14 @@ async def test_lattice_read_only_tool_never_emits(tool_name, kwargs):
 # coincidental substring can let a leak through, and check every notify
 # argument rather than just the detail.
 #
+# The keys patched below are all outside the protected set — `command`, `args`,
+# `env.*` and every `control_system.*` key are refused before the file is read
+# (tests/mcp_server/test_setup_patch_protected.py), so a landed-patch emit can
+# only be observed on a key an agent-side writer may actually set. The sentinels
+# therefore ride on an unprotected `.mcp.json` key; the file still carries a
+# real-looking credential beside it, which is what makes the value exclusion
+# worth asserting at all.
+#
 # Both tools refuse before touching anything, so each refusal shape is pinned
 # as a no-emit: an out-of-whitelist file, a malformed key path, a missing
 # file and an unparseable file for setup_patch; an unknown action, both
@@ -1298,8 +1306,9 @@ def setup_project(tmp_path):
         yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}})
     )
     (tmp_path / ".mcp.json").write_text(
-        '{\n  "mcpServers": {\n    "demo": {\n      "env": {\n'
-        f'        "API_KEY": "{_OLD_SENTINEL}"\n'
+        '{\n  "mcpServers": {\n    "demo": {\n'
+        f'      "description": "{_OLD_SENTINEL}",\n'
+        '      "env": {\n        "API_KEY": "sk-live-credential"\n'
         "      }\n    }\n  }\n}\n"
     )
     with patch(f"{_SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
@@ -1339,25 +1348,21 @@ def _backend_unavailable():
 async def test_setup_patch_emits_config_activity(setup_project):
     """A landed patch reports the file and key path under the 'config' kind."""
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
-        result = await _get_setup_patch()(
-            file="config.yml", key_path="agent_data.base_dir", value="./_agent_data"
-        )
+        result = await _get_setup_patch()(file="config.yml", key_path="ui.theme", value="dark")
 
-    assert extract_response_dict(result)["key_path"] == "agent_data.base_dir"
-    notify.assert_called_once_with(
-        "setup_patch", "config", detail="config.yml: agent_data.base_dir"
-    )
+    assert extract_response_dict(result)["key_path"] == "ui.theme"
+    notify.assert_called_once_with("setup_patch", "config", detail="config.yml: ui.theme")
 
 
 async def test_setup_patch_emits_for_json_target(setup_project):
     """The `.mcp.json` branch reports too — it is the same mutation."""
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         await _get_setup_patch()(
-            file=".mcp.json", key_path="mcpServers.demo.env.API_KEY", value=_NEW_SENTINEL
+            file=".mcp.json", key_path="mcpServers.demo.description", value=_NEW_SENTINEL
         )
 
     notify.assert_called_once_with(
-        "setup_patch", "config", detail=".mcp.json: mcpServers.demo.env.API_KEY"
+        "setup_patch", "config", detail=".mcp.json: mcpServers.demo.description"
     )
 
 
@@ -1367,13 +1372,13 @@ async def test_setup_patch_detail_never_carries_the_patched_values(setup_project
 
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         await _get_setup_patch()(
-            file=".mcp.json", key_path="mcpServers.demo.env.API_KEY", value=_NEW_SENTINEL
+            file=".mcp.json", key_path="mcpServers.demo.description", value=_NEW_SENTINEL
         )
 
     # The patch really did swap the sentinels, so their absence below is a
     # property of the emit and not of an inert test.
     on_disk = json.loads((setup_project / ".mcp.json").read_text())
-    assert on_disk["mcpServers"]["demo"]["env"]["API_KEY"] == _NEW_SENTINEL
+    assert on_disk["mcpServers"]["demo"]["description"] == _NEW_SENTINEL
 
     call = notify.call_args
     reported = [str(arg) for arg in call.args] + [str(v) for v in call.kwargs.values()]
@@ -1382,17 +1387,21 @@ async def test_setup_patch_detail_never_carries_the_patched_values(setup_project
             assert sentinel not in piece, f"value leaked into the activity feed: {piece!r}"
 
 
-async def test_setup_patch_marks_control_system_keys_as_safety_config(setup_project):
-    """A safety-relevant key path is distinguishable at a glance in the feed."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
-        await _get_setup_patch()(
-            file="config.yml", key_path="control_system.writes_enabled", value="true"
-        )
+async def test_setup_patch_marks_control_system_keys_as_safety_config():
+    """A safety-relevant key path is distinguishable at a glance in the feed.
 
-    notify.assert_called_once_with(
-        "setup_patch",
-        "config",
-        detail="safety config — config.yml: control_system.writes_enabled",
+    Asserted at the detail builder rather than through the tool: every
+    `control_system.*` key is protected now, so the tool refuses such a patch
+    before it can emit a landed-patch detail (the refusal emits its own, pinned
+    in tests/mcp_server/test_setup_patch_protected.py). The marker still has to
+    be right — `_activity_detail` is what any future emit site would call — so
+    it is pinned where it can still be observed.
+    """
+    from osprey.mcp_server.workspace.tools.setup import _activity_detail
+
+    assert (
+        _activity_detail("config.yml", "control_system.writes_enabled")
+        == "safety config — config.yml: control_system.writes_enabled"
     )
 
 
@@ -1438,7 +1447,9 @@ async def test_setup_patch_missing_file_no_emit(setup_project):
 
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="not_found"):
-            await _get_setup_patch()(file=".mcp.json", key_path="mcpServers.x", value="1")
+            await _get_setup_patch()(
+                file=".mcp.json", key_path="mcpServers.demo.description", value="1"
+            )
 
     notify.assert_not_called()
 
@@ -1449,7 +1460,9 @@ async def test_setup_patch_unparseable_file_no_emit(setup_project):
 
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="internal_error"):
-            await _get_setup_patch()(file=".mcp.json", key_path="mcpServers.x", value="1")
+            await _get_setup_patch()(
+                file=".mcp.json", key_path="mcpServers.demo.description", value="1"
+            )
 
     notify.assert_not_called()
 

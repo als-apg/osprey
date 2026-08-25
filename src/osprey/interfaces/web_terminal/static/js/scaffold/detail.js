@@ -30,6 +30,8 @@
 import { escapeHtml } from '/design-system/js/dom.js';
 import { resetFetchCache, apiRequest } from './data.js';
 import { createScaffoldGalleryDetailContent } from './detail-content.js';
+import { READ_ONLY_REASON, createReadOnlyBadge } from './utils.js';
+import { scaffoldWritesEnabled, WRITES_DISABLED_REASON } from './write-gate.js';
 
 /**
  * The subset of an ArtifactGallery instance this module reads, writes, or
@@ -151,22 +153,43 @@ export function createScaffoldGalleryDetail(gallery) {
     row1.appendChild(spacer);
 
     const isOwned = gallery.selectedArtifact.status === 'user-owned';
+    const readOnly = Boolean(gallery.selectedArtifact.read_only);
 
     const badge = document.createElement('span');
     badge.className = `prompts-badge ${isOwned ? 'user-owned' : 'framework'}`;
     badge.textContent = isOwned ? 'PROJECT-OWNED' : 'FRAMEWORK';
     row1.appendChild(badge);
 
-    const ownerBtn = document.createElement('button');
-    ownerBtn.className = 'prompts-ownership-btn';
-    if (isOwned) {
-      ownerBtn.textContent = 'Release to Framework';
-      ownerBtn.addEventListener('click', () => gallery.releaseToFramework());
-    } else {
-      ownerBtn.textContent = 'Take Ownership';
-      ownerBtn.addEventListener('click', () => gallery.takeOwnership());
+    if (readOnly) row1.appendChild(createReadOnlyBadge());
+
+    // Claiming an artifact (POST .../claim) and releasing one (DELETE
+    // .../override) are both writes, refused with 403 where the deployment
+    // withdrew gallery writes -- so the button is not built at all. Absence
+    // rather than a disabled button: unlike the mode tabs below, nothing about
+    // the header reads as broken without it, and absence keeps it out of the
+    // tab order. Everything else in the header is a fact about the artifact
+    // and survives.
+    if (scaffoldWritesEnabled()) {
+      const ownerBtn = document.createElement('button');
+      ownerBtn.className = 'prompts-ownership-btn';
+      // Taking ownership of a reserved artifact is a claim the server refuses:
+      // scaffold_override raises ScaffoldClaimError, which the app-level handler
+      // renders as a 409. Offering the button live would be a promise the panel
+      // cannot keep -- and the refusal, when it comes, is about the path rather
+      // than anything the operator did wrong.
+      if (readOnly) {
+        ownerBtn.disabled = true;
+        ownerBtn.title = READ_ONLY_REASON;
+      }
+      if (isOwned) {
+        ownerBtn.textContent = 'Release to Framework';
+        ownerBtn.addEventListener('click', () => gallery.releaseToFramework());
+      } else {
+        ownerBtn.textContent = 'Take Ownership';
+        ownerBtn.addEventListener('click', () => gallery.takeOwnership());
+      }
+      row1.appendChild(ownerBtn);
     }
-    row1.appendChild(ownerBtn);
 
     gallery.detailHeaderEl.appendChild(row1);
 
@@ -189,6 +212,15 @@ export function createScaffoldGalleryDetail(gallery) {
     }
 
     gallery.detailHeaderEl.appendChild(row2);
+
+    // The badge states the fact; this line is where the panel's descriptive
+    // copy says what to do about it, next to the path it applies to.
+    if (readOnly) {
+      const note = document.createElement('div');
+      note.className = 'prompts-readonly-note';
+      note.textContent = READ_ONLY_REASON;
+      gallery.detailHeaderEl.appendChild(note);
+    }
   }
 
   /** @returns {void} */
@@ -208,10 +240,27 @@ export function createScaffoldGalleryDetail(gallery) {
 
     modes.push({ key: 'edit', label: 'Edit' });
 
+    const readOnly = Boolean(gallery.selectedArtifact.read_only);
+
     for (const mode of modes) {
       const btn = document.createElement('button');
       btn.className = 'prompts-mode-btn' + (gallery.detailMode === mode.key ? ' active' : '');
       btn.textContent = mode.label;
+      if (!scaffoldWritesEnabled() && mode.key === 'edit') {
+        // Rendered but disabled, unlike the withdrawn buttons: a Preview /
+        // Diff / Edit strip missing its third entry reads as a broken panel,
+        // and the title is where the operator learns it is the deployment's
+        // posture rather than a fault. Preview and Diff stay live — reading
+        // what the agent runs is not authoring it.
+        btn.disabled = true;
+        btn.title = WRITES_DISABLED_REASON;
+      }
+      if (readOnly && mode.key === 'edit') {
+        // Preview and Diff stay open — reading a reserved file is fine, and
+        // seeing what it holds is most of why the panel lists it at all.
+        btn.disabled = true;
+        btn.title = READ_ONLY_REASON;
+      }
       btn.addEventListener('click', () => {
         if (gallery.detailMode === mode.key) return;
 
@@ -237,10 +286,7 @@ export function createScaffoldGalleryDetail(gallery) {
     const right = document.createElement('div');
     right.className = 'prompts-modes-right';
 
-    const isSettingsPreview = gallery.detailMode === 'preview'
-      && gallery.selectedArtifact?.name === 'settings-json';
-
-    if (gallery.detailMode === 'edit' || (isSettingsPreview && gallery.editDirty)) {
+    if (gallery.detailMode === 'edit') {
       const discardBtn = document.createElement('button');
       discardBtn.className = 'prompts-discard-btn';
       discardBtn.textContent = 'Discard';
@@ -248,12 +294,22 @@ export function createScaffoldGalleryDetail(gallery) {
       discardBtn.addEventListener('click', () => gallery.discardEdits());
       right.appendChild(discardBtn);
 
-      const saveBtn = document.createElement('button');
-      saveBtn.className = 'prompts-save-btn';
-      saveBtn.textContent = 'Save';
-      saveBtn.disabled = !gallery.editDirty;
-      saveBtn.addEventListener('click', () => gallery.saveOverride());
-      right.appendChild(saveBtn);
+      // PUT .../override answers 403 where writes are withdrawn, so Save is not
+      // offered there. Discard above stays: throwing away local edits touches
+      // nothing on the server, and an operator who typed into a still-open
+      // editor needs a way out of it.
+      if (scaffoldWritesEnabled()) {
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'prompts-save-btn';
+        saveBtn.textContent = 'Save';
+        // Disabled on `read_only` whatever the dirty flag says: the Edit tab is
+        // already disabled for a reserved artifact, and this is the second gate
+        // in case anything else puts the panel into edit mode.
+        saveBtn.disabled = !gallery.editDirty || readOnly;
+        if (readOnly) saveBtn.title = READ_ONLY_REASON;
+        saveBtn.addEventListener('click', () => gallery.saveOverride());
+        right.appendChild(saveBtn);
+      }
     }
 
     gallery.detailModesEl.appendChild(right);

@@ -467,11 +467,31 @@ function onKeydown(e) {
 }
 
 /**
+ * Whether this open can reach the settings surface at all.
+ *
+ * The Settings group is a row per config dot-key whose only verb is
+ * `revealSetting` (it opens the drawer's Config tab and jumps to the field),
+ * so the caller withholds that dep where the deployment gated the Config tab
+ * off — `web.config_panel.enabled`, which also makes `/api/config` answer 403.
+ * Without it there is no group to build and nothing to read for.
+ *
+ * @returns {boolean}
+ */
+function settingsReachable() {
+  return typeof currentDeps.revealSetting === 'function';
+}
+
+/**
  * Kick off the config fetch concurrently with the open. On resolve/reject it
  * rebuilds the registry and re-renders against the CURRENT query, but only if
  * this is still the newest fetch and the palette is still open.
  */
 function startConfigFetch() {
+  // Nothing to read for. openPalette has already seeded the settled empty
+  // snapshot; firing the request anyway would fail with a 403 on a deployment
+  // that gated the Config surface off and leave a permanent "Settings
+  // unavailable" row — an outage report for a surface deliberately withdrawn.
+  if (!settingsReachable()) return;
   const token = ++fetchSeq;
   Promise.resolve()
     .then(() => fetchConfigFn())
@@ -510,7 +530,10 @@ export function openPalette(deps) {
     ? currentDeps.fetchConfig
     : defaultFetchConfig;
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  configState = { state: 'loading' };
+  // 'loading' is a promise that a read is in flight. Where the Settings group
+  // has nowhere to land (no `revealSetting` — see startConfigFetch) no read
+  // fires, so seeding 'loading' would paint a spinner row nothing ever clears.
+  configState = settingsReachable() ? { state: 'loading' } : { state: 'ok', sections: {} };
   currentQuery = '';
   activeKey = null;
   opened = true;

@@ -175,10 +175,10 @@ class TestGraphVocabulary:
         assert grammar["example"].count(":") == 5
 
     def test_addresses_warn_that_the_grammar_is_the_corpus_own(self, payload):
-        """A facility corpus records its own address shape; als_gtb.ttl is three tokens."""
+        """A facility corpus records its own address shape; the grammar is the demo's."""
         notes = " ".join(payload["addresses"]["notes"])
 
-        assert "als_gtb.ttl" in notes
+        assert "real facility" in notes
         assert "fullPv" in notes
 
     def test_description_predicates_are_reported_per_node_type(self, payload):
@@ -225,7 +225,7 @@ class TestGraphVocabulary:
         for kind, entry in payload["description_predicates"].items():
             assert entry["presence"].strip(), f"{kind} does not say when its prose exists"
 
-        assert "als_gtb.ttl" in payload["description_predicates"]["binding"]["presence"]
+        assert "facility export" in payload["description_predicates"]["binding"]["presence"]
         assert "Never" in payload["description_predicates"]["signal"]["presence"]
 
     def test_description_predicates_say_prose_is_corpus_dependent(self, payload):

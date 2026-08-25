@@ -5,13 +5,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
+import tempfile
 import uuid
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Literal
 
 import yaml
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
@@ -22,6 +27,224 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
+
+# ── Per-session runtime posture ──────────────────────────────────────────────
+#
+# The posture is the operator's per-session sandbox toggle: step a live session
+# into ``sandbox`` and back out to ``writes``. ``sandbox`` spawns the session's
+# agent with ``OSPREY_EXECUTION_MODE=readonly``; ``writes`` is the render's own
+# baseline and adds nothing. It is deliberately *not* a config edit — config is
+# a build-time input that reaches the agent only through a re-render, and it is
+# deployment-wide, whereas this is one session, applied by respawning that
+# session's child.
+POSTURE_SANDBOX = "sandbox"
+POSTURE_WRITES = "writes"
+_VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
+
+# Store filename, sited on the shared agent-data root (see _posture_store_path).
+_POSTURE_STORE_NAME = "session-postures.json"
+
+
+class PostureRequest(BaseModel):
+    """Body of ``POST /api/terminal/posture``.
+
+    ``posture`` is a ``Literal`` so an unknown value is rejected by request
+    validation with a 422 naming the field, before any handler code runs — the
+    value decides a child process's execution mode, and a silent coercion to
+    some default would be the worst possible failure here.
+    """
+
+    session_id: str
+    posture: Literal["sandbox", "writes"]
+
+
+def _require_session_uuid(session_id: str) -> None:
+    """Refuse *session_id* unless it is shaped like a Claude session UUID.
+
+    One implementation for both posture routes, so the two cannot drift on the
+    status, the error slug or the sentence. An arbitrary string can never
+    become a store key that is then written to disk.
+
+    Raises:
+        HTTPException: 400 ``invalid_session_id`` when the shape does not match.
+    """
+    if not _UUID_RE.match(session_id):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_session_id",
+                "message": "session_id must be a Claude session UUID.",
+            },
+        )
+
+
+def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    """Serialize *data* to *path* as JSON, atomically.
+
+    Mirrors :func:`osprey.interfaces.web_terminal.feedback_store._atomic_write`
+    (the same pattern recurs in ``stores/base_store.py`` and
+    ``deployment/compose_merge.py``): a temporary file in the destination
+    directory, flushed and fsynced, then ``os.replace``d over the target, so a
+    crash mid-write can never leave a half-written store that the next startup
+    would read as "no session is sandboxed". ``path.parent`` must exist.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            json.dump(data, handle, indent=2)
+            handle.flush()
+            with suppress(OSError):
+                os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
+
+
+def _resolve_posture_store_path(app) -> tuple[Path, bool]:
+    """Return the posture store's location and whether it is the fallback one.
+
+    Sited on the CONFIGURED agent-data root, like the feedback store
+    (``app.py``): with ``web_terminal.watch_dir`` set the watched tree is
+    somewhere else entirely, and a store written there would land outside the
+    ``{user}-agent-data`` volume — the one directory that survives a container
+    recreation, which is the whole point of persisting this. Never
+    ``resolve_agent_data_root()``: that appends ``sessions/<OSPREY_SESSION_ID>``
+    and this store spans sessions by definition.
+
+    The second element says the primary root could not be resolved and the
+    workspace dir stood in for it. Callers need it because a config load can
+    fail *transiently*: a load off the fallback path must not be cached as
+    though it were the real store (see :func:`_session_postures`).
+    """
+    try:
+        from osprey.utils.workspace import resolve_shared_data_root
+
+        root = resolve_shared_data_root()
+    except Exception:  # noqa: BLE001 — never let a config load break the toggle
+        root = Path(getattr(app.state, "workspace_dir", Path.cwd()))
+        logger.warning(
+            "Could not resolve the shared data root for the session-posture store; "
+            "falling back to %s",
+            root,
+            exc_info=True,
+        )
+        return Path(root) / _POSTURE_STORE_NAME, True
+    return Path(root) / _POSTURE_STORE_NAME, False
+
+
+def _posture_store_path(app) -> Path:
+    """Where the posture store lives, primary root or fallback."""
+    return _resolve_posture_store_path(app)[0]
+
+
+def _load_postures(path: Path) -> dict[str, str]:
+    """Read the persisted postures, tolerating every kind of absence.
+
+    Unknown posture values are dropped rather than honored: whatever survives
+    this filter flows straight into :func:`_build_extra_env` and decides a
+    child's execution mode, so a hand-edited or future-version entry must not
+    reach it. A missing or corrupt file yields an empty store — the operator
+    can set the postures again, which is a far better outcome than every spawn
+    and every toggle failing on a file nobody can repair from the browser.
+    """
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except Exception:  # noqa: BLE001 — corrupt/unreadable store must not wedge startup
+        logger.warning("Could not read the session-posture store at %s", path, exc_info=True)
+        return {}
+    if not isinstance(raw, dict):
+        logger.warning("Session-posture store at %s is not a JSON object; ignoring", path)
+        return {}
+    return {
+        key: value
+        for key, value in raw.items()
+        if isinstance(key, str) and value in _VALID_POSTURES
+    }
+
+
+def _session_postures(app) -> dict[str, str]:
+    """Return ``app.state.session_postures``, loading it from disk on first use.
+
+    Lazily initialised rather than wired into the lifespan so the whole feature
+    lives in this module. First access is whichever comes first after a
+    restart — a spawn or a posture route — and both go through here, so a
+    recreated container never serves a session its persisted posture has not
+    been applied to.
+
+    A load off the *fallback* path is kept provisional and retried on the next
+    access. Caching it would let one transient config failure at first access
+    outlive itself: every later read would serve the empty fallback store and
+    spawn a persisted-sandbox session without the marker — a silent revert to
+    writes, which is precisely what persisting the store exists to prevent.
+    """
+    store = getattr(app.state, "session_postures", None)
+    if store is not None and not getattr(app.state, "session_postures_provisional", False):
+        return store
+
+    path, used_fallback = _resolve_posture_store_path(app)
+    loaded = _load_postures(path)
+    if store is None:
+        store = loaded
+    else:
+        # Recovering from an earlier fallback load. The persisted store is
+        # authoritative for everything memory has not been told about, but a
+        # posture the operator set *during* the outage exists only in memory
+        # (and in the fallback file nothing reads again), so it wins on
+        # overlap — otherwise the recovery read would quietly undo it. Mutated
+        # in place because callers hold this dict.
+        merged = {**loaded, **store}
+        store.clear()
+        store.update(merged)
+    app.state.session_postures = store
+    app.state.session_postures_provisional = used_fallback
+    return store
+
+
+def _persist_postures(app, store: dict[str, str]) -> None:
+    """Write the store through to disk, best-effort.
+
+    Fail-open relative to operator intent: the in-memory store already carries
+    the new posture and the session is terminated either way, so the toggle
+    takes effect now even when the write fails. Only its durability across a
+    restart is lost, and refusing the operator's request over that would be the
+    worse trade — it would leave a live session in the posture they asked to
+    leave.
+    """
+    path = _posture_store_path(app)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(path, store)
+    except Exception:  # noqa: BLE001 — durability is best-effort, the toggle is not
+        logger.warning(
+            "Could not persist the session-posture store to %s; the posture is applied "
+            "for this process but will not survive a restart",
+            path,
+            exc_info=True,
+        )
+
+
+def _rendered_writes_enabled(config_path: Path | None) -> bool:
+    """Whether the rendered config permits control-system writes at all.
+
+    Defaults to ``False`` when the key, the file, or the whole config is
+    missing — the same default ``cli/templates/claude_code.py`` uses when it
+    bakes the kill-switch into ``permissions.deny`` and the ``osprey_writes_check``
+    hook uses when it gates each call. An absent config is a writes-off render
+    everywhere else in the system; this gate agrees with them rather than
+    inventing a permissive third answer.
+    """
+    if not config_path or not Path(config_path).exists():
+        return False
+    try:
+        config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+        return bool(config.get("control_system", {}).get("writes_enabled", False))
+    except Exception:  # noqa: BLE001 — an unreadable config is not a writes-on render
+        logger.warning("Could not read control_system.writes_enabled from %s", config_path)
+        return False
 
 
 def _read_effort_level(config_path: Path | None) -> str | None:
@@ -125,6 +348,21 @@ def _build_extra_env(
     hooks_env = getattr(websocket.app.state, "hooks_env", {})
     if hooks_env:
         extra_env.update(hooks_env)
+
+    # Per-session runtime posture. Keyed on the pool key — ``terminal_ws``
+    # computes ``current_key = claude_session_id or telemetry_session_id`` and
+    # all three call sites reach here with that same pair, so this expression
+    # is the pool key in every one of them (a brand-new session, whose claude
+    # id is still None, included).
+    #
+    # Applied AFTER the hooks_env merge, and only ever by *setting* the
+    # sandbox marker — never by clearing one. A deployment that injects
+    # ``OSPREY_EXECUTION_MODE=readonly`` through hooks_env has made a
+    # deployment-wide decision, and a per-session ``writes`` posture must not
+    # be able to lift it: this toggle narrows privilege, it never widens it.
+    posture_key = claude_session_id or telemetry_session_id
+    if posture_key and _session_postures(websocket.app).get(posture_key) == POSTURE_SANDBOX:
+        extra_env["OSPREY_EXECUTION_MODE"] = "readonly"
     return extra_env
 
 
@@ -424,6 +662,107 @@ async def terminal_ws(websocket: WebSocket):
             registry.terminate_session_if_owner(current_key, session)
 
 
+@router.post("/api/terminal/posture")
+async def set_terminal_posture(body: PostureRequest, request: Request):
+    """Set one session's runtime posture and respawn it under the new one.
+
+    The posture reaches the agent only through a child process's environment,
+    so recording it is not enough: the session's PTY is terminated, and the
+    client's reconnect brings the session back with the posture applied. The
+    store is updated and persisted *before* the terminate, because the respawn
+    reads it back through :func:`_build_extra_env` and would otherwise race it.
+
+    Three refusals, all before anything is written:
+
+    * **409** — the id names no session on disk. A Claude session file only
+      appears once the operator has sent a prompt, and until then there is
+      nothing to respawn; the detail says so, because "send one prompt first"
+      is the entire remedy and the alternative is a toggle that silently does
+      nothing.
+    * **403** — ``writes`` on a render whose ``control_system.writes_enabled``
+      is off. The posture may narrow what the render permits, never widen it.
+    * **400** — an id that is not a session UUID, checked with the same
+      ``_UUID_RE`` ``switch_session`` uses, so an arbitrary string can never
+      become a store key that is then written to disk.
+    """
+    session_id = body.session_id
+    _require_session_uuid(session_id)
+
+    discovery = SessionDiscovery(request.app.state.project_cwd)
+    if session_id not in discovery.snapshot_session_ids():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "session_not_started",
+                "message": (
+                    "This session has not started yet — send one prompt first, "
+                    "then set its posture."
+                ),
+            },
+        )
+
+    if body.posture == POSTURE_WRITES and not _rendered_writes_enabled(
+        request.app.state.config_path
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "writes_disabled",
+                "message": (
+                    "This deployment is rendered with control_system.writes_enabled off; "
+                    "no session can step out of the sandbox."
+                ),
+            },
+        )
+
+    store = _session_postures(request.app)
+    store[session_id] = body.posture
+    _persist_postures(request.app, store)
+    request.app.state.pty_registry.terminate_session(session_id)
+    logger.info(
+        "Session %s posture set to %s; PTY terminated for respawn", session_id, body.posture
+    )
+
+    return {"status": "ok", "session_id": session_id, "posture": body.posture}
+
+
+@router.get("/api/terminal/posture")
+async def get_terminal_posture(session_id: str, request: Request):
+    """Report one session's posture and what the render permits.
+
+    The single truth the terminal-card badge reads, and it answers two
+    different questions because the badge has to show both:
+
+    * ``posture`` — what the store holds for this session, defaulting to
+      ``writes``. The store records only a *deviation*: ``_build_extra_env``
+      adds ``OSPREY_EXECUTION_MODE`` for a sandboxed session and nothing at all
+      otherwise, so "no entry" means the session runs the render's baseline and
+      ``writes`` is the honest name for it.
+    * ``rendered_writes_enabled`` — whether ``control_system.writes_enabled``
+      permits control-system writes at all. This is what keeps the default
+      reading honest on a writes-off deployment: the posture is ``writes`` and
+      the effective write capability is still nil, because the kill-switch, not
+      the toggle, is the binding constraint there. The badge says so rather
+      than implying the session can write.
+
+    Unlike POST, an id that names no session on disk is **not** a 409. The badge
+    renders with the terminal card, which can be before the first prompt has
+    written a session file, and refusing there would blank the one surface that
+    tells the operator what the render permits. Answering costs nothing: a read
+    grants nothing, stores nothing, and reports exactly the posture that
+    session will spawn under. The id is still shape-checked with the same
+    ``_UUID_RE`` POST uses, so the two routes keep one error contract.
+    """
+    _require_session_uuid(session_id)
+
+    posture = _session_postures(request.app).get(session_id, POSTURE_WRITES)
+    return {
+        "session_id": session_id,
+        "posture": posture,
+        "rendered_writes_enabled": _rendered_writes_enabled(request.app.state.config_path),
+    }
+
+
 @router.post("/api/terminal/logout")
 async def logout_terminal(request: Request):
     """Terminate the user's warm PTY (and operator) session(s) on logout.
@@ -477,7 +816,10 @@ async def operator_ws(websocket: WebSocket):
     forward_task = None
 
     try:
-        env = build_operator_child_env(project_cwd=cwd)
+        # operator_key is this connection's whole identity — the operator
+        # websocket resumes no Claude session — so it is the key the runtime
+        # posture is looked up under.
+        env = build_operator_child_env(project_cwd=cwd, session_key=operator_key, app=websocket.app)
         session = await registry.create_session(operator_key, cwd=cwd, env=env)
     except Exception as exc:
         logger.error("Failed to create operator session: %s", exc)

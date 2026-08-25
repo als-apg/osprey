@@ -71,6 +71,109 @@ plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain ``http://`` page copying falls
 back to an older browser mechanism that Safari may refuse.
 
+.. _web-terminal-session-posture:
+
+Sandbox one session
+-------------------
+
+Every terminal session carries a **posture**, shown as a badge in the terminal
+card's header:
+
+- **Writes** --- the session runs whatever the deployment permits, under its
+  usual approval and write-verification rules. This is the baseline.
+- **Sandbox** --- the session refuses every control-system write, for as long as
+  it stays sandboxed. Reads are untouched: the agent keeps its full view of the
+  control system and of the project, and can still run analysis, plots and
+  readonly Python.
+
+Click the badge to switch. Both directions ask you to confirm, every time and
+with nothing remembered between switches, because switching restarts the agent
+for that session: the turn it is running right now stops immediately. Your
+conversation history is preserved --- the terminal reconnects to the same
+session and you pick up where you left off.
+
+The posture belongs to **one session**, not to the deployment. Nothing is
+written to ``config.yml``; the session's agent is respawned with the sandbox
+marker in its environment, and every process it launches inherits it. Two
+people working in two sessions of the same deployment can hold different
+postures, and one of them sandboxing theirs does not touch the other.
+
+It narrows, and never widens. On a deployment rendered with
+``control_system.writes_enabled`` off, no session can leave the sandbox: the
+request is refused with *"This deployment is rendered with
+control_system.writes_enabled off; no session can step out of the sandbox"*,
+and the badge on a sandboxed session there is shown disabled rather than
+offering a switch that is certain to fail.
+
+A session has to have started before it can be given a posture --- a session
+only exists on disk once it has been sent a prompt. Until then the request is
+refused with *"This session has not started yet --- send one prompt first, then
+set its posture."*
+
+Postures survive a restart. They are stored in
+``var/agent_data/session-postures.json``, written as soon as you switch and
+read back when the server starts, so restarting the container never quietly
+returns a sandboxed session to writes.
+
+What refuses a write, and how firmly
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Nothing about the posture is a single choke point --- each write route is
+refused by the layer that owns it. The difference between those layers is worth
+knowing, because one of them is a belt rather than the buckle:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - What the agent tries
+     - What refuses it
+     - What that means
+   * - ``channel_write`` --- any control-system write
+     - The connector, before the control system is asked
+     - **Enforced.** The writes-check hook denies it first as well, but the
+       connector is the layer that holds if the hook does not run.
+   * - ``execute`` with ``execution_mode="readwrite"``
+     - The Python executor's own gate
+     - **Enforced.** The run is refused outright; a ``readonly`` ``execute`` is
+       unaffected and runs normally.
+   * - Any other write tool the writes-check hook covers --- for example the
+       Bluesky queue's arming tools, where that server is enabled
+     - The writes-check hook
+     - **Best-effort.** It is the first hook in the chain and the only
+       posture-aware layer those tools have; a hook that fails to run does not
+       refuse.
+
+Each layer says which gate refused, in its own words, so the message never
+sends you to the wrong control:
+
+- The hook --- *"SANDBOX POSTURE --- this terminal session refuses
+  control-system writes. Switch the session to writes posture from the terminal
+  card; config.yml is not the gate here."*
+- The connector --- *"Write to '<channel>' blocked: this terminal session is in
+  the sandbox posture --- readonly execution mode is in force for the whole
+  session, not for a single script. Switch the session to the writes posture
+  from the terminal card if the write is intended; config.yml is not the gate
+  here."*
+- The executor --- *"This terminal session is in the sandbox posture, which
+  refuses control-system writes regardless of what the run asks for."*
+
+None of them mentions ``control_system.writes_enabled``, deliberately: changing
+that key would not lift a posture refusal, and a message that pointed at it
+would send an operator to rebuild a deployment when a single click was the
+remedy. The reverse holds too --- a write refused because the deployment has
+writes off says so in its own words and says nothing about postures.
+
+.. note::
+
+   Simple mode's chat and the operator websocket run their agent through the
+   Agent SDK rather than a terminal, and they apply the posture at the moment
+   they start that agent, exactly as the terminal does. What is not connected
+   yet is the switch: the posture route accepts only a terminal session's id,
+   so those two surfaces cannot be addressed from the badge today. A follow-up
+   closes that gap; until then, treat the posture as a control over terminal
+   sessions.
+
 Documentation and feedback settings
 -----------------------------------
 

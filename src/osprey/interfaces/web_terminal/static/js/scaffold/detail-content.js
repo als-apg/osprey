@@ -20,7 +20,7 @@
 
 import { fetchJSON } from '../api.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from '../diff-utils.js';
-import { renderSettingsJsonEditor, renderMcpJson } from '../config-renderers.js';
+import { renderSettingsJson, renderMcpJson } from '../config-renderers.js';
 import {
   parseFrontMatter,
   extractPythonDocstringFrontMatter,
@@ -31,23 +31,11 @@ import {
 } from './utils.js';
 
 /**
- * `detailContentEl` grows a `_settingsEditor` property when the settings.json
- * structured editor is mounted into it (see renderSettingsJsonEditor in
- * config-renderers.js) -- read back by ArtifactGallery.saveOverride() (a
- * thin delegator on the gallery instance into scaffold/edit.js).
- * @typedef {HTMLElement & {
- *   _settingsEditor?: { getData(): string, isDirty(): boolean } | null,
- * }} DetailContentElement
- */
-
-/**
  * The subset of an ArtifactGallery instance these content renderers read,
  * write, or call into.
  * @typedef {object} ScaffoldGalleryDetailContentHost
  * @property {any} selectedArtifact
- * @property {boolean} editDirty
- * @property {DetailContentElement|null} detailContentEl
- * @property {() => void} renderDetailModes
+ * @property {HTMLElement|null} detailContentEl
  */
 
 /**
@@ -70,16 +58,15 @@ export function createScaffoldGalleryDetailContent(gallery) {
     const wrapper = document.createElement('div');
     wrapper.className = 'prompts-preview-content';
 
-    // settings-json: use interactive editor directly in preview mode
+    // settings-json: the structured view, always without inputs. The file is
+    // written from the profile's `config:` keys and is reserved on every
+    // payload the server emits, so every save of it is refused -- and a field
+    // an operator can type into, backed by a save the server refuses, is a
+    // worse answer than one that plainly cannot be typed into.
     if (artifactName === 'settings-json' && language === 'json') {
-      const structured = renderSettingsJsonEditor(content, (isDirty) => {
-        gallery.editDirty = isDirty;
-        gallery.renderDetailModes();
-      });
-      if (structured) {
-        // Attach _settingsEditor API on detailContentEl for saveOverride()
-        gallery.detailContentEl._settingsEditor = structured._settingsEditor;
-        wrapper.appendChild(structured);
+      const readOnlyView = renderSettingsJson(content);
+      if (readOnlyView) {
+        wrapper.appendChild(readOnlyView);
         wrapper.appendChild(renderSourceToggle(content, 'json'));
         gallery.detailContentEl.appendChild(wrapper);
         return;

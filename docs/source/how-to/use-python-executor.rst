@@ -9,8 +9,9 @@ subprocess with layered safety checks, a process boundary, and timeout
 enforcement. It is a process boundary on the host, not a sandbox or container:
 the code runs with the executor's own environment (from which sensitive
 credentials are stripped), not inside an isolated machine. Code it runs can
-write anywhere the executor process can --- including the project's
-``config.yml`` and its hook scripts.
+write anywhere the executor process can, apart from the deployment's own
+sources and render --- see :ref:`python-executor-protected-paths`, which also
+says plainly how far that protection goes.
 The Osprey agent uses it via the ``execute`` MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.
 
@@ -141,23 +142,28 @@ project's own environment, so executed code sees the same imports either way.
 Security Model
 ==============
 
-Seven safety layers are applied in sequence:
+Nine safety layers are applied in sequence:
 
 1. **Static safety check** (``quick_safety_check``)---blocks dangerous
    patterns such as dynamic code evaluation, dynamic imports, and
    ``subprocess`` calls before execution begins.
 
-2. **Readonly import denylist** (``check_readonly_imports``)---a
+2. **Protected-path policy** (``path_policy_issues``)---reads the submitted
+   source and refuses code that aims a write at the deployment's own
+   sources or render. Applied in **every** execution mode; see
+   :ref:`python-executor-protected-paths`.
+
+3. **Readonly import denylist** (``check_readonly_imports``)---a
    ``readonly`` run may not import control-system client libraries
    (``epics``, ``p4p``, ``caproto``, ``pvaccess``, ``tango``) at all.
    Reads go through ``read_channel()``.
 
-3. **Control-system pattern detection**
+4. **Control-system pattern detection**
    (``detect_control_system_operations``)---identifies read and write
    patterns. In ``readonly`` mode, detected writes cause immediate
    rejection.
 
-4. **Readonly runtime guard**---the declared mode is exported into the
+5. **Readonly runtime guard**---the declared mode is exported into the
    subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
    entry point listed under :ref:`python-executor-write-surface` is
    replaced with a refusing function, the connectors refuse
@@ -165,15 +171,19 @@ Seven safety layers are applied in sequence:
    gateway --- so a write is refused at runtime and at the network layer
    however it is spelled.
 
-5. **Limits monkeypatch** (``ExecutionWrapper`` /
+6. **Filesystem guard**---the runtime half of layer 2, patched into the
+   subprocess so it also sees paths the source did not spell out. Emitted
+   in **every** execution mode.
+
+7. **Limits monkeypatch** (``ExecutionWrapper`` /
    ``LimitsValidator``)---at runtime, ``epics.caput()`` calls are
    intercepted and validated against the channel limits database.
    Out-of-range values are blocked.
 
-6. **Process isolation**---code always runs in a separate subprocess, never
+8. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
 
-7. **Execution timeout**---configurable via
+9. **Execution timeout**---configurable via
    ``python_executor.execution_timeout_seconds`` (default 600 s). The
    process is killed if it exceeds the limit.
 
@@ -231,6 +241,118 @@ program, and the ``exec`` half of every fork-and-exec is already refused.
    to the control system. Resubmit such work with
    ``execution_mode="readwrite"``, which requires human approval.
 
+.. _python-executor-protected-paths:
+
+What executed code may not change
+---------------------------------
+
+Refusing control-system writes is one boundary; this is a different one. Whatever
+mode a run is submitted in, it may not rewrite the deployment that runs it.
+Three locations are protected:
+
+- **The render zone** (``build/``) --- rebuilt wholesale by every
+  ``osprey build``, and the rendered ``config.yml`` inside it is where the next
+  run reads its own permissions from. A write here is either lost at the next
+  build or, worse, survives as a rendered setting nobody wrote.
+- **The profile sources** --- what the build reads to produce that render:
+  ``profile.yml`` (with ``triggers.yml``, ``ci-extra.yml`` and
+  ``osprey.service`` beside it), the ``personas/``,
+  ``profiles/``, ``data/`` and ``scripts/`` directories, the convention
+  directories (``rules/``, ``skills/``, ``agents/``, ``commands/``,
+  ``output-styles/``, ``hooks/``, ``web-terminal-context/``, ``mcp_servers/``,
+  ``services/``) and the ``project/`` mirror.
+- **The audit ledger** (``var/audit/``) --- the record of what was refused. A
+  run that could rewrite it could erase the evidence of its own refusal.
+
+A protected entry that does not exist yet is protected all the same: in a repo
+with no ``personas/`` directory, creating one is exactly the write to refuse.
+
+This boundary is about *zones* — whole trees, wherever inside them a path lands.
+A companion boundary, :doc:`the protected set <protected-set>`, closes named
+files and config keys to every agent-side writer (the settings panels, the
+galleries, the ``setup_patch`` tool) rather than to executed code.
+
+The agent's own data zone (``var/agent_data/``) and the run's execution folder
+are carved back out, so analysis output, figures and saved artifacts keep
+working normally --- as does everything else on disk the executor process can
+reach.
+
+**Both modes, same answer.** ``readwrite`` buys a run human approval to move a
+magnet; it buys no approval to rewrite ``profile.yml``. Only the wording of the
+refusal changes --- a ``readonly`` run is told the mode, a ``readwrite`` run is
+told the path --- and re-running as ``readwrite`` never lifts it. To change any
+of these, edit the profile source yourself and run ``osprey build``.
+
+``.env`` is deliberately **not** in this set. What matters about the secrets
+zone is that executed code should not *read* it, and this is a write-side
+guard; listing the path here would advertise it while protecting nothing that
+matters. Read that omission as "a different problem, not yet solved", not as a
+verdict that ``.env`` is safe for executed code to touch.
+
+Two layers enforce the set:
+
+1. **Before the run.** The submitted source is walked for write calls ---
+   ``open()`` in a write mode, ``Path.write_text``/``Path.open``, the
+   ``shutil`` copy/move/remove family, ``os.remove``/``rename``/``mkdir`` and
+   friends --- and any whose path is written out as a literal landing inside a
+   protected location is refused before anything is spawned, so the agent gets
+   a readable message instead of a traceback. A path the code computes at
+   runtime is deliberately *not* guessed at here; it is left to layer 2.
+   The same pass refuses code that names the runtime guard's own internals,
+   which is the one thing that guard cannot police for itself.
+
+2. **During the run.** A guard is emitted into the subprocess, ahead of the
+   submitted code, that intercepts the filesystem entry points (``open``,
+   ``io.open``, ``os.open``, ``os.truncate``, ``os.remove``, ``os.unlink``,
+   ``os.rmdir``, ``os.removedirs``, ``os.rename``, ``os.replace``,
+   ``os.makedirs``, ``os.mkdir``, ``os.symlink``, ``os.link``, and
+   ``shutil.copy``, ``copy2``, ``copyfile``, ``move`` and ``rmtree``) and
+   raises ``PermissionError`` for a write landing in a protected location,
+   however the path was assembled. The protected locations are resolved by
+   the parent process and baked into the guard as fixed strings; the
+   subprocess never works them out for itself.
+
+.. warning::
+
+   The runtime guard is **defense in depth, not a security boundary.** It runs
+   inside the same process as the code it is guarding, so code written to
+   defeat it can simply switch it off --- nothing placed *inside* a process can
+   be hidden from that process. What the guard reliably stops is the honest
+   miss: the computed or concatenated path the pre-run pass cannot see, and the
+   everyday accident of writing output one directory too high.
+
+   What contains code that is deliberately attacking this boundary is the
+   operating system. In a container deployment the render zone and the profile
+   sources are owned by a different user than the one the agent runs as, so the
+   refusal is the kernel's rather than Python's. On a bare host, treat the
+   guard as a safety net and not as a wall.
+
+.. note::
+
+   The workspace server's visualization sandbox is built from the same guard
+   with the verdict inverted --- nothing is reachable unless a directory says
+   so. It intercepts only ``open`` and ``io.open``, and ``io.open`` for write
+   modes alone: CPython routes ``pathlib`` through it, so guarding reads there
+   would change what plotting code is allowed to *read* today.
+
+.. _python-executor-session-posture:
+
+Session posture
+---------------
+
+An operator can step a whole Web Terminal session into a **sandbox posture**
+from its session card (see :ref:`web-terminal-session-posture`). Every process
+that session launches, this server included, then runs with
+``OSPREY_EXECUTION_MODE=readonly``, and a ``readwrite`` ``execute`` is refused
+by the executor's own posture gate, whatever the deployment itself permits:
+
+   This terminal session is in the sandbox posture, which refuses
+   control-system writes regardless of what the run asks for.
+
+The agent is told to re-run as ``readonly`` --- reads are untouched by the
+posture --- or to ask the operator to switch the session back. The deployment's
+``config.yml`` is not the gate here and the message does not point at it.
+
 When a write is refused
 -----------------------
 
@@ -243,6 +365,13 @@ Three things happen, at whichever layer catches it:
    timestamp, the layer that refused, and the offending source. That
    directory is durable: builds never touch it, and ``osprey reset`` keeps
    it unless you pass ``--purge-audit``.
+
+One case is deliberately not written to that ledger: a protected-path write
+refused at runtime inside a ``readwrite`` run. The ledger is keyed on runs that
+were readonly, and filing a readwrite refusal there would put "readonly
+execution mode" in front of an operator whose run was approved for writes. The
+refusal still holds and still reaches the agent and the operator; only the
+ledger entry is missing.
 
 .. admonition:: Control system operations in user code
 

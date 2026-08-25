@@ -19,7 +19,7 @@
  * @module scaffold/cards
  */
 
-import { iconForCategory } from './utils.js';
+import { iconForCategory, markReadOnlyCard } from './utils.js';
 
 /**
  * The subset of an ArtifactGallery instance these card templates call into.
@@ -74,6 +74,15 @@ export function createScaffoldGalleryCards(gallery) {
     card.appendChild(icon);
     card.appendChild(body);
     card.appendChild(badge);
+
+    // Second badge rather than a replacement for the ownership one: the two
+    // say different things (who owns the file vs whether this panel may write
+    // it), and a reserved artifact can be either FRAMEWORK or PROJECT-OWNED.
+    // The class tints the card's existing left border (10-prompt-gallery.css)
+    // so a reserved file is separable at a glance down a long grid.
+    if (artifact.read_only) {
+      markReadOnlyCard(card);
+    }
 
     card.addEventListener('click', () => gallery.openDetail(artifact));
     section.appendChild(card);
@@ -145,6 +154,15 @@ export function createScaffoldGalleryCards(gallery) {
     card.appendChild(icon);
     card.appendChild(body);
     card.appendChild(badge);
+
+    // `some` rather than the selected member's own flag: the reserved set
+    // covers whole subtrees (.claude/skills/**), so a group with one reserved
+    // file is a group the panel cannot write, and the picker must not be able
+    // to hide that by landing on a member that happens to be writable.
+    // Same card class as above, for the same left-border tint.
+    if (sorted.some((a) => a.read_only)) {
+      markReadOnlyCard(card);
+    }
 
     card.addEventListener('click', () => gallery.openDetail(selectedArt));
     section.appendChild(card);

@@ -3,11 +3,12 @@
 Turns a :class:`~osprey.services.facility_knowledge.ttl_generator.model.GraphModel`
 plus an :class:`~osprey.services.facility_knowledge.ttl_generator.ontology_map.OntologyMap`
 into a NARAD-convention Turtle file that ``osprey knowledge seed-graph`` can
-import into the graph store exactly like the shipped ALS corpus
-(``src/osprey/templates/services/graphdb/als_gtb.ttl``).
+import into the graph store.
 
-The output mirrors that corpus triple-for-triple in *shape*: the same prefixes,
-the same predicate spellings, devices carrying the identity and position
+The output follows the NARAD convention triple-for-triple in *shape* — the
+convention the als-ontology project defines, which is what the graph tools'
+Cypher is written against: the same prefixes, the same predicate spellings,
+devices carrying the identity and position
 properties, ``narad_sem:ChannelBinding`` nodes carrying ``bindingId`` /
 ``confidence`` / ``fullPv`` / ``protocol`` and one of
 ``narad_p:readsSignal`` / ``narad_p:writesSignal``, ``narad_sem:SemanticSignal``
@@ -85,7 +86,7 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Vocabulary — the TTL-side spellings, matching als_gtb.ttl exactly
+# Vocabulary — the TTL-side spellings, matching the NARAD convention exactly
 # ---------------------------------------------------------------------------
 
 OWL_NS = "http://www.w3.org/2002/07/owl#"
@@ -94,7 +95,7 @@ RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 SKOS_NS = "http://www.w3.org/2004/02/skos/core#"
 XSD_NS = "http://www.w3.org/2001/XMLSchema#"
 
-#: Prefixes declared in the generated file — the same six ``als_gtb.ttl`` binds.
+#: Prefixes declared in the generated file — the six the NARAD convention binds.
 PREFIXES: dict[str, str] = {
     "narad_p": NARAD_PROPERTY_NS,
     "narad_sem": NARAD_SEM_NS,
@@ -279,7 +280,7 @@ def _integer(value: int) -> _Term:
 
 
 def _decimal(value: float) -> _Term:
-    """An ``xsd:decimal`` literal, written bare (``1.0``) as ``als_gtb.ttl`` does."""
+    """An ``xsd:decimal`` literal, written bare (``1.0``) as NARAD corpora do."""
     lexical = repr(float(value))
     if "e" in lexical or "E" in lexical or "n" in lexical:
         # Infinities, NaN and exponent forms are not Turtle decimals; fall back
@@ -312,7 +313,7 @@ def _render_term(term: _Term) -> str:
         return _render_iri(term.value)
     if term.kind == "str":
         return f'"{_escape(term.value)}"'
-    # Integers and decimals use Turtle's bare numeric forms, like als_gtb.ttl.
+    # Integers and decimals use Turtle's bare numeric forms, like NARAD corpora.
     return term.value
 
 
@@ -376,7 +377,7 @@ def _description_triples(
 
 
 def _device_triples(device: Device, ontology: OntologyMap) -> list[tuple[str, str, _Term]]:
-    """Triples for one device node, in ``als_gtb.ttl``'s shape.
+    """Triples for one device node, in the NARAD convention's shape.
 
     Args:
         device: The device to describe.
@@ -419,7 +420,7 @@ def _binding_triples(binding: ChannelBinding, predicate: str) -> list[tuple[str,
             local name, chosen from its signal group's direction.
 
     Returns:
-        The six triples ``als_gtb.ttl`` gives a binding, plus one prose triple
+        The six triples the NARAD convention gives a binding, plus one prose triple
         for each of :data:`_BINDING_DESCRIPTION_FIELDS` the binding carries.
     """
     subject = binding.iri
@@ -467,7 +468,7 @@ def _vocabulary_triples() -> list[tuple[str, str, _Term]]:
 
     ``narad_sem:SemanticSignal`` is a bare ``owl:Class`` and
     ``narad_sem:ChannelBinding`` is an ``owl:Class`` under ``owl:Thing``, exactly
-    as ``als_gtb.ttl`` declares them.  Every ``narad_p:`` property the corpus
+    as the NARAD convention declares them.  Every ``narad_p:`` property the corpus
     uses is declared too — :data:`PROPERTY_NAMES` is the single list, so the six
     description properties are declared here as ``owl:DatatypeProperty`` by
     being in it.  ``narad_p:hasBinding`` is declared as both a datatype and an
@@ -614,11 +615,11 @@ def _subject_block(subject: str, predicates: dict[str, dict[tuple[str, str], _Te
     """Render one subject block.
 
     ``rdf:type`` comes first and is written as ``a``; the remaining predicates
-    are sorted by IRI, which reproduces ``als_gtb.ttl``'s ordering (``rdfs:`` and
-    ``skos:`` before the ``https://`` ``narad_p:`` properties, and ``rawType``
-    before ``sPositionM`` before ``sectionCode``).  Multiple objects of one
-    predicate are sorted by their lexical value — again as ``als_gtb.ttl`` does,
-    so ``"yag"`` precedes ``"yag screen"``.
+    are sorted by IRI, which reproduces the NARAD corpora's ordering (``rdfs:``
+    and ``skos:`` before the ``https://`` ``narad_p:`` properties, and
+    ``rawType`` before ``sPositionM`` before ``sectionCode``).  Multiple objects
+    of one predicate are sorted by their lexical value — again as those corpora
+    do, so ``"yag"`` precedes ``"yag screen"``.
     """
     ordered = [RDF_TYPE] if RDF_TYPE in predicates else []
     ordered.extend(sorted(name for name in predicates if name != RDF_TYPE))

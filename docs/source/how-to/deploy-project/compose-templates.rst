@@ -255,7 +255,7 @@ The web tier names its registry separately
 ------------------------------------------
 
 The web tier — the landing page and the one containerized terminal per
-operator, described in :doc:`/how-to/multi-user` — carries its own, older spelling of
+operator, described in :doc:`/how-to/multi-user/index` — carries its own, older spelling of
 the same two ideas, and the two vocabularies coexist rather than merging:
 
 .. list-table::

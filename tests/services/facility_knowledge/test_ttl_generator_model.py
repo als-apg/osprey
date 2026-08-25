@@ -305,7 +305,7 @@ class TestBuildModelIdentifiers:
         assert binding.device_iri == "https://narad.example.org/device/demo_SR_DIPOLE01"
 
     def test_prefix_constants_are_the_narad_namespaces(self):
-        """The namespace constants match the shipped ALS corpus."""
+        """The namespace constants are the shared NARAD namespaces."""
         assert FACILITY == "demo"
         assert DEVICE_IRI_PREFIX == "https://narad.example.org/device/"
         assert BINDING_IRI_PREFIX == "https://narad.example.org/binding/"

@@ -20,7 +20,7 @@ Config shape, as it appears in a project's ``config.yml``::
         image: neo4j:5.20-community
         port_host: 7687                            # bolt, the driver protocol
         http_port_host: 7474                       # Neo4j Browser / HTTP API
-        ttl_path: ./services/graphdb/als_gtb.ttl   # optional; corpus to seed
+        ttl_path: ./data/demo_machine.ttl          # optional; corpus to seed
         heap_initial_size: 512m
         heap_max_size: 1G
         pagecache_size: 512m
@@ -423,7 +423,7 @@ def preflight_graphdb_config(config: Mapping[str, Any] | None) -> None:
             "        path: ./services/graphdb\n"
             f"        port_host: {DEFAULT_PORT}\n"
             f"        http_port_host: {DEFAULT_HTTP_PORT}\n"
-            "        ttl_path: ./services/graphdb/als_gtb.ttl\n"
+            "        ttl_path: ./data/demo_machine.ttl\n"
             f"Or drop '{GRAPHDB_SERVICE_NAME}' from deployed_services if this deployment "
             "should not run a graph store."
         ),

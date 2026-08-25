@@ -2,9 +2,9 @@
 
 The examples are shipped to operators and to the agent as runnable Cypher, so
 the properties asserted here are the ones a caller relies on: a stable key set
-in a stable order, a parameter set per shipped corpus that matches the
-placeholders the query actually uses, no write clause anywhere, and a query the
-client-side gate will let through.
+in a stable order, a parameter set that matches the placeholders the query
+actually uses, no write clause anywhere, and a query the client-side gate will
+let through.
 """
 
 from __future__ import annotations
@@ -18,8 +18,6 @@ from osprey.mcp_server.graph.tools.examples_data import EXAMPLE_QUERIES, Example
 
 EXPECTED_KEYS = ("q1a", "q1b", "q1c", "q2", "q3", "q4b", "q4c", "q5", "q6")
 """The published key set, in the published order. Changing this is a contract change."""
-
-CORPORA = ("als", "demo")
 
 _PARAM_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -51,28 +49,21 @@ def test_title_description_and_cypher_are_non_empty(query: ExampleQuery) -> None
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_both_corpora_carry_a_parameter_set_matching_the_cypher(query: ExampleQuery) -> None:
-    assert set(query.parameters) == set(CORPORA), (
-        f"{query.key} must carry one parameter set per shipped corpus; "
-        f"it has {sorted(query.parameters)}"
-    )
+def test_the_parameter_set_matches_the_cypher(query: ExampleQuery) -> None:
+    values = query.parameters
+    assert isinstance(values, dict), f"{query.key}.parameters is not a mapping"
     expected = _params_in(query.cypher)
-    for corpus in CORPORA:
-        values = query.parameters[corpus]
-        assert isinstance(values, dict), f"{query.key}[{corpus}] is not a mapping"
-        assert set(values) == expected, (
-            f"{query.key}[{corpus}] supplies {sorted(values)} but the query "
-            f"references {sorted(expected)}"
-        )
+    assert set(values) == expected, (
+        f"{query.key} supplies {sorted(values)} but the query references {sorted(expected)}"
+    )
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
 def test_parameter_values_are_present(query: ExampleQuery) -> None:
     """An example must be runnable as shipped — no placeholder blanks or nulls."""
-    for corpus in CORPORA:
-        for name, value in query.parameters[corpus].items():
-            assert value is not None, f"{query.key}[{corpus}].{name} is null"
-            assert str(value).strip(), f"{query.key}[{corpus}].{name} is blank"
+    for name, value in query.parameters.items():
+        assert value is not None, f"{query.key}.{name} is null"
+        assert str(value).strip(), f"{query.key}.{name} is blank"
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)

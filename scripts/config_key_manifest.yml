@@ -339,7 +339,16 @@ keys:
   control_system.connector.epics: {covered-by: control_system.connector}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics}
   control_system.connector.epics.gateways: {evidence: 'gateways'}
-  control_system.connector.epics.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
+  control_system.connector.epics.gateways.read_only:
+    evidence: 'gateways\.get\("read_only", \{\}\)'
+    note: >-
+      Anchored on the gateway SELECTION in epics_connector, not on the bare
+      word: `read_only` now appears in 31 files under the evidence roots (the
+      claude-setup file service and the scaffold gallery both use it for their
+      own read-only flags), which is past the vacuity cap and would have kept
+      the entry green with no reader left. The virtual-accelerator entry below
+      cites the same site on purpose — the VA connector subclasses the EPICS
+      one and inherits this selection rather than repeating it.
   control_system.connector.epics.gateways.read_only.address: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.port: {covered-by: control_system.connector.epics.gateways.read_only}
   control_system.connector.epics.gateways.read_only.use_name_server: {evidence: 'use_name_server'}
@@ -351,7 +360,12 @@ keys:
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file'}
   control_system.connector.virtual_accelerator.gateways: {evidence: 'gateways'}
-  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'gateways\.get\("read_only"'}
+  control_system.connector.virtual_accelerator.gateways.read_only:
+    evidence: 'gateways\.get\("read_only", \{\}\)'
+    note: >-
+      The VA connector subclasses the EPICS one and reaches its read-only
+      gateway through the inherited selection, so the evidence cites that one
+      site. Same anchoring reason as the EPICS entry above.
   control_system.connector.virtual_accelerator.gateways.read_only.address: {covered-by: control_system.connector.virtual_accelerator.gateways.read_only}
   control_system.connector.virtual_accelerator.gateways.read_only.use_name_server:
     evidence: 'use_name_server'
@@ -785,6 +799,51 @@ keys:
       in one lifespan block, and the formatter wraps a call across lines purely
       on line length, so a single-line pattern reds the guard when a rename
       pushes an unrelated call past the margin.
+  web.config_panel:
+    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.config_panel\.'
+    note: >-
+      The block is never read as a mapping — its single leaf below carries the
+      whole read, so the evidence anchors on the prefix they share and this
+      entry dies with that reader rather than outliving it. Rendered live in
+      the four templates that carry a `web:` block; hello_world has none, so
+      this is deliberately not all-templates, same as `web.docs_url`.
+  web.config_panel.enabled:
+    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.config_panel\.enabled",\s*True'
+    note: >-
+      Tier gate for the Config panel, and a SERVER-side one: false makes
+      /api/config and /api/claude-setup refuse every verb with 403 and takes
+      the panel out of the GET /api/panels payload. config.yml and .claude/
+      are what the agent's permission surface is rendered from, so a
+      client-only gate would be undone by typing the route's URL. Shipped
+      true — the panel every single-user deployment has always had — and
+      pinned false by the multi-user persona presets that are not the admin
+      tier. The default is spelled in the evidence because it is the
+      fail-open posture: an unreadable config must not silently take an
+      operator's own config editor away.
+  web.scaffold_gallery:
+    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.'
+    note: >-
+      The block is never read as a mapping — its single leaf below carries the
+      whole read, so the evidence anchors on the prefix they share and this
+      entry dies with that reader rather than outliving it. Rendered live in
+      the four templates that carry a `web:` block; hello_world has none, so
+      this is deliberately not all-templates, same as `web.config_panel`.
+  web.scaffold_gallery.write_enabled:
+    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
+    note: >-
+      Tier gate for the Scaffold gallery, and a SERVER-side one: false makes
+      every write and delete verb under /api/scaffold refuse with 403 (create,
+      claim, save, unoverride, register, delete-untracked) while the read
+      routes stay open. The gallery authors `.claude/rules|skills|agents`
+      content, which the agent loads at PROJECT scope, so a client-only gate
+      would be undone by curl — the same cosmetic-gate failure `ui_mode:
+      simple` was. Shipped true — the gallery every single-user deployment has
+      always had — and pinned false by the multi-user persona presets that are
+      not the admin tier. The default is spelled in the evidence because it is
+      the fail-open posture: a config-read error must not silently revoke an
+      operator's own gallery. The `\s*` between the call's parts is
+      load-bearing for the same reason `web.docs_url` carries it: the formatter
+      wraps this call across lines on length alone.
   web.feedback:
     evidence: 'get_config_value\("web\.feedback\.'
     note: >-
@@ -1079,7 +1138,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 309
+  expected_union_size: 313
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on

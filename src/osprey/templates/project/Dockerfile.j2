@@ -8,6 +8,13 @@
 # Run (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p 8087:8087 --env-file .env {{ project_name }}
 #
+# The container starts as ROOT and does not stay there. `build/entrypoint.sh`
+# re-renders any drifted Claude Code artifact and restores the operator's owned
+# scaffold bodies — both writes into a render this image deliberately leaves
+# root-owned — and only then drops to the unprivileged `osprey` user with
+# `gosu` for the actual command. Running the image with `--user` skips the two
+# startup steps and says so in the log rather than failing halfway through.
+#
 # Build args:
 #   OSPREY_PIP_SPEC     pip requirement for OSPREY (default: PyPI release;
 #                       override with a git+https URL or ==version to pin an
@@ -92,9 +99,16 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # npm is a runtime dependency, not a build-time convenience: the agent is
 # launched as `npx -y @anthropic-ai/claude-code@<version>` (claude_launcher.py),
 # so npm must remain in the final image.
+#
+# `gosu` is what the entrypoint drops privileges with. It is a Debian package
+# for the same reason Node is — one package provenance — and it is installed
+# here, in the layer that changes least, rather than beside the entrypoint it
+# serves: a privilege-drop tool added to the tail of the file would re-run apt
+# on every render change. Without it the entrypoint refuses to start, which is
+# the intended failure: the alternative is running the agent as root.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     apt-get update \
- && apt-get install -y --no-install-recommends curl git procps ca-certificates nodejs npm \
+ && apt-get install -y --no-install-recommends curl git procps ca-certificates gosu nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 
 # Claude Code CLI, pinned via CLAUDE_CLI_VERSION (npm global install) so an
@@ -183,19 +197,90 @@ ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}
 # instead would produce an image whose every recorded path points at the machine
 # that built it.
 COPY . /app/{{ project_name }}/
-# Must name the same directory as config.yml's `agent_data.base_dir`, and must
-# run BEFORE the chown below: the agent-data volume mounts here, and a
-# directory the image never created is created root-owned at first start, which
-# the non-root user below then cannot write to.
-RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls
+# The state zone, created here and not later: each of these directories is
+# written by the unprivileged user at runtime, and a directory the image never
+# created is created ROOT-owned at first start — by the volume mount for the
+# first, by the first write for the others — which that user then cannot write
+# to. Creating them before the chown below is what makes them writable.
+#
+#   var/agent_data/api_calls        must name the same directory as config.yml's
+#                                   `agent_data.base_dir`; the agent-data volume
+#                                   mounts here.
+#   var/agent_data/config-backups   every config write copies the file here
+#                                   BEFORE touching it (config_writer.
+#                                   CONFIG_BACKUP_DIRNAME). Not writable, and
+#                                   the admin Config panel's save fails without
+#                                   a byte being written.
+#   var/audit                       the protected-write refusal log
+#                                   (workspace.AUDIT_DIR_RELPATH). A refusal
+#                                   nobody can record is a refusal only the
+#                                   agent's own transcript ever saw.
+RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
+             /app/{{ project_name }}/var/agent_data/config-backups \
+             /app/{{ project_name }}/var/audit
 
-# Non-root user: Claude Code refuses bypassPermissions mode as root.
-RUN useradd --create-home --shell /bin/bash osprey \
- && chown -R osprey:osprey /app/{{ project_name }}
-USER osprey
+# The privilege split.
+#
+# The agent runs as `osprey` (Claude Code refuses bypassPermissions mode as
+# root), and that user owns exactly the mutable state: `var/` — agent data,
+# audit log, config backups — plus the facility-knowledge bundle it drafts
+# concepts into. Everything else stays root-owned, and the render in `build/`
+# is the part that matters: `config.yml`, `.mcp.json` and the `.claude/`
+# artifacts are the files that decide what the agent may do, so an agent that
+# can rewrite them can rewrite its own limits and no deny list, hook or
+# approval policy outlives that. The two startup steps that legitimately write
+# there — the drift regen and the scaffold restore — run as root in the
+# entrypoint, once, before the server that serves requests exists.
+#
+# The bundle chown is conditional because the directory is: `osprey build`
+# renders `build/data/facility_knowledge/` only for a deployment that names a
+# `facility_knowledge.bundle_path`, and a chown of a path that is not there
+# fails the build.
+#
+# uid/gid are PINNED rather than left to useradd's next-free, so they are a
+# fact of this image instead of an accident of whichever Debian release the
+# base resolves to: OSPREY_RUNTIME_UID below states the same pair, and the
+# host-side seeding chowns each per-user volume to what that variable says
+# (deployment/web_terminals/seeding.py). A base image that ever ships its own
+# uid 1000 fails this line loudly, which is the right way to find out.
+RUN groupadd --gid 1000 osprey \
+ && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash osprey \
+ && chown -R osprey:osprey /app/{{ project_name }}/var \
+ && if [ -d /app/{{ project_name }}/build/data/facility_knowledge ]; then \
+        chown -R osprey:osprey /app/{{ project_name }}/build/data/facility_knowledge; \
+    fi
+{% if is_setup_patch_capable %}
+# This persona keeps the setup capability — its permission render leaves
+# `mcp__osprey_workspace__setup_patch` outside the deny list — so the one file
+# that capability exists to edit is handed to the agent's user. Rendered ONLY
+# for such a persona: for every other tier this line is absent and `config.yml`
+# stays root-owned, which is what makes the tier boundary a filesystem fact
+# rather than a permission list the agent is asked to respect.
+RUN chown osprey:osprey /app/{{ project_name }}/build/config.yml
+{% endif %}
+# No USER instruction, deliberately: the container starts as root so the
+# entrypoint can perform the two root-only startup writes, and drops to
+# `osprey` itself. Adding one back would make the entrypoint's regen and
+# restore silent no-ops.
 ENV HOME=/home/osprey
+# The user the entrypoint drops to, numerically, for anything outside the
+# container that has to agree with it — the per-user volume seeding reads this
+# out of the running image rather than guessing (seeding.py). `uid:gid`.
+ENV OSPREY_RUNTIME_UID=1000:1000
+# The render is root-owned in this image, so the server must not attempt the
+# writes it would make on a host — a bare-host deployment self-heals a drifted
+# artifact, here that same write is a 500 the operator cannot fix. The web app
+# reads this and skips them, saying so once at startup.
+ENV OSPREY_RENDER_ZONE_READONLY=1
 WORKDIR /app/{{ project_name }}
 EXPOSE 8087
+# The entrypoint ships inside the render (`osprey build` emits it beside
+# config.yml) and the COPY above carries it in with its exec bit, so it is
+# named at its rendered path rather than installed somewhere else. It runs the
+# startup regen and scaffold restore as root, then `exec gosu osprey "$@"` —
+# and "$@" is the CMD below, so overriding the command on `docker run` still
+# goes through the privilege drop.
+ENTRYPOINT ["/app/{{ project_name }}/build/entrypoint.sh"]
 # No location flag: `osprey web` discovers its deployment by walking up from the
 # working directory, and WORKDIR above is already that directory.
 CMD ["osprey", "web", "--host", "0.0.0.0", "--port", "8087"]

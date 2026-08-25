@@ -255,6 +255,79 @@ def coerce_config_str(key: str, value: object, default: str) -> str:
     return default
 
 
+#: Words a human writes when they mean a boolean but YAML kept a string —
+#: ``enabled: "false"`` (quoted) is the one that matters, because for a
+#: default-ON switch a bare ``bool("false")`` is ``True``: the deployment
+#: would read as having asked for the switch OFF and get it left ON.
+_FALSE_WORDS = frozenset({"false", "no", "off", "0"})
+_TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
+
+
+def resolve_config_flag(key: str, default: bool, on_error: str) -> bool:
+    """Read a configured boolean switch at startup, failing OPEN to *default*.
+
+    The read and the coercion are one step because the two failure modes want
+    the same answer: a config that cannot be loaded and a value nobody can
+    interpret both leave the switch at the deployment's shipped posture. A
+    startup switch that silently revoked a surface because the config file was
+    briefly unreadable would be the worst possible failure here.
+
+    Args:
+        key: Dotted config key, read and reported verbatim.
+        default: Posture for a deployment that never mentions the key.
+        on_error: Warning logged when the config cannot be read at all; it says
+            which switch was left at its default and what that means.
+
+    Returns:
+        The configured boolean, or *default*.
+    """
+    try:
+        from osprey.utils.config import get_config_value
+
+        raw = get_config_value(key, default)
+    except Exception:  # noqa: BLE001 — never let config load block startup
+        logger.warning(on_error, exc_info=True)
+        raw = None
+    return coerce_config_flag(key, raw, default)
+
+
+def coerce_config_flag(key: str, value: object, default: bool) -> bool:
+    """Return a configured boolean switch, falling back to *default*.
+
+    An **absent** key (``None``) means "use the default" — the shipped
+    behaviour of a deployment that never mentions the switch.
+
+    A real YAML boolean is honoured as written. A quoted ``"false"`` is honoured
+    too: that spelling is a human writing a boolean, and reading it as truthy
+    would leave a switch ON that the config says is OFF.
+
+    Anything else (a number, a mapping from a mis-indented file, an unrecognized
+    word) is reported and discarded, exactly as :func:`coerce_config_str` does
+    with a non-string — a value nobody can interpret must not silently become
+    one of the two postures.
+
+    Args:
+        key: Dotted config key, used only for the warning message.
+        value: Whatever the config reader returned.
+        default: The shipped default for *key*.
+
+    Returns:
+        The configured boolean, or *default*.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in _TRUE_WORDS:
+            return True
+        if token in _FALSE_WORDS:
+            return False
+    logger.warning("%s is %r, not a boolean; using %r instead", key, value, default)
+    return default
+
+
 def coerce_store_ceiling(value: object, default: int = DEFAULT_FEEDBACK_MAX_STORE_BYTES) -> int:
     """Return ``web.feedback.max_store_bytes`` as a positive byte count.
 
@@ -648,6 +721,21 @@ def _create_lifespan(
         # user badge / logout control is rendered.
         app.state.terminal_user = os.environ.get("OSPREY_TERMINAL_USER", "").strip()
         app.state.landing_url = os.environ.get("OSPREY_TERMINAL_LANDING_URL", "").strip()
+        # Whether the render zone (``config.yml`` + ``.claude/``) is read-only to
+        # this process. In a privilege-split container the render zone is
+        # root-owned and the root entrypoint performs the regen and the scaffold
+        # restore *before* dropping to the non-root app user, so the server must
+        # not attempt either write. ``OSPREY_RENDER_ZONE_READONLY=1`` is that
+        # marker; absent (or any other value) leaves startup behaviour unchanged.
+        # Later readers use ``getattr(app.state, "render_zone_readonly", False)``.
+        # Read through ownership.is_container_render, not re-spelled here: the
+        # same marker decides that module's ownership surface, and a server that
+        # concluded it was on a host while the gallery concluded it was in a
+        # container would disagree about which writes are even possible.
+        from osprey.interfaces.web_terminal.ownership import is_container_render
+
+        render_zone_readonly = is_container_render()
+        app.state.render_zone_readonly = render_zone_readonly
 
         # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
         if "OSPREY_CONFIG" not in os.environ:
@@ -667,14 +755,23 @@ def _create_lifespan(
         # versions live on the claude-config volume; without this the agent
         # would run the framework's originals while the gallery showed the
         # operator's, and nothing would report the divergence. No-op elsewhere.
-        from osprey.interfaces.web_terminal.scaffold_gallery_service import (
-            restore_scaffold_bodies,
-        )
+        # Skipped entirely when the render zone is read-only: the container
+        # entrypoint already ran this restore as root, and repeating it here
+        # would only fail on a tree this process cannot write.
+        if render_zone_readonly:
+            logger.info(
+                "Render zone is read-only (OSPREY_RENDER_ZONE_READONLY=1); "
+                "skipping scaffold restore — the container entrypoint already ran it"
+            )
+        else:
+            from osprey.interfaces.web_terminal.scaffold_gallery_service import (
+                restore_scaffold_bodies,
+            )
 
-        try:
-            restore_scaffold_bodies(Path(app.state.project_cwd))
-        except Exception as exc:  # noqa: BLE001 - never block startup on this
-            logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
+            try:
+                restore_scaffold_bodies(Path(app.state.project_cwd))
+            except Exception as exc:  # noqa: BLE001 - never block startup on this
+                logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
 
         # Resolve and store config_path for the settings API
         resolved_config_path = None
@@ -772,6 +869,52 @@ def _create_lifespan(
             app.state.web_rail_position = DEFAULT_RAIL_POSITION
             app.state.web_rail_position_configured = False
 
+        # ── Config panel (server-side tier gate) ──
+        # `web.config_panel.enabled: false` takes the Config panel's whole
+        # SERVER surface away, not just its tab: /api/config and
+        # /api/claude-setup refuse every verb with 403, and GET /api/panels
+        # stops advertising the panel. Hiding the tab alone would leave a tier
+        # that may not re-render this deployment's agent able to reach the edit
+        # routes by typing their URLs, which is the class of gap this key
+        # exists to close — config.yml and .claude/ are what the agent's
+        # permission surface is rendered from.
+        #
+        # Resolved once here and read back as
+        # ``getattr(app.state, "config_panel_enabled", True)``, so an app built
+        # without this lifespan (the route unit suites) behaves like a
+        # deployment that never mentioned the key. Fails OPEN, deliberately:
+        # the default posture is the panel every single-user deployment has
+        # always had, and an unreadable config must not silently take an
+        # operator's own config editor away.
+        app.state.config_panel_enabled = resolve_config_flag(
+            "web.config_panel.enabled",
+            True,
+            "Could not read web.config_panel.enabled; leaving the Config panel enabled",
+        )
+
+        # ── Scaffold gallery writes (server-side tier gate) ──
+        # `web.scaffold_gallery.write_enabled: false` closes the gallery's whole
+        # WRITE surface: create, claim, save, unoverride, register and delete
+        # under /api/scaffold all refuse with 403, while every read route stays
+        # open. What the gallery authors is `.claude/rules|skills|agents`
+        # content, which the agent loads at PROJECT scope — instruction it
+        # obeys, not decoration — so "may this tier author it" is a privilege
+        # boundary. Hiding the buttons alone would be the same cosmetic gate
+        # `ui_mode: simple` was: a client-only guard is undone by curl.
+        #
+        # Resolved once here and read back as
+        # ``getattr(app.state, "scaffold_write_enabled", True)``, so an app
+        # built without this lifespan (the route unit suites) behaves like a
+        # deployment that never mentioned the key. Fails OPEN, deliberately:
+        # the default posture is the gallery every single-user deployment has
+        # always had, and a config-read error must not silently revoke it.
+        app.state.scaffold_write_enabled = resolve_config_flag(
+            "web.scaffold_gallery.write_enabled",
+            True,
+            "Could not read web.scaffold_gallery.write_enabled; "
+            "leaving the scaffold gallery writable",
+        )
+
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
         # writes_enabled kill-switch baked into settings.json's permissions.deny)
@@ -782,13 +925,31 @@ def _create_lifespan(
             from osprey.cli.templates.manager import TemplateManager
 
             project_dir_for_regen = Path(app.state.project_cwd)
-            changed = TemplateManager().regen_if_drift(project_dir_for_regen)
-            if changed:
-                logger.info(
-                    "Regenerated %d stale Claude Code artifact(s): %s",
-                    len(changed),
-                    ", ".join(changed),
+            if render_zone_readonly:
+                # regen_if_drift writes even when nothing drifted — its no-op
+                # path stamps settings.json with os.utime to clear the
+                # SessionStart drift hook — so a read-only render zone gets the
+                # dry-run preview and a warning instead. The entrypoint already
+                # regenerated as root; anything still listed here means the
+                # render on disk does not match config.yml and only a rebuild
+                # (or a root-side regen) can fix it.
+                preview = TemplateManager().regenerate_claude_code(
+                    project_dir_for_regen, dry_run=True
                 )
+                would_change = list(preview.get("changed") or [])
+                logger.warning(
+                    "Render zone is read-only (OSPREY_RENDER_ZONE_READONLY=1); "
+                    "on-launch Claude Code artifact regen skipped. Would change: %s",
+                    ", ".join(would_change) if would_change else "nothing",
+                )
+            else:
+                changed = TemplateManager().regen_if_drift(project_dir_for_regen)
+                if changed:
+                    logger.info(
+                        "Regenerated %d stale Claude Code artifact(s): %s",
+                        len(changed),
+                        ", ".join(changed),
+                    )
         except Exception:  # noqa: BLE001 — never let regen block server startup
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 

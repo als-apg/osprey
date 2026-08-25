@@ -79,7 +79,7 @@ def check_profile_file(profile_file: Path) -> None:
         click.UsageError: With every accumulated problem, so the caller exits 2.
     """
     from .build_profile import resolve_build_profile
-    from .build_profile_deploy import deploy_aware_config_errors
+    from .build_profile_deploy import deploy_aware_config_errors, deploy_aware_config_warnings
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
     variant = VariantSelection(name=None, path=None)
@@ -103,12 +103,30 @@ def check_profile_file(profile_file: Path) -> None:
     # contributions applied. Checked from the command rather than inside
     # `validate()`, which also runs during profile resolution — see
     # `lint_profile_config`.
-    web_errors = deploy_aware_config_errors(build_profile.deploy, build_profile.config)
+    # The profile's own directory, not the working directory: a catalog entry's
+    # `build_profile: personas/<name>.yml` is named relative to the profile it
+    # sits beside. Passing it is what makes `osprey validate --repo <path>`, and
+    # a run from any subdirectory, read the same deltas a run from the repo root
+    # reads — without it the persona half of the lint silently sees nothing and
+    # reports the profile valid.
+    profile_root = profile_file.parent
+    web_errors = deploy_aware_config_errors(
+        build_profile.deploy, build_profile.config, profile_root=profile_root
+    )
     if web_errors:
         # "Profile validation failed", not "Build profile ...": the success line
         # below says "Profile is valid", and `BuildProfile.validate` already owns
         # the "Build profile validation failed" header for its own errors.
         raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
+
+    # Advisory findings are printed rather than raised: they name real exposures
+    # (a privileged terminal in front of `auth.method: none`) that are not
+    # mistakes every deployment has made, so they must not fail a CI gate — but
+    # a finding nobody prints is a finding nobody has.
+    for warning in deploy_aware_config_warnings(
+        build_profile.deploy, build_profile.config, profile_root=profile_root
+    ):
+        note(f"⚠ {warning}")
 
     # Before the verdict, and worded as `osprey build` words it: the reader has
     # to know WHICH document was judged before being told it is fine.
