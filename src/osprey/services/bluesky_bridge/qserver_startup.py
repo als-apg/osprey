@@ -11,10 +11,9 @@ here, in this process — the bridge is a client of the manager, not its parent.
 Three things are assembled, in this order:
 
 1. **Devices** — connector-mediated ``ConnectorSettable``/``ConnectorReadable``
-   instances built from the substrate env (``BLUESKY_EPICS_SUBSTRATE`` +
-   ``BLUESKY_EPICS_SETPOINTS``/``BLUESKY_EPICS_READBACKS``), exactly as the
-   bridge's in-process wiring built them: every plan read goes through
-   ``connector.read_channel`` and every plan write through
+   instances built from the device file named by ``BLUESKY_DEVICES_FILE``,
+   exactly as the bridge's in-process wiring built them: every plan read goes
+   through ``connector.read_channel`` and every plan write through
    ``connector.write_channel_checked``. Moving execution out of the bridge
    moves the reference monitor here with it — there is no raw Channel Access
    in this process either.
@@ -32,7 +31,7 @@ Three things are assembled, in this order:
    fault-isolated: a Tiled outage or a dead proxy degrades telemetry, it never
    aborts a plan.
 
-**Browse-only is the failure mode.** With no substrate env — the mock
+**Browse-only is the failure mode.** With no readable device file — the mock
 connector case — no devices are built, no plans are registered, and the
 namespace ends up holding only ``RE``. The script does not raise: the manager
 comes up healthy with an empty allowed-plan list, so the queue surface is
@@ -63,19 +62,19 @@ import inspect
 import logging
 import os
 from collections.abc import Callable, Iterator, Mapping
+from pathlib import Path
 from typing import Any
-
-# Absolute, never relative -- see the module docstring. Safe at module level:
-# `devices/__init__.py` imports neither submodule and `specs.py` is dataclasses
-# only, so this pulls in no part of the ophyd-async device stack.
-from osprey.services.bluesky_bridge.devices._specs_from_env import SUBSTRATE_ENV
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.qserver_startup")
 
-__all__ = ["SUBSTRATE_ENV"]
-"""``SUBSTRATE_ENV`` is re-exported: it is the opt-in flag for building real
-connector-mediated devices (absent/false means browse-only), and it lives in
-``devices._specs_from_env`` beside the two PV-list vars it gates."""
+DEVICES_FILE_ENV = "BLUESKY_DEVICES_FILE"
+"""Path to the worker's device file, as mounted into this container.
+
+Its presence *is* the substrate switch. The file lists every channel this
+worker exposes as a scan device, so a deploy that mounts one gets real
+connector-mediated devices and a deploy that does not is browse-only — there is
+no separate on/off flag to keep in step with it. Unset, or naming something
+this process cannot read as a file, means no devices are built."""
 
 TILED_URI_ENV = "BLUESKY_TILED_URI"
 """Tiled server URI. Absent means no ``TiledWriter`` subscription at all."""
@@ -97,8 +96,6 @@ ZMQ_CURVE_SERVER_PUBLIC_KEY_ENV = "BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY"
 :data:`ZMQ_CURVE_SECRET_KEY_ENV`; setting exactly one of the two is a
 misconfiguration and is refused rather than silently publishing unencrypted."""
 
-_TRUTHY_VALUES = {"1", "true", "yes", "on"}
-
 _EPICS_LIKE_CONNECTOR_TYPES = ("virtual_accelerator", "epics")
 """Connector types that get a gateway-less ``type_config`` — real Channel
 Access, whether a virtual-accelerator soft-IOC or live hardware. A gateway-less
@@ -110,17 +107,6 @@ CONNECT_TIMEOUT = 30.0
 on the RunEngine's loop. Generous enough for real Channel Access connects
 (IOC startup, network hiccups), bounded so a dead IOC fails the environment
 open instead of hanging the manager forever."""
-
-
-def is_substrate_enabled(env: Mapping[str, str] | None = None) -> bool:
-    """True if ``BLUESKY_EPICS_SUBSTRATE`` is set to any of ``1/true/yes/on``.
-
-    Absent, empty, or any other value (e.g. ``"false"``) is off. Deliberately
-    liberal on the "on" spellings, but never guesses at "on" from an
-    unrecognized value — matching how the bridge parses the same flag.
-    """
-    env = os.environ if env is None else env
-    return env.get(SUBSTRATE_ENV, "").strip().lower() in _TRUTHY_VALUES
 
 
 def resolve_control_system_type() -> str:
@@ -187,10 +173,14 @@ async def create_connector() -> Any:
 async def build_devices(
     env: Mapping[str, str] | None = None, *, connector: Any = None
 ) -> dict[str, Any]:
-    """Build the worker's connector-mediated device set from the substrate env.
+    """Build the worker's connector-mediated device set from the device file.
+
+    The substrate is enabled exactly when :data:`DEVICES_FILE_ENV` is set *and*
+    names a file this process can read — file presence is the switch, so there
+    is no second flag that can disagree with it.
 
     Returns an empty mapping — never raises — when the substrate is disabled
-    (browse-only) or when the PV-list env vars name no devices at all. A caller
+    (browse-only) or when the device file names no devices at all. A caller
     treats an empty result as "this worker cannot execute plans", which is
     exactly what :func:`build_namespace` does with it.
 
@@ -204,10 +194,21 @@ async def build_devices(
         Mapping of device name to connected device.
     """
     env = os.environ if env is None else env
-    if not is_substrate_enabled(env):
+    devices_file = (env.get(DEVICES_FILE_ENV) or "").strip()
+    if not devices_file:
         logger.info(
             "qserver_startup: %s is not set — building no devices (browse-only worker)",
-            SUBSTRATE_ENV,
+            DEVICES_FILE_ENV,
+        )
+        return {}
+
+    path = Path(devices_file)
+    if not path.is_file() or not os.access(path, os.R_OK):
+        logger.warning(
+            "qserver_startup: %s names %r, which this worker cannot read as a file — "
+            "building no devices (browse-only worker)",
+            DEVICES_FILE_ENV,
+            devices_file,
         )
         return {}
 
@@ -215,14 +216,13 @@ async def build_devices(
     # a script with no package context, so `from .devices import ...` cannot
     # resolve and takes the whole worker environment down with it.
     from osprey.services.bluesky_bridge.devices import connector as connector_devices
-    from osprey.services.bluesky_bridge.devices._specs_from_env import specs_from_env
+    from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 
-    setpoints, readbacks = specs_from_env(env)
+    setpoints, readbacks = specs_from_file(path)
     if not setpoints and not readbacks:
         logger.warning(
-            "qserver_startup: %s is enabled but BLUESKY_EPICS_SETPOINTS / "
-            "BLUESKY_EPICS_READBACKS name no devices; this worker will expose no plans",
-            SUBSTRATE_ENV,
+            "qserver_startup: device file %r names no devices; this worker will expose no plans",
+            devices_file,
         )
         return {}
 

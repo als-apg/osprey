@@ -39,9 +39,7 @@ from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge.app import app, set_queue_backend
 
-_SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-_SETPOINTS_ENV = "BLUESKY_EPICS_SETPOINTS"
-_READBACKS_ENV = "BLUESKY_EPICS_READBACKS"
+_DEVICES_FILE_ENV = "BLUESKY_DEVICES_FILE"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
@@ -63,14 +61,12 @@ class _InertBackend:
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     """Every test starts from a clean env and an inert, pre-injected backend.
 
-    The substrate/Tiled variables are cleared rather than set: the guard is no
+    The device-file/Tiled variables are cleared rather than set: the guard is no
     longer reached through any of them, and leaving one set from the ambient
     environment would only obscure that.
     """
     for var in (
-        _SUBSTRATE_ENV,
-        _SETPOINTS_ENV,
-        _READBACKS_ENV,
+        _DEVICES_FILE_ENV,
         _TILED_URI_ENV,
         _TILED_API_KEY_ENV,
     ):
@@ -141,15 +137,16 @@ def test_writable_with_missing_limits_db_refuses_startup(
 def test_guard_runs_with_no_bluesky_env_set_at_all(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The guard is unconditional, not gated on any wiring flag.
+    """The guard is unconditional, not gated on any device-wiring flag.
 
-    It used to live inside the EPICS-substrate runner branch, so a deployment
-    that never set `BLUESKY_EPICS_SUBSTRATE` was never checked — a writable
-    project with an unreadable limits database came up clean. The autouse
-    fixture clears every one of those variables, so this test failing means the
-    guard has been re-gated on something.
+    It once lived inside the device-substrate runner branch, so a deployment
+    that wired up no devices — today, one that never sets
+    `BLUESKY_DEVICES_FILE` — was never checked, and a writable project with an
+    unreadable limits database came up clean. The autouse fixture clears every
+    wiring variable, so this test failing means the guard has been re-gated on
+    something.
     """
-    for var in (_SUBSTRATE_ENV, _SETPOINTS_ENV, _READBACKS_ENV, _TILED_URI_ENV):
+    for var in (_DEVICES_FILE_ENV, _TILED_URI_ENV):
         assert var not in os.environ
 
     missing = tmp_path / "does_not_exist.json"

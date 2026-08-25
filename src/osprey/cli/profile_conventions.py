@@ -428,6 +428,11 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         "the profile's `data/` directory — this is the limits table every setpoint "
         "is checked against before it reaches the control system",
     ),
+    ReservedPattern(
+        "data/bluesky_devices.yml",
+        "the profile's `data/` directory — this is the device table that decides "
+        "which channels a Bluesky plan may drive",
+    ),
 )
 
 
@@ -459,6 +464,7 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "agent_data.*",
         "file_paths.*",
         "artifacts.*",
+        "services.*.devices_file",
         *RUNTIME_WRITE_PATH_KEYS,
     ),
     ".mcp.json": (

@@ -655,7 +655,8 @@ The protected set
 A closed list of files and config keys may not be rewritten by the running
 agent, whichever surface the write arrives through: the rendered
 ``config.yml``, ``.claude/settings.json``, ``.mcp.json``, ``CLAUDE.md``, the
-safety hooks, rules and skills, the limits tables — and, inside ``config.yml``,
+safety hooks, rules and skills, the limits and plan-device tables — and, inside
+``config.yml``,
 the key families that gate writes and approval (``control_system.*``,
 ``approval.*``, ``hooks.*``, ``claude_code.*``, among others). These artifacts
 are owned by the build profile: edit them in the profile and run

@@ -194,10 +194,9 @@ not come from. Three checks, one for each way that can happen:
 
 * **The declaration itself.** Pinning a name the deploy writes for you is
   refused — a service token or password it mints, a service default it records,
-  a Bluesky substrate variable, a credential ``--reuse-stores`` restores from a
-  surviving volume. A pin says the chain is the variable's only source, and
-  ``osprey up`` writing that same name into ``.env`` contradicts it by
-  construction. The message names each offender and its remedy:
+  a credential ``--reuse-stores`` restores from a surviving volume. A pin says
+  the chain is the variable's only source, and ``osprey up`` writing that same
+  name into ``.env`` contradicts it by construction. The message names each offender and its remedy:
   ``unpin <NAME>; it is machine-minted.`` The check covers every name any writer
   can produce, not only the services this deployment currently enables, so
   turning a service on later cannot make a profile that was fine start

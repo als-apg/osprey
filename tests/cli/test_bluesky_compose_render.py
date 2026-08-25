@@ -48,6 +48,34 @@ def _image_defaults(project_name: str) -> dict[str, str]:
     return resolve_image_defaults({"project_name": project_name})
 
 
+#: The finished channel-limits bind mount a deployment whose config is read
+#: from the REPO ROOT renders. Both halves are computed host-side by
+#: ``resolve_limits_mount`` and reach the template as finished strings, so a
+#: hand-built context has to carry the same shape the generator produces —
+#: source anchored on the compose project directory, target on the container's
+#: project root. Restated here rather than imported because what these renders
+#: pin is what the TEMPLATE does with the strings; where the strings come from
+#: is pinned in ``tests/deployment/test_compose_generator.py``.
+REPO_ROOT_LIMITS_MOUNT: dict[str, str] = {
+    "source": "./data/channel_limits.json",
+    "target": "/app/project/data/channel_limits.json",
+}
+
+#: The same mount for a config read from the build zone: only the SOURCE moves,
+#: because only it resolves against the repo root.
+BUILD_ZONE_LIMITS_MOUNT: dict[str, str] = {
+    "source": "./build/data/channel_limits.json",
+    "target": "/app/project/data/channel_limits.json",
+}
+
+#: Where the worker reads its device document, and the one bind that puts a
+#: file there. The source is a literal staged path (``_stage_bluesky_devices``
+#: owns the basename), so unlike the limits mount it is spelled in the template
+#: and pinned here verbatim.
+DEVICES_FILE_TARGET = "/app/project/data/bluesky_devices.yml"
+DEVICES_MOUNT = f"./build/services/bluesky/bluesky_devices.yml:{DEVICES_FILE_TARGET}:ro"
+
+
 def _render(
     *,
     tiled_enabled: bool = False,
@@ -55,18 +83,43 @@ def _render(
     deployed_services: list[str] | None = None,
     plan_dir: str | None = None,
     excluded_plans: str | None = None,
+    devices_present: bool = False,
+    limits_mount: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Render the packaged bluesky compose template and parse the result.
 
     Mirrors ``compose_generator.render_template``'s context contract: the whole
     config dict plus the ``osprey_labels``/``osprey_version`` metadata that
     ``_inject_project_metadata`` supplies.
+
+    Two of those keys are computed by the generator rather than configured, and
+    a hand-built context has to TYPE them or it pins a render no deploy can
+    reach:
+
+    ``bluesky_devices``
+        The real boolean ``_stage_bluesky_devices`` returns — True only when a
+        device file actually landed in the build context. Always present on a
+        production render, so it is always present here too; *devices_present*
+        chooses which of the two answers this render carries.
+    ``limits_mount``
+        The finished bind mount ``resolve_limits_mount`` computes. It exists
+        exactly when the key it derives from names a path, and a writable
+        deployment can never reach the template without it — so it is injected
+        whenever *writes_enabled* is on, defaulting to the repo-root shape.
+        Passing an explicit dict renders another entry point's spelling.
     """
     bluesky: dict[str, Any] = {"port": 8090, "tiled_enabled": tiled_enabled}
     if plan_dir is not None:
         bluesky["plan_dir"] = plan_dir
     if excluded_plans is not None:
         bluesky["excluded_plans"] = excluded_plans
+
+    # ``lane_keys`` is seeded with 'bluesky' unconditionally (the template's
+    # lane axis), so every render defines lane 1's containers whatever
+    # deployed_services says — and every context therefore has to carry the
+    # matching services block.
+    deployed = list(deployed_services or ["bluesky"])
+    assert "bluesky" in deployed, "lane 1 always renders; a context omitting it is not reachable"
 
     context: dict[str, Any] = {
         "osprey_labels": {
@@ -77,10 +130,15 @@ def _render(
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
         "deployment": {},
-        "deployed_services": deployed_services or ["bluesky"],
+        "deployed_services": deployed,
         "control_system": {"writes_enabled": writes_enabled},
         "services": {"bluesky": bluesky, "virtual_accelerator": {"port": 5064}},
+        "bluesky_devices": devices_present,
     }
+    if limits_mount is not None:
+        context["limits_mount"] = limits_mount
+    elif writes_enabled:
+        context["limits_mount"] = REPO_ROOT_LIMITS_MOUNT
     env = Environment(loader=FileSystemLoader(_LOADER_ROOTS))
     return yaml.safe_load(env.get_template(BLUESKY_TEMPLATE).render(context))
 
@@ -482,7 +540,7 @@ def test_shipped_permissions_allow_only_preview_plan() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Config, limits and substrate wiring.
+# Config, limits and device-file wiring.
 # ---------------------------------------------------------------------------
 
 
@@ -507,20 +565,122 @@ def test_limits_db_is_mounted_read_only_when_writes_are_enabled() -> None:
     )
 
 
+def test_limits_db_reaches_both_containers_that_enforce_limits() -> None:
+    """The bridge and the manager mount the SAME file, from one computed pair.
+
+    Two containers now hold a reference monitor, and the template consumes the
+    same ``limits_mount`` strings for both. Asserting them together is what
+    proves the mount cannot drift between the two: a bridge checking one file
+    while the worker that actually issues the puts checks another would enforce
+    limits nobody configured.
+    """
+    rendered = _render(writes_enabled=True)
+    expected = "./data/channel_limits.json:/app/project/data/channel_limits.json:ro"
+    for service in ("bluesky-bridge", "queueserver"):
+        assert expected in rendered["services"][service]["volumes"], service
+
+
+def test_limits_db_renders_the_build_zone_source_unchanged() -> None:
+    """Only the SOURCE moves when the deployed config is read from ``build/``.
+
+    The template makes no path decision of its own — it interpolates the two
+    halves it is handed. This pins that: hand it the build-zone pair and the
+    render carries it verbatim, with the container-side target untouched
+    (the connector resolves the configured relative path against the container
+    project root either way, so a prefixed target would miss the mount).
+    """
+    rendered = _render(writes_enabled=True, limits_mount=BUILD_ZONE_LIMITS_MOUNT)
+    expected = "./build/data/channel_limits.json:/app/project/data/channel_limits.json:ro"
+    for service in ("bluesky-bridge", "queueserver"):
+        assert expected in rendered["services"][service]["volumes"], service
+
+
+def test_limits_db_renders_an_absolute_operator_path_verbatim_on_both_sides() -> None:
+    """An absolute path is operator-owned and mounted at the identical path.
+
+    ``resolve_limits_mount`` never rewrites it, so what the template must not do
+    is re-anchor it — prefixing either half would point the bind at a file that
+    is not there.
+    """
+    absolute = {"source": "/srv/facility/limits.json", "target": "/srv/facility/limits.json"}
+    rendered = _render(writes_enabled=True, limits_mount=absolute)
+    assert (
+        "/srv/facility/limits.json:/srv/facility/limits.json:ro"
+        in rendered["services"]["queueserver"]["volumes"]
+    )
+
+
 def test_limits_db_is_absent_on_a_read_only_deploy(rendered: dict[str, Any]) -> None:
     assert not any(
         "channel_limits.json" in str(v) for v in rendered["services"]["queueserver"]["volumes"]
     )
 
 
-def test_substrate_env_is_not_gated_on_the_va_being_co_deployed(
+def test_device_file_env_and_mount_arrive_together_when_one_was_staged() -> None:
+    """The env var names a container path; the mount is what puts a file there.
+
+    They are two halves of one decision (``_stage_bluesky_devices``'s return
+    value gates both), and either half alone is a worker that fails its own
+    load: an env var pointing at nothing, or a file no one reads.
+    """
+    queueserver = _render(devices_present=True)["services"]["queueserver"]
+    assert queueserver["environment"]["BLUESKY_DEVICES_FILE"] == DEVICES_FILE_TARGET
+    assert DEVICES_MOUNT in queueserver["volumes"]
+
+
+def test_device_file_env_and_mount_are_both_absent_when_nothing_was_staged(
     rendered: dict[str, Any],
 ) -> None:
-    """A facility on real EPICS has no VA container but still has a substrate;
-    gating these on the VA would leave its worker with no devices."""
-    manager_env = rendered["services"]["queueserver"]["environment"]
-    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_SETPOINTS", "BLUESKY_EPICS_READBACKS"):
-        assert manager_env[var] == f"${{{var}:-}}"
+    """Browse-only is the fail-closed direction and must be silent.
+
+    Naming a file the mount does not carry would fail the worker's load rather
+    than degrade to a worker that can browse plans and run none, which is what
+    a deployment with no device set is supposed to get.
+    """
+    queueserver = rendered["services"]["queueserver"]
+    assert "BLUESKY_DEVICES_FILE" not in (queueserver["environment"] or {})
+    assert not any("bluesky_devices" in str(volume) for volume in queueserver["volumes"])
+
+
+def test_device_file_is_not_gated_on_the_va_being_co_deployed() -> None:
+    """A facility on real EPICS has no VA container but still has devices.
+
+    The device set now comes from an authored file rather than from PV
+    spellings the container infers, but the claim is the one the substrate env
+    carried before it: gating the wiring on the VA would leave every real-EPICS
+    worker with no devices at all.
+    """
+    queueserver = _render(devices_present=True, deployed_services=["bluesky"])["services"][
+        "queueserver"
+    ]
+    assert queueserver["environment"]["BLUESKY_DEVICES_FILE"] == DEVICES_FILE_TARGET
+    assert DEVICES_MOUNT in queueserver["volumes"]
+
+
+def test_only_the_queueserver_is_given_the_device_file() -> None:
+    """The bridge is a facade over the manager and builds no devices of its own.
+
+    Handing it the file would give the deployment two device sets built from
+    one document by two processes, and the bridge's copy would be the one no
+    plan ever runs against.
+    """
+    rendered = _render(devices_present=True)
+    bridge = rendered["services"]["bluesky-bridge"]
+    assert "BLUESKY_DEVICES_FILE" not in (bridge["environment"] or {})
+    assert not any("bluesky_devices" in str(volume) for volume in bridge["volumes"])
+
+
+def test_the_retired_substrate_variables_appear_nowhere_in_the_render() -> None:
+    """The three retired ``BLUESKY_EPICS`` names are gone from the whole contract.
+
+    A leftover passthrough would be dead config that still looks live to an
+    operator reading the compose file — and, worse, the worker no longer reads
+    those names, so a deployment setting them would come up browse-only with no
+    indication of why.
+    """
+    for devices_present in (False, True):
+        rendered = _render(devices_present=devices_present)
+        assert "BLUESKY_EPICS" not in yaml.safe_dump(rendered)
 
 
 def test_plan_dirs_and_exclusions_reach_the_worker() -> None:
@@ -823,16 +983,224 @@ def test_bridge_port_bind_stays_loopback_and_token_stays_fail_closed(
 
 def test_template_renders_valid_yaml_in_every_gating_combination() -> None:
     """The conditional blocks multiply: a combination that renders broken YAML
-    would only surface at `osprey up` on somebody's machine."""
+    would only surface at `osprey up` on somebody's machine.
+
+    The device file is its own axis, independent of every other one — it is
+    staged from an authored document or derived from the limits database, so it
+    can be present on a read-only bridge-only deploy and absent on a writable
+    one with the VA co-deployed. Both keys the generator computes are typed on
+    every combination, which is also what a real render always hands the
+    template.
+    """
     for tiled in (False, True):
         for writes in (False, True):
             for deployed in (["bluesky"], ["bluesky", "virtual_accelerator"]):
                 for plan_dir in (None, "/opt/facility/plans"):
-                    parsed = _render(
-                        tiled_enabled=tiled,
-                        writes_enabled=writes,
-                        deployed_services=deployed,
-                        plan_dir=plan_dir,
-                    )
-                    assert "queueserver" in parsed["services"]
-                    assert "bluesky-redis" in parsed["services"]
+                    for devices in (False, True):
+                        parsed = _render(
+                            tiled_enabled=tiled,
+                            writes_enabled=writes,
+                            deployed_services=deployed,
+                            plan_dir=plan_dir,
+                            devices_present=devices,
+                        )
+                        assert "queueserver" in parsed["services"]
+                        assert "bluesky-redis" in parsed["services"]
+                        queueserver = parsed["services"]["queueserver"]
+                        assert (
+                            "BLUESKY_DEVICES_FILE" in (queueserver["environment"] or {})
+                        ) is devices
+                        assert (
+                            any("bluesky_devices" in str(v) for v in queueserver["volumes"])
+                        ) is devices
+                        assert (
+                            any("channel_limits" in str(v) for v in queueserver["volumes"])
+                        ) is writes
+
+
+# ---------------------------------------------------------------------------
+# The two computed context keys, through the real generator.
+#
+# Everything above renders a hand-built context, which pins what the TEMPLATE
+# does with the values but not that the values ever arrive. These go through
+# `prepare_compose_files` — the production entry point — so the strings the
+# assertions above assume are the strings a deployment actually gets, and a
+# generator that stopped setting either key fails here rather than silently
+# rendering a mount-less stack.
+# ---------------------------------------------------------------------------
+
+_LIMITS_RELPATH = "data/channel_limits.json"
+_DEVICES_RELPATH = "data/bluesky_devices.yml"
+
+#: A device document the worker's own loader accepts in full, so the staging
+#: step copies it rather than refusing the render.
+_DEVICES_DOCUMENT = """\
+settables:
+  - name: COR:H:01
+    setpoint: COR:H:01:SP
+    readback: COR:H:01:RB
+readables:
+  - name: BPM:01:X
+    pv: BPM:01:X
+"""
+
+
+def _lane_config(config_dir: Path, *, writes_enabled: bool) -> dict:
+    """The project config both entry points render from.
+
+    One dict for both, because the ONLY thing the two entry points differ in is
+    where the file holding it sits — which is the whole point of the pair.
+    """
+    return {
+        "project_name": "lane-fixture",
+        "build_dir": str(config_dir / "build") if config_dir.name != "build" else str(config_dir),
+        "system": {"timezone": "UTC"},
+        "deployment": {},
+        "deployed_services": ["bluesky"],
+        "services": {
+            "bluesky": {
+                "path": "./services/bluesky",
+                "port": 8090,
+                "devices_file": _DEVICES_RELPATH,
+            }
+        },
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": writes_enabled,
+            "limits_checking": {"enabled": True, "database_path": _LIMITS_RELPATH},
+        },
+    }
+
+
+def _bluesky_repo(root: Path, *, config_dir: Path, writes_enabled: bool) -> Path:
+    """A deployment repo that renders the bluesky lane; returns its config path.
+
+    *config_dir* is the entry point under test. The repo root is what ``osprey
+    up`` loads for a repo-root deployment; ``<repo>/build`` is what it loads
+    once a build's atomic swap has landed — and in that shape the repo root
+    still holds the authored config and the service templates, which is why the
+    root config is written either way.
+
+    The limits database and the device document are staged beside the config
+    being loaded, because that is the directory their relative paths are
+    authored against (``_render_anchor_dir`` / ``resolve_limits_mount`` both
+    anchor on ``config_dir``).
+    """
+    from ruamel.yaml import YAML
+
+    from osprey.cli.build_injectors import _copy_service_templates
+
+    yaml_rt = YAML()
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "config.yml").open("w", encoding="utf-8") as handle:
+        yaml_rt.dump(_lane_config(root, writes_enabled=writes_enabled), handle)
+
+    # Reads the repo-root config to decide which service template directories
+    # the repo needs, so it runs after that file exists.
+    _copy_service_templates(root)
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "config.yml"
+    if config_dir != root:
+        with config_path.open("w", encoding="utf-8") as handle:
+            yaml_rt.dump(_lane_config(config_dir, writes_enabled=writes_enabled), handle)
+
+    for relative, contents in ((_LIMITS_RELPATH, "{}"), (_DEVICES_RELPATH, _DEVICES_DOCUMENT)):
+        staged = config_dir / relative
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text(contents, encoding="utf-8")
+    return config_path
+
+
+def _rendered_lane(config_path: Path) -> dict:
+    """Run the real render and parse the bluesky compose file it produced."""
+    from osprey.deployment.compose_generator import prepare_compose_files
+
+    _, compose_files = prepare_compose_files(str(config_path))
+    lane = [path for path in compose_files if "bluesky" in path]
+    assert lane, f"the bluesky lane rendered no compose file: {compose_files}"
+    return yaml.safe_load(Path(lane[0]).read_text(encoding="utf-8"))
+
+
+def test_a_repo_root_deployment_really_mounts_the_unprefixed_limits_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end for the commonest entry point: config at the repo root.
+
+    The bind source is resolved by compose against the pinned project directory
+    — the repo root — so a config read from there needs no prefix at all. This
+    is the assertion that proves the strings the hand-built contexts above use
+    are the strings the generator actually produces.
+    """
+    config_path = _bluesky_repo(tmp_path, config_dir=tmp_path, writes_enabled=True)
+
+    monkeypatch.chdir(tmp_path)
+    queueserver = _rendered_lane(config_path)["services"]["queueserver"]
+
+    assert (
+        f"{REPO_ROOT_LIMITS_MOUNT['source']}:{REPO_ROOT_LIMITS_MOUNT['target']}:ro"
+        in queueserver["volumes"]
+    )
+
+
+def test_a_build_zone_deployment_really_mounts_the_build_prefixed_limits_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The deploy-time shape: ``osprey up`` loads ``<repo>/build/config.yml``.
+
+    Same configured value, same container target, a source one directory
+    deeper — because the compose project directory stays the repo root while
+    the config (and the data beside it) moved into the build zone. A render
+    that kept the repo-root spelling here would bind a path that does not
+    exist, which the container runtime silently creates as an empty directory.
+    """
+    config_path = _bluesky_repo(tmp_path, config_dir=tmp_path / "build", writes_enabled=True)
+
+    monkeypatch.chdir(tmp_path)
+    queueserver = _rendered_lane(config_path)["services"]["queueserver"]
+
+    assert (
+        f"{BUILD_ZONE_LIMITS_MOUNT['source']}:{BUILD_ZONE_LIMITS_MOUNT['target']}:ro"
+        in queueserver["volumes"]
+    )
+
+
+def test_the_real_render_context_always_carries_a_boolean_bluesky_devices(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``bluesky_devices`` is typed by the generator, not defaulted by the template.
+
+    The template carries ``| default(false)`` as a belt for hand-built contexts,
+    and a belt that is load-bearing is a bug waiting to happen: it would turn a
+    generator that stopped staging — or stopped reporting that it staged — into
+    a silently browse-only deployment instead of a failure. So the production
+    render is asserted to hand the template a REAL boolean every time.
+    """
+    from osprey.deployment import compose_generator
+
+    contexts: list[dict] = []
+    real = compose_generator.render_template
+
+    def recording(template_path, config, out_dir):
+        # Keyed on the template, because the root services declaration renders
+        # from the bare config and carries no staging decision at all — only
+        # the per-service renders do.
+        if "bluesky" in str(template_path):
+            contexts.append(config)
+        return real(template_path, config, out_dir)
+
+    monkeypatch.setattr(compose_generator, "render_template", recording)
+
+    config_path = _bluesky_repo(tmp_path, config_dir=tmp_path, writes_enabled=False)
+    monkeypatch.chdir(tmp_path)
+    rendered = _rendered_lane(config_path)
+
+    assert contexts, "the bluesky lane rendered no context at all"
+    for context in contexts:
+        assert "bluesky_devices" in context, sorted(context)
+        assert context["bluesky_devices"] is True, (
+            "this repo authors a valid device file, so the staging step must "
+            f"report that one landed: {context['bluesky_devices']!r}"
+        )
+    # And the flag is not bookkeeping: it is what put the mount in the file.
+    assert DEVICES_MOUNT in rendered["services"]["queueserver"]["volumes"]

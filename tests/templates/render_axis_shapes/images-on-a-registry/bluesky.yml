@@ -177,16 +177,6 @@ services:
       # operator override stays consistent between the two services.
       EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"
       EPICS_CA_AUTO_ADDR_LIST: "NO"
-      # EPICS-substrate device selection. Passthrough only — the operator or
-      # deploy env chooses the actual PVs, never hardcoded here. The devices
-      # themselves are built by the queueserver worker, which is where these
-      # same three variables are read (qserver_startup.py); the bridge no
-      # longer branches on them. The :- empty default keeps an unset value
-      # harmless: no substrate means an empty device namespace, i.e.
-      # browse-only.
-      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
-      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 
 
     volumes:
@@ -359,14 +349,7 @@ services:
       BLUESKY_ZMQ_PUBLISH_ADDR: "tcp://bluesky-bridge:5567"
       BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/publisher.key_secret
       BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY: /app/curve/proxy.key
-      # Substrate wiring for the devices the startup module builds. Unlike the
-      # bridge's copy above this is NOT gated on the VA being co-deployed: a
-      # facility pointing at real EPICS has no VA container but still needs
-      # its substrate. The `:-` empty defaults keep an unset substrate
-      # harmless — the module then yields an empty namespace (browse-only).
-      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
-      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
+
 
 
 
@@ -392,6 +375,7 @@ services:
       # under data/.runtime/ — the runtime-output subpath the build-drift
       # fingerprint reserves for exactly this material (#716).
       - ./data/.runtime/bluesky_curve/queueserver:/app/curve:ro
+
 
 
     networks:

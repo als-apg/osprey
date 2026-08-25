@@ -73,16 +73,6 @@ def test_the_control_socket_keypair_is_in_the_census():
     assert {"BLUESKY_QSERVER_ZMQ_PRIVATE_KEY", "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"} <= census
 
 
-def test_the_bluesky_substrate_names_are_in_the_census():
-    """Derived from the built project, then appended — a writer like any other."""
-    census = _deploy_written_env_vars()
-    assert {
-        "BLUESKY_EPICS_SUBSTRATE",
-        "BLUESKY_EPICS_SETPOINTS",
-        "BLUESKY_EPICS_READBACKS",
-    } <= census
-
-
 def test_the_census_covers_every_registered_writer():
     """Read off the maps themselves, so a new entry cannot be added unpoliced."""
     census = _deploy_written_env_vars()
