@@ -320,8 +320,13 @@ Two more inputs decide details:
    **Every run reports which of the two it used**, in the line shown above.
 
 ``--ontology``
-   The FAMILY-to-class table. Defaults to the demo-machine table shipped with
-   OSPREY; give your own when your device families are not the demo machine's.
+   The FAMILY-to-class table, as compiled JSON. Defaults to the demo-machine
+   table shipped with OSPREY; give your own when your device families are not
+   the demo machine's. That table is not the authoring format: the shipped one
+   is generated from a LinkML schema, and so is any table you write — see
+   `Authoring the Ontology`_ below, and copy the YAML rather than the JSON when
+   you start your own. A hand-written JSON table is still accepted, so an
+   existing one keeps working untouched.
 
 To have every deployment seed the file you wrote, point
 ``services.graphdb.ttl_path`` at it. That key is deliberately *not* where the
@@ -333,6 +338,87 @@ Then load it (see :doc:`okf-bundle` for the seeding verb in full):
 .. code-block:: console
 
    $ osprey knowledge seed-graph data/demo_machine.ttl
+
+
+Authoring the Ontology
+----------------------
+
+The FAMILY-to-class table ``--ontology`` reads is compiled, not written by
+hand. What you author is a **LinkML schema** — a YAML file that names each kind
+of device on the machine, says which broader kind it belongs to, and lists the
+words somebody might use for it when asking. OSPREY's own is
+``src/osprey/services/facility_knowledge/ttl_generator/demo_ontology.yaml``;
+a facility's looks the same. Two excerpts from it, a class and two families:
+
+.. code-block:: yaml
+
+   classes:
+
+     AcceleratingCavity:
+       class_uri: narad_sem:AcceleratingCavity
+       is_a: RadioFrequency
+       aliases:
+         - accelerating cavity
+         - cavity
+         - rf cavity
+
+   enums:
+
+     DeviceFamily:
+       permissible_values:
+
+         BPM:
+           meaning: narad_sem:BeamPositionMonitor
+
+         CAVITY:
+           meaning: narad_sem:AcceleratingCavity
+
+The class block declares one kind of device: ``is_a`` names its parent, and
+``aliases`` are the synonyms it should also answer to — they are emitted as
+``skos:altLabel``, which is how the OSPREY agent finds cavities when an
+operator writes *rf cavity*. The ``DeviceFamily`` enum is the family map: one
+entry per FAMILY token of the channel database, spelled exactly as the database
+spells it (hyphens and all, so ``ION-PUMP`` is a valid entry name), with
+``meaning`` naming the class devices of that family are typed as.
+
+Compile the schema into the table (this verb needs the ``knowledge`` extra,
+``pip install "osprey-framework[knowledge]"``):
+
+.. code-block:: console
+
+   $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json
+
+Then emit the corpus against it with ``build-ttl --ontology
+demo_ontology.json``. ``compile-ontology`` also has a ``--check`` form, which
+compares an existing table against a fresh compile and fails when the two
+have drifted apart:
+
+.. code-block:: console
+
+   $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json --check
+
+``--check`` writes nothing at all — it is the form for CI and for a pre-commit
+hook, where the job is to prove a committed table still matches the schema it
+came from.
+
+The table can hold less than LinkML can express, so the compiler accepts a
+deliberately narrow shape:
+
+* **One root class, named ``AcceleratorDevice``.** Exactly one class leaves
+  ``is_a`` unset, and it must be ``AcceleratorDevice`` — the class the NARAD
+  vocabulary is rooted at, which is what lets a rollup query written for one
+  machine's graph work on another. Every other class descends from it.
+* **One parent each.** ``is_a`` names a single parent; there is no multiple
+  inheritance.
+* **Names in one namespace.** Every class declares
+  ``class_uri: narad_sem:<ClassName>``, matching its own name.
+* **The enum is the family map.** A schema without a ``DeviceFamily`` enum, or
+  with a value that has no ``meaning``, has nothing to compile.
+
+Anything outside that shape is refused when you compile, rather than producing
+a table that breaks later, and the message names the element at fault — a class
+using ``mixins``, for instance, is reported as *class 'X' uses 'mixins', which
+the ontology table cannot represent*.
 
 
 What the Presets Seed

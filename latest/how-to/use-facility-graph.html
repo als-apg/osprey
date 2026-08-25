@@ -793,8 +793,13 @@ which channels are written. When no limits file is configured, the address
 grammar decides instead — a <code class="docutils literal notranslate"><span class="pre">:SP</span></code> subfield writes, everything else reads.
 <strong>Every run reports which of the two it used</strong>, in the line shown above.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">--ontology</span></code></dt><dd><p>The FAMILY-to-class table. Defaults to the demo-machine table shipped with
-OSPREY; give your own when your device families are not the demo machine’s.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">--ontology</span></code></dt><dd><p>The FAMILY-to-class table, as compiled JSON. Defaults to the demo-machine
+table shipped with OSPREY; give your own when your device families are not
+the demo machine’s. That table is not the authoring format: the shipped one
+is generated from a LinkML schema, and so is any table you write — see
+<a class="reference internal" href="#authoring-the-ontology">Authoring the Ontology</a> below, and copy the YAML rather than the JSON when
+you start your own. A hand-written JSON table is still accepted, so an
+existing one keeps working untouched.</p>
 </dd>
 </dl>
 <p>To have every deployment seed the file you wrote, point
@@ -805,6 +810,77 @@ run of the verb would overwrite it.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w"> </span>data/demo_machine.ttl
 </pre></div>
 </div>
+<section id="authoring-the-ontology">
+<h3>Authoring the Ontology<a class="headerlink" href="#authoring-the-ontology" title="Link to this heading">#</a></h3>
+<p>The FAMILY-to-class table <code class="docutils literal notranslate"><span class="pre">--ontology</span></code> reads is compiled, not written by
+hand. What you author is a <strong>LinkML schema</strong> — a YAML file that names each kind
+of device on the machine, says which broader kind it belongs to, and lists the
+words somebody might use for it when asking. OSPREY’s own is
+<code class="docutils literal notranslate"><span class="pre">src/osprey/services/facility_knowledge/ttl_generator/demo_ontology.yaml</span></code>;
+a facility’s looks the same. Two excerpts from it, a class and two families:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">classes</span><span class="p">:</span>
+
+<span class="w">  </span><span class="nt">AcceleratingCavity</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">class_uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">narad_sem:AcceleratingCavity</span>
+<span class="w">    </span><span class="nt">is_a</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RadioFrequency</span>
+<span class="w">    </span><span class="nt">aliases</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">accelerating cavity</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cavity</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rf cavity</span>
+
+<span class="nt">enums</span><span class="p">:</span>
+
+<span class="w">  </span><span class="nt">DeviceFamily</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">permissible_values</span><span class="p">:</span>
+
+<span class="w">      </span><span class="nt">BPM</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">meaning</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">narad_sem:BeamPositionMonitor</span>
+
+<span class="w">      </span><span class="nt">CAVITY</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">meaning</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">narad_sem:AcceleratingCavity</span>
+</pre></div>
+</div>
+<p>The class block declares one kind of device: <code class="docutils literal notranslate"><span class="pre">is_a</span></code> names its parent, and
+<code class="docutils literal notranslate"><span class="pre">aliases</span></code> are the synonyms it should also answer to — they are emitted as
+<code class="docutils literal notranslate"><span class="pre">skos:altLabel</span></code>, which is how the OSPREY agent finds cavities when an
+operator writes <em>rf cavity</em>. The <code class="docutils literal notranslate"><span class="pre">DeviceFamily</span></code> enum is the family map: one
+entry per FAMILY token of the channel database, spelled exactly as the database
+spells it (hyphens and all, so <code class="docutils literal notranslate"><span class="pre">ION-PUMP</span></code> is a valid entry name), with
+<code class="docutils literal notranslate"><span class="pre">meaning</span></code> naming the class devices of that family are typed as.</p>
+<p>Compile the schema into the table (this verb needs the <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> extra,
+<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">&quot;osprey-framework[knowledge]&quot;</span></code>):</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>compile-ontology<span class="w"> </span>demo_ontology.yaml<span class="w"> </span>demo_ontology.json
+</pre></div>
+</div>
+<p>Then emit the corpus against it with <code class="docutils literal notranslate"><span class="pre">build-ttl</span> <span class="pre">--ontology</span>
+<span class="pre">demo_ontology.json</span></code>. <code class="docutils literal notranslate"><span class="pre">compile-ontology</span></code> also has a <code class="docutils literal notranslate"><span class="pre">--check</span></code> form, which
+compares an existing table against a fresh compile and fails when the two
+have drifted apart:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>compile-ontology<span class="w"> </span>demo_ontology.yaml<span class="w"> </span>demo_ontology.json<span class="w"> </span>--check
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--check</span></code> writes nothing at all — it is the form for CI and for a pre-commit
+hook, where the job is to prove a committed table still matches the schema it
+came from.</p>
+<p>The table can hold less than LinkML can express, so the compiler accepts a
+deliberately narrow shape:</p>
+<ul class="simple">
+<li><p><strong>One root class, named ``AcceleratorDevice``.</strong> Exactly one class leaves
+<code class="docutils literal notranslate"><span class="pre">is_a</span></code> unset, and it must be <code class="docutils literal notranslate"><span class="pre">AcceleratorDevice</span></code> — the class the NARAD
+vocabulary is rooted at, which is what lets a rollup query written for one
+machine’s graph work on another. Every other class descends from it.</p></li>
+<li><p><strong>One parent each.</strong> <code class="docutils literal notranslate"><span class="pre">is_a</span></code> names a single parent; there is no multiple
+inheritance.</p></li>
+<li><p><strong>Names in one namespace.</strong> Every class declares
+<code class="docutils literal notranslate"><span class="pre">class_uri:</span> <span class="pre">narad_sem:&lt;ClassName&gt;</span></code>, matching its own name.</p></li>
+<li><p><strong>The enum is the family map.</strong> A schema without a <code class="docutils literal notranslate"><span class="pre">DeviceFamily</span></code> enum, or
+with a value that has no <code class="docutils literal notranslate"><span class="pre">meaning</span></code>, has nothing to compile.</p></li>
+</ul>
+<p>Anything outside that shape is refused when you compile, rather than producing
+a table that breaks later, and the message names the element at fault — a class
+using <code class="docutils literal notranslate"><span class="pre">mixins</span></code>, for instance, is reported as <em>class ‘X’ uses ‘mixins’, which
+the ontology table cannot represent</em>.</p>
+</section>
 </section>
 <section id="what-the-presets-seed">
 <h2>What the Presets Seed<a class="headerlink" href="#what-the-presets-seed" title="Link to this heading">#</a></h2>
@@ -996,7 +1072,10 @@ query bounds.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-only-by-construction">Read-Only by Construction</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-graph-cannot-answer">When the Graph Cannot Answer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leaving-the-graph-tools-out">Leaving the Graph Tools Out</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#generating-a-corpus">Generating a Corpus</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#generating-a-corpus">Generating a Corpus</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-the-ontology">Authoring the Ontology</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-presets-seed">What the Presets Seed</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pointing-at-a-store-the-facility-runs">Pointing at a Store the Facility Runs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-machine-several-views">One Machine, Several Views</a></li>

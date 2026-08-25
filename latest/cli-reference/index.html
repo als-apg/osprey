@@ -1104,6 +1104,15 @@ the second run changes nothing.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-from-ttl</span> <span class="pre">TTL</span> <span class="pre">BUNDLE</span> <span class="pre">[--force]</span></code></dt><dd><p>Write stub concept documents into a bundle from a TTL corpus, one per class,
 for a person to fill in.</p>
 </dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">compile-ontology</span> <span class="pre">SOURCE</span> <span class="pre">OUTPUT</span> <span class="pre">[--check]</span></code></dt><dd><p>Compile an authored LinkML schema into the ontology table <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code>
+reads. <code class="docutils literal notranslate"><span class="pre">SOURCE</span></code> is the schema, and <code class="docutils literal notranslate"><span class="pre">OUTPUT</span></code> the JSON table to write; an
+existing file is overwritten. The output is deterministic, so compiling an
+unchanged schema twice leaves <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">diff</span></code> silent.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--check</span></code> writes nothing. It compares <code class="docutils literal notranslate"><span class="pre">OUTPUT</span></code> against a fresh compile of
+<code class="docutils literal notranslate"><span class="pre">SOURCE</span></code> and exits non-zero when the two disagree, naming the classes,
+synonyms and families that differ — which is what a CI job or a pre-commit
+hook runs to prove a committed table still matches its schema.</p>
+</dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span> <span class="pre">OUTPUT</span> <span class="pre">[--channel-db</span> <span class="pre">PATH]</span> <span class="pre">[--descriptions</span> <span class="pre">PATH]</span> <span class="pre">[--limits</span> <span class="pre">PATH]</span> <span class="pre">[--ontology</span> <span class="pre">PATH]</span></code></dt><dd><p>Derive a NARAD-convention TTL corpus from the channel database: one device
 node per device, one binding per address, a read or write direction on every
 signal, and the descriptions that let the corpus be searched by meaning

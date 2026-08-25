@@ -691,20 +691,25 @@ session, or directly via <code class="docutils literal notranslate"><span class=
 <input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-2">
 osprey knowledge CLI</label><div class="sd-tab-content docutils">
-<p id="knowledge-cli">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> command group provides five operations from the
+<p id="knowledge-cli">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> command group provides six operations from the
 terminal — three that manage an OKF bundle, one that loads the deployed
-graph store, and one that generates the corpus it loads.</p>
+graph store, one that generates the corpus it loads, and one that compiles
+the ontology table that generation reads.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>--help
 <span class="go">Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...</span>
 
 <span class="go">  Manage OKF facility knowledge bundles.</span>
 
+<span class="go">Options:</span>
+<span class="go">  --help  Show this message and exit.</span>
+
 <span class="go">Commands:</span>
-<span class="go">  build-ttl      Derive a NARAD-convention TTL corpus from the channel...</span>
-<span class="go">  regen-index    Regenerate index.md files throughout an OKF bundle.</span>
-<span class="go">  seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.</span>
-<span class="go">  seed-graph     Load a NARAD/als-ontology TTL into the deployed graph...</span>
-<span class="go">  validate       Validate all OKF documents in a bundle.</span>
+<span class="go">  build-ttl         Derive a NARAD-convention TTL corpus from the channel...</span>
+<span class="go">  compile-ontology  Compile an authored LinkML schema into the ontology...</span>
+<span class="go">  regen-index       Regenerate index.md files throughout an OKF bundle.</span>
+<span class="go">  seed-from-ttl     Seed OKF stub documents from a NARAD/als-ontology TTL...</span>
+<span class="go">  seed-graph        Load a NARAD/als-ontology TTL into the deployed graph...</span>
+<span class="go">  validate          Validate all OKF documents in a bundle.</span>
 </pre></div>
 </div>
 <p><strong>regen-index</strong> — regenerates <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files throughout the bundle. Run
@@ -789,9 +794,22 @@ structure, the in-context one for the sentence on each channel — and a
 rendered project names both, because it ships only the paradigm it runs.
 The limits file comes from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and the ontology table from
 OSPREY’s shipped default, and every run reports which source decided each
-signal’s read/write direction. See
+signal’s read/write direction. That shipped table is compiled by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">compile-ontology</span></code> from <code class="docutils literal notranslate"><span class="pre">demo_ontology.yaml</span></code>, a LinkML
+schema; a facility that authors its own vocabulary compiles it the same way
+and passes the result with <code class="docutils literal notranslate"><span class="pre">--ontology</span></code>. See
 <a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> for the inputs, the shipped corpora, and what
 the agent then does with the graph.</p>
+<p><strong>compile-ontology</strong> — turns the LinkML schema where a facility authors its
+device vocabulary into the ontology table <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code> reads. Requires the
+<code class="docutils literal notranslate"><span class="pre">knowledge</span></code> extra:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>compile-ontology<span class="w"> </span>demo_ontology.yaml<span class="w"> </span>demo_ontology.json
+</pre></div>
+</div>
+<p>The output is deterministic, so a committed table can be reviewed like any
+other file, and <code class="docutils literal notranslate"><span class="pre">--check</span></code> re-compiles without writing anything and fails
+when the committed table has drifted from its schema — the form for CI and
+pre-commit hooks. <a class="reference internal" href="use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> has the schema format.</p>
 </div>
 </div>
 </section>
