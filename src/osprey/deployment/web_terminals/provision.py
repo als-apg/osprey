@@ -1201,7 +1201,7 @@ def deploy_up_web_terminals(
       then the web stack runs ``pull`` before ``up -d``.
     - **local**: :func:`ensure_env_production` generates ``.env.users``
       from ``.env`` when absent. Then :func:`build_persona_images` builds
-      every referenced persona's ``<project>-<persona>:local`` image —
+      every referenced persona's ``<project>:local`` image —
       called with :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
       ``strict=True`` output, so an unresolvable persona reference (unknown
       catalog entry, or ``local`` mode with no catalog/``default_persona``

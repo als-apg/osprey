@@ -1,7 +1,10 @@
 """Per-persona local image builds for multi-user web-terminal deployments.
 
-``image_source: local`` deploys build one ``<project>-<persona>:local`` image
-per referenced persona before any compose invocation. Each of those builds needs
+``image_source: local`` deploys build one ``<project>:local`` image per
+referenced persona render before any compose invocation (the tag names the
+persona's rendered project — see
+:func:`osprey.deployment.web_terminals.personas.resolve_personas` for the
+naming rules, including the legacy suffixed fallback). Each of those builds needs
 a rendered persona project as its context, and ``osprey build`` is what writes
 one: :func:`verify_persona_renders` checks that every referenced persona has
 one and refuses the start when it does not. Nothing here renders — a start runs
@@ -148,12 +151,11 @@ def _resolve_persona_claude_cli_version(project_path: str) -> str | None:
 def _persona_image_build_cmd(
     runtime: str,
     context: str,
-    project: str,
-    persona: str,
+    image_tag: str,
     project_label: str,
     dev_mode: bool = False,
 ) -> list[str]:
-    """Construct the ``<runtime> build`` argv that produces ``<project>-<persona>:local``.
+    """Construct the ``<runtime> build`` argv that produces *image_tag*.
 
     Mirrors :func:`_project_image_build_cmd`'s argv shape (same
     ``OSPREY_PIP_SPEC`` build-arg, same runtime/tag/``-f``/context layout)
@@ -166,10 +168,10 @@ def _persona_image_build_cmd(
     :param runtime: Base container command (``docker`` or ``podman``).
     :param context: The persona's image build context — its container repo,
         :func:`_persona_image_context` of the rendered project.
-    :param project: The persona catalog entry's resolved ``project`` name
-        (tag prefix, matching :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
-        ``<project>-<persona>:local`` naming).
-    :param persona: The persona catalog key (tag suffix).
+    :param image_tag: The tag to build, exactly as
+        :func:`osprey.deployment.web_terminals.personas.resolve_personas`
+        resolved it into the entry's ``image`` — the single derivation site
+        for persona tag naming, never recomputed here.
     :param dev_mode: Whether ``--dev`` was passed (adds an ``OSPREY_DEV=1``
         build-arg, mirroring :func:`_project_image_build_cmd`'s dev path).
     :param project_label: THIS DEPLOYMENT's project name
@@ -192,7 +194,7 @@ def _persona_image_build_cmd(
         runtime,
         "build",
         "-t",
-        f"{project}-{persona}:local",
+        image_tag,
         "-f",
         os.path.join(render, "Dockerfile"),
         "--label",
@@ -236,10 +238,12 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
     :param config: Raw deploy config (read for ``modules.web_terminals.personas``).
     :param resolved_users: :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
         output.
-    :return: One ``{"persona", "project", "project_path", "build_profile"}``
-        dict per distinct referenced persona, in first-seen order
+    :return: One ``{"persona", "project", "project_path", "build_profile",
+        "image"}`` dict per distinct referenced persona, in first-seen order
         (``build_profile`` is the catalog entry's value, or ``""`` when it has
-        none or a non-string one).
+        none or a non-string one; ``image`` is the tag ``resolve_personas``
+        resolved for the entry — the single derivation site, carried through
+        rather than recomputed).
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     personas_raw = web_terminals.get("personas")
@@ -267,10 +271,11 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
             continue
         seen.add(persona_name)
         # Trust resolve_personas' contract that every resolved entry carries a
-        # non-empty "project" — no persona_name fallback here, which would
-        # silently diverge from the tag resolve_personas itself resolved
-        # (<project>-<persona>:local) if that contract were ever violated.
+        # non-empty "project" and "image" — no fallback derivation here, which
+        # would silently diverge from the tag resolve_personas itself resolved
+        # if that contract were ever violated.
         project = cast(str, entry.get("project"))
+        image = cast(str, entry.get("image"))
         # The delta this entry says its project was rendered from; carried here
         # so verify_persona_renders need not re-walk the catalog to explain an
         # absent one. Normalized to "" when absent or non-str, which that caller
@@ -282,6 +287,7 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
                 "project": project,
                 "project_path": project_path,
                 "build_profile": build_profile if isinstance(build_profile, str) else "",
+                "image": image,
             }
         )
     return referenced
@@ -759,7 +765,7 @@ def verify_persona_renders(
 def build_persona_images(
     config: dict, resolved_users: list[dict], dev_mode: bool, env: dict
 ) -> None:
-    """Build every REFERENCED persona's ``<project>-<persona>:local`` image (local mode only).
+    """Build every REFERENCED persona's ``<project>:local`` image (local mode only).
 
     Generalizes :func:`_build_project_image`'s local-build pattern (build
     context + ``-f`` Dockerfile + ``OSPREY_PIP_SPEC`` build-arg + dev-wheel
@@ -768,8 +774,11 @@ def build_persona_images(
     :func:`_referenced_personas` finds in ``resolved_users``, even when
     several users share it. :func:`_build_project_image` itself is untouched:
     the dispatch worker's ``<project>:local`` image is a different tag,
-    disjoint from every ``<persona.project>-<persona>:local`` tag this
-    function produces, and is built independently.
+    disjoint from every persona tag this function produces — a disjointness
+    the ``persona_project_shadows_worker_image`` lint rule enforces now that
+    persona tags carry no ``-<persona>`` suffix of their own (the legacy
+    no-``project`` fallback keeps its suffix and stays disjoint by
+    construction) — and is built independently.
 
     No-op when ``modules.web_terminals.image_source`` is not ``"local"``
     (the default, ``"registry"``): a registry-mode deploy pulls every
@@ -828,9 +837,19 @@ def build_persona_images(
     # The deployment repo whose var/logs/ takes each build's spooled output.
     repo_root = resolve_repo_root(config)
 
+    # Personas sharing one render (same catalog `project` AND `project_path`)
+    # resolve to the same tag and the same content — one build serves them all.
+    built_tags: set[str] = set()
+
     for unit in referenced:
         persona_name = unit["persona"]
-        project = unit["project"]
+        if unit["image"] in built_tags:
+            logger.debug(
+                "Persona %r shares the already-built image %r; skipping its build.",
+                persona_name,
+                unit["image"],
+            )
+            continue
         # The container repo the build renders for this persona — NOT the flat
         # host render the catalog names. See _persona_image_context.
         context = str(_persona_image_context(unit["project_path"]))
@@ -855,15 +874,14 @@ def build_persona_images(
                 )
 
         try:
+            image_tag = unit["image"]
             cmd = _persona_image_build_cmd(
                 runtime,
                 context,
-                project,
-                persona_name,
+                image_tag,
                 project_label,
                 dev_mode and wheel_staged,
             )
-            image_tag = f"{project}-{persona_name}:local"
             # No "building X:" announcement: the live build region carries the
             # progress while it runs, and the step line below reports the
             # finished image.
@@ -881,7 +899,7 @@ def build_persona_images(
                 run_captured(
                     cmd,
                     env=env,
-                    spool_name=f"build-persona-{project}-{persona_name}",
+                    spool_name=f"build-persona-{image_tag.split(':', 1)[0]}",
                     repo_root=repo_root,
                     on_line=report,
                 )
@@ -889,6 +907,7 @@ def build_persona_images(
             # local-mode deploy, and the only progress an operator gets while
             # a handful of multi-minute builds run one after another.
             _report_step(f"persona image {image_tag}")
+            built_tags.add(image_tag)
         finally:
             # Remove BOTH staged artifacts (wheel + requirements manifest) so
             # neither can poison a later non-dev build in this context.

@@ -999,13 +999,13 @@ def test_nuke_removes_label_verified_persona_local_image(tmp_path, monkeypatch, 
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = "demo-project"  # matches THIS deployment
+    image_labels["acc-control:local"] = "demo-project"  # matches THIS deployment
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
     image_rm_calls = [c for c in calls if c[1:3] == ["image", "rm"]]
-    assert image_rm_calls == [["docker", "image", "rm", "acc-control-control-room:local"]]
+    assert image_rm_calls == [["docker", "image", "rm", "acc-control:local"]]
 
 
 def test_nuke_skips_image_with_mismatched_project_label_and_warns(
@@ -1019,7 +1019,7 @@ def test_nuke_skips_image_with_mismatched_project_label_and_warns(
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = "some-other-project"
+    image_labels["acc-control:local"] = "some-other-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
@@ -1028,7 +1028,7 @@ def test_nuke_skips_image_with_mismatched_project_label_and_warns(
     assert image_rm_calls == []
 
     out = capsys.readouterr().out
-    assert "acc-control-control-room:local" in out
+    assert "acc-control:local" in out
     assert "SKIPPED" in out
     assert "some-other-project" in out
 
@@ -1042,7 +1042,7 @@ def test_nuke_skips_image_with_missing_label_and_warns(
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = None  # exists, but unlabeled
+    image_labels["acc-control:local"] = None  # exists, but unlabeled
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
@@ -1095,7 +1095,7 @@ def test_nuke_dedupes_one_image_removal_per_shared_persona(
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = "demo-project"
+    image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
@@ -1106,13 +1106,13 @@ def test_nuke_dedupes_one_image_removal_per_shared_persona(
             "docker",
             "image",
             "inspect",
-            "acc-control-control-room:local",
+            "acc-control:local",
             "--format",
             "{{json .Config.Labels}}",
         ]
     ]
     image_rm_calls = [c for c in calls if c[1:3] == ["image", "rm"]]
-    assert image_rm_calls == [["docker", "image", "rm", "acc-control-control-room:local"]]
+    assert image_rm_calls == [["docker", "image", "rm", "acc-control:local"]]
 
 
 def test_nuke_image_removal_happens_after_compose_down_and_volume_removal(
@@ -1122,7 +1122,7 @@ def test_nuke_image_removal_happens_after_compose_down_and_volume_removal(
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = "demo-project"
+    image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
@@ -1143,7 +1143,7 @@ def test_nuke_prints_image_plan_before_confirmation(
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = "demo-project"
+    image_labels["acc-control:local"] = "demo-project"
 
     prompts: list[str] = []
 
@@ -1156,7 +1156,7 @@ def test_nuke_prints_image_plan_before_confirmation(
     lifecycle.nuke_stack(str(config_path), assume_yes=False)
 
     out = capsys.readouterr().out
-    assert "acc-control-control-room:local" in out
+    assert "acc-control:local" in out
     # "image(s)", not "persona image(s)": the set now also carries the auth
     # sidecar's own local tag when authentication is on in local mode.
     assert "image(s)" in out
@@ -1174,7 +1174,7 @@ def test_nuke_without_confirmation_never_removes_or_inspects_images_when_decline
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = "demo-project"
+    image_labels["acc-control:local"] = "demo-project"
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
     with pytest.raises(RuntimeError):
@@ -1192,7 +1192,7 @@ def test_nuke_argv_safety_image_rm_is_single_exact_named_tag(
     monkeypatch.chdir(tmp_path)
     config = _persona_config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
-    image_labels["acc-control-control-room:local"] = "demo-project"
+    image_labels["acc-control:local"] = "demo-project"
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
@@ -2002,7 +2002,7 @@ def test_nuke_auth_sidecar_image_is_removed_when_label_verified(
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _auth_persona_config(["alice"]))
     image_labels["dls-assistant-auth:local"] = "demo-project"
-    image_labels["acc-control-control-room:local"] = "demo-project"
+    image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
@@ -2028,7 +2028,7 @@ def test_nuke_auth_sidecar_image_is_not_a_candidate(
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _auth_persona_config(["alice"], **kwargs))
     image_labels["dls-assistant-auth:local"] = "demo-project"  # exists and is ours
-    image_labels["acc-control-control-room:local"] = "demo-project"
+    image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)

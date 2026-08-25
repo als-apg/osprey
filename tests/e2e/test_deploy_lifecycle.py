@@ -713,8 +713,8 @@ PORTS_B = {"nginx": 19181, "web": 19900, "artifact": 20000, "ariel": 20100, "lat
 # sibling deployment already built and labeled as its own.
 A_PERSONA_PROJECT = "e2e-two-proj-a-persona"
 COLLISION_PERSONA_PROJECT = "e2e-two-proj-collision"
-TAG_A_OWN = f"{A_PERSONA_PROJECT}-mainp:local"
-TAG_COLLISION = f"{COLLISION_PERSONA_PROJECT}-borrowed:local"
+TAG_A_OWN = f"{A_PERSONA_PROJECT}:local"
+TAG_COLLISION = f"{COLLISION_PERSONA_PROJECT}:local"
 
 
 def _make_isolation_repo(
@@ -1011,8 +1011,8 @@ HETERO_ALT_PERSONA = "alt"
 # and resolve_personas()'s resolved mount path agree by construction.
 HETERO_DEFAULT_PROJECT = f"{HETERO_PREFIX}-assistant"
 HETERO_ALT_PROJECT = f"{HETERO_PREFIX}-alt"
-HETERO_DEFAULT_TAG = f"{HETERO_DEFAULT_PROJECT}-{HETERO_DEFAULT_PERSONA}:local"
-HETERO_ALT_TAG = f"{HETERO_ALT_PROJECT}-{HETERO_ALT_PERSONA}:local"
+HETERO_DEFAULT_TAG = f"{HETERO_DEFAULT_PROJECT}:local"
+HETERO_ALT_TAG = f"{HETERO_ALT_PROJECT}:local"
 
 # The .env fixture content: one var the generated .env.users MUST carry
 # (the LLM key, copied unconditionally), and three it must NEVER carry

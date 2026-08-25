@@ -1517,7 +1517,7 @@ def resolve_personas(
       a catalog entry exists for it): registry mode keeps the same un-suffixed
       ``<registry_url>/web-terminal:<tag>`` image (so the default persona's
       *image* never changes when a catalog is introduced); local mode still
-      builds ``<persona.project>-<persona>:local`` like every other persona.
+      builds ``<persona.project>:local`` like every other persona.
       ``container_project_dir`` is ``/app/<project>`` from the catalog entry,
       exactly as for any other persona: the image is built FROM that project, so
       pinning the directory to the facility default would name a path that
@@ -1528,7 +1528,12 @@ def resolve_personas(
       reads.
     * **Non-default persona**: registry mode uses
       ``<registry_url>/web-terminal-<persona>:<tag>``; local mode uses
-      ``<persona.project>-<persona>:local`` (same rule as the default persona);
+      ``<persona.project>:local`` (same rule as the default persona) — the
+      persona image is tagged by its render alone, since the persona name
+      contributes nothing to the image beyond the tag; a catalog entry with
+      no ``project`` of its own falls back to the legacy
+      ``<facility_prefix>-assistant-<persona>:local``, whose suffix keeps it
+      clear of the dispatch worker's ``<project>:local`` tag;
       ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
 
@@ -1680,7 +1685,8 @@ def resolve_personas(
             continue
 
         project = catalog_entry.get("project")
-        if not isinstance(project, str) or not project:
+        has_own_project = isinstance(project, str) and bool(project)
+        if not has_own_project:
             project = default_project
 
         # Persona-level host mounts, applied to every user of this persona. A
@@ -1716,7 +1722,22 @@ def resolve_personas(
         is_default = persona_ref == default_persona_name
 
         if image_source == "local":
-            image = f"{project}-{persona_ref}:local"
+            # A persona image IS its render — the persona name never reaches
+            # the build beyond the tag — so a catalog entry with its own
+            # `project` tags the image by that render alone. Lint enforces the
+            # distinctness this relies on (`persona_project_collision` /
+            # `persona_project_shadows_worker_image`): no two personas may
+            # share a `project` across different renders, and none may take
+            # the deployment's own name, which the dispatch worker's
+            # `<project>:local` tag occupies. Only the legacy entry WITHOUT
+            # its own `project` (resolved to the facility default above)
+            # keeps the `-<persona>` suffix: it has no render name of its own
+            # to be distinct by, so the suffix is what keeps it clear of the
+            # worker tag.
+            if has_own_project:
+                image = f"{project}:local"
+            else:
+                image = f"{project}-{persona_ref}:local"
         elif is_default:
             image = default_image
         else:

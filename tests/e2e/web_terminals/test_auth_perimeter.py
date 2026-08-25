@@ -145,10 +145,10 @@ BASE_PORTS = {
 UPSTREAM_MARKER = "osprey-e2e-auth-perimeter upstream"
 
 AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
-# `<catalog project>-<persona>:local`, exactly as resolve_personas derives a
+# `<catalog project>:local`, exactly as resolve_personas derives a
 # local-mode persona tag. Teardown-only, but spelled the way the render spells
 # it so an `rmi` here removes the tag this deploy actually built.
-PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}-{PERSONA}:local"
+PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
 
 NGINX_C = f"{PREFIX}-nginx"
 AUTH_C = f"{PREFIX}-auth"
