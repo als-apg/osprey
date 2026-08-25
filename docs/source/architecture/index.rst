@@ -97,6 +97,10 @@ search drops to a substring scan when the sidecar is absent, and ARIEL's
    :doc:`mcp-servers`
       Complete list of MCP servers and their tools.
 
+   :doc:`virtual-accelerator`
+      The Virtual Accelerator: its layers, its two transports, and the
+      LUME model seam.
+
    :doc:`/how-to/control-systems/use-connectors`
       How to add a custom control system connector.
 
@@ -108,3 +112,4 @@ search drops to a substring scan when the sidecar is absent, and ARIEL's
 
    mcp-servers
    python-executor
+   virtual-accelerator
