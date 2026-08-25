@@ -18,7 +18,12 @@ import {
   renderErrorState,
   escapeHtml,
 } from './components.js';
-import { getCurrentMode, getAdvancedParams, closeAdvancedPanel } from './advanced-options.js';
+import {
+  getCurrentMode,
+  getAdvancedParams,
+  getEffectiveParam,
+  closeAdvancedPanel,
+} from './advanced-options.js';
 import { showEntry } from './entries-detail.js';
 
 /**
@@ -53,6 +58,68 @@ let lastResults = null;
 // The search mode of the last render, kept so a live Expert<->Simple UI-mode
 // flip can re-render the same results without re-running the query.
 let lastSearchMode = 'keyword';
+// Monotonic id of the newest search the module has started. A reranked search
+// paints twice, and the second paint arrives long after the first; every render
+// a search performs is guarded on still owning this id, so a late phase-2
+// response from a superseded (or cleared) search can never repaint the view.
+let searchSeq = 0;
+/**
+ * Where the current search sits on the two-phase rerank path, or null when the
+ * search never had a second phase. Read by both renderers so any repaint — a
+ * phase completing, or a live Expert<->Simple flip — shows the same line.
+ * @type {'reranking'|'updated'|'fallback'|null}
+ */
+let rerankStatus = null;
+
+/**
+ * The one-line status each phase shows, per UI mode. Expert names the mechanism
+ * because Expert users tune it; Simple says what changed in plain words. The
+ * fallback wording is deliberately gentle and shared: a reranker that could not
+ * load in time is the normal first-query experience after a sidecar restart,
+ * not an error the operator has to act on.
+ * @type {Record<'expert'|'simple', Record<'reranking'|'updated'|'fallback', string>>}
+ */
+const RERANK_STATUS_TEXT = {
+  expert: {
+    reranking: 'Search complete — reranking with LLM…',
+    updated: 'Results updated after reranking',
+    fallback: 'Could not improve the ranking — showing fast results',
+  },
+  simple: {
+    reranking: 'Showing quick results — improving the order now…',
+    updated: 'Order improved — best matches first',
+    fallback: 'Could not improve the ranking — showing fast results',
+  },
+};
+
+/**
+ * The rerank status line, or '' when the search has no second phase.
+ * @param {'expert'|'simple'} uiMode - Which wording to use
+ * @returns {string} HTML string
+ */
+function renderRerankStatus(uiMode) {
+  if (!rerankStatus) return '';
+  const message = RERANK_STATUS_TEXT[uiMode][rerankStatus];
+  return `
+    <div class="results-modes" data-testid="rerank-status" role="status" aria-live="polite">
+      ${escapeHtml(message)}
+    </div>
+  `;
+}
+
+/**
+ * Whether a successful response is really the backend's rerank fallback: the
+ * hybrid search answered 200 with the fast ranking and a warning diagnostic
+ * because the reranker was unavailable. The status line has to say so — from
+ * the outside this is indistinguishable from a real rerank.
+ * @param {SearchResults} results - A phase-2 response
+ * @returns {boolean}
+ */
+function hasRerankFallbackWarning(results) {
+  return (results.diagnostics ?? []).some(
+    d => d.level === 'warning' && d.category === 'rerank'
+  );
+}
 
 /**
  * Wire up delegated click handling for entry cards and cited-source links.
@@ -160,6 +227,16 @@ export function initSearch(capabilities = null) {
 
 /**
  * Perform a search.
+ *
+ * A reranked search runs in two phases rather than one: reranking costs seconds
+ * the operator would otherwise spend looking at a spinner, so the fast ranking
+ * is fetched and painted first, then the reranked one replaces it. The second
+ * response is a full result set drawn from a larger candidate pool, so the view
+ * is re-rendered wholesale — membership, not just order, may differ.
+ *
+ * Everything else — any mode that does not declare `rerank`, or declares it and
+ * has it off — takes the single-request path unchanged, with no `rerank` key
+ * added to the wire params.
  * @param {string|null} [query] - Optional query override
  */
 export async function performSearch(query = null) {
@@ -171,6 +248,13 @@ export async function performSearch(query = null) {
 
   currentQuery = query;
   isSearching = true;
+  const seq = ++searchSeq;
+  rerankStatus = null;
+
+  // The button stays disabled across BOTH phases: the search is still running
+  // while phase-1 results are on screen, and a second search cannot start.
+  const searchBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('search-btn'));
+  if (searchBtn) searchBtn.disabled = true;
 
   // Collapse the filters & options panel
   closeAdvancedPanel();
@@ -184,24 +268,66 @@ export async function performSearch(query = null) {
   const mode = getCurrentMode();
   /** @type {Object<string, *>} */
   const advancedParams = getAdvancedParams();
+  const maxResults = advancedParams.max_results || 10;
+  // getEffectiveParam answers for the knob even when the operator never touched
+  // it (getAdvancedParams deliberately omits untouched knobs), and returns
+  // undefined for a mode that has no reranker at all.
+  const twoPhase = getEffectiveParam('rerank') === true;
 
   try {
-    const results = await searchApi.search({
+    if (!twoPhase) {
+      const results = await searchApi.search({ query, mode, maxResults, advancedParams });
+      if (seq !== searchSeq) return;
+      lastResults = results;
+      renderSearchResults(results, mode);
+      return;
+    }
+
+    // Phase 1 — the fast ranking. Only the per-phase `rerank` key is layered on
+    // top of the touched params, on a copy: the operator's panel is untouched.
+    const fastResults = await searchApi.search({
       query,
       mode,
-      maxResults: advancedParams.max_results || 10,
-      advancedParams,
+      maxResults,
+      advancedParams: { ...advancedParams, rerank: false },
     });
+    if (seq !== searchSeq) return;
+    lastResults = fastResults;
+    rerankStatus = 'reranking';
+    renderSearchResults(fastResults, mode);
 
-    lastResults = results;
-    renderSearchResults(results, mode);
+    // Phase 2 — the reranked ranking. Its own catch, because a failure here is
+    // not a failed search: phase 1's results stay on screen behind a warning.
+    try {
+      const rerankedResults = await searchApi.search({
+        query,
+        mode,
+        maxResults,
+        advancedParams: { ...advancedParams, rerank: true },
+      });
+      if (seq !== searchSeq) return;
+      lastResults = rerankedResults;
+      rerankStatus = hasRerankFallbackWarning(rerankedResults) ? 'fallback' : 'updated';
+      renderSearchResults(rerankedResults, mode);
+    } catch (error) {
+      console.error('Rerank phase failed:', error);
+      if (seq !== searchSeq) return;
+      rerankStatus = 'fallback';
+      renderSearchResults(fastResults, mode);
+    }
   } catch (error) {
     console.error('Search failed:', error);
+    if (seq !== searchSeq) return;
     if (resultsContainer) {
       resultsContainer.innerHTML = renderErrorState('Search Failed', error);
     }
   } finally {
-    isSearching = false;
+    // A superseded search must not hand the controls back: the search that took
+    // its place still owns them.
+    if (seq === searchSeq) {
+      isSearching = false;
+      if (searchBtn) searchBtn.disabled = false;
+    }
   }
 }
 
@@ -237,6 +363,9 @@ function renderSearchResults(results, mode = 'keyword') {
   if ((results.diagnostics?.length ?? 0) > 0) {
     html += renderDiagnosticsBar(results.diagnostics ?? []);
   }
+
+  // Two-phase rerank status, immediately above the results header it describes
+  html += renderRerankStatus('expert');
 
   // Results header
   html += `
@@ -289,6 +418,11 @@ function renderSearchResultsSimple(container, results) {
     html += renderAnswerBox(results.answer, results.sources);
   }
 
+  // The one plain-language status line Simple mode gets. It is emitted before
+  // the empty-results branch too: "still improving the order" is exactly as
+  // true of an empty fast ranking as of a full one.
+  html += renderRerankStatus('simple');
+
   const entries = results.entries ?? [];
   if (entries.length === 0) {
     html += renderEmptyState(
@@ -330,6 +464,10 @@ export function onUiModeChange() {
 
 /**
  * Clear search results.
+ *
+ * Clearing also abandons any search still in flight — bumping the sequence makes
+ * every render it has left stale, so a reranked search whose second phase lands
+ * after the operator emptied the box cannot repaint the cleared view.
  */
 export function clearSearch() {
   const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
@@ -338,8 +476,18 @@ export function clearSearch() {
   if (searchInput) searchInput.value = '';
   if (resultsContainer) resultsContainer.innerHTML = '';
 
+  searchSeq++;
+  isSearching = false;
+  rerankStatus = null;
   currentQuery = '';
   lastResults = null;
+
+  // Hand back the button the cancelled search was holding — but never the one
+  // the configuration_invalid banner disabled, which owns it permanently.
+  const searchBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('search-btn'));
+  if (searchBtn?.disabled && !document.getElementById('config-invalid-banner')) {
+    searchBtn.disabled = false;
+  }
 }
 
 /**

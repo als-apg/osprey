@@ -62,6 +62,7 @@ def advanced_params(
     source_system: str | None = None,
     similarity_threshold: float | None = None,
     expand_query: bool | None = None,
+    rerank: bool | None = None,
 ) -> dict[str, Any]:
     """Build the ``advanced_params`` mapping a search request carries.
 
@@ -75,6 +76,8 @@ def advanced_params(
         similarity_threshold: Semantic threshold, omitted when not given.
         expand_query: Vocabulary-expansion preference, omitted when not given
             so the deployment's ``expand_by_default`` decides.
+        rerank: Reranking preference, omitted when not given so the
+            deployment's ``search_modules.hybrid.settings.rerank`` decides.
 
     Returns:
         The mapping to hand to :meth:`ARIELSearchService.search`.
@@ -88,6 +91,8 @@ def advanced_params(
         params["similarity_threshold"] = similarity_threshold
     if expand_query is not None:
         params["expand_query"] = expand_query
+    if rerank is not None:
+        params["rerank"] = rerank
     return params
 
 
@@ -145,9 +150,10 @@ def success_envelope(
 ) -> dict[str, Any]:
     """Build the flat success envelope every search tool returns.
 
-    ``diagnostics`` is deliberately not here: ``keyword_search`` and
-    ``semantic_search`` add it, while ``hybrid_search`` reads its own
-    diagnostics as sidecar faults and reports them as an error envelope instead.
+    ``diagnostics`` is not here because each tool attaches it after the fact:
+    all three do so with ``diagnostics(result)``, but ``hybrid_search`` first
+    promotes its own sidecar and configuration faults to an error envelope, so
+    the diagnostics it attaches are always ones a successful search reported.
 
     Args:
         query: The query text as the caller typed it.

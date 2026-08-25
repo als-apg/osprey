@@ -6,6 +6,7 @@ available search modes and their tunable parameters.
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.search.base import ParameterDescriptor
@@ -150,7 +151,21 @@ def _add_search_modules(
         parameters: list[dict[str, Any]] = []
         get_params = getattr(module, "get_parameter_descriptors", None)
         if get_params:
-            parameters = [p.to_dict() for p in get_params()]
+            # Some modules derive their defaults from the deployment's config
+            # (the built-ins report the operator's own ``rerank`` and
+            # ``similarity_threshold``, not the shipped ones); others are fixed.
+            # Passing ``config`` only when the signature names it keeps the "add
+            # a module, get a UI knob for free" contract intact -- a facility's
+            # third-party module stays a zero-argument function and is never
+            # forced to grow a parameter it has no use for. A callable whose
+            # signature cannot be read at all is treated as zero-argument, the
+            # older and safer of the two shapes.
+            try:
+                accepts_config = "config" in inspect.signature(get_params).parameters
+            except (TypeError, ValueError):
+                accepts_config = False
+            descriptors = get_params(config) if accepts_config else get_params()
+            parameters = [p.to_dict() for p in descriptors]
         categories["direct"]["modes"].append(
             {
                 "name": name,

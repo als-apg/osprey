@@ -446,13 +446,19 @@ ariel:
       # other key without a word, so a knob written as a sibling of `enabled`
       # is silently inert — no error, just the defaults forever.
       settings:
-        rerank: true          # qmd's LLM reranker. Costs roughly 4x the query
-                              # latency and its cost barely grows with corpus
-                              # size. This is an agent tool with no interactive
-                              # budget to blow, so it keeps the quality path;
-                              # set false for the fast one.
-        candidate_limit: 40   # Candidates the reranker considers. Lowering it
-                              # trades recall for latency.
+        rerank: true          # qmd's LLM reranker. An LLM reviews every
+                              # candidate, so it dominates query latency, at a
+                              # cost driven by the candidate pool that grows
+                              # far more slowly than the corpus does. This ONE
+                              # key governs both surfaces: the agent's
+                              # hybrid_search tool and the ARIEL search panel.
+                              # Both can override it — the tool's `rerank`
+                              # argument per call, the panel's toggle per
+                              # session until Reset — so set it false only when
+                              # you want the fast path everywhere.
+        candidate_limit: 40   # Candidates the reranker considers, for both
+                              # surfaces. Lowering it trades recall for
+                              # latency.
 
   # Enhancement modules — run during ingestion
   enhancement_modules:
