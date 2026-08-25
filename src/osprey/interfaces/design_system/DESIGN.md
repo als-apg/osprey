@@ -315,9 +315,9 @@ exemptions.
 `design_system/static/js/components/osprey-display-menu.js` is the shared
 settings popover: one faders button collapsing Appearance (light/dark), View
 (Expert/Simple) and Theme (family pills) behind a card, plus an optional
-Settings entry. Standalone ARIEL is its first consumer
-(`ariel/static/index.html`, `ariel/static/js/app.js`); it replaces the
-`<osprey-theme-switcher>`-plus-bare-gear pairing the other panels still carry.
+Settings entry and a projected action slot. Every standalone surface mounts
+it — the web-terminal hub, ARIEL, artifacts, channel_finder, okf_panel and
+lattice_dashboard — so a new interface copies any of them.
 
 - Import it for its side effect
   (`import '/design-system/js/components/osprey-display-menu.js';`) and place
@@ -326,19 +326,26 @@ Settings entry. Standalone ARIEL is its first consumer
   attribute renders a Settings button carrying `data-drawer`, which is the
   delegated trigger `<osprey-drawer>` already installs document-wide. The
   component neither imports nor needs the drawer module.
-- Select the theme role off the embed state — ARIEL spells it
-  `initTheme({ role: isEmbedded() ? 'follower' : 'hub' })`, after
-  `applyEmbedded()` has run so the answer is available. That one expression is
-  the only theme-related change an on-ramping page makes: persistence, OS
-  auto-follow and `?theme=` handling all come with the hub role, and broadcast
-  is a structural no-op on a page with no iframes. `theme-manager.js` itself
-  is untouched.
+- Select the theme role off the embed state:
+  `initTheme({ role: isEmbedded() ? 'follower' : 'hub' })`, with
+  `isEmbedded()` imported from `frame-params.js` (it answers from the URL, so
+  the call needs no particular ordering against `applyEmbedded()`). That one
+  expression is the only theme-related change an on-ramping page makes:
+  persistence, OS auto-follow and `?theme=` handling all come with the hub
+  role, and broadcast is a structural no-op on a page with no iframes.
+  `theme-manager.js` itself is untouched.
 - **Add no page CSS for the embedded case.** The component injects both its
   own skin and the `body.embedded osprey-display-menu { display: none; }`
   rule itself, once per page however many instances mount
   (`_ensureStyleInjected`). An interface that had a hand-written
   `body.embedded osprey-theme-switcher` hide rule retires it along with the
   switcher.
+- **Page-owned chrome goes into the action slot.** Element children written
+  inside the tag are moved into the card's action row after the three
+  preference rows; the hub projects its Settings (keeping the
+  `data-drawer-trigger` gate contract) and Log out buttons this way. The
+  component attaches no behavior to projected children — a page that wants
+  the card dismissed calls `closeMenu()` on the element itself.
 - Preferences are origin-scoped and deliberately shared across surfaces: a
   theme or view pick made on a standalone panel *is* the operator's
   preference, and the hub adopts it on next load. Embedded panels are
@@ -363,54 +370,29 @@ to collide with and check (c) cannot fire. If a fleet `--tracking-*` ever
 ships, check (c) fails at that moment and forces the migration then — which
 is the right time to do it, not now.
 
-### Known follow-ups, in order
+### Known follow-ups
 
-The popover currently exists in **three** implementations, which is one more
-than anybody wants. That is a transitional state with a named exit, not a
-design:
+The popover now exists in exactly **one** implementation. The hub's own copy
+(`web_terminal/static/js/display-menu.js` and the `.display-menu-*` block in
+`terminal.css`) is gone: the hub mounts `<osprey-display-menu>` with its
+Settings and Log out projected into the action slot, and keeps only a
+tag-scoped remainder in `terminal.css` for the Log out skin. `modeOf(id)`
+lives in `theme-manager.js` beside `familyLabel`/`themeFamilies`, and both
+components import it. The `display_menu` DocShot recipe
+(`docs/screenshots/recipes.py`) photographs the open card on `channel_finder`.
 
-1. **Hub chrome adopts `<osprey-display-menu>`.** `web_terminal`'s own
-   popover (`web_terminal/static/js/display-menu.js` plus the
-   `.display-menu-*`/`.display-seg-*`/`.display-family-*` rules in
-   `terminal.css:85-410`) is the original the shared component was factored
-   out of, and it stays the drift surface until the hub mounts the element.
-   The two share a class vocabulary on purpose, so the swap is markup rather
-   than a rename. Three things travel with that change, and one optional
-   tidy-up sits beside it:
-   - **Retire the hub's CSS block.** The component scopes every rule of its
-     own under the `osprey-display-menu` tag name; the hub's are bare class
-     selectors, so on a page carrying both, the hub's rules bleed into the
-     component. They have to go in the same change that mounts it.
-   - **Re-home the session footer.** `terminal.css:276-405` styles the hub's
-     identity row, Settings entry and logout button. The shared component
-     renders no identity and no logout — those are hub-only chrome — so that
-     part of the block cannot simply be deleted along with the rest. Either
-     the component grows a slot for it or the hub keeps a small scoped
-     remainder. This is the real work in the follow-up; the rest is deletion.
-   - **Hoist `modeOf(id)` into `theme-manager.js`.** Three copies exist
-     today — `components/osprey-theme-switcher.js:102`,
-     `web_terminal/static/js/display-menu.js:89`, and
-     `components/osprey-display-menu.js:125` — all deriving a theme's
-     light/dark mode off the `THEMES` registry because `theme-manager.js`
-     exposes the active family and id but no mode getter. Each of the three
-     carries a comment pointing at this follow-up. Add the getter beside
-     `familyLabel`, as `themeFamilies()` was already hoisted.
-   - *Optional, same neighborhood:* cap the component's mode listener at one
-     per page. Each instance registers its own `onModeChange()` callback and
-     `onModeChange()` has no unsubscribe, so N instances leave N listeners
-     bound for the life of the page. A module-level registration dispatching
-     to a static `Set` of instances would fix it. Harmless today (one
-     instance per page, and the callback is a pure UI sync), so it is a
-     tidy-up, not a bug.
-2. **Remaining panels swap `<osprey-theme-switcher>` → `<osprey-display-menu>`.**
-   `artifacts`, `channel_finder`, `okf_panel` and `lattice_dashboard` still
-   mount the bare switcher. Each swap is step 5 of this playbook, and each
-   panel should ideally arrive there having already done steps 1-4. One
-   ordering constraint: the `theme_switcher` DocShot recipe
-   (`docs/screenshots/recipes.py`) boots `channel_finder` to photograph the
-   switcher, having been repointed there when ARIEL stopped mounting one. So
-   `channel_finder`'s swap has to repoint that recipe again — or retire it in
-   favor of a display-menu shot — in the same change.
+What is left, in order:
+
+1. *Optional tidy-up:* cap the component's mode listener at one per page.
+   Each instance registers its own `onModeChange()` callback and
+   `onModeChange()` has no unsubscribe, so N instances leave N listeners
+   bound for the life of the page. A module-level registration dispatching
+   to a static `Set` of instances would fix it. Harmless today (one instance
+   per page, and the callback is a pure UI sync).
+2. `<osprey-theme-switcher>` now has one consumer, `web_terminal`'s
+   `session.html`, plus `static/reference.html`. It stays a shipped component
+   for as long as that page mounts it; retiring it means giving session.html
+   the display menu too.
 
 Worth doing whenever the file is next open: reword the `var(--…)` prose in
 `components/osprey-theme-switcher.js`'s module docstring (line 52). That

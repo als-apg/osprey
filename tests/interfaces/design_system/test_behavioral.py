@@ -200,15 +200,16 @@ def _flip_hub_theme(page: Page) -> None:
     """Flip the hub's light/dark appearance via the header display-menu popover.
 
     The always-visible ``osprey-theme-switcher`` was replaced on the hub by the
-    display-menu dot: the appearance control now lives inside a popover that must
-    be opened first, and its two options are explicit light/dark buttons (clicking
-    the already-active side no-ops in display-menu.js), so a flip means opening the
-    dot and clicking the option opposite the current theme.
+    shared ``<osprey-display-menu>``: the appearance control now lives inside a
+    popover that must be opened first, and its two options are explicit
+    light/dark buttons (clicking the already-active side no-ops in the
+    component), so a flip means opening the trigger and clicking the option
+    opposite the current theme.
     """
     current = page.evaluate("document.documentElement.getAttribute('data-theme')")
     target = "light" if current == "dark" else "dark"
-    page.click("#display-menu-btn")
-    page.click(f'#display-menu-card .display-seg-option[data-appearance="{target}"]')
+    page.click("#display-menu .display-menu-trigger")
+    page.click(f'#display-menu .display-menu-card .display-seg-option[data-appearance="{target}"]')
 
 
 def _collect_sentinel_errors(page: Page) -> list[str]:

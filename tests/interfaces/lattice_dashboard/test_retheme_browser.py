@@ -4,8 +4,8 @@ Regression guard for the "dark-locked plots" class of bug (the audit's live-
 reswitch findings): a Plotly figure's chrome AND its opt-in themed marker must
 follow a theme toggle without a reload. render.js wires this through the
 design-system theme ``subscribe()`` — this exercises the whole path in a real
-browser (module-cached ``render.js`` instance, real ``osprey-theme-switcher``
-toggle, real ``Plotly.relayout``/``restyle``), which a TestClient can't see.
+browser (module-cached ``render.js`` instance, real ``osprey-display-menu``
+pick, real ``Plotly.relayout``/``restyle``), which a TestClient can't see.
 
 It replaces the standalone tuning-panel live-reswitch test that was removed
 when the tuning panel was retired, repointed at the lattice ``resonance``
@@ -81,8 +81,10 @@ def test_resonance_figure_rethemes_live_on_toggle(tmp_path, monkeypatch, chromiu
         assert dark["marker"], "themed star marker should resolve to a non-empty dark foreground"
         assert dark["paper"], "resonance paper_bgcolor should resolve in the dark theme"
 
-        # Toggle the theme to light via the real switcher control.
-        page.click("osprey-theme-switcher .theme-switcher-mode")
+        # Toggle the theme to light via the real display-menu control: open
+        # the popover, pick Light (a pick matching the current mode no-ops).
+        page.click("osprey-display-menu .display-menu-trigger")
+        page.click('osprey-display-menu .display-seg-option[data-appearance="light"]')
         page.wait_for_function(
             "document.documentElement.getAttribute('data-theme') === 'light'", timeout=5_000
         )

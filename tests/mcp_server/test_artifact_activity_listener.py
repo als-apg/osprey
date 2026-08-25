@@ -264,6 +264,86 @@ def test_actor_tag_is_scoped_to_the_context(project, notified):
 
 
 @pytest.mark.unit
+def test_suppressed_scope_emits_no_per_entry_delete_frames(project, notified):
+    """The bulk-delete scope silences the per-entry flood, and only the flood.
+
+    ``artifact_delete_all`` over a big gallery would otherwise evict the whole
+    50-slot history ring with one frame per entry; the tool suppresses those
+    and reports a single summary instead. Saves are unaffected, and the
+    suppression ends with the scope.
+    """
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+
+    initialize_workspace_singletons()
+    store = ArtifactStore(workspace_root=project / "_agent_data")
+
+    save_figure(store, title="Orbit X")
+    save_figure(store, title="Orbit Y")
+    wait_drained()
+    notified.clear()
+
+    with artifact_activity.suppress_delete_frames():
+        store.delete_everything()
+    wait_drained()
+
+    assert notified == []
+
+    # Scoped, not sticky: a later delete emits per entry again.
+    save_figure(store, title="Orbit Z")
+    wait_drained()
+    notified.clear()
+    store.delete_everything()
+    wait_drained()
+
+    assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_delete"]
+
+
+@pytest.mark.unit
+def test_artifact_delete_all_tool_emits_one_summary_frame(project, notified):
+    """The tool path end-to-end: N entries → ONE ``artifact_delete_all`` frame."""
+    import asyncio
+
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete_all
+    from osprey.stores.artifact_store import initialize_artifact_store
+    from tests.mcp_server.conftest import get_tool_fn
+
+    initialize_workspace_singletons()
+    store = initialize_artifact_store(workspace_root=project / "_agent_data")
+
+    save_figure(store, title="Orbit X")
+    save_figure(store, title="Orbit Y")
+    wait_drained()
+    notified.clear()
+
+    asyncio.run(get_tool_fn(artifact_delete_all)("everything"))
+    wait_drained()
+
+    assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_delete_all"]
+    detail = notified[0][0]["detail"]
+    assert "2" in detail and "everything" in detail
+
+
+@pytest.mark.unit
+def test_artifact_delete_all_of_an_empty_scope_emits_nothing(project, notified):
+    """Nothing was destroyed, so there is no action to report."""
+    import asyncio
+
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+    from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete_all
+    from osprey.stores.artifact_store import initialize_artifact_store
+    from tests.mcp_server.conftest import get_tool_fn
+
+    initialize_workspace_singletons()
+    initialize_artifact_store(workspace_root=project / "_agent_data")
+
+    asyncio.run(get_tool_fn(artifact_delete_all)("everything"))
+    wait_drained()
+
+    assert notified == []
+
+
+@pytest.mark.unit
 def test_notify_runs_on_the_worker_not_the_caller(project, notified):
     """The store callback must not do HTTP on the thread that saved."""
     from osprey.mcp_server.startup import initialize_workspace_singletons

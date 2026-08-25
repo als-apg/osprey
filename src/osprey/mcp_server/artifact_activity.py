@@ -34,6 +34,16 @@ run is indistinguishable from the auto-save (same type, same ``tool_source``)
 and is silently dropped. A missed frame for a rare case beats three frames for
 every run; the run's own emit still shows the activity.
 
+**Bulk deletes report a summary, not a flood.** ``artifact_delete_all`` over a
+gallery bigger than the browser-side history ring (50 frames) would evict the
+ring's entire contents with per-entry delete frames — everything the operator
+could scroll back to would be one repeated delete. The tool therefore wraps the
+store call in :func:`suppress_delete_frames` (per-entry delete frames are
+dropped at the enqueue) and reports the whole action as one
+:func:`notify_bulk_delete` summary frame instead. The scope is a context
+variable on the mutating caller, so a concurrent single delete elsewhere still
+emits normally.
+
 Headless dispatch agents register these listeners too. Their web terminal does
 not exist, so each notify fails and is swallowed by ``notify_agent_activity``
 (bounded at roughly a second, and only ever on the worker thread).
@@ -41,6 +51,8 @@ not exist, so each notify fails and is swallowed by ``notify_agent_activity``
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import queue
 import threading
@@ -75,10 +87,55 @@ _BOOKKEEPING_CATEGORY = "code_output"
 #: the overflow is strictly better than growing a queue nobody will read.
 _MAX_PENDING = 256
 
-_pending: queue.Queue[tuple[str, ArtifactEntry]] = queue.Queue(maxsize=_MAX_PENDING)
+#: Queued frames: ``(tool, detail)``. The detail is rendered at enqueue time,
+#: on the mutating caller — the worker thread must never need the entry (or
+#: any other caller-context state) back.
+_pending: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=_MAX_PENDING)
 _state_lock = threading.Lock()
 _worker: threading.Thread | None = None
 _registered = False
+
+#: True while the current context is inside :func:`suppress_delete_frames`.
+_delete_frames_suppressed: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "artifact_delete_frames_suppressed", default=False
+)
+
+
+@contextlib.contextmanager
+def suppress_delete_frames():
+    """Silence per-entry delete frames for store mutations made in this scope.
+
+    For bulk deletes that report themselves as one action (see
+    :func:`notify_bulk_delete`): the store still fires its delete listener once
+    per removed entry, but this listener drops those frames at the enqueue.
+    Save frames are unaffected. Context-variable scoped, like
+    :func:`osprey.stores.artifact_store.artifact_mutation_actor` — the listener
+    fires on the mutating caller's own context, so a concurrent delete outside
+    the scope still emits normally.
+    """
+    token = _delete_frames_suppressed.set(True)
+    try:
+        yield
+    finally:
+        _delete_frames_suppressed.reset(token)
+
+
+def notify_bulk_delete(scope: str, count: int) -> None:
+    """Enqueue the single summary frame for a bulk delete of ``count`` entries.
+
+    The counterpart of :func:`suppress_delete_frames`: the caller silences the
+    per-entry flood and reports the whole action here instead. A zero count is
+    dropped — nothing was destroyed, so there is no action to report — and a
+    non-agent caller is dropped for the same reason every frame is: these are
+    *agent* activity.
+    """
+    if count <= 0 or current_artifact_mutation_actor() != "agent":
+        return
+    noun = "artifact" if count == 1 else "artifacts"
+    try:
+        _pending.put_nowait(("artifact_delete_all", f"{count} {noun} ({scope})"))
+    except queue.Full:
+        logger.debug("artifact activity backlog full — dropping bulk-delete summary")
 
 
 def _is_bookkeeping(entry: ArtifactEntry) -> bool:
@@ -97,9 +154,9 @@ def _detail_for(entry: ArtifactEntry) -> str:
 def _drain_pending() -> None:
     """Worker loop: POST one activity frame per queued store event."""
     while True:
-        tool, entry = _pending.get()
+        tool, detail = _pending.get()
         try:
-            notify_agent_activity(tool=tool, kind=_KIND, detail=_detail_for(entry))
+            notify_agent_activity(tool=tool, kind=_KIND, detail=detail)
         except Exception:
             # notify_agent_activity swallows its own failures; this guard only
             # keeps an unforeseen error from killing the worker for the process.
@@ -119,7 +176,7 @@ def _enqueue(tool: str, entry: ArtifactEntry) -> None:
     if _is_bookkeeping(entry):
         return
     try:
-        _pending.put_nowait((tool, entry))
+        _pending.put_nowait((tool, _detail_for(entry)))
     except queue.Full:
         # Never wait for room: the caller is a store mutation, not a reporter.
         logger.debug("artifact activity backlog full — dropping %s frame", tool)
@@ -131,7 +188,14 @@ def _on_artifact_saved(entry: ArtifactEntry) -> None:
 
 
 def _on_artifact_deleted(entry: ArtifactEntry) -> None:
-    """Store delete listener — fires once per entry, bulk deletes included."""
+    """Store delete listener — fires once per entry, bulk deletes included.
+
+    A bulk delete that reports itself as one action suppresses these per-entry
+    frames via :func:`suppress_delete_frames` and emits
+    :func:`notify_bulk_delete` instead.
+    """
+    if _delete_frames_suppressed.get():
+        return
     _enqueue(_DELETE_TOOL, entry)
 
 

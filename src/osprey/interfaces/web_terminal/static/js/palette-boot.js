@@ -94,12 +94,12 @@ function buildPaletteDeps() {
     actions.push({ label: 'New session', run: () => { startNewSession(); } });
   }
 
-  // Always offer the mode the operator is NOT in, and reuse the wired
-  // mode-toggle handler rather than re-implementing the flip.
+  // Always offer the mode the operator is NOT in, and reuse the header
+  // <osprey-display-menu>'s View row rather than re-implementing the flip.
   const otherMode = simple ? 'expert' : 'simple';
   actions.push({
     label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
-    run: () => document.querySelector(`.mode-segment[data-mode="${otherMode}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    run: () => document.querySelector(`osprey-display-menu .display-menu-view .display-seg-option[data-mode="${otherMode}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
   });
 
   // Both rail directions are always offered (the palette is searched, not
