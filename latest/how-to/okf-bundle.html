@@ -841,14 +841,16 @@ that <em>is</em> present but has the wrong type is refused at startup rather tha
 quietly defaulted — silently ignoring <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">&quot;false&quot;</span></code> would leave the
 deployment on the path it explicitly asked to leave.</p>
 <p><strong>``rerank`` defaults to ``false`` here, and to ``true`` on the ARIEL side.</strong>
-That split is deliberate. qmd’s reranker improves ranking quality but costs
-roughly <strong>4x</strong> the query budget — measured p95 3927 ms with it against 811 ms
-without, on a 135,000-document corpus — and its cost barely changes with corpus
-size, so no bundle is small enough to outrun it. The OKF surfaces are
-interactive and hold a sub-second budget that reranking does not fit in. The
-ARIEL <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> tool is an agent tool with no such budget, so it keeps the
-quality path. Set <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code> if you would rather have the ranking than
-the latency.</p>
+That split is deliberate. qmd’s reranker improves ranking quality at a real
+latency cost — an LLM reviews each candidate before the results come back,
+measured p95 3927 ms with it against 811 ms without, on a 135,000-document
+corpus — and that cost barely changes with corpus size, so no bundle is small
+enough to outrun it. The OKF surfaces are interactive and hold a sub-second
+budget that reranking does not fit in. ARIEL’s <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> module keeps the
+quality path instead: one key there serves both the agent tool and the search
+panel, and the panel absorbs the wait by showing the fast ranking first and
+replacing it when the reranked one arrives.
+Set <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code> if you would rather have the ranking than the latency.</p>
 <p><code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> is how many candidates the reranker considers. Lowering it
 trades recall for latency.</p>
 <div class="admonition note">

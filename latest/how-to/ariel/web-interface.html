@@ -592,6 +592,48 @@ Status</label><div class="sd-tab-content docutils">
 <p>The four ARIEL views above were captured with OSPREY v2026.6.2.post1352+geab911034.d20260819 from the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> tutorial’s seeded logbook.</p>
 </section>
+<section id="advanced-options">
+<h2>Advanced Options<a class="headerlink" href="#advanced-options" title="Link to this heading">#</a></h2>
+<p>The <strong>Filters &amp; Options</strong> panel is built from whatever the enabled search
+modules declare, so the controls in it depend on the deployment. Two things
+about how it behaves are worth knowing before you tune anything.</p>
+<p><strong>Every knob shows its own explanation.</strong> The description a module writes for a
+parameter is rendered as a line of hint text under the control, rather than
+hidden behind a hover tooltip — readable on a touch screen, and readable
+without having to discover that there was something to hover over.</p>
+<p><strong>Knobs you have not touched follow the deployment’s configuration.</strong> The panel
+opens on the deployment’s configured value for every control that has one, and
+on the shipped default for the rest; a search sends only the controls you
+actually changed. Anything you left alone is not sent at all, so it resolves on
+the server to whatever the configuration says — which means a change to the
+deployment’s config reaches the panel without anyone re-picking anything, after
+the service restarts and the page is reloaded. <strong>Reset</strong> clears the whole set:
+values return to the configured defaults, and every knob counts as untouched
+again.</p>
+<p>That is also why the reranking control behaves the way it does. <strong>Rerank
+Results</strong> opens showing <code class="docutils literal notranslate"><span class="pre">search_modules.hybrid.settings.rerank</span></code> exactly as the
+deployment set it, and clicking it overrides the configured value for your
+searches from then on, without changing the deployment. <strong>Reset</strong> returns it to
+the deployment’s value. The key itself is described in <a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a>.</p>
+<section id="watching-a-reranked-search-run">
+<h3>Watching a reranked search run<a class="headerlink" href="#watching-a-reranked-search-run" title="Link to this heading">#</a></h3>
+<p>Reranking costs seconds, and the interface does not ask you to spend them
+looking at a spinner. A search that will be reranked runs in two phases: the
+fast ranking is fetched and drawn first, then the reranked ranking replaces it
+when it arrives. A status line above the results says which of the two you are
+looking at. Expert view names the mechanism — <em>Search complete — reranking
+with LLM…</em>, then <em>Results updated after reranking</em>. Simple view says the same
+thing in one plain line — <em>Showing quick results — improving the order
+now…</em>, then <em>Order improved — best matches first</em>.</p>
+<p>The second response is drawn from a larger candidate pool, so entries can appear
+or drop out between the phases: the list is redrawn, not merely reordered.</p>
+<p>If the reranker cannot answer — most often on the first query after the search
+sidecar starts, while its model is still loading — the fast results stay on
+screen under <em>Could not improve the ranking — showing fast results</em>. Nothing
+is lost, and there is nothing to do about it; the next query is normally
+reranked.</p>
+</section>
+</section>
 <section id="display-preferences">
 <h2>Display Preferences<a class="headerlink" href="#display-preferences" title="Link to this heading">#</a></h2>
 <p>The button at the top right of the header — the one drawn as three sliders
@@ -1033,6 +1075,10 @@ such as PostgreSQL.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#views">Views</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-options">Advanced Options</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#watching-a-reranked-search-run">Watching a reranked search run</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#display-preferences">Display Preferences</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capabilities-api">Capabilities API</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-web-interface">Running the Web Interface</a></li>
