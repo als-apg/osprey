@@ -34,19 +34,16 @@ Themes come in **families**. OSPREY ships four:
 
 In the terminal, click the sliders button at the top right to open the
 display menu — it holds the light/dark switch, the Expert/Simple view toggle,
-and the theme family picker. ARIEL, opened as its own page, has the same
-button and the same display controls. The remaining panels, opened as
-standalone pages, show the light/dark switch and the family picker inline in
-their own header, as pictured below.
+and the theme family picker, as pictured below. Every panel opened as its own
+page (ARIEL, the workspace, Channel Finder, the lattice dashboard, the
+knowledge panel) has the same button and the same display controls in its
+own header.
 
-A pick made in the terminal or in ARIEL is remembered by your browser and
-becomes your preference for every OSPREY page served from the same address —
-set a theme in ARIEL and the terminal comes up in it the next time you load
-it. Until you pick Light or Dark, pages follow your operating system's
-light/dark preference. The other panels read that shared preference when they
-load and apply your pick for as long as the page stays open, but they do not
-change what is remembered: the places to *set* a preference are the terminal
-and ARIEL.
+A pick made on any of those pages is remembered by your browser and becomes
+your preference for every OSPREY page served from the same address — set a
+theme in ARIEL and the terminal comes up in it the next time you load it.
+Until you pick Light or Dark, pages follow your operating system's light/dark
+preference.
 
 Panels shown inside the terminal are a separate case. The terminal hands each
 one its theme and view in the page address, and an address outranks the
@@ -58,18 +55,18 @@ around it.
 
    .. grid-item::
 
-      .. image:: /_static/screenshots/theme_switcher_light.png
-         :alt: The inline theme switcher in the light Osprey theme
+      .. image:: /_static/screenshots/display_menu_light.png
+         :alt: The open display menu in the light Osprey theme
          :width: 100%
 
    .. grid-item::
 
-      .. image:: /_static/screenshots/theme_switcher_dark.png
-         :alt: The inline theme switcher in the dark Osprey theme
+      .. image:: /_static/screenshots/display_menu_dark.png
+         :alt: The open display menu in the dark Osprey theme
          :width: 100%
 
-The inline theme switcher a standalone panel shows in its header, light and
-dark. Captured with OSPREY |captured_theme_switcher|.
+The display menu a standalone panel opens from its header, light and dark.
+Captured with OSPREY |captured_display_menu|.
 
 To set the theme a deployment *starts* in, use ``web.theme`` in ``config.yml``:
 
