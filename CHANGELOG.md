@@ -30,6 +30,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   actionable suggestion — instead of only the probe channel, which misread as "the
   control system is down" when a single gateway beside a healthy one was unserved.
   (#718)
+- DOOCS connector: an explicit `verification_level="none"` write no longer consults
+  the limits database for a tolerance it will not use, matching the Mock and EPICS
+  connectors. An explicit `"callback"` write still resolves the channel's tolerance,
+  since DOOCS verifies it by readback.
 
 ### Added
 

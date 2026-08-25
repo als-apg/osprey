@@ -184,10 +184,18 @@ class DOOCSConnector(ControlSystemConnector):
 
         # Step 2: Resolve verification config.
         #
-        # The level is auto-determined only when the caller omitted it, but the
-        # tolerance is resolved from the limits DB either way: passing an explicit
-        # level must not silently drop the tolerance configured for the channel.
-        if verification_level is None or tolerance is None:
+        # The level is auto-determined only when the caller omitted it, and the
+        # tolerance is resolved from the limits DB only when a verifying write
+        # actually needs one: passing an explicit level must not silently drop
+        # the tolerance configured for the channel, while an explicit "none"
+        # write uses no tolerance and therefore never reaches the lookup — the
+        # same guard shape Mock and EPICS use. One protocol difference: DOOCS
+        # has no callback confirmation and downgrades "callback" to readback
+        # verification (see below), so "callback" needs the tolerance here
+        # where Mock/EPICS guard on "readback" alone.
+        if verification_level is None or (
+            tolerance is None and verification_level in ("callback", "readback")
+        ):
             # The value is only used to scale a percentage tolerance. DOOCS also
             # writes strings, which have no numeric scale, so fall back to 0.0
             # instead of raising on float().
