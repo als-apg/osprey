@@ -1275,11 +1275,10 @@ def _refuse_invented_history(config: dict) -> None:
     deploy is where the pairing becomes a running stack other people trust.
 
     Keyed on ``control_system.type`` alone, exactly as the other two sites are,
-    rather than on ``deployed_services`` like ``_ensure_bluesky_substrate_env``
-    below: that function is auto-configuring a service and so only cares whether
-    the service is here, while this one is asking what the deployment claims
-    about itself. An attached project deploying no VA container of its own still
-    points its agent at one.
+    rather than on ``deployed_services``: a step that provisions a service only
+    cares whether the service is here, while this one is asking what the
+    deployment claims about itself. An attached project deploying no VA
+    container of its own still points its agent at one.
 
     Both keys are resolved through nested sections only, the way ``ConfigBuilder``
     reads a rendered ``config.yml`` — see
@@ -1306,139 +1305,6 @@ def _refuse_invented_history(config: dict) -> None:
         f"`va_archiver:` block — the control-assistant preset ships one, and "
         f"`osprey up` then brings up the store and its recorder beside the "
         f"virtual accelerator."
-    )
-
-
-def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
-    """Auto-configure the bluesky bridge's EPICS-substrate plan devices for a
-    VA-backed Bluesky stack, making ``osprey up`` turn-key.
-
-    Additive and non-breaking, mirroring ``_ensure_service_tokens``'s
-    "existing value wins, append what's missing" convention: when the
-    deployed project is a VA-backed Bluesky stack (BOTH ``"bluesky"`` and
-    ``"virtual_accelerator"`` present in ``deployed_services``), derive
-    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_SETPOINTS``/``_READBACKS`` from
-    the built project's own ``data/channel_limits.json`` (the canonical
-    derivation lives in
-    ``osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env``,
-    shared with ``tests/e2e/_orm_stack.py``) and append any of those keys not
-    already present in the project ``.env``. Any value already set — in the
-    process env or an existing ``.env`` — is left untouched, so an
-    operator-configured or e2e-harness-configured substrate env is always
-    preserved.
-
-    A no-op for any deploy that is not both bluesky- and
-    virtual-accelerator-backed (e.g. a plain agent deploy, or bluesky without
-    the VA): nothing is read or written. This makes the bridge substrate-mode
-    with real channel names available regardless of
-    ``control_system.type`` -- the bridge's own connector backend follows
-    that setting separately.
-
-    Never raises into a deploy: a missing/unreadable ``channel_limits.json``
-    or a derivation that yields no correctors/BPMs logs a warning and is
-    skipped, leaving the bridge and the queueserver worker with an empty
-    device namespace — browse-only, exactly as if no substrate env had ever
-    been set — unless an operator supplies one by hand.
-
-    Deliberately *not* written back to the profile ``.env``, unlike the service
-    secrets ``_ensure_service_tokens`` syncs there. These vars are derived
-    configuration, not state only a deploy can produce: their source is the
-    project's own ``channel_limits.json``. The write-back exists to preserve
-    what nothing else can reproduce, so the profile is the wrong place to pin a
-    device list this function derives.
-
-    :param config: Raw deploy config (``deployed_services`` membership).
-    :param env_path: Project ``.env`` path; defaults to ``Path(".env")``
-        (matching ``_ensure_service_tokens``), i.e. resolved against the
-        current working directory -- ``osprey up`` always chdirs into the
-        repo root first. Overridable for tests.
-    """
-    deployed_services = config.get("deployed_services")
-    services = {str(s) for s in (deployed_services or [])}
-    lane_keys = _bluesky_lane_keys(config)
-    if not lane_keys or "virtual_accelerator" not in services:
-        return
-
-    # The substrate devices are ophyd-async Channel Access devices, which only
-    # exist behind a real or virtual IOC. A ``mock`` control system speaks no
-    # CA, so there is nothing to point them at -- the documented "mock =
-    # browse-only, virtual_accelerator = real run" contract. Deriving a
-    # substrate here would hand the queueserver worker device names it can
-    # never connect to, turning a clean browse-only deployment into one whose
-    # environment fails to open. Only auto-configure substrate for a control
-    # system that actually speaks CA.
-    control_system_type = str(config.get("control_system", {}).get("type", "mock")).strip().lower()
-    if control_system_type == "mock":
-        _report_fact(
-            "control_system.type is 'mock': this deployment is browse-only -- plans can "
-            "be listed and composed but never executed. Skipping "
-            "BLUESKY_EPICS_SUBSTRATE auto-configuration (plan devices need an "
-            "EPICS-like connector to speak Channel Access to). Flip it with "
-            "`osprey set connector=virtual_accelerator` -- that pairing needs the "
-            "archiver pointed at a real store, and on a mock-archiver profile the "
-            "next `osprey build` refuses and names the fix."
-        )
-        return
-
-    if env_path is None:
-        env_path = Path(".env")
-    project_dir = env_path.resolve().parent
-
-    from osprey.services.bluesky_bridge.substrate_devices import derive_substrate_env
-
-    try:
-        derived = derive_substrate_env(project_dir)
-    except Exception:
-        logger.warning(
-            "Could not auto-configure bluesky bridge plan devices from %s "
-            "(derivation raised unexpectedly). Skipping BLUESKY_EPICS_SUBSTRATE "
-            "auto-configuration -- set BLUESKY_EPICS_SETPOINTS/_READBACKS manually "
-            "if you want the bridge to run in EPICS-substrate mode.",
-            project_dir / "data" / "channel_limits.json",
-            exc_info=True,
-        )
-        return
-    if not derived:
-        logger.warning(
-            "Could not auto-configure bluesky bridge plan devices from %s "
-            "(missing, unreadable, or yields no SR correctors/BPMs). Skipping "
-            "BLUESKY_EPICS_SUBSTRATE auto-configuration -- set "
-            "BLUESKY_EPICS_SETPOINTS/_READBACKS manually if you want the bridge "
-            "to run in EPICS-substrate mode.",
-            project_dir / "data" / "channel_limits.json",
-        )
-        return
-
-    # One set of variables PER LANE. The device NAMES are a property of the
-    # facility and come out the same for both — the two lanes address the same
-    # PVs through different gateways — but the variables are per lane all the
-    # same, because that is what lets an operator narrow one lane's substrate
-    # without silently narrowing the other's. Lane 1's names are unchanged, so
-    # a single-lane project's ``.env`` gains nothing new here.
-    derived_by_lane: dict[str, str] = {}
-    for lane_key in lane_keys:
-        prefix = _bluesky_lane_env_prefix(lane_key)
-        for name, value in derived.items():
-            derived_by_lane[f"{prefix}{name.removeprefix(_BLUESKY_LANE_ONE.upper())}"] = value
-
-    existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    generated = {
-        k: v for k, v in derived_by_lane.items() if k not in os.environ and k not in existing
-    }
-    if not generated:
-        return
-
-    _append_env_block(
-        env_path,
-        "Auto-configured bluesky bridge plan devices (osprey deploy up)",
-        generated,
-    )
-    _report_fact(
-        "bluesky plan devices auto-configured → .env",
-        wrote=(
-            ".env",
-            f"{', '.join(generated)} from the project's channel_limits.json",
-        ),
     )
 
 
@@ -3055,14 +2921,12 @@ def _deploy_written_env_vars() -> set[str]:
     must not depend on which services happen to be enabled today — otherwise
     the contradiction stays invisible until the deploy that first turns one on.
 
-    Six writers, all of them appending to (or rewriting) the local file on the
+    Five writers, all of them appending to (or rewriting) the local file on the
     ordinary start path:
 
     * :data:`_SERVICE_TOKEN_VARS` — the minted secrets;
     * :data:`_SERVICE_DEFAULT_VARS` — the non-secret settings written down for
       discoverability;
-    * the bluesky substrate devices, derived from the built project's channel
-      limits (:func:`_ensure_bluesky_substrate_env`);
     * the RE manager's control-socket keypair
       (:func:`_ensure_bluesky_control_plane_keys`);
     * the credentials ``--reuse-stores`` restores from surviving data volumes
@@ -3085,22 +2949,6 @@ def _deploy_written_env_vars() -> set[str]:
         written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
     written |= set(_STORE_ISSUED_VARS)
-
-    # Imported rather than spelled again, from the module that defines them for
-    # the bridge. Guarded because this runs on every deploy while the writer
-    # that uses these names runs only on a bluesky one: an environment where the
-    # import fails is an environment where that writer cannot run either, so the
-    # census loses nothing it could have enforced.
-    try:
-        from osprey.services.bluesky_bridge.devices._specs_from_env import (
-            READBACKS_ENV,
-            SETPOINTS_ENV,
-            SUBSTRATE_ENV,
-        )
-    except ImportError:  # pragma: no cover - the bridge package is always present
-        logger.debug("Bluesky substrate env names unavailable; omitted from the writer census")
-    else:
-        written |= {SUBSTRATE_ENV, SETPOINTS_ENV, READBACKS_ENV}
     return written
 
 
@@ -5430,11 +5278,6 @@ def _start_stack(
     _preflight_stale_store_volumes(
         config, minted_store_vars or set(), env_path or Path(".env"), reuse_stores=reuse_stores
     )
-
-    # Auto-configure the bluesky bridge's EPICS-substrate plan devices for a
-    # VA-backed Bluesky stack (additive; no-op unless both bluesky and
-    # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
-    _ensure_bluesky_substrate_env(config, env_path)
 
     # Provision the bluesky plan stack's 0MQ key material before compose mounts
     # it: the RE manager's control-socket keypair into .env, and the document

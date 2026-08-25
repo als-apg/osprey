@@ -282,7 +282,6 @@ def stubbed_start_stack(monkeypatch):
         "_preflight_host_ports",
         "_ensure_service_tokens",
         "_preflight_archiver_pymongo",
-        "_ensure_bluesky_substrate_env",
         "_ensure_bluesky_control_plane_keys",
         "_ensure_bluesky_document_plane_certs",
         "_preflight_env_chain_drift",
