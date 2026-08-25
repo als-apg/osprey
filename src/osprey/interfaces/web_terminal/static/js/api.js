@@ -210,7 +210,7 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
     setTimeout(connect, delay);
   }
 
-  /** @param {string|ArrayBufferLike|Blob|ArrayBufferView} data */
+  /** @param {string|Blob|BufferSource} data */
   function send(data) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
