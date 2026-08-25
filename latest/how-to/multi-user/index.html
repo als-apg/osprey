@@ -862,7 +862,8 @@ whole account of what will run — so a persona project missing at start time
 is reported as a stale or partial build, with a rebuild as the remedy.</p></li>
 <li><p><strong>The start builds each persona’s image.</strong> In the preset’s local mode
 (<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each persona’s image
-(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-&lt;persona&gt;:local</span></code>) from that rendered project —
+(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> after the persona’s rendered project, e.g.
+<code class="docutils literal notranslate"><span class="pre">my-control-assistant-readwrite:local</span></code>) from that rendered project —
 no registry, no CI.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>)
 serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9080</span></code>, and one Web Terminal
