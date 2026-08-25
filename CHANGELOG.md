@@ -11,6 +11,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- The build-drift gate no longer counts material `osprey up` mints itself: the
+  per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
+  reserved runtime-output subpath the fingerprint never hashes and the build
+  never stages, so a started deployment stays CLEAN and the scaffolded systemd
+  unit's bare `osprey up -d` comes back after a reboot (#716). Existing key
+  material at the old `data/<lane>_curve/` path is relocated — not re-minted —
+  on the next `osprey up`.
+
 ### Added
 
 - Build interview: an upstream fit watch — places where OSPREY cannot express what a

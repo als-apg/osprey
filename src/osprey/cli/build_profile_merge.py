@@ -652,7 +652,9 @@ def resolve_profile_document(
 # ---------------------------------------------------------------------------
 
 
-def _fold_source_tree(digest: Any, label: str, source: Path) -> None:
+def _fold_source_tree(
+    digest: Any, label: str, source: Path, *, skip_runtime_output: bool = False
+) -> None:
     """Fold one file-or-directory build input into ``digest``, in place.
 
     Every regular file under ``source`` contributes its path relative to
@@ -660,6 +662,14 @@ def _fold_source_tree(digest: Any, label: str, source: Path) -> None:
     joined with the SHA-256 of its bytes. Entries are sorted by that relative
     path, and directories themselves contribute nothing — only their files —
     so the digest depends on content alone and not on filesystem walk order.
+
+    ``skip_runtime_output`` is passed for the ``data:`` tree only: the
+    top-level :data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`
+    subtree is where ``osprey up`` mints its own material (per-lane CURVE
+    certificates), and hashing it would make every successful start mark its
+    own build OUT OF DATE (#716). The subtree is skipped statically — by its
+    reserved name, not by a manifest — so the fold and the writer cannot fall
+    out of sync about which files a start is allowed to create.
 
     A ``source`` that does not exist folds only its ``label``: the profile keys
     that name it are already in the canonical JSON, so a vanished tree still
@@ -685,15 +695,18 @@ def _fold_source_tree(digest: Any, label: str, source: Path) -> None:
     """
     import hashlib
 
+    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+
     if source.is_dir():
-        entries = sorted(
-            (
-                (path.relative_to(source).as_posix(), path)
-                for path in source.rglob("*")
-                if path.is_file()
-            ),
-            key=lambda entry: entry[0],
-        )
+        entries = []
+        for path in source.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(source).as_posix()
+            if skip_runtime_output and rel.split("/", 1)[0] == RUNTIME_DATA_DIR_NAME:
+                continue
+            entries.append((rel, path))
+        entries.sort(key=lambda entry: entry[0])
     elif source.is_file():
         entries = [(source.name, source)]
     else:
@@ -723,7 +736,13 @@ def _fold_profile_material(
 
     * the ``data:`` tree, anchored via
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
-      so it resolves exactly where the build copies it from;
+      so it resolves exactly where the build copies it from — minus the
+      reserved ``data/.runtime/`` subtree
+      (:data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`), which is
+      runtime-minted material (the Bluesky lanes' CURVE certificates) and
+      never build input: fold it and every successful ``osprey up`` marks its
+      own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at
+      the drift gate (#716);
     * every convention directory the profile carries
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
       includes the ``project/`` verbatim mirror), folded in sorted name order
@@ -775,7 +794,9 @@ def _fold_profile_material(
 
     data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
     if data_root is not None:
-        _fold_source_tree(digest, "data", data_root)
+        # data/.runtime/ is runtime-minted material, never build input — see
+        # the docstring above and _fold_source_tree's skip contract (#716).
+        _fold_source_tree(digest, "data", data_root, skip_runtime_output=True)
 
     if not conventions:
         return

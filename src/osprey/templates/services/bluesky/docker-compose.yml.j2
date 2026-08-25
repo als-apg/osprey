@@ -342,7 +342,7 @@ services:
       # holds the proxy's secret certificate plus a `clients/` directory of the
       # publisher public keys it will accept — and never the publisher's
       # secret, which lives only in the queueserver's own mount.
-      - ./data/{{ lane_key }}_curve/bridge:/app/curve:ro
+      - ./data/.runtime/{{ lane_key }}_curve/bridge:/app/curve:ro
 {% if svc.plan_dir %}
       # Facility plan directory: operator-supplied host path via
       # services.{{ lane_key }}.plan_dir in config.yml, mounted read-only — the
@@ -589,8 +589,10 @@ services:
       # Split per container by directory rather than by file so each side can
       # only read the secret it is supposed to hold: this one carries the
       # publisher's secret certificate and the bridge proxy's PUBLIC one, and
-      # never the proxy's secret. Same ./data/ convention as the limits DB.
-      - ./data/{{ lane_key }}_curve/queueserver:/app/curve:ro
+      # never the proxy's secret. Minted by `osprey up` itself, so it lives
+      # under data/.runtime/ — the runtime-output subpath the build-drift
+      # fingerprint reserves for exactly this material (#716).
+      - ./data/.runtime/{{ lane_key }}_curve/queueserver:/app/curve:ro
 {% if svc.plan_dir %}
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
