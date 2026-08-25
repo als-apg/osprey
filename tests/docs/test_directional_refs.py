@@ -12,7 +12,6 @@ inside a list item, and a Markdown page the guard cannot read.
 from __future__ import annotations
 
 import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
@@ -82,7 +81,6 @@ def _load_checker():
     spec = importlib.util.spec_from_file_location("check_directional_refs", _SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
