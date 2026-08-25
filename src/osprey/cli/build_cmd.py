@@ -1055,8 +1055,17 @@ def _render_compose_files(
     previous = Path.cwd()
     os.chdir(zones.stage)
     try:
+        # ``deployed_config_dir`` is passed explicitly for the same reason
+        # ``output_root`` is, and is its mirror image: this render reads its
+        # config from the staging ROOT, but the config it produces will be read
+        # from ``build/`` once the swap lands. Derived from the config path it
+        # would come out empty, and every path spelled against it would resolve
+        # one directory too high at deploy time.
         config, compose_files = prepare_compose_files(
-            str(zones.stage / "config.yml"), dev_mode=dev_mode, output_root="."
+            str(zones.stage / "config.yml"),
+            dev_mode=dev_mode,
+            output_root=".",
+            deployed_config_dir=BUILD_DIR_NAME,
         )
         # Read back inside the chdir: every path involved — the rendered files,
         # the service directories the config names — is spelled relative to the

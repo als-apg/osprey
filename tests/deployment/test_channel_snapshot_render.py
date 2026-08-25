@@ -1,12 +1,17 @@
-"""Channel-snapshot injection into the compose render paths.
+"""Staged-artifact injection into the compose render paths.
 
-The compose render must hand every consumer one decision: the
-``channel_snapshot`` render-context key, the ``channels.json`` artifact in the
-bluesky_web build context, and (Task 2.2) the compose fragment's conditional
-mount all derive from a single :func:`compute_channel_snapshot` call. These
-tests pin the full (:func:`setup_build_dir`) and incremental
-(:func:`_incremental_setup_build_dir`) paths to identical behaviour — same
-context value, same artifact bytes, same absence.
+Two artifacts are staged by the render and gated the same way — the
+bluesky_web sidecar's ``channels.json`` behind ``channel_snapshot``, and the
+queueserver worker's ``bluesky_devices.yml`` behind ``bluesky_devices``. Each
+is one decision reaching three consumers: a render-context boolean, a file in
+the service's build context, and the compose fragment's conditional mount.
+
+Both are pinned across BOTH render paths — the full :func:`setup_build_dir` and
+the incremental :func:`_incremental_setup_build_dir` — because a project's
+first build takes one and every rebuild takes the other, and a divergence
+between them is a deployment whose mounted file depends on which command last
+ran. Same context value, same artifact bytes, same absence, and the same
+removal of a stale file the decision has revoked.
 """
 
 from __future__ import annotations
@@ -35,7 +40,8 @@ def repo(tmp_path, monkeypatch):
 
     repo = tmp_path / "repo"
     packaged = resources.files(osprey).joinpath("templates", "services")
-    shutil.copytree(str(packaged / "bluesky_web"), repo / "services" / "bluesky_web")
+    for service in ("bluesky_web", "bluesky"):
+        shutil.copytree(str(packaged / service), repo / "services" / service)
     # The shared macro partials travel with the template that imports them, by
     # the same glob the build copies them with (_copy_shared_service_partials) —
     # naming one here would leave the next partial to fail as a TemplateNotFound.
@@ -213,3 +219,181 @@ def test_mount_absent_when_the_decision_is_false(repo, web_block, with_database)
     volumes = _rendered_volumes()
     assert not any("channels.json" in volume for volume in volumes)
     assert CONFIG_MOUNT in volumes
+
+
+# ---------------------------------------------------------------------------
+# The queueserver worker's device file: the same paired shape, one artifact
+# over.
+#
+# `_stage_bluesky_devices` answers a richer question than the snapshot's
+# (authored / derived / mock / nothing), but the property that has to hold
+# across the two renderers is identical: one decision, one boolean in the
+# context, one set of bytes in the build context, and nothing left behind when
+# the decision goes the other way.
+# ---------------------------------------------------------------------------
+
+BLUESKY_TEMPLATE = "services/bluesky/docker-compose.yml.j2"
+DEVICES_OUT_DIR = Path("build") / "services" / "bluesky"
+DEVICES = DEVICES_OUT_DIR / "bluesky_devices.yml"
+DEVICES_RELPATH = "data/bluesky_devices.yml"
+DEVICES_MOUNT = (
+    "./build/services/bluesky/bluesky_devices.yml:/app/project/data/bluesky_devices.yml:ro"
+)
+
+#: A document the worker's own loader accepts in full. A file with problems is
+#: a refusal rather than a staging decision (the worker skips malformed entries
+#: with a warning, so a bad file would deploy healthy and silently short a
+#: device), and that refusal is not what this module is pinning.
+DEVICES_DOCUMENT = """\
+settables:
+  - name: COR:H:01
+    setpoint: COR:H:01:SP
+    readback: COR:H:01:RB
+readables:
+  - name: BPM:01:X
+    pv: BPM:01:X
+"""
+
+
+def _devices_config(repo: Path, *, authored: bool, mock: bool = False) -> dict:
+    """The config slice the device staging reads.
+
+    ``services.bluesky.devices_file`` is where the build injector writes the
+    path on every lane, so that is where the staging looks; the control-system
+    type is read first, because a mock deployment drives no channels and is
+    browse-only whatever file is lying around.
+    """
+    config = _config(repo)
+    config["control_system"] = {"type": "mock" if mock else "epics", "writes_enabled": False}
+    if authored:
+        document = repo / DEVICES_RELPATH
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_text(DEVICES_DOCUMENT, encoding="utf-8")
+        config["services"]["bluesky"]["devices_file"] = DEVICES_RELPATH
+    return config
+
+
+def _run_full_bluesky(config: dict) -> None:
+    from osprey.deployment.compose_generator import setup_build_dir
+
+    setup_build_dir(BLUESKY_TEMPLATE, config, {})
+
+
+def _staged_device_mounts() -> list[str]:
+    """The device binds the rendered bluesky compose file declares, if any."""
+    document = yaml.safe_load((DEVICES_OUT_DIR / "docker-compose.yml").read_text())
+    return [
+        volume
+        for service in document["services"].values()
+        for volume in service.get("volumes") or []
+        if "bluesky_devices" in str(volume)
+    ]
+
+
+def _run_incremental_bluesky(config: dict) -> None:
+    from osprey.deployment.compose_generator import _incremental_setup_build_dir
+
+    _incremental_setup_build_dir(BLUESKY_TEMPLATE, config, {}, str(DEVICES_OUT_DIR))
+
+
+def test_device_paths_agree_when_a_file_is_authored(repo, rendered_contexts):
+    """Full and incremental renders stage the same flag and identical bytes.
+
+    Byte equality is the load-bearing half: a two-lane deploy renders this one
+    directory twice and a running deployment holds the staged file as a bind
+    mount, so a rebuild that produced different bytes would swap a live
+    worker's device set underneath it.
+    """
+    config = _devices_config(repo, authored=True)
+
+    _run_full_bluesky(config)
+    assert rendered_contexts[0]["bluesky_devices"] is True
+    full_bytes = DEVICES.read_bytes()
+
+    shutil.rmtree("build")
+    _run_incremental_bluesky(config)
+    assert rendered_contexts[1]["bluesky_devices"] is True
+    assert DEVICES.read_bytes() == full_bytes
+
+    # The staged file is a copy of what the operator authored, under the
+    # basename the staging step owns — the authored filename never travels.
+    assert full_bytes == DEVICES_DOCUMENT.encode("utf-8")
+
+    # And the third consumer of the same decision: the mount that puts the
+    # staged file where the worker's env var says to look for it.
+    assert _staged_device_mounts() == [DEVICES_MOUNT]
+
+
+def test_device_paths_agree_when_no_file_is_configured(repo, rendered_contexts):
+    """With nothing to stage, both paths render a browse-only worker.
+
+    Fail-closed: no file staged means no mount and no env var, so the worker
+    comes up able to browse plans and run none — rather than naming a file the
+    mount does not carry, which fails its own load instead.
+    """
+    config = _devices_config(repo, authored=False)
+
+    _run_full_bluesky(config)
+    assert rendered_contexts[0]["bluesky_devices"] is False
+    assert not DEVICES.exists()
+
+    shutil.rmtree("build")
+    _run_incremental_bluesky(config)
+    assert rendered_contexts[1]["bluesky_devices"] is False
+    assert not DEVICES.exists()
+    assert _staged_device_mounts() == []
+
+
+def test_a_mock_deployment_stages_no_devices_on_either_path(repo, rendered_contexts):
+    """A mock control system drives no channels, authored file or not.
+
+    Decided before the file is even looked at, so an authored document cannot
+    make a mock deployment look like it can steer anything.
+    """
+    config = _devices_config(repo, authored=True, mock=True)
+
+    _run_full_bluesky(config)
+    assert rendered_contexts[0]["bluesky_devices"] is False
+    assert not DEVICES.exists()
+
+    shutil.rmtree("build")
+    _run_incremental_bluesky(config)
+    assert rendered_contexts[1]["bluesky_devices"] is False
+    assert not DEVICES.exists()
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        pytest.param(_run_full_bluesky, id="full"),
+        pytest.param(_run_incremental_bluesky, id="incremental"),
+    ],
+)
+def test_a_rebuild_drops_a_stale_device_file(repo, rendered_contexts, run):
+    """Neither renderer may leave a device set the deployment no longer has.
+
+    The incremental path reuses the directory, and the full path can be handed
+    one a previous build wrote — so a deployment that stops having devices (the
+    authored file deleted, the control system switched to mock) must stop
+    mounting the previous render's, on either path.
+    """
+    DEVICES_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    DEVICES.write_text("settables: [{name: STALE, setpoint: STALE:SP}]\n", encoding="utf-8")
+
+    run(_devices_config(repo, authored=False))
+
+    assert rendered_contexts[0]["bluesky_devices"] is False
+    assert not DEVICES.exists()
+
+
+def test_other_services_never_stage_a_device_file(repo, rendered_contexts):
+    """Only the bluesky service directory gets a device file.
+
+    The staging is keyed on the service directory name, so a sibling service
+    rendered from the same config must come away with the flag false and
+    nothing written into its build context.
+    """
+    _run_full(_devices_config(repo, authored=True))
+
+    assert rendered_contexts[0]["bluesky_devices"] is False
+    assert not (Path("build") / "services" / "bluesky_web" / "bluesky_devices.yml").exists()

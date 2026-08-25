@@ -24,12 +24,14 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader, qserver_startup
@@ -37,6 +39,37 @@ from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, 
 
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
+
+_CORRECTOR_ENTRY = {
+    "name": "corrector_01",
+    "setpoint": "SR:MAG:HCM:01:CUR:SP",
+    "readback": "SR:MAG:HCM:01:CUR:RB",
+}
+"""The suite's stock settable entry, as it appears in a device file."""
+
+_BPM_ENTRY = {"name": "bpm_01", "pv": "SR:DIAG:BPM:01:X:RB"}
+"""The suite's stock readable entry."""
+
+
+def _write_devices_file(tmp_path: Path, document: Any, name: str = "devices.yaml") -> Path:
+    """Write ``document`` as a worker device file and return the path to it."""
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    return path
+
+
+def _devices_env(tmp_path: Path, document: Any, name: str = "devices.yaml") -> dict[str, str]:
+    """The worker env for a device file holding ``document``.
+
+    The file's presence is the substrate switch, so the env this returns is the
+    whole of what turns a worker from browse-only into one that builds devices.
+    """
+    return {qserver_startup.DEVICES_FILE_ENV: str(_write_devices_file(tmp_path, document, name))}
+
+
+def _stock_devices_env(tmp_path: Path) -> dict[str, str]:
+    """The worker env for a device file holding one settable and one readable."""
+    return _devices_env(tmp_path, {"settables": [_CORRECTOR_ENTRY], "readables": [_BPM_ENTRY]})
 
 
 class FakeChannelValue:
@@ -182,39 +215,93 @@ def _sample_kwargs() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Device construction from the substrate env
+# Device construction from the device file
 # ---------------------------------------------------------------------------
 
 
-def test_no_substrate_env_builds_no_devices_and_does_not_raise() -> None:
+def test_no_devices_file_env_builds_no_devices_and_does_not_raise() -> None:
     assert asyncio.run(qserver_startup.build_devices(env={})) == {}
 
 
-def test_substrate_off_ignores_a_populated_pv_list() -> None:
-    env = {
-        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
-    }
-    assert asyncio.run(qserver_startup.build_devices(env=env)) == {}
+def test_a_device_file_nothing_points_at_builds_no_devices(tmp_path: Path) -> None:
+    """The env var, not the file lying on disk, is what enables the substrate.
+
+    A deploy that stages a device file but never mounts its path into the
+    worker's env is browse-only — the worker has no way to find the file and
+    must not go looking for one.
+    """
+    _write_devices_file(tmp_path, {"settables": [_CORRECTOR_ENTRY], "readables": [_BPM_ENTRY]})
+
+    assert asyncio.run(qserver_startup.build_devices(env={})) == {}
 
 
-def test_substrate_on_with_empty_pv_lists_warns_and_builds_no_devices(
-    caplog: pytest.LogCaptureFixture,
+def test_devices_file_naming_a_missing_path_warns_and_builds_no_devices(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    env = {qserver_startup.DEVICES_FILE_ENV: str(tmp_path / "not-mounted.yaml")}
+
     with caplog.at_level("WARNING"):
-        devices = asyncio.run(qserver_startup.build_devices(env={"BLUESKY_EPICS_SUBSTRATE": "1"}))
+        devices = asyncio.run(qserver_startup.build_devices(env=env))
 
     assert devices == {}
-    assert "name no devices" in caplog.text
+    # A path that names nothing is a mount that did not happen, so it is worth
+    # a warning rather than the quiet info an unset var gets.
+    assert "cannot read as a file" in caplog.text
 
 
-def test_build_devices_builds_connector_mediated_devices_from_the_pv_lists() -> None:
+def test_devices_file_naming_a_directory_warns_and_builds_no_devices(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A bind mount that lands a directory where the file should be is the
+    classic compose typo, and it must not read as an enabled substrate."""
+    directory = tmp_path / "devices.yaml"
+    directory.mkdir()
+    env = {qserver_startup.DEVICES_FILE_ENV: str(directory)}
+
+    with caplog.at_level("WARNING"):
+        devices = asyncio.run(qserver_startup.build_devices(env=env))
+
+    assert devices == {}
+    assert "cannot read as a file" in caplog.text
+
+
+def test_unreadable_devices_file_warns_and_builds_no_devices(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A file the worker's uid cannot open is disabled, not half-enabled."""
+    env = _stock_devices_env(tmp_path)
+    path = Path(env[qserver_startup.DEVICES_FILE_ENV])
+    path.chmod(0o000)
+    if os.access(path, os.R_OK):  # pragma: no cover - only when running as root
+        pytest.skip("this uid can read a mode-000 file; permissions are not enforced here")
+
+    try:
+        with caplog.at_level("WARNING"):
+            devices = asyncio.run(qserver_startup.build_devices(env=env))
+    finally:
+        path.chmod(0o644)
+
+    assert devices == {}
+    assert "cannot read as a file" in caplog.text
+
+
+def test_devices_file_with_no_entries_warns_and_builds_no_devices(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    env = _devices_env(tmp_path, {})
+
+    with caplog.at_level("WARNING"):
+        devices = asyncio.run(qserver_startup.build_devices(env=env))
+
+    assert devices == {}
+    assert "this worker will expose no plans" in caplog.text
+
+
+def test_build_devices_builds_connector_mediated_devices_from_the_device_file(
+    tmp_path: Path,
+) -> None:
     connector = FakeConnector()
-    env = {
-        "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
-    }
+    env = _stock_devices_env(tmp_path)
 
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
 
@@ -227,12 +314,12 @@ def test_build_devices_builds_connector_mediated_devices_from_the_pv_lists() -> 
     assert devices["bpm_01"]._osprey_connector is connector
 
 
-def test_address_named_devices_build_and_stay_visible_to_queueserver() -> None:
+def test_address_named_devices_build_and_stay_visible_to_queueserver(tmp_path: Path) -> None:
     """A device named by its own channel address survives the whole worker path.
 
-    ``substrate_devices`` names each device after the address it drives or
-    reads, so the worker namespace is keyed by colon-bearing names that are not
-    Python identifiers. Nothing in this path may quietly drop them: the plan
+    A device file may name each device after the address it drives or reads, so
+    the worker namespace is keyed by colon-bearing names that are not Python
+    identifiers. Nothing in this path may quietly drop them: the plan
     functions' identifier filter applies to plan names only, and the manager's
     namespace scan — which decides what the manager will accept in a queue item
     — reports devices by their namespace key.
@@ -243,11 +330,13 @@ def test_address_named_devices_build_and_stay_visible_to_queueserver() -> None:
     setpoint = "SR:MAG:HCM:01:CURRENT:SP"
     readback = "SR:MAG:HCM:01:CURRENT:RB"
     bpm = "SR:DIAG:BPM:01:POSITION:X"
-    env = {
-        "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_SETPOINTS": f"{setpoint}={setpoint}|{readback}",
-        "BLUESKY_EPICS_READBACKS": f"{bpm}={bpm}",
-    }
+    env = _devices_env(
+        tmp_path,
+        {
+            "settables": [{"name": setpoint, "setpoint": setpoint, "readback": readback}],
+            "readables": [{"name": bpm, "pv": bpm}],
+        },
+    )
 
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
 
@@ -265,12 +354,9 @@ def test_address_named_devices_build_and_stay_visible_to_queueserver() -> None:
     assert {setpoint, bpm} <= set(existing_devices)
 
 
-def test_built_devices_read_through_the_connector() -> None:
+def test_built_devices_read_through_the_connector(tmp_path: Path) -> None:
     connector = FakeConnector()
-    env = {
-        "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
-    }
+    env = _devices_env(tmp_path, {"readables": [_BPM_ENTRY]})
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
 
     asyncio.run(devices["bpm_01"].read())
@@ -278,14 +364,14 @@ def test_built_devices_read_through_the_connector() -> None:
     assert connector.reads == ["SR:DIAG:BPM:01:X:RB"]
 
 
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", " yes ", "on"])
-def test_substrate_flag_accepts_the_usual_truthy_spellings(value: str) -> None:
-    assert qserver_startup.is_substrate_enabled({"BLUESKY_EPICS_SUBSTRATE": value}) is True
+def test_a_readables_only_device_file_builds_that_half_alone(tmp_path: Path) -> None:
+    """Both sections are optional: a file listing only readables is a valid
+    monitoring-only worker, not an empty one."""
+    env = _devices_env(tmp_path, {"readables": [_BPM_ENTRY]})
 
+    devices = asyncio.run(qserver_startup.build_devices(env=env, connector=FakeConnector()))
 
-@pytest.mark.parametrize("value", ["", "false", "0", "maybe"])
-def test_substrate_flag_never_guesses_at_on(value: str) -> None:
-    assert qserver_startup.is_substrate_enabled({"BLUESKY_EPICS_SUBSTRATE": value}) is False
+    assert sorted(devices) == ["bpm_01"]
 
 
 # ---------------------------------------------------------------------------
@@ -578,11 +664,7 @@ def test_namespace_builds_devices_on_the_run_engine_loop_when_none_are_supplied(
 
     plans = _catalog(tmp_path, monkeypatch)
     connector = FakeConnector()
-    env = {
-        "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
-        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
-    }
+    env = _stock_devices_env(tmp_path)
     monkeypatch.setattr(
         qserver_startup,
         "create_connector",
@@ -611,11 +693,7 @@ def test_queueserver_recognizes_every_plan_and_device_in_the_namespace(
 
     plans = _catalog(tmp_path, monkeypatch)
     connector = FakeConnector()
-    env = {
-        "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
-        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
-    }
+    env = _stock_devices_env(tmp_path)
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
     namespace = qserver_startup.build_namespace(
         env={}, run_engine=FakeRunEngine(), devices=devices, plans=plans
@@ -922,14 +1000,7 @@ def _trajectory_namespace(
 
     connector = FakeConnector()
     devices = asyncio.run(
-        qserver_startup.build_devices(
-            env={
-                "BLUESKY_EPICS_SUBSTRATE": "1",
-                "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-                "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
-            },
-            connector=connector,
-        )
+        qserver_startup.build_devices(env=_stock_devices_env(tmp_path), connector=connector)
     )
     namespace: dict[str, Any] = dict(devices)
     namespace.update(qserver_startup.build_plan_functions(devices, plans))

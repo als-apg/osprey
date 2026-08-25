@@ -712,17 +712,26 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
 def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     """The facility plan keys every lane's service block carries.
 
-    Each is written ONLY when configured, and the absence is what the compose
-    template's ``{% if %}`` guards read: an unset ``plan_dir`` means no mount
-    and no ``BLUESKY_PLAN_DIRS`` env var at all, and empty ``excluded_plans``
-    means no ``BLUESKY_EXCLUDED_PLANS``. The ``os.pathsep`` join is done
-    Python-side because the Jinja render context has no ``os`` module.
+    The contract here is MIXED, and the split is deliberate.
 
-    Shared by both lanes, because plans are a property of the facility rather
-    than of a target — a per-lane restatement is how the two lanes would end up
-    loading different plans from one profile.
+    ``devices_file`` is written ALWAYS, on every lane of every deploy, authored
+    or defaulted. A deployment always addresses devices, so its absence would
+    not mean "no device file" — it would mean the staging step has to re-derive
+    this default for itself, which is how the build and the bridge end up
+    disagreeing about which file is authoritative.
+
+    ``plan_dir`` and ``excluded_plans`` stay omit-when-unset, because for them
+    the ABSENCE is the signal the compose template's ``{% if %}`` guards read:
+    an unset ``plan_dir`` means no mount and no ``BLUESKY_PLAN_DIRS`` env var at
+    all, and empty ``excluded_plans`` means no ``BLUESKY_EXCLUDED_PLANS``. The
+    ``os.pathsep`` join is done Python-side because the Jinja render context has
+    no ``os`` module.
+
+    Shared by both lanes, because plans and devices are properties of the
+    facility rather than of a target — a per-lane restatement is how the two
+    lanes would end up loading different plans from one profile.
     """
-    keys: dict[str, Any] = {}
+    keys: dict[str, Any] = {"devices_file": bluesky.devices_file}
     if bluesky.plan_dir:
         keys["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
@@ -821,9 +830,12 @@ def _inject_bluesky(
         # Two lanes: lane 1 serves the deployment baseline, lane 2 the other
         # target. Both carry `target` — a lane's identity is fixed here, at
         # render time, and the bridge reads it rather than inferring a session
-        # target it is never told about. The keys below are written ONLY on a
-        # two-lane deploy, which is what keeps a single-lane block byte-for-byte
-        # what it has always been.
+        # target it is never told about. `target` and the live lane's
+        # `ca_name_servers` are the LANE-SCOPED keys: they are written ONLY on a
+        # two-lane deploy, so a single-lane block still carries neither. That is
+        # a narrower claim than it used to be — the facility plan keys are NOT
+        # lane-scoped, and `_facility_plan_keys` now writes `devices_file` on
+        # every lane of every deploy, single-lane deploys included.
         baseline = _baseline_lane_target(config, virtual_accelerator)
         second = "va" if baseline == "live" else "live"
         second_config: dict[str, Any] = {

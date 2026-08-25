@@ -888,6 +888,7 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         (".claude/rules/nested/deep.md", "`rules/`"),
         (".claude/settings.local.json", "claude_code.permissions"),
         ("data/channel_limits.json", "`data/`"),
+        ("data/bluesky_devices.yml", "`data/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
@@ -1117,6 +1118,12 @@ PROTECTED_KEY_FAMILIES = [
     ("config.yml", "agent_data.base_dir", "agent_datax.base_dir", "services.agent_data.base_dir"),
     ("config.yml", "file_paths.x", "file_path.x", "services.file_paths.x"),
     ("config.yml", "artifacts.x", "artifact.x", "services.artifacts.x"),
+    (
+        "config.yml",
+        "services.bluesky.devices_file",
+        "service.bluesky.devices_file",
+        "services.bluesky.devices",
+    ),
     (".mcp.json", "mcpServers.foo.command", "mcpServers.foo.disabled", "servers.foo.command"),
 ]
 

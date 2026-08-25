@@ -4,13 +4,15 @@ Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
 of the following substrings appear anywhere. Intentionally has no per-file
 exclusions — if a legitimate match shows up later, the rename surfaced it.
 
-Four rename generations are guarded: the ``prompts``-era rename; the
+Five rename generations are guarded: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
 (a plan is an arbitrary generator, not only a scan); the
 ``motor``/``detector`` -> ``setpoint``/``readback`` rename that put the bridge
-in the control room's vocabulary; and that same generalization carried through
+in the control room's vocabulary; that same generalization carried through
 the *prose*, which the second generation renamed the symbols for and then left
-behind. The genuine tokens that legitimately survive — the ``scan``/``grid_scan``
+behind; and the substrate-env -> devices-file move, which deleted the three
+passthrough variables and the helpers that produced and read them. The genuine
+tokens that legitimately survive — the ``scan``/``grid_scan``
 *plan names*, their ``Scan*Params`` schemas, physics scan docs, the many
 unrelated senses of "scan" (a directory scan, a pattern scan, a CRT scanline),
 and every upstream ``bluesky``/``ophyd`` name such as ``SimMotor`` or
@@ -90,6 +92,22 @@ LEGACY_SUBSTRINGS = (
     "run-first-scan",
     "test_scan_stack_agentic",
     "scan-bridge",
+    # substrate env -> devices file: the worker's device set is authored in one
+    # file the deployment mounts, not inferred from PV spellings handed to the
+    # container in three env vars. The variables, and the helpers that derived,
+    # formatted, wrote and parsed them, are deleted rather than aliased -- they
+    # never left ``[Unreleased]``, so no deployment can be setting them. The
+    # bare ``BLUESKY_EPICS`` prefix is NOT gated: the render tests assert the
+    # names are absent, and asserting an absence means spelling the prefix.
+    "BLUESKY_EPICS_SUBSTRATE",
+    "BLUESKY_EPICS_SETPOINTS",
+    "BLUESKY_EPICS_READBACKS",
+    "specs_from_env",
+    "is_substrate_enabled",
+    "format_setpoints_env",
+    "format_readbacks_env",
+    "derive_substrate_env",
+    "write_substrate_env",
 )
 
 ROOTS = ("src", "tests", "docs/source")
