@@ -715,10 +715,9 @@ not come from. Three checks, one for each way that can happen:</p>
 <ul class="simple">
 <li><p><strong>The declaration itself.</strong> Pinning a name the deploy writes for you is
 refused — a service token or password it mints, a service default it records,
-a Bluesky substrate variable, a credential <code class="docutils literal notranslate"><span class="pre">--reuse-stores</span></code> restores from a
-surviving volume. A pin says the chain is the variable’s only source, and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writing that same name into <code class="docutils literal notranslate"><span class="pre">.env</span></code> contradicts it by
-construction. The message names each offender and its remedy:
+a credential <code class="docutils literal notranslate"><span class="pre">--reuse-stores</span></code> restores from a surviving volume. A pin says
+the chain is the variable’s only source, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writing that same
+name into <code class="docutils literal notranslate"><span class="pre">.env</span></code> contradicts it by construction. The message names each offender and its remedy:
 <code class="docutils literal notranslate"><span class="pre">unpin</span> <span class="pre">&lt;NAME&gt;;</span> <span class="pre">it</span> <span class="pre">is</span> <span class="pre">machine-minted.</span></code> The check covers every name any writer
 can produce, not only the services this deployment currently enables, so
 turning a service on later cannot make a profile that was fine start

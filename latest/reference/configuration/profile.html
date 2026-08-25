@@ -1254,7 +1254,7 @@ message, along with the <code class="docutils literal notranslate"><span class="
 <h2>bluesky<a class="headerlink" href="#bluesky" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> section configures the Bluesky stack a deployment brings up —
 the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
-store. It accepts exactly five keys; a misspelled or unknown key <strong>fails the
+store. It accepts exactly seven keys; a misspelled or unknown key <strong>fails the
 build</strong> and prints the valid set:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -1276,12 +1276,21 @@ build</strong> and prints the valid set:</p>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tiled_port</span></code></p></td>
 <td><p>Tiled’s port (default 8091).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">plan_dir</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">second_lane</span></code></p></td>
+<td><p>Run a second plan lane, so one deployment serves both its live
+machine and its virtual accelerator.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">plan_dir</span></code></p></td>
 <td><p>A directory of your facility’s own plans — see
 <a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code></p></td>
 <td><p>Plans to remove from the catalog entirely, e.g. <code class="docutils literal notranslate"><span class="pre">[orm]</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">devices_file</span></code></p></td>
+<td><p>The file listing the devices plans may drive or record
+(default <code class="docutils literal notranslate"><span class="pre">data/bluesky_devices.yml</span></code>) — see
+<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p></td>
 </tr>
 </tbody>
 </table>

@@ -1146,7 +1146,8 @@ it: that is the one gesture that means the same thing on both providers.</p>
 <p>A closed list of files and config keys may not be rewritten by the running
 agent, whichever surface the write arrives through: the rendered
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, the
-safety hooks, rules and skills, the limits tables — and, inside <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>,
+safety hooks, rules and skills, the limits and plan-device tables — and, inside
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>,
 the key families that gate writes and approval (<code class="docutils literal notranslate"><span class="pre">control_system.*</span></code>,
 <code class="docutils literal notranslate"><span class="pre">approval.*</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks.*</span></code>, <code class="docutils literal notranslate"><span class="pre">claude_code.*</span></code>, among others). These artifacts
 are owned by the build profile: edit them in the profile and run

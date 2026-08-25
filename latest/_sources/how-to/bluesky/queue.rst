@@ -207,9 +207,9 @@ quirks worth knowing:
    8091). The launch token is minted automatically at deploy time and stored
    in the project's ``.env``.
 
-   The build profile's ``bluesky:`` block sets the ports, the Tiled store, and
-   which plans the catalog carries — see
-   :doc:`/reference/configuration/profile`.
+   The build profile's ``bluesky:`` block sets the ports, the Tiled store,
+   which plans the catalog carries, and the device file plans may drive or
+   record — see :doc:`/reference/configuration/profile`.
 
    Whether a deployment can execute plans at all is decided by its control
    system: ``virtual_accelerator`` and ``epics`` can, ``mock`` is
@@ -226,6 +226,14 @@ quirks worth knowing:
    works; one still reading the mock archiver is refused at build time, and told
    to point ``archiver.type`` at a store its deployment writes first — see
    :doc:`../control-systems/use-virtual-accelerator`.
+
+   One timing detail worth knowing: the channel limits a plan's writes are
+   checked against come from the file
+   ``control_system.limits_checking.database_path`` names, and ``osprey build``
+   stages its **own copy** of that file for the plan lane. So widening or
+   tightening a limit in your deployment repository reaches the queue server at
+   the next ``osprey build`` (and ``osprey up``) — not the moment you save the
+   file.
 
 .. seealso::
 

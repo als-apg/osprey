@@ -806,7 +806,7 @@ bluesky
 
 The ``bluesky:`` section configures the Bluesky stack a deployment brings up —
 the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
-store. It accepts exactly five keys; a misspelled or unknown key **fails the
+store. It accepts exactly seven keys; a misspelled or unknown key **fails the
 build** and prints the valid set:
 
 .. list-table::
@@ -821,11 +821,18 @@ build** and prints the valid set:
      - Deploy the Tiled data store alongside the stack.
    * - ``tiled_port``
      - Tiled's port (default 8091).
+   * - ``second_lane``
+     - Run a second plan lane, so one deployment serves both its live
+       machine and its virtual accelerator.
    * - ``plan_dir``
      - A directory of your facility's own plans — see
        :doc:`/how-to/bluesky/write-plans`.
    * - ``excluded_plans``
      - Plans to remove from the catalog entirely, e.g. ``[orm]``.
+   * - ``devices_file``
+     - The file listing the devices plans may drive or record
+       (default ``data/bluesky_devices.yml``) — see
+       :doc:`/how-to/bluesky/write-plans`.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for

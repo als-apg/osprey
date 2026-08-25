@@ -628,6 +628,73 @@ more. Facility-tier plans carry no fingerprint bookkeeping — their trust
 comes from being installed by you.</p>
 </div>
 </details></section>
+<section id="declare-the-devices-a-plan-may-drive">
+<h2>Declare the devices a plan may drive<a class="headerlink" href="#declare-the-devices-a-plan-may-drive" title="Link to this heading">#</a></h2>
+<p>A plan names channels through its parameters, but <em>which</em> devices exist at all
+is the deployment’s answer, not the plan’s. One short file gives it: a list of
+every device the queue server may drive or record, named in the build profile
+by <code class="docutils literal notranslate"><span class="pre">bluesky.devices_file</span></code> — <code class="docutils literal notranslate"><span class="pre">data/bluesky_devices.yml</span></code> inside your project
+unless you point it elsewhere.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># data/bluesky_devices.yml</span>
+<span class="nt">settables</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01</span>
+<span class="w">    </span><span class="nt">setpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
+<span class="w">    </span><span class="nt">readback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:RB</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BTS:QF3</span>
+<span class="w">    </span><span class="nt">setpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BTS:QF3,PS:CURRENT:SP</span><span class="w">   </span><span class="c1"># a comma in an address is fine, and</span>
+<span class="w">                                      </span><span class="c1"># no readback means &quot;read the setpoint&quot;</span>
+
+<span class="nt">readables</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:BPM:01:X</span>
+<span class="w">    </span><span class="nt">pv</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:BPM:01:X:RB</span>
+</pre></div>
+</div>
+<p><strong>Settables</strong> are devices a plan may drive: a name, the channel a value is
+written to, and — optionally — a separate channel it is read back from. Leave
+the readback out and the device reads its own setpoint. <strong>Readables</strong> are
+recorded and never written. The name is what a plan and the agent refer to, and
+it is also the column heading in the run’s data, so each name may appear only
+once across both lists.</p>
+<p>Nothing in the file is split on any character, which is the point of writing it
+this way: an address containing a comma — as some real magnet power supplies
+have — is written out plainly and needs no escaping.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the file and refuses to build on an entry it cannot use,
+naming <code class="docutils literal notranslate"><span class="pre">bluesky.devices_file</span></code> and the entry at fault. That refusal is
+deliberate: the queue server itself skips a bad entry with a warning, so a
+deployment built from an unchecked file would come up looking healthy while
+missing exactly the devices you meant to add.</p>
+<p>A deployment ends up with its device set in one of three ways:</p>
+<ul class="simple">
+<li><p><strong>You write the file.</strong> The normal case at a real facility. A path inside the
+project travels with the built deployment; an absolute path is yours alone —
+OSPREY reads it where it is and never rewrites or moves it. Either way the
+build takes its own copy for the queue server to mount, so an edit to your
+file reaches a running deployment at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p></li>
+<li><p><strong>The build writes one for you.</strong> A deployment running the bundled Virtual
+Accelerator, with no file yet at the path inside the project, gets a device
+set derived from the project’s own channel-limits database: its correctors as
+settables, its BPMs as readables. That derived set is written straight into
+the build output and rewritten every time you build, so it is not a file to
+edit — to take over, put your own file at the path the key names.</p></li>
+<li><p><strong>Neither.</strong> The queue server comes up able to browse and describe plans and
+to run none of them. That is a plain statement about the deployment, not a
+fault, and the build says so in its output. A deployment pointed at the
+<code class="docutils literal notranslate"><span class="pre">mock</span></code> control system is browse-only this way whatever file is present.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Two lanes, one device file.</strong> A profile that turns on <code class="docutils literal notranslate"><span class="pre">second_lane</span></code> runs
+one plan lane for the live machine and one for the virtual accelerator — and
+both mount the <em>same</em> device file, because a facility has one namespace, not
+one per lane. So a lane can only drive the devices that file names: a file
+written for the live machine leaves the virtual-accelerator lane with
+nothing to address unless those channels are served there too.</p>
+</div>
+<p>Which channels count as scan devices, and which readback belongs to which
+setpoint, is one view of your facility’s namespace — the same namespace the
+channel finder and the knowledge graph describe. The three are meant to stay in
+step; bringing them under one description is work still ahead.</p>
+</section>
 <section id="a-plan-says-what-it-touches">
 <h2>A plan says what it touches<a class="headerlink" href="#a-plan-says-what-it-touches" title="Link to this heading">#</a></h2>
 <p>A plan’s parameters name channels, but a list of names on its own does not say
@@ -780,7 +847,8 @@ of reach.</p>
 <dl class="simple">
 <dt><a class="reference internal" href="queue.html"><span class="doc">Plans and the Queue</span></a></dt><dd><p>How a queued plan actually runs, and what refusals mean.</p>
 </dd>
-<dt><a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>The build profile that owns <code class="docutils literal notranslate"><span class="pre">plan_dir</span></code> and <code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code>.</p>
+<dt><a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>The build profile that owns <code class="docutils literal notranslate"><span class="pre">plan_dir</span></code>, <code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code> and
+<code class="docutils literal notranslate"><span class="pre">devices_file</span></code>.</p>
 </dd>
 </dl>
 </div>
@@ -836,6 +904,7 @@ of reach.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-is-trusted-in-one-paragraph">Who is trusted, in one paragraph</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-ways-to-add-a-plan">Two ways to add a plan</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#declare-the-devices-a-plan-may-drive">Declare the devices a plan may drive</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-plan-says-what-it-touches">A plan says what it touches</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#give-a-plan-its-own-view">Give a plan its own view</a></li>
 </ul>

@@ -1060,6 +1060,18 @@ the tool surface identical (see <a class="reference internal" href="web-terminal
 <p>The named plan is then invisible to the agent and non-runnable. The same
 block’s <code class="docutils literal notranslate"><span class="pre">plan_dir</span></code> key does the opposite — it installs a directory of your
 facility’s own plans; see <a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">bluesky.devices_file</span></code> names the third piece: the file listing the devices
+those plans may drive or record.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bluesky</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">devices_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/bluesky_devices.yml</span>
+</pre></div>
+</div>
+<p>That default puts the file inside the project, so it is built and shipped with
+the deployment. An absolute path is yours instead — the build reads it where it
+is and never rewrites or relocates it. A malformed entry fails the build, and a
+deployment running the Virtual Accelerator with no file yet at a project path
+gets one written for it from the project’s own channel-limits database. The
+file’s format and the three cases are in <a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
 </section>
 </section>
 <section id="one-repository-several-hosts">

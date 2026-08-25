@@ -756,9 +756,9 @@ sidecar serving the BLUESKY panel (port 8095), the <strong>Virtual Accelerator</
 preset’s default control system), and — when enabled — <strong>Tiled</strong> (port
 8091). The launch token is minted automatically at deploy time and stored
 in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
-<p class="sd-card-text">The build profile’s <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> block sets the ports, the Tiled store, and
-which plans the catalog carries — see
-<a class="reference internal" href="../../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>.</p>
+<p class="sd-card-text">The build profile’s <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> block sets the ports, the Tiled store,
+which plans the catalog carries, and the device file plans may drive or
+record — see <a class="reference internal" href="../../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>.</p>
 <p class="sd-card-text">Whether a deployment can execute plans at all is decided by its control
 system: <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> and <code class="docutils literal notranslate"><span class="pre">epics</span></code> can, <code class="docutils literal notranslate"><span class="pre">mock</span></code> is
 browse-only. The panels and the agent both surface this as a capability
@@ -772,6 +772,13 @@ created from the <code class="docutils literal notranslate"><span class="pre">co
 works; one still reading the mock archiver is refused at build time, and told
 to point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store its deployment writes first — see
 <a class="reference internal" href="../control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
+<p class="sd-card-text">One timing detail worth knowing: the channel limits a plan’s writes are
+checked against come from the file
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code> names, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+stages its <strong>own copy</strong> of that file for the plan lane. So widening or
+tightening a limit in your deployment repository reaches the queue server at
+the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>) — not the moment you save the
+file.</p>
 </div>
 </details><div class="admonition seealso">
 <p class="admonition-title">See also</p>
