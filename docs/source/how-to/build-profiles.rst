@@ -218,7 +218,7 @@ channel named. The same refusal applies to a claim (below).
 This table is about *build channels* — which part of the profile is allowed to
 produce a file. A separate question is which files the running agent may not
 rewrite, whatever channel produced them; that is
-:doc:`the protected set <control-systems/protected-set>`, and it is neither a subset nor a
+:ref:`the protected set <config-protected-set>`, and it is neither a subset nor a
 superset of this one.
 
 ``hook_config.json`` is the one worth understanding: the write-safety hook reads

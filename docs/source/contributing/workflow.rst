@@ -145,11 +145,5 @@ this workflow:
 
 The skill walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to ``als-apg/osprey`` or are
-contributing from a fork. It composes with the other bundled skills:
-
-- ``osprey-pre-commit`` -- standalone validation runs
-- ``osprey-release`` -- the release-cutting flow for maintainers
-- ``osprey-design-philosophy`` -- OSPREY's design and architecture principles,
-  for designing or reviewing a feature before you open the PR
-
-List all installable skills with ``uv run osprey skills install --help``.
+contributing from a fork. It is one of six installable skills --- which one
+fits which step of the journey is on :doc:`agent-skills`.

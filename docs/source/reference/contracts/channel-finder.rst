@@ -4,19 +4,24 @@
 Channel Finder Contracts
 ========================
 
-The shapes the Channel Finder reads and is configured by: the JSON each
-database pipeline expects, the ``config.yml`` keys that select a pipeline and
-point it at its database, and how the active pipeline reaches the agent. For
-the task of choosing and running one, see
-:doc:`/how-to/use-channel-finder`.
+The Channel Finder runs one of four pipelines — in-context, hierarchical,
+middle-layer, or graph — and **each paradigm has its own database contract**:
+the shape of what the pipeline reads is part of choosing it. This page gives
+the four contracts, the ``config.yml`` keys that select a pipeline and point it
+at its database, and how the active pipeline reaches the agent. For the task
+of choosing and running one, see :doc:`/how-to/use-channel-finder`.
 
 
-Database Schema
-===============
+Database Contracts, per Paradigm
+================================
 
-The in-context database is a flat JSON structure loaded by
-``TemplateChannelDatabase``, with standalone entries and template entries for
-device families:
+.. _channel-finder-db-in-context:
+
+In-context
+----------
+
+A flat JSON structure loaded by ``TemplateChannelDatabase``, with standalone
+entries and template entries for device families:
 
 .. code-block:: json
 
@@ -32,8 +37,13 @@ device families:
      ]
    }
 
-The hierarchical database instead declares the levels the pipeline navigates
-and the naming pattern the addresses follow, with the tree itself underneath:
+.. _channel-finder-db-hierarchical:
+
+Hierarchical
+------------
+
+Declares the levels the pipeline navigates and the naming pattern the
+addresses follow, with the tree itself underneath:
 
 .. code-block:: json
 
@@ -50,6 +60,53 @@ and the naming pattern the addresses follow, with the tree itself underneath:
      },
      "tree": { }
    }
+
+.. _channel-finder-db-middle-layer:
+
+Middle-layer
+------------
+
+MATLAB Middle Layer (MML) style organization: channels grouped by functional
+hierarchy — system, family, field, optional subfield — rather than by naming
+pattern, with the PV addresses listed under ``ChannelNames`` and the family's
+device roster in its ``setup`` block:
+
+.. code-block:: json
+
+   {
+     "SR": {
+       "BPM": {
+         "Monitor": {
+           "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM1:Y"]
+         },
+         "Setpoint": {
+           "X": {"ChannelNames": ["SR01C:BPM1:XSet"]},
+           "Y": {"ChannelNames": ["SR01C:BPM1:YSet"]}
+         },
+         "setup": {
+           "CommonNames": ["BPM 1", "BPM 2"],
+           "DeviceList": [[1, 1], [1, 2]]
+         }
+       }
+     }
+   }
+
+``DeviceList`` holds ``[sector, device]`` pairs, parallel to ``CommonNames``.
+An existing MML export keeps its metadata keys (``Units``, ``DataType``,
+``Description``, …) — the pipeline skips them during navigation rather than
+requiring their removal.
+
+.. _channel-finder-db-graph:
+
+Graph
+-----
+
+The graph pipeline reads no database file at all: the facility graph *is* the
+database. Its contract is the graph schema documented in
+:doc:`/how-to/facility-knowledge/use-facility-graph`, served by the
+``services.graphdb`` store, and a graph-mode project ships no
+``data/channel_databases/`` entry. Populate the store with
+``osprey knowledge seed-graph``.
 
 
 Configuration Reference

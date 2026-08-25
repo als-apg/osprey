@@ -36,19 +36,9 @@ development, a simulator for rehearsal, the real hardware for production.
       Rehearse a piece of work on the simulator, then run the same work on the
       live machine without rebuilding the project or restarting anything.
 
-   .. grid-item-card:: The Protected Set
-      :link: protected-set
-      :link-type: doc
-      :shadow: md
-
-      The closed list of files and config keys no agent-side writer may touch
-      -- among them the write gate, the approval chain, the limits table, the
-      safety hooks and the config keys they read.
-
 .. toctree::
    :hidden:
 
    use-connectors
    use-virtual-accelerator
    switch-control-target
-   protected-set

@@ -100,13 +100,13 @@ redirects: dict[str, str] = {
     "how-to/add-connector": "control-systems/use-connectors.html",
     "how-to/use-virtual-accelerator": "control-systems/use-virtual-accelerator.html",
     "how-to/switch-control-target": "control-systems/switch-control-target.html",
-    "how-to/protected-set": "control-systems/protected-set.html",
+    "how-to/protected-set": "../reference/configuration/config.html",
     # Facility services
     "how-to/use-facility-knowledge": "facility-knowledge/index.html",
     "how-to/use-facility-graph": "facility-knowledge/use-facility-graph.html",
     "how-to/okf-bundle": "facility-knowledge/okf-bundle.html",
     "how-to/facility-rules": "facility-knowledge/facility-rules.html",
-    "how-to/search-sidecar": "facility-knowledge/search-sidecar.html",
+    "how-to/search-sidecar": "ariel/search-sidecar.html",
     "how-to/ariel/osprey-integration": "../../reference/contracts/ariel.html",
     # Developer material
     "how-to/use-python-executor": "../architecture/python-executor.html",

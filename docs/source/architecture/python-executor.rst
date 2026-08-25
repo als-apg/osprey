@@ -221,9 +221,9 @@ A protected entry that does not exist yet is protected all the same: in a repo
 with no ``personas/`` directory, creating one is exactly the write to refuse.
 
 This boundary is about *zones* — whole trees, wherever inside them a path lands.
-A companion boundary, :doc:`the protected set </how-to/control-systems/protected-set>`, closes named
-files and config keys to every agent-side writer (the settings panels, the
-galleries, the ``setup_patch`` tool) rather than to executed code.
+A companion boundary, :ref:`the protected set <config-protected-set>`, closes
+named files and config keys to every agent-side writer (the settings panels,
+the galleries, the ``setup_patch`` tool) rather than to executed code.
 
 The agent's own data zone (``var/agent_data/``) and the run's execution folder
 are carved back out, so analysis output, figures and saved artifacts keep

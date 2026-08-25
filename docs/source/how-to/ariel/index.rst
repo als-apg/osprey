@@ -179,6 +179,15 @@ Learn More
 
       FastAPI app, frontend architecture, capabilities API, and REST endpoints.
 
+   .. grid-item-card:: The Search Sidecar (``qmd``)
+      :link: search-sidecar
+      :link-type: doc
+      :class-header: bg-dark text-white
+      :shadow: md
+
+      The container behind the ``hybrid`` search mode: configuration, corpus
+      mounts, disk footprint, and where it listens.
+
    .. grid-item-card:: Standalone Deployment
       :link: standalone-deployment
       :link-type: doc
@@ -232,4 +241,5 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    data-ingestion
    search-modes
    web-interface
+   search-sidecar
    standalone-deployment

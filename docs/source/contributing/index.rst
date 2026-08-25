@@ -1,7 +1,7 @@
 Contributing to Osprey
 ======================
 
-Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, and community guidelines.
+Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, the agent skills that automate them, and community guidelines.
 
 ----
 
@@ -33,13 +33,14 @@ Thank you for your interest in contributing to the Osprey Framework. This guide 
       health plugin, panel, LUME model -- each with the class or registry to
       subclass, a pinning test, and the how-to that configures it.
 
-   .. grid-item-card:: Documentation and Screenshots
-      :link: docs-and-screenshots
+   .. grid-item-card:: Agent Skills
+      :link: agent-skills
       :link-type: doc
       :shadow: md
 
-      Regenerate the committed doc screenshots from their recipes, and review
-      a web-interface redesign as a single contact sheet.
+      Six installable skills that teach a coding agent Osprey's own
+      playbooks -- which one to install at each step of the contributor
+      journey, and where the deployer-facing ones are documented.
 
 ----
 
@@ -72,4 +73,4 @@ Getting Help
    development-setup
    workflow
    extending-osprey
-   docs-and-screenshots
+   agent-skills

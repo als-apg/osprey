@@ -380,7 +380,7 @@ the stack beyond one machine, or manage its configuration values:
       owns the ``Dockerfile``, and how to customize it.
 
    .. grid-item-card:: Search Sidecar
-      :link: ../facility-knowledge/search-sidecar
+      :link: ../ariel/search-sidecar
       :link-type: doc
 
       The optional search service deployed beside the stack, and where it
@@ -464,6 +464,6 @@ change — rerun ``osprey up --build --dev`` to re-render and rebuild it.
        from the generated ``Dockerfile`` — distinct from the service
        containers this page covers.
 
-   :doc:`/how-to/facility-knowledge/search-sidecar`
+   :doc:`/how-to/ariel/search-sidecar`
        The qmd search sidecar — a shared search service some presets
-       co-deploy, documented with the facility-knowledge system it serves.
+       co-deploy, documented with the ARIEL logbook search it serves.

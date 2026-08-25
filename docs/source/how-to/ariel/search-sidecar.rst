@@ -8,10 +8,10 @@ The Search Sidecar (``qmd``)
 answers hybrid keyword-plus-semantic queries over HTTP. Two parts of OSPREY
 use it:
 
-* the :doc:`facility-knowledge (OKF) bundle <okf-bundle>` --- its panel and its
-  MCP ``search`` tool;
 * ARIEL's logbook mirror --- the ``hybrid`` :doc:`search mode
-  <../ariel/search-modes>` and the ``hybrid_search`` MCP tool.
+  <search-modes>` and the ``hybrid_search`` MCP tool;
+* the :doc:`facility-knowledge (OKF) bundle <../facility-knowledge/okf-bundle>`
+  --- its panel and its MCP ``search`` tool.
 
 One query fans out into a keyword and a vector sub-query, merges them into a
 bounded candidate pool, and optionally re-scores that pool with a small language

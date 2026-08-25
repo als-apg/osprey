@@ -8,6 +8,14 @@ tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
 deployment normally renders; build profiles can inject additional servers beyond
 them.
 
+.. raw:: html
+   :file: ../_diagrams/mcp-server-map.html
+
+The four channel-finder variants count as four of the ten, but a deployment
+serves exactly one of them — whichever ``channel_finder.pipeline_mode`` names —
+under the single ``channel-finder`` name, which is why the map shows seven
+running processes.
+
 
 Control System
 --------------

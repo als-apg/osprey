@@ -185,7 +185,7 @@ read-only tier.
         - root
         - osprey
         - root
-      * - :doc:`The protected set <../../control-systems/protected-set>`
+      * - :ref:`The protected set <config-protected-set>`
         - refused
         - refused
         - refused
@@ -243,8 +243,8 @@ code runs, and no persona setting can subtract from that list.
 **Layer 2** is the set of gates that give the agent a readable refusal —
 ``setup_patch`` denied by the floor, the Config panel and gallery refusing
 with a 403, the Python executor refusing to write into the render zone in
-either execution mode. Across all of them sits :doc:`the protected set
-<../../control-systems/protected-set>`: the files and config keys no agent-side writer may
+either execution mode. Across all of them sits :ref:`the protected set
+<config-protected-set>`: the files and config keys no agent-side writer may
 rewrite on any tier.
 
 **Layer 3** is what makes the readwrite-versus-admin line *true* rather than
@@ -307,8 +307,8 @@ effect while the stack is running.
 **The protected set still refuses the admin login.** The keys that gate
 writes, approval and limits — and the artifacts rendered from them — are
 refused for every tier, this one included. Admin lifts a *tier floor*; it does
-not open the safety layer. See :doc:`../../control-systems/protected-set` for what is protected and
-where a refusal is recorded.
+not open the safety layer. See :ref:`the protected set <config-protected-set>`
+for what is protected and where a refusal is recorded.
 
 **Most edits land on the next build.** The safety hook scripts run as a fresh
 process per tool call, so each one reads ``config.yml`` as it stands at that
@@ -413,8 +413,9 @@ starts anything. Each refusal names the user, or the persona, and the remedy.
 Related pages
 =============
 
-- :doc:`../../control-systems/protected-set` — the files and config keys no agent-side writer may
-  rewrite, on any tier, and where a refusal is recorded.
+- :ref:`The protected set <config-protected-set>` — the files and config keys
+  no agent-side writer may rewrite, on any tier, and where a refusal is
+  recorded.
 - :ref:`The privilege split <containerize-privilege-split>` — what the
   container does with file ownership, and what a bare host does not.
 - :ref:`What executed code may not change <python-executor-protected-paths>`

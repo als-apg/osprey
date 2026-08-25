@@ -25,8 +25,7 @@ the knowledge has.
   A specialist agent (``facility-knowledge-graph``) writes the Cypher, so you
   ask in plain language.
 
-Each tier is documented separately, along with the search service that makes
-the on-demand bundle findable:
+Each tier is documented separately:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -52,18 +51,9 @@ the on-demand bundle findable:
       The queryable tier -- the questions the graph answers, how the specialist
       agent reaches it, and how its answers differ from the channel finder's.
 
-   .. grid-item-card:: The Search Sidecar (``qmd``)
-      :link: search-sidecar
-      :link-type: doc
-
-      The container behind ranked bundle search -- and ARIEL's ``hybrid``
-      logbook search: configuration, corpus mounts, disk footprint, and
-      where it listens.
-
 .. toctree::
    :hidden:
 
    facility-rules
    okf-bundle
    use-facility-graph
-   search-sidecar

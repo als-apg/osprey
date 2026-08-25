@@ -394,7 +394,8 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    source, whatever its permissions look like — so this step really does put
    your claimed bodies back into a render nothing else can write. A store
    record naming a protected path is skipped and recorded instead, under the
-   surface name ``scaffold_restore``; see :doc:`../control-systems/protected-set`.
+   surface name ``scaffold_restore``; see :ref:`the protected set
+   <config-protected-set>`.
 #. **Hands the state zone back** to the ``osprey`` user — only the paths root
    actually left behind — because both earlier steps wrote into ``var/`` as
    root, including the protected-write audit ledger the running server has to

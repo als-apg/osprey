@@ -12,7 +12,9 @@ Three parts of that file are gathered here — the diagnostic suite (``health:``
 the browser UI's documentation and feedback settings (``web:``), and the
 deployment keys that decide which container image each service runs and how
 ``${VAR}`` placeholders in the compose files are filled in. Settings that only
-ever arrive from the environment are in :doc:`environment-variables`.
+ever arrive from the environment are in :doc:`environment-variables`. A closing
+note records the **protected set** — the files and keys no agent-side writer
+may touch.
 
 .. _config-health:
 
@@ -644,6 +646,21 @@ chain resolves to it warns by name — never by value — and states which value
 the provider it just probed will actually use, plus what to do about it. The
 reliable habit is to put the value in the env chain and leave your shell out of
 it: that is the one gesture that means the same thing on both providers.
+
+.. _config-protected-set:
+
+The protected set
+-----------------
+
+A closed list of files and config keys may not be rewritten by the running
+agent, whichever surface the write arrives through: the rendered
+``config.yml``, ``.claude/settings.json``, ``.mcp.json``, ``CLAUDE.md``, the
+safety hooks, rules and skills, the limits tables — and, inside ``config.yml``,
+the key families that gate writes and approval (``control_system.*``,
+``approval.*``, ``hooks.*``, ``claude_code.*``, among others). These artifacts
+are owned by the build profile: edit them in the profile and run
+``osprey build``. Every refused attempt names the owning channel and is
+recorded in ``var/audit/protected-writes.jsonl``.
 
 .. seealso::
 
