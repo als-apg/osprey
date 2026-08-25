@@ -1,11 +1,13 @@
 """The one rule for resolving a config-relative path.
 
-Every config key that names a directory or file relative to ``config.yml`` —
+Every config key that names a directory or file relative to the project —
 ``facility_knowledge.bundle_path``, the qmd mirror, the ARIEL vocabulary file —
 must land on the same directory no matter which process reads it. These tests
-pin all five branches of :func:`osprey.utils.config_paths.resolve_config_relative_path`
-and assert that the two pre-existing resolvers really delegate to it rather than
-keeping private copies of the rule that can drift.
+pin every branch of :func:`osprey.utils.config_paths.resolve_config_relative_path`
+— including the one that matters on a host, where the config sits in the
+``build/`` render zone and the anchor is the repo above it — and assert that the
+two pre-existing resolvers really delegate to it rather than keeping private
+copies of the rule that can drift.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.config_paths import resolve_config_relative_path
+from osprey.utils.config_paths import project_root_for_config_dir, resolve_config_relative_path
 
 
 @pytest.fixture
@@ -58,10 +60,46 @@ def test_relative_value_resolves_against_config_dir(foreign_cwd, tmp_path):
     assert resolved != (foreign_cwd / "data/facility_knowledge").resolve()
 
 
+def test_relative_value_in_the_build_zone_resolves_against_the_repo(foreign_cwd, tmp_path):
+    """A config at ``<repo>/build/config.yml`` anchors on ``<repo>``, not ``build/``.
+
+    The render zone is disposable — every ``osprey build`` re-creates it — and
+    it is not what the compose layer binds into containers: every bind source is
+    resolved against the repo root (the pinned ``--project-directory``). A
+    resolver anchored on ``build/`` had the qmd exporter writing a mirror the
+    sidecar never mounted, and persona readers opening a baked bundle while the
+    live one was bound one directory over.
+    """
+    repo = tmp_path / "repo"
+    build = repo / "build"
+    build.mkdir(parents=True)
+
+    resolved = resolve_config_relative_path("var/ariel_mirror", build)
+
+    assert resolved == (repo / "var/ariel_mirror").resolve()
+    assert project_root_for_config_dir(build) == repo
+
+
+def test_a_container_project_dir_is_its_own_root(foreign_cwd, tmp_path):
+    """A config not in a ``build/`` zone anchors on its own directory.
+
+    A container's project directory IS its render (``/app/<project>`` holds the
+    config at ``build/config.yml`` only when the image carries the repo layout;
+    a flat legacy project holds it at the root), so a directory not named
+    ``build`` is the root — the same rule ``repo_root_for_config`` applies to
+    every other runtime path.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+
+    assert project_root_for_config_dir(project) == project
+    assert resolve_config_relative_path("data/kb", project) == (project / "data/kb").resolve()
+
+
 def test_relative_value_without_config_dir_uses_the_resolved_config_file(
     foreign_cwd, tmp_path, monkeypatch
 ):
-    """Without *config_dir*, the directory of ``OSPREY_CONFIG``'s file wins."""
+    """Without *config_dir*, the project of ``OSPREY_CONFIG``'s file wins."""
     config_dir = tmp_path / "project"
     config_dir.mkdir()
     (config_dir / "config.yml").write_text("", encoding="utf-8")
@@ -70,6 +108,21 @@ def test_relative_value_without_config_dir_uses_the_resolved_config_file(
     resolved = resolve_config_relative_path("data/vocab.yml", None)
 
     assert resolved == (config_dir / "data/vocab.yml").resolve()
+
+
+def test_without_config_dir_a_build_zone_config_still_anchors_on_the_repo(
+    foreign_cwd, tmp_path, monkeypatch
+):
+    """The ``OSPREY_CONFIG`` fallback applies the same build-zone rule."""
+    repo = tmp_path / "repo"
+    build = repo / "build"
+    build.mkdir(parents=True)
+    (build / "config.yml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
+
+    resolved = resolve_config_relative_path("data/vocab.yml", None)
+
+    assert resolved == (repo / "data/vocab.yml").resolve()
 
 
 def test_relative_value_falls_back_to_the_cwd_when_config_lookup_raises(foreign_cwd, monkeypatch):

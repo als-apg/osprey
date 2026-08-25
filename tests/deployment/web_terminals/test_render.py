@@ -1417,24 +1417,27 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the two default mounts plus the persona's two
+    # Assert — bob (gui) carries the three default mounts plus the persona's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
         "bob-agent-data:/app/dls-gui/var/agent_data",
+        "./var/audit/bob:/app/dls-gui/var/audit",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
-    # alice (default persona, no extra_mounts) keeps exactly the two default mounts
+    # alice (default persona, no extra_mounts) keeps exactly the three default mounts
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-agent-data:/app/dls-assistant/var/agent_data",
+        "./var/audit/alice:/app/dls-assistant/var/audit",
     ]
 
 
-def test_no_extra_mounts_leaves_only_the_two_default_volume_lines() -> None:
-    """A no-personas config (the zero-migration default) emits exactly the two
-    default per-user volume lines — the extra_mounts loop adds nothing."""
+def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
+    """A no-personas config (the zero-migration default) emits exactly the three
+    default per-user volume lines (claude-config, agent-data, the per-user audit
+    zone) — the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1447,6 +1450,7 @@ def test_no_extra_mounts_leaves_only_the_two_default_volume_lines() -> None:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
             f"{user}-agent-data:/app/dls-assistant/var/agent_data",
+            f"./var/audit/{user}:/app/dls-assistant/var/audit",
         ]
 
 
@@ -3604,6 +3608,65 @@ def test_unentitled_persona_gets_no_launch_token() -> None:
     # Assert
     bob_env = compose["services"]["web-bob"]["environment"]
     assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in bob_env)
+
+
+# A deployment that opted into a second plan lane (`bluesky.second_lane`) renders
+# a second bridge with its own launch token, because each lane is a whole stack
+# armed separately -- one shared token would let a launch approved against one
+# machine be replayed against the other. An entitled persona is told both lanes
+# and so is handed both tokens; the tier boundary is the same one.
+
+_SECOND_LANE_TOKEN_LINE = "BLUESKY_LIVE_LAUNCH_TOKEN=${BLUESKY_LIVE_LAUNCH_TOKEN:-}"
+
+
+def _two_lane_persona_config() -> dict:
+    config = _events_persona_config()
+    config["services"] = {
+        "bluesky": {"port": 8090, "target": "va"},
+        "bluesky_live": {"port": 8190, "target": "live"},
+    }
+    return config
+
+
+def test_entitled_persona_on_a_two_lane_deployment_gets_both_launch_tokens() -> None:
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_two_lane_persona_config(), launch_token_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    assert _LAUNCH_TOKEN_LINE in alice_env
+    assert _SECOND_LANE_TOKEN_LINE in alice_env
+
+
+def test_unentitled_persona_on_a_two_lane_deployment_gets_neither_token() -> None:
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_two_lane_persona_config(), launch_token_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("LAUNCH_TOKEN" in line for line in bob_env)
+
+
+def test_single_lane_deployment_grants_lane_ones_token_alone() -> None:
+    """The pre-lane render exactly: one token line, the historical name."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), launch_token_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    assert [line for line in alice_env if "LAUNCH_TOKEN" in line] == [_LAUNCH_TOKEN_LINE]
 
 
 def test_render_without_launch_token_personas_emits_no_token_line() -> None:

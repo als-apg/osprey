@@ -311,13 +311,22 @@ def _resolve_bridge_url(config: dict) -> str:
 
     Resolution order mirrors `osprey.bluesky_bridge_connection.resolve_bridge_url`
     exactly: ``BLUESKY_BRIDGE_URL`` env var, then ``bluesky.bridge_url`` in
-    config.yml, then the loopback default above.
+    config.yml, then the port the deployment publishes its bridge on
+    (``services.bluesky.port``, dialed on loopback), then the default above.
     """
     full = os.environ.get("BLUESKY_BRIDGE_URL")
     if full:
         return full.rstrip("/")
-    url = config.get("bluesky", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
-    return str(url).rstrip("/")
+    bluesky = config.get("bluesky") or {}
+    url = bluesky.get("bridge_url") if isinstance(bluesky, dict) else None
+    if url:
+        return str(url).rstrip("/")
+    services = config.get("services") or {}
+    block = services.get("bluesky") if isinstance(services, dict) else None
+    port = block.get("port") if isinstance(block, dict) else None
+    if port:
+        return f"http://127.0.0.1:{port}"
+    return _DEFAULT_BRIDGE_URL
 
 
 def _bridge_get_json(base_url: str, path: str, timeout: float = 3.0):

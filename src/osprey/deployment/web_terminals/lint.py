@@ -191,6 +191,11 @@ def lint_web_terminals(
                 root, web_terminals, users, project_root=project_root
             )
         )
+        # Same split, for the ARIEL mirror: entitlement from the persona's
+        # config, the bind's source and target from the deploy's.
+        findings.extend(
+            _check_persona_mirror_agreement(root, web_terminals, users, project_root=project_root)
+        )
         # Resolves notice paths against the project directory, so it rides the
         # same gate: a profile has no rendered project to look in yet.
         findings.extend(_check_notice_docs(root, web_terminals))
@@ -1764,6 +1769,91 @@ def _check_persona_bundle_path_agreement(
                     "persona's knowledge tools read its own, so that container would "
                     "see an empty bundle and report no error. Make the two agree"
                 ),
+            )
+        )
+    return findings
+
+
+def _read_config(config_yml_path: Path) -> dict[str, Any]:
+    """Best-effort parse of a rendered ``config.yml``; ``{}`` on any failure,
+    like :func:`_read_bundle_path` (an unreadable project is already its own
+    finding)."""
+    try:
+        with config_yml_path.open("r", encoding="utf-8") as fh:
+            return as_dict(yaml.safe_load(fh))
+    except (OSError, yaml.YAMLError):
+        return {}
+
+
+def _check_persona_mirror_agreement(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    project_root: Path | None = None,
+) -> list[Finding]:
+    """Every persona that writes the ARIEL mirror must write the deployment's.
+
+    The mirror counterpart of :func:`_check_persona_bundle_path_agreement`.
+    **Entitlement** to the mirror bind is decided by each persona's own
+    rendered ``config.yml`` (does it run a qmd export with a ``mirror_path``?),
+    while the bind's SOURCE and its in-container TARGET both come from the
+    deploy config's ``ariel.enhancement_modules.qmd_export.mirror_path``. Two
+    ways for those to disagree, both silent:
+
+    * The deployment writes no mirror at all. The persona is entitled but the
+      overlay emits no bind (there is no source), so its exporter writes the
+      mirror into the container's writable layer — indexed by nothing,
+      discarded at the next recreate — while every layer reports success.
+    * The deployment writes one somewhere else. The deployment's directory is
+      bound at the deployment's path; the persona's exporter writes its own
+      path, which nothing mounted.
+
+    An ERROR: nothing at run time resolves either, and a search that returns
+    nothing looks exactly like a logbook with nothing in it.
+    """
+    from osprey.deployment.compose_generator import configured_ariel_mirror_path
+
+    deploy_mirror = configured_ariel_mirror_path(root)
+
+    catalog = _persona_catalog(web_terminals)
+    findings: list[Finding] = []
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue
+        project_path_raw = entry.get("project_path")
+        if not isinstance(project_path_raw, str) or not project_path_raw:
+            continue
+        config_yml = (project_root or Path(".")) / project_path_raw / "config.yml"
+        if not config_yml.is_file():
+            continue
+        persona_mirror = configured_ariel_mirror_path(_read_config(config_yml))
+        if persona_mirror is None or persona_mirror == deploy_mirror:
+            continue
+        if deploy_mirror is None:
+            message = (
+                f"persona {persona_name!r} runs an ARIEL qmd export writing "
+                f"{persona_mirror!r}, but this deployment runs none, so no mirror "
+                "directory is bound into that container: its exporter would write into "
+                "the container's writable layer, which the qmd sidecar never indexes and "
+                "the next recreate discards. Enable the export on the hosting profile "
+                "(one shared mirror, indexed by the sidecar) or switch it off in the "
+                "persona"
+            )
+        else:
+            message = (
+                f"persona {persona_name!r} sets ariel.enhancement_modules.qmd_export."
+                f"mirror_path to {persona_mirror!r}, but this deployment sets "
+                f"{deploy_mirror!r}. The mirror is bind-mounted at the DEPLOYMENT's path "
+                "while the persona's exporter writes its own, so its entries would land "
+                "in the writable layer and never reach the sidecar. Make the two agree"
+            )
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_mirror_path_divergence",
+                message=message,
             )
         )
     return findings

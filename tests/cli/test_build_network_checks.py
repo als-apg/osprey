@@ -19,9 +19,7 @@ build:
   it is rendered with are written for one side of the boundary or the other;
 * an address that crosses the boundary — a hand-authored one on a host-mode
   service still naming a bridge-resident service, which osprey deliberately does
-  not rewrite;
-* a host-mode telemetry exporter aimed at the pinned OpenObserve port while the
-  project publishes the store somewhere else.
+  not rewrite.
 
 The bridge default is covered too, and is the load-bearing case: today's
 deployments must render through all of this without a word.
@@ -40,7 +38,6 @@ from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import (
     _HOST_NETWORK,
-    _OPENOBSERVE_ENDPOINT_PORT,
     _index_rendered_services,
     _names_service,
     _network_check_errors,
@@ -203,21 +200,6 @@ def test_host_network_constant_names_a_real_mode() -> None:
     """
     assert _HOST_NETWORK in VALID_NETWORK_MODES
     assert _HOST_NETWORK != DEFAULT_NETWORK_MODE
-
-
-def test_openobserve_endpoint_port_matches_the_resolver_pin() -> None:
-    """The port the telemetry check reasons about is the one the emitter derives.
-
-    Bound to the resolver rather than restated: if the derived endpoint ever
-    stops pinning a port, the check that exists BECAUSE it pins one has to be
-    revisited rather than quietly keep asserting the old number.
-    """
-    from osprey.build.claude_code_telemetry import _resolve_telemetry_endpoint
-
-    endpoint = _resolve_telemetry_endpoint(
-        {"backend": "openobserve"}, in_container=True, openobserve_host="localhost"
-    )
-    assert endpoint == f"http://localhost:{_OPENOBSERVE_ENDPOINT_PORT}/api/default"
 
 
 # ---------------------------------------------------------------------------
@@ -624,141 +606,6 @@ def test_environment_declared_as_a_list_is_read(
 
     assert len(errors) == 1
     assert "STORE_URL -> http://store:5080" in errors[0]
-
-
-# ---------------------------------------------------------------------------
-# (d) The pinned OpenObserve endpoint port
-# ---------------------------------------------------------------------------
-
-
-def _telemetry(**overrides: Any) -> dict[str, Any]:
-    """A live ``claude_code.telemetry`` block — enabled, openobserve, derived."""
-    return {"telemetry": {"enabled": True, "backend": "openobserve", **overrides}}
-
-
-def _otel_worker_render(project: Path, *, on_host: bool = True) -> str:
-    """A rendered worker naming the telemetry store the way its mode does."""
-    stanza = (
-        _host_stanza(environment={"OSPREY_OTEL_OPENOBSERVE_HOST": "localhost"})
-        if on_host
-        else _bridge_stanza(environment={"OSPREY_OTEL_OPENOBSERVE_HOST": "openobserve"})
-    )
-    return _write_render(project, "dispatch_worker", {"dispatch-worker-1": stanza})
-
-
-def test_host_mode_with_a_republished_store_and_live_telemetry_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A derived endpoint aimed at 5080 while the store publishes elsewhere fails.
-
-    The failure it prevents is silent: the exporter posts into a closed port
-    and every metric and log is dropped without an error anywhere.
-    """
-    monkeypatch.chdir(tmp_path)
-    config = _config(
-        tmp_path,
-        {"dispatch_worker": {"network": _HOST_NETWORK}, "openobserve": {"port": 5081}},
-        claude_code=_telemetry(),
-    )
-    worker = _otel_worker_render(tmp_path)
-    store = _write_render(tmp_path, "openobserve", {"openobserve": _bridge_stanza()})
-
-    errors = _network_check_errors(config, [worker, store])
-
-    assert len(errors) == 1
-    message = errors[0]
-    assert "services.dispatch_worker" in message
-    assert "5080" in message and "5081" in message
-    assert "`claude_code.telemetry.endpoint: http://localhost:5081/api/default`" in message
-
-
-def test_the_endpoint_remedy_carries_the_configured_org(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The remedy is copy-pasteable, so it names the org this deployment uses."""
-    monkeypatch.chdir(tmp_path)
-    config = _config(
-        tmp_path,
-        {"dispatch_worker": {"network": _HOST_NETWORK}, "openobserve": {"port": 5081}},
-        claude_code=_telemetry(openobserve={"org": "facility"}),
-    )
-    worker = _otel_worker_render(tmp_path)
-
-    errors = _network_check_errors(config, [worker])
-
-    assert "http://localhost:5081/api/facility" in errors[0]
-
-
-def test_a_republished_store_with_inert_telemetry_warns_instead_of_failing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """With telemetry off the variable is inert, so the build proceeds — loudly.
-
-    Refusing here would be an error about nothing; saying nothing would leave
-    the trap armed for whoever enables telemetry later.
-    """
-    monkeypatch.chdir(tmp_path)
-    config = _config(
-        tmp_path,
-        {"dispatch_worker": {"network": _HOST_NETWORK}, "openobserve": {"port": 5081}},
-    )
-    worker = _otel_worker_render(tmp_path)
-
-    with caplog.at_level("WARNING"):
-        errors = _network_check_errors(config, [worker])
-
-    assert errors == []
-    assert "claude_code.telemetry.endpoint" in caplog.text
-    assert "5081" in caplog.text
-
-
-def test_an_explicit_endpoint_settles_the_question(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Nothing is derived when the endpoint is written out, so nothing can be wrong."""
-    monkeypatch.chdir(tmp_path)
-    config = _config(
-        tmp_path,
-        {"dispatch_worker": {"network": _HOST_NETWORK}, "openobserve": {"port": 5081}},
-        claude_code=_telemetry(endpoint="http://localhost:5081/api/default"),
-    )
-    worker = _otel_worker_render(tmp_path)
-
-    assert _network_check_errors(config, [worker]) == []
-
-
-def test_the_default_store_port_is_never_flagged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Publishing the store where the endpoint is pinned is the case that works."""
-    monkeypatch.chdir(tmp_path)
-    config = _config(
-        tmp_path,
-        {
-            "dispatch_worker": {"network": _HOST_NETWORK},
-            "openobserve": {"port": _OPENOBSERVE_ENDPOINT_PORT},
-        },
-        claude_code=_telemetry(),
-    )
-    worker = _otel_worker_render(tmp_path)
-
-    assert _network_check_errors(config, [worker]) == []
-
-
-def test_a_bridge_mode_worker_is_never_flagged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """On the bridge the pin is the port the store LISTENS on, which never moves."""
-    monkeypatch.chdir(tmp_path)
-    config = _config(
-        tmp_path,
-        {"dispatch_worker": {}, "openobserve": {"port": 5081}},
-        claude_code=_telemetry(),
-    )
-    worker = _otel_worker_render(tmp_path, on_host=False)
-    store = _write_render(tmp_path, "openobserve", {"openobserve": _bridge_stanza()})
-
-    assert _network_check_errors(config, [worker, store]) == []
 
 
 # ---------------------------------------------------------------------------

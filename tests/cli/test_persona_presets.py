@@ -45,6 +45,8 @@ import pytest
 import yaml
 
 from osprey.cli.build_profile import BuildProfile, resolve_build_profile
+from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
+from osprey.deployment.qmd_service import resolve_qmd_service_config
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
@@ -76,18 +78,13 @@ GALLERY_WRITE_KEY = "web.scaffold_gallery.write_enabled"
 ADMIN_LIFTED_FLOOR_KEYS = (CONFIG_PANEL_KEY, GALLERY_WRITE_KEY)
 # The skill that drives those surfaces from the agent side.
 ADMIN_ONLY_SKILL = "setup-mode"
-# The write-oriented panels: declared only in the readwrite persona, so the
-# readonly build genuinely lacks them (a persona delta can only add config
-# keys; `enabled: false` is inert for URL panels).
-READWRITE_PANEL_KEYS = (
-    "web.panels.events.label",
-    "web.panels.events.url",
-    "web.panels.events.path",
-    "web.panels.events.health_endpoint",
-    "web.panels.bluesky.label",
-    "web.panels.bluesky.url",
-    "web.panels.bluesky.path",
-)
+# The write-oriented panels: declared only in the readwrite persona's
+# `web_panels` list, so the readonly build genuinely lacks them (a persona
+# delta can only add; `enabled: false` is inert for URL panels). Their URL,
+# path and label are NOT preset config — the build projects them from the
+# hosting deployment's render (osprey.deployment.reach), which is asserted on
+# a real build in test_readwrite_is_told_its_panel_urls.
+READWRITE_PANELS = ("events", "bluesky")
 
 # The literal dotted key the hosting preset must carry: the whole web-terminals
 # module subtree addressed as one leaf so config_writer sets only this leaf and
@@ -589,10 +586,14 @@ class TestControlAssistantPersonas:
         for key in ADMIN_LIFTED_FLOOR_KEYS:
             assert rw_cfg.pop(key) is False, f"readwrite persona must not enable {key}"
             assert ad_cfg.pop(key) is True
-        # Operator-only panel declarations.
-        for key in READWRITE_PANEL_KEYS:
-            assert key not in ad_cfg, f"admin persona must not declare {key}"
-            rw_cfg.pop(key)
+        # The operator-only panels ride the readwrite persona's `web_panels`
+        # list, not its config: their URLs are projected by the build, so
+        # neither tier may spell one.
+        for panel in READWRITE_PANELS:
+            for cfg in (rw_cfg, ad_cfg):
+                assert not any(key.startswith(f"web.panels.{panel}.") for key in cfg), (
+                    f"no persona preset may pin web.panels.{panel}.* — the build projects it"
+                )
         assert ad_cfg == rw_cfg
 
     def test_personas_retain_base_config_overrides(self) -> None:
@@ -618,11 +619,16 @@ class TestControlAssistantPersonas:
         # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
         assert ro_cfg.pop(UI_MODE_KEY) == "simple"
         assert rw_cfg.pop(UI_MODE_KEY) == "expert"
-        # Axis 3 — write-oriented panels: declared for the write tier only.
-        # pop() without default doubles as the presence assertion on rw_cfg.
-        for key in READWRITE_PANEL_KEYS:
-            assert key not in ro_cfg, f"readonly persona must not declare {key}"
-            rw_cfg.pop(key)
+        # Axis 3 — write-oriented panels — is not a config axis at all: the
+        # tabs ride the readwrite persona's `web_panels` list (asserted in
+        # test_personas_share_every_artifact_list_except_panels_and_the_admin_skill), and their
+        # URLs are projected from the hosting deployment's render rather than
+        # spelled in any preset.
+        for panel in READWRITE_PANELS:
+            for cfg in (ro_cfg, rw_cfg):
+                assert not any(key.startswith(f"web.panels.{panel}.") for key in cfg), (
+                    f"no persona preset may pin web.panels.{panel}.* — the build projects it"
+                )
         # With the tier-contract keys removed, the personas are identical.
         assert ro_cfg == rw_cfg
 
@@ -635,8 +641,8 @@ class TestControlAssistantPersonas:
         are allowed to differ, and both differ by ADDITION:
 
         * panels — the readwrite persona adds the write-oriented EVENTS/BLUESKY
-          tabs beside their URL declarations, and the readonly persona is built
-          without them;
+          tabs (their URLs are projected by the build, not declared), and the
+          readonly persona is built without them;
         * skills — the admin persona adds ``setup-mode``, the guided workflow
           that edits config.yml and .mcp.json, which is the agent-side half of
           the privilege its config keys turn on.
@@ -691,29 +697,31 @@ class TestControlAssistantPersonas:
             profile = resolve_preset(name)
             assert profile.config.get("modules.web_terminals.enabled") is False
 
-    def test_personas_pin_the_graph_store_port(self) -> None:
-        """All three tiers carry ``services.graphdb.port_host``, identically.
+    def test_personas_pin_no_service_address(self) -> None:
+        """No tier spells where the hosting deployment's services are.
 
         The personas render attached (``deploy_services: false``), so the app
-        template gives them ``services: {}`` and nothing says where the graph
-        store listens. This one dotted key is what puts a ``services.graphdb``
-        block into a persona's config at all — which is what makes the graph MCP
-        server render for them (see the build test below).
-
-        Spelled identically on both sides on purpose: the key cancels in
-        ``test_personas_differ_only_on_the_tier_contract``'s wholesale
-        comparison, so the tier contract stays three axes wide. It is NOT a
-        write boundary — reading the graph is a read on either tier.
+        template gives them ``services: {}`` — and the build then tells each
+        render every client-facing fact from the hosting deployment's own
+        render (``osprey.deployment.reach``): the graph store's bolt port, the
+        qmd sidecar's port, the Postgres, the telemetry store, the bridge, the
+        EVENTS and BLUESKY tab URLs. A preset that pinned one would be a second
+        copy of a number the host already states, free to drift when an
+        operator moves the service — and the build refuses such a pin.
         """
         for name in (
             "control-assistant-readonly",
             "control-assistant-readwrite",
             "control-assistant-admin",
+            "control-assistant-ariel",
         ):
             profile = resolve_preset(name)
-            assert profile.config.get("services.graphdb.port_host") == 7687
-            # Flat dotted key: a nested ``services:`` mapping here is silently
-            # dropped by the deep merge, so the block would never arrive.
+            pinned = sorted(
+                key
+                for key in profile.config
+                if str(key).startswith(("services.", "web.panels.events.", "web.panels.bluesky."))
+            )
+            assert pinned == [], f"{name} pins {pinned}"
             assert "services" not in profile.config
 
     @pytest.mark.parametrize("persona", ("readonly", "readwrite", "admin"))
@@ -723,13 +731,13 @@ class TestControlAssistantPersonas:
         """Every tier's terminal can query the hosting deployment's graph.
 
         Asserted on a real build rather than on the resolved profile, because the
-        claim spans the whole pipeline: the preset's dotted key has to survive
-        ``_apply_config_overrides``, land as a ``services.graphdb`` block in the
-        rendered config, be seen by ``config_derived_context`` as
+        claim spans the whole pipeline: the store's port has to be projected
+        from the hosting deployment's render (``osprey.deployment.reach``),
+        land as a ``services.graphdb`` block in the rendered config through
+        ``_apply_config_overrides``, be seen by ``config_derived_context`` as
         ``graphdb_configured``, and only then reach ``resolve_servers`` before
-        the Claude Code artifacts are written. An overlay applied after server
-        resolution would leave every assertion below false while the profile
-        still carried the key.
+        the Claude Code artifacts are written. A projection applied after
+        server resolution would leave every assertion below false.
 
         The whole main-agent surface is checked — permissions, a launchable
         ``.mcp.json`` entry and the PostToolUse prefix, with nothing behind
@@ -763,45 +771,114 @@ class TestControlAssistantPersonas:
         assert _graph_entries(tools) == []
 
     @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
-    def test_graph_port_lands_inside_the_attached_renders_services_map(
+    def test_projected_facts_land_inside_the_attached_renders_services_map(
         self, built_persona_stack: Path, persona: str
     ) -> None:
-        """The dotted key is written *into* the attached render's empty
-        ``services`` map, and leaves nothing else behind.
+        """The projected keys are written *into* the attached render's empty
+        ``services`` map, carry the host's values, and leave nothing else behind.
 
         An attached persona scaffolds no services of its own — the app template
-        gives it ``services: {}`` — so after the overlay that map must hold the
-        graph store and nothing more. The test above asks what
-        ``services.graphdb`` is; this one asks what the whole map is, which is
-        the half that catches a dotted overlay landing beside the map instead of
-        inside it: a literal top-level ``"services.graphdb.port_host"`` string
-        key would satisfy ``config.yml`` as YAML, be ignored in silence by every
-        reader of ``services.graphdb``, and leave the assertion above free to
-        pass on a second, correct copy.
+        gives it ``services: {}`` — so after the projection that map must hold
+        exactly the client-facing facts of the services this tier's consumers
+        dial, each equal to the hosting render's, and nothing more: not the
+        host's own service knobs (image, heap, retention), and no literal
+        top-level ``"services.graphdb.port_host"`` string key beside the map,
+        which would satisfy ``config.yml`` as YAML and be read by nobody.
         """
         project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        host = yaml.safe_load(
+            (built_persona_stack / "build" / "config.yml").read_text(encoding="utf-8")
+        )
 
-        assert config["services"] == {"graphdb": {"port_host": 7687}}
+        assert config["services"] == {
+            "qmd": {"port": host["services"]["qmd"]["port"]},
+            "graphdb": {"port_host": host["services"]["graphdb"]["port_host"]},
+            "postgresql": {
+                "port_host": host["services"]["postgresql"]["port_host"],
+                "username": host["services"]["postgresql"]["username"],
+                "database_name": host["services"]["postgresql"]["database_name"],
+            },
+            "openobserve": {"port": host["services"]["openobserve"]["port"]},
+            "bluesky": {"port": host["services"]["bluesky"]["port"]},
+            "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
+        }
+        assert config["services"]["qmd"]["port"] == QMD_DEFAULT_PORT
         assert [key for key in config if "." in str(key)] == []
 
+    def test_readwrite_is_told_its_panel_urls(self, built_persona_stack: Path) -> None:
+        """The EVENTS and BLUESKY tabs the readwrite tier declares are told
+        exactly what the hosting render carries for them — where the dispatch
+        and bluesky-web injectors derived them — not what any preset spells.
+        Every projected leaf matches, absent ones included — the whole entry
+        the dispatch and bluesky-web injectors derive (url, path, label, and
+        the health endpoint where the service serves one) and nothing more."""
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-readwrite"
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        host = yaml.safe_load(
+            (built_persona_stack / "build" / "config.yml").read_text(encoding="utf-8")
+        )
+        for panel in ("events", "bluesky"):
+            told = config["web"]["panels"][panel]
+            hosts = host["web"]["panels"][panel]
+            assert told["url"] == hosts["url"], panel
+            for leaf in ("path", "label", "health_endpoint"):
+                assert told.get(leaf) == hosts.get(leaf), (panel, leaf)
+        readonly = yaml.safe_load(
+            (
+                built_persona_stack
+                / "build"
+                / f"{built_persona_stack.name}-readonly"
+                / "config.yml"
+            ).read_text(encoding="utf-8")
+        )
+        assert "events" not in readonly["web"]["panels"]
+        assert "bluesky" not in readonly["web"]["panels"]
+
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "ariel"))
+    def test_attached_personas_resolve_the_qmd_sidecar(
+        self, built_persona_stack: Path, persona: str
+    ) -> None:
+        """Every persona's rendered config names the sidecar its hybrid search dials.
+
+        Asserted on a real build and through the client's own resolver, because
+        this is the seam the query-time failure lives on: the app template
+        enables ``ariel.search_modules.hybrid`` for the persona, and the module
+        resolves its endpoint from ``services.qmd`` of the *same* config. A
+        persona that renders one without the other is a terminal whose logbook
+        search fails on every query, and nothing before this test looked at
+        both halves together.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
+        assert project.is_dir(), f"{persona} was never rendered"
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+
+        hybrid = config["ariel"]["search_modules"]["hybrid"]
+        assert hybrid["enabled"] is True, "the template no longer enables hybrid search"
+
+        resolved = resolve_qmd_service_config(config)
+        assert resolved is not None, f"{persona}: hybrid search is on but no services.qmd"
+        assert resolved.port == QMD_DEFAULT_PORT
+        assert resolved.base_url == f"http://127.0.0.1:{QMD_DEFAULT_PORT}"
+
     def test_ariel_persona_renders_no_graph_surface(self, built_persona_stack: Path) -> None:
-        """The logbook tier is graph-less, and by omission rather than by veto.
+        """The logbook tier is graph-less, and by veto rather than by omission.
 
         ``control-assistant-ariel`` switches off every control-surface tool
-        server explicitly (``claude_code.servers.<name>.enabled: false``), but
-        carries no ``services.graphdb`` key at all — so the graph server never
-        becomes eligible in the first place and needs no such line. That
-        distinction matters for whoever edits these presets next: adding the port
-        key to this tier would hand it the graph tools, and no ``enabled: false``
-        elsewhere would take them away again.
+        server explicitly (``claude_code.servers.<name>.enabled: false``), the
+        graph server among them. The line is load-bearing now: the build tells
+        every attached render where the hosting deployment's services are, and
+        a ``services.graphdb`` block is what makes the graph server render —
+        so only a server switched off is told nothing about the store
+        (``osprey.deployment.reach``, the graphdb contract's gate).
         """
         project = built_persona_stack / "build" / f"{built_persona_stack.name}-ariel"
         assert project.is_dir(), "the ariel persona was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         assert (config.get("services") or {}).get("graphdb") is None
-        assert "services.graphdb.port_host" not in resolve_preset("control-assistant-ariel").config
+        preset = resolve_preset("control-assistant-ariel").config
+        assert preset.get("claude_code.servers.graph.enabled") is False
 
         hits = sorted(
             str(path.relative_to(project))

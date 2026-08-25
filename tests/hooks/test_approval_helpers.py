@@ -236,14 +236,41 @@ def test_resolve_bridge_url_falls_back_to_config(approval, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "config",
-    [{}, {"bluesky": {}}],
-    ids=["no-bluesky-section", "no-bridge-url-key"],
+    [{}, {"bluesky": {}}, {"services": {}}, {"services": {"bluesky": {}}}],
+    ids=["no-bluesky-section", "no-bridge-url-key", "no-services", "no-published-port"],
 )
 def test_resolve_bridge_url_falls_back_to_the_loopback_default(approval, monkeypatch, config):
     """Neither env nor config leaves the loopback default."""
     monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
 
     assert approval._resolve_bridge_url(config) == "http://127.0.0.1:8090"
+
+
+@pytest.mark.unit
+def test_resolve_bridge_url_dials_the_port_the_deployment_publishes(approval, monkeypatch):
+    """With no env and no `bluesky.bridge_url`, `services.bluesky.port` — the port
+    the build wrote for the bridge it deploys, or projected into an attached
+    render — is dialed on loopback. The same rule as
+    `osprey.bluesky_bridge_connection.bridge_url_from_config`."""
+    monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
+
+    url = approval._resolve_bridge_url({"services": {"bluesky": {"port": 18090}}})
+
+    assert url == "http://127.0.0.1:18090"
+
+
+@pytest.mark.unit
+def test_resolve_bridge_url_config_url_beats_the_published_port(approval, monkeypatch):
+    monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
+
+    url = approval._resolve_bridge_url(
+        {
+            "bluesky": {"bridge_url": "http://bridge.config:8000"},
+            "services": {"bluesky": {"port": 1}},
+        }
+    )
+
+    assert url == "http://bridge.config:8000"
 
 
 @pytest.mark.unit

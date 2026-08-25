@@ -163,7 +163,8 @@ def _resolve_bundle_path(config: dict, config_dir: Path) -> Path:
 
     Args:
         config: Parsed OSPREY config dict.
-        config_dir: Directory of the config file, used to resolve relative paths.
+        config_dir: Directory of the config file; relative paths resolve
+            against the project root derived from it.
 
     Returns:
         Absolute :class:`~pathlib.Path` to the bundle root.

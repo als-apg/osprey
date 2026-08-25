@@ -2,7 +2,8 @@
 
 Drives the category's async ``/api/status`` probe through an injected
 :class:`httpx.MockTransport`, exercising the presence gate (a top-level ``ariel``
-config block), endpoint construction from ``bind_address`` + ``ariel.web.port``,
+config block), endpoint construction through the web-server registry resolver
+(``ariel.web.host``/``port``, with the multi-user ``OSPREY_ARIEL_PORT`` override),
 and every derived row (reachability, entry count, last-ingestion age, and the
 search/enhancement module rows).
 """
@@ -203,14 +204,40 @@ async def test_empty_enhancement_modules_is_ok() -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def test_status_url_uses_bind_and_port() -> None:
-    config = _cfg(web={"port": 9999}, deployment={"bind_address": "10.0.0.5"})
+async def test_status_url_uses_the_panels_host_and_port(monkeypatch) -> None:
+    """The probe targets ``ariel.web.host``/``port`` — what the panel binds."""
+    monkeypatch.delenv("OSPREY_ARIEL_PORT", raising=False)
+    config = _cfg(web={"host": "10.0.0.5", "port": 9999})
     captured: list[str] = []
     await _run(config, transport=_ok_transport(captured=captured))
     assert captured == ["http://10.0.0.5:9999/api/status"]
 
 
-async def test_status_url_defaults() -> None:
+async def test_status_url_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("OSPREY_ARIEL_PORT", raising=False)
     captured: list[str] = []
     await _run(_cfg(), transport=_ok_transport(captured=captured))
     assert captured == ["http://127.0.0.1:8085/api/status"]
+
+
+async def test_status_url_honours_the_multi_user_port_override(monkeypatch) -> None:
+    """``OSPREY_ARIEL_PORT`` — exported per user by the multi-user compose
+    render because the per-user containers share the host network namespace —
+    is the port the panel binds, so it is the port the probe knocks on."""
+    monkeypatch.setenv("OSPREY_ARIEL_PORT", "9391")
+    captured: list[str] = []
+    await _run(_cfg(web={"port": 9999}), transport=_ok_transport(captured=captured))
+    assert captured == ["http://127.0.0.1:9391/api/status"]
+
+
+async def test_misplaced_address_key_is_reported_not_probed() -> None:
+    """``ariel.port`` (correct: ``ariel.web.port``) is a warning naming the key,
+    with no probe issued — the same verdict the ``web_panels`` category gives."""
+    config = _cfg()
+    config["ariel"]["port"] = 9999
+    captured: list[str] = []
+    by_name = await _run(config, transport=_ok_transport(captured=captured))
+    assert captured == []
+    assert set(by_name) == {"ariel_status"}
+    assert by_name["ariel_status"].status is Status.WARNING
+    assert "ariel.web.port" in by_name["ariel_status"].details

@@ -546,8 +546,9 @@ class ARIELConfig:
                 ``ariel.database.uri`` unset, the DSN is derived from it — see
                 :func:`resolve_ariel_dsn`.
             config_dir: Directory holding the config.yml this dictionary came
-                from. A relative ``ariel.vocabulary.path`` resolves against it,
-                so every process reading the same config finds the same file.
+                from. A relative ``ariel.vocabulary.path`` resolves against the
+                project root derived from it, so every process reading the
+                same config finds the same file.
                 Keyword-only with a None default: callers that never name a
                 config-relative path are unaffected, and None falls back to the
                 shared helper's own rule.

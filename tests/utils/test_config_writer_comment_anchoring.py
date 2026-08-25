@@ -245,3 +245,41 @@ class TestConfigAddToList:
 
         text = path.read_text(encoding="utf-8")
         assert _line_no(text, "- virtual_accelerator") < _line_no(text, "# SAFETY CONTROLS")
+
+
+class TestConfigDeleteField:
+    """``config_delete_field`` — the inverse of one update, comments kept."""
+
+    _DOC = (
+        "# Header comment\n"
+        "web:\n"
+        "  panels:\n"
+        "    events:  # inherited fragment\n"
+        "      path: /custom-route\n"
+        "    okf:\n"
+        "      enabled: true  # keep me\n"
+        "# Footer comment\n"
+    )
+
+    def test_removes_the_leaf_and_keeps_every_other_line(self, tmp_path):
+        from osprey.utils.config_writer import config_delete_field, config_read
+
+        path = tmp_path / "config.yml"
+        path.write_text(self._DOC, encoding="utf-8")
+
+        assert config_delete_field(path, "web.panels.events") is True
+
+        text = path.read_text(encoding="utf-8")
+        assert config_read(path) == {"web": {"panels": {"okf": {"enabled": True}}}}
+        assert "# Header comment" in text and "# Footer comment" in text
+        assert "# keep me" in text
+
+    def test_missing_key_is_a_no_op(self, tmp_path):
+        from osprey.utils.config_writer import config_delete_field
+
+        path = tmp_path / "config.yml"
+        path.write_text(self._DOC, encoding="utf-8")
+
+        assert config_delete_field(path, "web.panels.bluesky") is False
+        assert config_delete_field(path, "nothing.here") is False
+        assert path.read_text(encoding="utf-8") == self._DOC

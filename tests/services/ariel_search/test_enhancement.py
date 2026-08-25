@@ -1354,14 +1354,20 @@ class TestQmdExportModule:
         module = self._module(tmp_path / "mirror")
         assert module._mirror_root == tmp_path / "mirror"
 
-    def test_configure_resolves_relative_path_against_config_dir(self, tmp_path, monkeypatch):
-        """A relative mirror_path resolves against the directory holding config.yml."""
+    def test_configure_resolves_relative_path_against_the_project_root(self, tmp_path, monkeypatch):
+        """A relative mirror_path resolves against the project root, not ``build/``.
+
+        The config lives in the render zone; the mirror must not, because the
+        sidecar bind-mounts the same configured path from the repo root (the
+        pinned compose project directory) and would otherwise index an empty
+        tree while the exporter fills one inside ``build/``.
+        """
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "build" / "config.yml"))
         module = QmdExportModule()
 
         module.configure({"mirror_path": "qmd-mirror"})
 
-        assert module._mirror_root == (tmp_path / "build" / "qmd-mirror").resolve()
+        assert module._mirror_root == (tmp_path / "qmd-mirror").resolve()
 
     def test_configure_expands_user_home(self, tmp_path, monkeypatch):
         """A tilde-prefixed mirror_path expands before the absolute check."""
