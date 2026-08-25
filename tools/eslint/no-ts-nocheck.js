@@ -7,7 +7,7 @@
  * else caps that list. This rule closes that hole by reporting the directive
  * wherever `tsc` actually honors it.
  *
- * Matches `tsc` 5.9's real acceptance grammar (verified): it honors a
+ * Matches `tsc` 7.0's real acceptance grammar (verified): it honors a
  * `// @ts-nocheck` LINE comment anywhere in the leading comment block — not
  * just line 1, and with or without a space after `//`. It does NOT honor the
  * block form `/* @ts-nocheck *\/` or a mid-line prose mention. So this rule
