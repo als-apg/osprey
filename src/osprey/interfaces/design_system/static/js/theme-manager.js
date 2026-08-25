@@ -194,10 +194,10 @@ function _familyOf(id) {
  * whose id does not title-case correctly -- 'desy' -> 'DESY', not 'Desy'.
  *
  * The single implementation for every family picker in the fleet: no picker
- * derives a label of its own -- web-terminal's display menu imports this
- * directly and <osprey-theme-switcher> gets it through `themeFamilies()`
- * below -- so a newly-labelled family can never render one way in one picker
- * and another way in the other.
+ * derives a label of its own -- <osprey-display-menu> and
+ * <osprey-theme-switcher> both get it through `themeFamilies()` below -- so a
+ * newly-labelled family can never render one way in one picker and another
+ * way in the other.
  *
  * @param {string} family
  * @returns {string}
@@ -219,7 +219,7 @@ export function familyLabel(family) {
  * function enforces.
  *
  * The single implementation for every family picker in the fleet, for the same
- * reason `familyLabel` is: both web-terminal's display menu and
+ * reason `familyLabel` is: both <osprey-display-menu> and
  * <osprey-theme-switcher> import this rather than deduping `THEMES`
  * themselves, so the two pickers can never offer a different set of families
  * (or a different order) after a token regeneration.
@@ -233,6 +233,25 @@ export function themeFamilies() {
     if (!seen.has(theme.family)) seen.set(theme.family, familyLabel(theme.family));
   }
   return Array.from(seen, ([id, label]) => ({ id, label }));
+}
+
+/**
+ * The `mode` ('dark'|'light') of a concrete theme id, or null when `id` is
+ * not a recognized theme -- including `null` itself, e.g. `getTheme()` before
+ * `initTheme()` has resolved one.
+ *
+ * The single implementation for every theme control in the fleet, like
+ * `familyLabel` and `themeFamilies` above: `<osprey-theme-switcher>` and
+ * `<osprey-display-menu>` both reflect the active light/dark side off this
+ * rather than each reading `THEMES` for itself.
+ *
+ * @param {string|null} id
+ * @returns {string|null}
+ */
+export function modeOf(id) {
+  if (id === null) return null;
+  const theme = _themesById.get(id);
+  return theme ? theme.mode : null;
 }
 
 function _prefersDarkOS() {
