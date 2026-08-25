@@ -98,6 +98,8 @@ shape:
    * - ``data/channel_limits.json``
      - The limits table every setpoint is checked against before it reaches the
        control system.
+   * - ``data/bluesky_devices.yml``
+     - The device table that decides which channels a Bluesky plan may drive.
 
 Three things make the answer depend on which *file* is named rather than on how
 the writer spelled it:
@@ -131,7 +133,8 @@ Two files carry keys an agent-side writer may not set.
      - ``control_system.*``, ``approval.*``, ``hooks.*``,
        ``claude_code.permissions.*``, ``claude_code.hooks.*``,
        ``claude_code.servers.*``, ``artifacts.hooks``, ``agent_data.*``,
-       ``file_paths.*``, ``artifacts.*``, plus the runtime write paths below
+       ``file_paths.*``, ``artifacts.*``, ``services.*.devices_file``, plus the
+       runtime write paths below
    * - ``.mcp.json``
      - ``mcpServers.*.command``, ``mcpServers.*.args``, ``mcpServers.*.env.*``
 
