@@ -58,6 +58,39 @@ def test_unchanged_data_tree_hashes_the_same(data_profile):
     assert compute_profile_hash(data_profile) == compute_profile_hash(data_profile)
 
 
+def test_runtime_minted_material_does_not_move_the_hash(data_profile):
+    """#716: material ``osprey up`` mints under ``data/.runtime/`` is not build input.
+
+    The start itself writes CURVE keypairs into the data tree, so folding them
+    would make every successful start mark its own build OUT OF DATE — a
+    scaffolded boot unit then refuses to start after any of them. The reserved
+    ``.runtime/`` subpath is spelled literally here, not through the constant,
+    because the spelling IS the contract: the fold and the writer must agree on
+    these exact bytes.
+    """
+    before = compute_profile_hash(data_profile)
+
+    _write(
+        data_profile.parent / "data" / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
+        "minted-by-osprey-up\n",
+    )
+
+    assert compute_profile_hash(data_profile) == before
+
+
+def test_authored_data_still_moves_the_hash_when_runtime_material_exists(data_profile):
+    """The carve-out is surgical: authored ``data/`` edits beside it still count."""
+    _write(
+        data_profile.parent / "data" / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
+        "minted-by-osprey-up\n",
+    )
+    before = compute_profile_hash(data_profile)
+
+    _write(data_profile.parent / "data" / "docs" / "notes.md", "edited\n")
+
+    assert compute_profile_hash(data_profile) != before
+
+
 def test_identical_trees_in_different_locations_hash_the_same(tmp_path):
     """Only content and relative layout may reach the digest — never a host path.
 

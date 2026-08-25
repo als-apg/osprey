@@ -368,9 +368,21 @@ def copy_template_data(
     # ``template_root`` through a package-rooted Jinja loader, which cannot
     # reach a tree outside the osprey package at all.
     if data_root is not None:
+        from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+
         dst_data = project_dir / "data"
+
+        def _drop_runtime_output(directory: str, names: list[str]) -> set[str]:
+            # data/.runtime/ is runtime-minted material (`osprey up`'s CURVE
+            # certificates) — private keys that must not be staged into
+            # build/ or into the images built from it. Top level only, the
+            # same anchoring the fingerprint fold applies to the same name.
+            if Path(directory) == Path(data_root) and RUNTIME_DATA_DIR_NAME in names:
+                return {RUNTIME_DATA_DIR_NAME}
+            return set()
+
         # dirs_exist_ok is defensive — no build path reaches here with data/ present.
-        shutil.copytree(data_root, dst_data, dirs_exist_ok=True)
+        shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_drop_runtime_output)
         logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
         return
 
