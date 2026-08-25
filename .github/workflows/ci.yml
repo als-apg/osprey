@@ -435,10 +435,12 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra docs
 
+    # Warnings are errors: an orphaned page, a duplicate label, a missing
+    # :file: include, or a broken :doc:/:ref: target fails this job.
     - name: Build documentation
       run: |
         cd docs
-        uv run make html
+        uv run make html SPHINXOPTS="-W --keep-going"
 
     - name: Check for broken links
       run: |
