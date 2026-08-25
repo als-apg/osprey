@@ -8,7 +8,9 @@ neosemantics.  One TTL, two destinations.
 
 ``build-ttl`` stands upstream of both: it derives that TTL from the project's
 channel database, so a facility with no hand-written corpus still has one to
-seed.
+seed.  ``compile-ontology`` stands upstream of ``build-ttl`` in turn: it is the
+authoring verb, turning a LinkML schema into the compiled FAMILY-to-class table
+that ``build-ttl`` emits the corpus against.
 
 Note: this module is intentionally importable WITHOUT the ``knowledge``
 extra (rdflib) installed, and without the ``neo4j`` driver.  Any rdflib or
@@ -18,6 +20,8 @@ neo4j usage must be guarded by a lazy import inside the command body.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
@@ -805,6 +809,10 @@ def _resolve_hierarchy_descriptions(raw: Mapping[str, Any], db_path: Path) -> An
 def _load_ontology_table(ontology: Path | None) -> Any:
     """Return the FAMILY-to-class table to emit against.
 
+    The table is the compiled JSON form of a LinkML schema, so a ``.yaml`` or
+    ``.yml`` path is the authoring source handed over one step too early: say
+    so, rather than only that the file is not valid JSON.
+
     Args:
         ontology: The ``--ontology`` value, or ``None`` for the shipped table.
 
@@ -825,7 +833,14 @@ def _load_ontology_table(ontology: Path | None) -> Any:
     try:
         return load_ontology(ontology)
     except OntologyMapError as exc:
-        raise click.ClickException(f"Cannot use the ontology table {ontology}: {exc}") from exc
+        message = f"Cannot use the ontology table {ontology}: {exc}"
+        if ontology.suffix.lower() in {".yaml", ".yml"}:
+            message += (
+                "\nA LinkML schema must be compiled first: "
+                "`osprey knowledge compile-ontology <schema.yaml> <table.json>`, "
+                "then pass the JSON here."
+            )
+        raise click.ClickException(message) from exc
     except OSError as exc:
         raise click.ClickException(f"Cannot read the ontology table {ontology}: {exc}") from exc
 
@@ -897,7 +912,8 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
     "--ontology",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="FAMILY-to-class table. Defaults to the demo-machine table shipped with OSPREY.",
+    help="FAMILY-to-class table, in its compiled JSON form. Defaults to the demo-machine "
+    "table shipped with OSPREY, which is compiled from a LinkML schema.",
 )
 def build_ttl(
     output: Path,
@@ -941,7 +957,9 @@ def build_ttl(
                     everything else reads. Every run reports which of the two
                     it used.
       --ontology    The demo-machine table shipped with OSPREY. Give your own
-                    when your device families are not the demo machine's.
+                    when your device families are not the demo machine's --
+                    authored as a LinkML schema and turned into the table this
+                    flag reads by 'osprey knowledge compile-ontology'.
 
     Then load the file into the store:
 
@@ -1002,3 +1020,151 @@ def build_ttl(
     )
     note(direction_report.message)
     note(f"Load it with: osprey knowledge seed-graph {written}")
+
+
+def _replace_file(output: Path, text: str) -> None:
+    """Replace *output* with *text*, or leave it exactly as it was.
+
+    ``Path.write_text`` truncates its target before the first byte lands, so a
+    write that fails part-way -- a full disk, a killed process -- destroys a
+    committed artifact and leaves nothing behind to compile from.  The rendered
+    text goes to a sibling temporary file instead, which is renamed over
+    *output* once it is complete: a reader only ever sees the whole old table
+    or the whole new one.  The sibling has to be a sibling for the rename to stay
+    inside one filesystem, and it is removed again if anything fails before the
+    rename.
+
+    Args:
+        output: File to replace.  Its directory must already exist.
+        text: What to write, verbatim: UTF-8, with no newline translation, so
+            the bytes on disk are the ones ``--check`` recompiles and compares.
+
+    Raises:
+        OSError: The temporary file could not be written, or the rename failed.
+            *output* is untouched in either case.
+    """
+    handle = tempfile.NamedTemporaryFile(  # closed by the `with` below
+        "w",
+        encoding="utf-8",
+        newline="",
+        dir=output.parent,
+        prefix=f".{output.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    try:
+        with handle:
+            handle.write(text)
+        os.replace(handle.name, output)
+    except OSError:
+        Path(handle.name).unlink(missing_ok=True)
+        raise
+
+
+@knowledge.command("compile-ontology")
+@click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
+@click.option(
+    "--check",
+    "check",
+    is_flag=True,
+    default=False,
+    help="Compare OUTPUT against a fresh compile of SOURCE and fail on drift. Writes nothing.",
+)
+def compile_ontology(source: Path, output: Path, check: bool) -> None:
+    """Compile an authored LinkML schema into the ontology table build-ttl reads.
+
+    SOURCE is the LinkML schema to compile. OUTPUT is the JSON table to write;
+    an existing file is replaced, and only once the new table is complete.
+
+    The schema is where a machine's device vocabulary is authored: one class
+    per kind of device, 'is_a' naming its parent, 'aliases' listing the
+    synonyms a search should also answer to, and a 'DeviceFamily' enum mapping
+    every FAMILY token of the channel database onto one of those classes. This
+    verb turns that into the compiled table the corpus is emitted against, and
+    refuses a schema the table cannot represent rather than writing one that
+    only fails when something later tries to load it.
+
+    What is written is deterministic: classes and families in sorted order,
+    synonyms sorted and de-duplicated, a trailing newline, and a header line
+    saying the file is generated. Compiling an unchanged schema twice therefore
+    leaves 'git diff' silent, which is what makes a committed table reviewable.
+
+    Then emit the corpus against it:
+
+    \b
+      osprey knowledge build-ttl <corpus.ttl> --ontology <output>
+
+    With --check nothing is written at all. OUTPUT is compared against a fresh
+    compile of SOURCE, and a run whose two sides disagree fails, naming the
+    classes, synonyms and families that differ. That is the form for CI and for
+    a pre-commit hook: it is what proves a committed table still matches the
+    schema it says it came from, since neither file announces the drift on its
+    own.
+
+    The 'knowledge' extra (linkml-runtime) is required. A clean error is
+    printed when it is absent -- no traceback.
+    """
+    try:
+        from osprey.services.facility_knowledge.ontology_compiler import (
+            OntologyCompileError,
+            check_artifact,
+            compile_schema,
+            render_json,
+        )
+        from osprey.services.facility_knowledge.ttl_generator.ontology_map import OntologyMapError
+    except ImportError as exc:  # linkml_runtime absent
+        raise click.ClickException(
+            f"The 'knowledge' extra is required for compile-ontology: {exc}\n"
+            "Install it with: pip install 'osprey-framework[knowledge]'"
+        ) from exc
+
+    try:
+        if check:
+            # Reading OUTPUT is the only I/O this branch does, so every failure
+            # of it is a failure to read -- never a failure to write.
+            write_one = f"Write one first: osprey knowledge compile-ontology {source} {output}"
+            try:
+                drift = check_artifact(source, output)
+            except FileNotFoundError as exc:
+                raise click.ClickException(
+                    f"There is no compiled table at {output} to check against {source}.\n"
+                    f"{write_one}"
+                ) from exc
+            except UnicodeDecodeError as exc:
+                raise click.ClickException(
+                    f"{output} is not UTF-8 text, so it cannot be the compiled table.\n{write_one}"
+                ) from exc
+            except OSError as exc:
+                raise click.ClickException(f"Cannot read {output}: {exc}") from exc
+            if drift:
+                # The report is complete as it stands: its last line already
+                # names the command that regenerates OUTPUT.
+                raise click.ClickException("\n".join(drift))
+            report(f"{output} is up to date with {source}.")
+            return
+
+        compiled = compile_schema(source)
+        rendered = render_json(compiled.payload, source)
+        try:
+            _replace_file(output, rendered)
+        except OSError as exc:
+            raise click.ClickException(f"Cannot write {output}: {exc}") from exc
+    except ImportError as exc:  # linkml_runtime absent (raised inside compile_schema)
+        raise click.ClickException(
+            f"The 'knowledge' extra is required for compile-ontology: {exc}\n"
+            "Install it with: pip install 'osprey-framework[knowledge]'"
+        ) from exc
+    except OntologyCompileError as exc:
+        raise click.ClickException(f"Cannot compile the schema: {exc}") from exc
+    except OntologyMapError as exc:
+        raise click.ClickException(
+            f"The schema compiled, but the ontology it describes does not stand up: {exc}"
+        ) from exc
+
+    report(f"Wrote {output}.")
+    note(f"{len(compiled.table.classes)} classes, {len(compiled.table.family_to_class)} families.")
+    note(
+        f"Emit a corpus against it with: osprey knowledge build-ttl <corpus.ttl> "
+        f"--ontology {output}"
+    )
